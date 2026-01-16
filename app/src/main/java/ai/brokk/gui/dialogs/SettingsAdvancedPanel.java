@@ -813,17 +813,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         });
 
         defaultsButton.addActionListener(e -> {
-            int result = JOptionPane.showConfirmDialog(
-                    this,
-                    "This will replace all your current favorite models with the default set.\n\nAre you sure you want to restore defaults?",
-                    "Restore Default Favorite Models",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-
-            if (result != JOptionPane.YES_OPTION) {
-                return;
-            }
-
             if (quickModelsTable.isEditing()) {
                 quickModelsTable.getCellEditor().stopCellEditing();
             }
@@ -835,12 +824,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 int viewRowIndex = quickModelsTable.convertRowIndexToView(0);
                 quickModelsTable.setRowSelectionInterval(viewRowIndex, viewRowIndex);
             }
-
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Favorite models restored to defaults.",
-                    "Defaults Restored",
-                    JOptionPane.INFORMATION_MESSAGE);
         });
 
         Runnable updateRemoveButtonEnabled = () -> {
@@ -965,16 +948,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         rolesPanel.add(rolesButtonsPanel, gbcRoles);
 
         defaultsRolesButton.addActionListener(e -> {
-            int result = JOptionPane.showConfirmDialog(
-                    SettingsAdvancedPanel.this,
-                    "This will restore default model role selections.\nYou will lose your old settings. Continue?",
-                    "Restore Default Model Roles",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-            if (result != JOptionPane.YES_OPTION) {
-                return;
-            }
-
             otherModelsVendorCombo.setSelectedItem(ModelProperties.DEFAULT_VENDOR);
 
             // Get preferred defaults from ModelProperties
@@ -1008,12 +981,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             if (!foundCode && preferredCodeModelCombo.getItemCount() > 0) {
                 preferredCodeModelCombo.setSelectedIndex(0);
             }
-
-            JOptionPane.showMessageDialog(
-                    SettingsAdvancedPanel.this,
-                    "Model role selections restored to defaults. Click Apply to save.",
-                    "Defaults Restored",
-                    JOptionPane.INFORMATION_MESSAGE);
         });
 
         var favoritesPanel = new JPanel(new BorderLayout(5, 5));

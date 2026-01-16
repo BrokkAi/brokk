@@ -51,7 +51,7 @@ Or via Gradle (recommended for development):
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, or `SEARCH` |
+| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, `SEARCH`, or `REVIEW` |
 | `--planner-model MODEL` | String | **Yes** | N/A | LLM model for planning and reasoning (e.g., `gpt-5`, `claude-3-opus`) |
 | `--scan-model MODEL` | String | No | Project default | LLM model to use for repository scanning (used by `SEARCH` mode; if omitted, the project's default scan model is used) |
 | `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes). Note: `--code-model` is ignored when using `--mode SEARCH` or `--mode ASK`. |

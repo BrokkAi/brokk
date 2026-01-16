@@ -217,6 +217,21 @@ public class GitRepoRemote {
     }
 
     /**
+     * Fetches a GitHub Pull Request ref from a remote.
+     *
+     * @param prNumber The PR number to fetch.
+     * @param remoteName The name of the remote (e.g., "origin").
+     * @throws GitAPIException if a Git error occurs.
+     */
+    @org.jetbrains.annotations.Blocking
+    public void fetchPrRef(int prNumber, String remoteName) throws GitAPIException {
+        var refSpec = new RefSpec("+refs/pull/" + prNumber + "/head:refs/remotes/" + remoteName + "/pr/" + prNumber);
+        var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(refSpec);
+        repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
+        fetchCommand.call();
+    }
+
+    /**
      * Checks if a branch needs to be fetched by comparing local and remote SHAs.
      * Uses ls-remote to query the remote without downloading objects.
      *
@@ -432,6 +447,20 @@ public class GitRepoRemote {
     }
 
     /**
+     * Resolves the remote tracking branch reference for a given branch name.
+     *
+     * <p>Uses the origin remote (with fallback) to construct a remote tracking ref
+     * like "origin/main". If no remote is available, returns the branch name as-is.
+     *
+     * @param branchName the local branch name (e.g., "main")
+     * @return the remote tracking reference (e.g., "origin/main") or the branch name if no remote
+     */
+    public String resolveRemoteTrackingRef(String branchName) {
+        String remoteName = getOriginRemoteNameWithFallback();
+        return (remoteName != null) ? remoteName + "/" + branchName : branchName;
+    }
+
+    /**
      * Get the URL of the origin remote with fallback to target remote.
      * Preferred for GitHub PR operations.
      */
@@ -626,8 +655,7 @@ public class GitRepoRemote {
 
         logger.debug("SHA {} not available locally - fetching {} from {}", sha, refSpec, remoteName);
         try {
-            var fetchCommand =
-                    git.fetch().setRemote(remoteName).setRefSpecs(new org.eclipse.jgit.transport.RefSpec(refSpec));
+            var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(new RefSpec(refSpec));
             repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
             fetchCommand.call();
             if (repo.isCommitLocallyAvailable(sha)) {

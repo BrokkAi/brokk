@@ -10,6 +10,7 @@ import org.treesitter.TSNode;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterScala;
 
 public class ScalaAnalyzer extends TreeSitterAnalyzer {
@@ -192,7 +193,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean containsTestMarkers(org.treesitter.TSTree tree, SourceContent sourceContent) {
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         var query = getThreadLocalQuery();
         var cursor = new TSQueryCursor();
         cursor.exec(query, tree.getRootNode());

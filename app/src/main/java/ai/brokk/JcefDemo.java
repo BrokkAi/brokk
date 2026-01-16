@@ -19,6 +19,7 @@ public class JcefDemo {
     public static void main(String[] args) {
         System.out.println("*** Building CefApp... ***");
         CefApp cefApp = CefAppProviderFactory.getProvider().createCefApp(new CefAppHandlerAdapter(null) {
+
             @Override
             public void stateHasChanged(CefApp.CefAppState state) {
                 System.out.println("*** CefApp state: " + state + " ***");

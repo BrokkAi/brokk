@@ -62,6 +62,8 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
         record Clear() implements HostCommand {}
 
+        record StaticDocument(@Nullable String markdown) implements HostCommand {}
+
         record Theme(String themeName, boolean isDevMode, boolean wrapMode) implements HostCommand {}
 
         record HistoryReset() implements HostCommand {}
@@ -79,6 +81,8 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         record HideTransientMessage() implements HostCommand {}
 
         record SetTaskInProgress(boolean inProgress) implements HostCommand {}
+
+        record ShowEmptyState(boolean show) implements HostCommand {}
     }
 
     public JCEFWebViewHost() {
@@ -401,6 +405,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 case HostCommand.Append a ->
                     bridge.sendAppend(browser, a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
                 case HostCommand.Clear ignored -> bridge.sendClear(browser);
+                case HostCommand.StaticDocument sd -> bridge.sendStaticDocument(browser, sd.markdown());
                 case HostCommand.Theme t -> bridge.sendTheme(browser, t.themeName(), t.isDevMode(), t.wrapMode());
                 case HostCommand.HistoryReset ignored -> bridge.sendHistoryReset(browser);
                 case HostCommand.HistoryTask ht -> bridge.sendHistoryTask(browser, ht.entry());
@@ -411,6 +416,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 case HostCommand.ShowTransientMessage stm -> bridge.showTransientMessage(browser, stm.message());
                 case HostCommand.HideTransientMessage ignored -> bridge.hideTransientMessage(browser);
                 case HostCommand.SetTaskInProgress stp -> bridge.setTaskInProgress(browser, stp.inProgress());
+                case HostCommand.ShowEmptyState ses -> bridge.setShowEmptyState(browser, ses.show());
             }
         }
         pendingCommands.clear();
@@ -433,6 +439,27 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             bridge.sendClear(browser);
         } else {
             pendingCommands.add(new HostCommand.Clear());
+        }
+    }
+
+    @Override
+    public void sendStaticDocument(@Nullable String markdown) {
+        if (bridgeReady && browser != null && bridge != null) {
+            bridge.sendStaticDocument(browser, markdown);
+        } else {
+            pendingCommands.add(new HostCommand.StaticDocument(markdown));
+        }
+    }
+
+    @Override
+    public void setShowEmptyState(boolean show) {
+        if (bridge != null) {
+            bridge.setShowEmptyState(show);
+        }
+        if (bridgeReady && browser != null && bridge != null) {
+            bridge.setShowEmptyState(browser, show);
+        } else {
+            pendingCommands.add(new HostCommand.ShowEmptyState(show));
         }
     }
 

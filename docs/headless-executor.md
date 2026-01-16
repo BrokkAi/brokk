@@ -298,6 +298,88 @@ LUTZ jobs emit events following this pattern:
 
 **Progress is updated after each top-level task completes (not per subtask).**
 
+## REVIEW Mode: GitHub Pull Request Review
+
+REVIEW mode enables **automated code review of GitHub Pull Requests**. It fetches the PR, computes the diff against the base branch, generates an LLM-powered review, and posts comments directly to GitHub.
+
+### How REVIEW Works
+
+When you submit a REVIEW job, the system:
+1. Authenticates with GitHub using the provided token
+2. Fetches the PR details (base branch, head SHA)
+3. Computes the merge-base diff between the PR branch and base branch
+4. Generates an LLM-powered code review using the planner model
+5. Posts a summary comment to the PR
+6. Posts inline line comments for specific issues found in the code
+
+### Configuration
+
+REVIEW mode requires:
+- `plannerModel`: The LLM model for generating the review
+- GitHub PR metadata (passed via tags or the convenience endpoint):
+  - `github_token`: GitHub personal access token with repo access
+  - `repo_owner`: Repository owner (user or organization)
+  - `repo_name`: Repository name
+  - `pr_number`: Pull request number
+
+REVIEW mode **ignores** `codeModel` and `scanModel` since it performs review, not code generation.
+
+### Example: Using the Convenience Endpoint
+
+The easiest way to create a PR review job is via the dedicated endpoint:
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs/pr-review" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: review-001" \
+  --data @- <<'JSON'
+{
+  "owner": "myorg",
+  "repo": "myrepo",
+  "prNumber": 123,
+  "githubToken": "ghp_xxxxxxxxxxxx",
+  "plannerModel": "gpt-4"
+}
+JSON
+```
+
+### Example: Using Tags with Standard Job Endpoint
+
+Alternatively, use the standard `/v1/jobs` endpoint with mode tags:
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: review-002" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-4",
+  "tags": {
+    "mode": "REVIEW",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "pr_number": "123"
+  }
+}
+JSON
+```
+
+### Key Characteristics of REVIEW Mode
+
+- **Full GitHub integration**: Fetches PR, computes diff, posts comments
+- **Intelligent diff analysis**: Uses merge-base for accurate diff computation
+- **Inline comments**: Posts specific line comments for issues found
+- **Duplicate detection**: Skips posting duplicate comments on the same line
+- **Fallback behavior**: Falls back to regular PR comment if inline comment fails (HTTP 422)
+- **Read-only to local repo**: Does not modify local files or make commits
+
 ## API Endpoints
 
 Once running, the executor exposes the following endpoints:
@@ -322,13 +404,20 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/jobs`** - Create and execute a job
   - Requires `Idempotency-Key` header for safe retries
-  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, LUTZ, ASK, SEARCH, or CODE)
+  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, LUTZ, ASK, SEARCH, CODE, or REVIEW)
   - Returns: `{ "jobId": "<uuid>", "state": "running", ... }`
   - **SEARCH mode**: Set `"tags": { "mode": "SEARCH" }` to run a read-only repository scan. Optionally include `"scanModel": "<model>"` to override the default scan model used for repository scanning. `plannerModel` is still required by the API for validation.
   - **ASK mode**: Set `"tags": { "mode": "ASK" }` for ad-hoc read-only searches (uses service default scan model unless otherwise configured).
   - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
+  - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
+
+- **`POST /v1/jobs/pr-review`** - Create a PR review job (convenience endpoint)
+  - Requires `Idempotency-Key` header
+  - Body: `{ "owner": "<string>", "repo": "<string>", "prNumber": <int>, "githubToken": "<string>", "plannerModel": "<string>" }`
+  - Returns: Same response as `POST /v1/jobs`
+  - Internally creates a job with `mode: REVIEW` and the appropriate tags
 
 - **`GET /v1/jobs/{jobId}`** - Get job status
   - Returns: `JobStatus` JSON with current state and metadata

@@ -6,6 +6,7 @@ import static dev.langchain4j.internal.Utils.quoted;
 import static dev.langchain4j.model.chat.request.ResponseFormatType.JSON;
 import static java.util.Arrays.asList;
 
+import ai.brokk.AbstractService.ProcessingTier;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -36,7 +37,7 @@ public class OpenAiChatRequestParameters {
     private final String user;
     private final Boolean store;
     private final Map<String, String> metadata;
-    private final String serviceTier;
+    private final ProcessingTier serviceTier;
     private final String reasoningEffort;
     private final String previousResponseId;
 
@@ -131,7 +132,7 @@ public class OpenAiChatRequestParameters {
         return metadata;
     }
 
-    public String serviceTier() {
+    public ProcessingTier serviceTier() {
         return serviceTier;
     }
 
@@ -222,7 +223,7 @@ public class OpenAiChatRequestParameters {
                 + quoted(user) + ", store="
                 + store + ", metadata="
                 + metadata + ", serviceTier="
-                + quoted(serviceTier) + ", reasoningEffort="
+                + serviceTier + ", reasoningEffort="
                 + quoted(reasoningEffort) + ", previousResponseId="
                 + quoted(previousResponseId) + '}';
     }
@@ -250,7 +251,7 @@ public class OpenAiChatRequestParameters {
         private String user;
         private Boolean store;
         private Map<String, String> metadata;
-        private String serviceTier;
+        private ProcessingTier serviceTier;
         private String reasoningEffort;
         private String previousResponseId;
 
@@ -392,7 +393,7 @@ public class OpenAiChatRequestParameters {
             return this;
         }
 
-        public Builder serviceTier(String serviceTier) {
+        public Builder serviceTier(ProcessingTier serviceTier) {
             this.serviceTier = serviceTier;
             return this;
         }

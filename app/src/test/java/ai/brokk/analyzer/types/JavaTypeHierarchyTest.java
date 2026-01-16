@@ -54,15 +54,22 @@ public class JavaTypeHierarchyTest {
 
                             class XExtendsY extends BaseClass {
                             }
+                            """,
+                    txt);
 
-                            // Direct ancestors of XExtendsY: BaseClass
-
+            var supporting = frag.supportingFragments();
+            assertEquals(1, supporting.size());
+            var ancestor =
+                    (ContextFragments.SummaryFragment) supporting.iterator().next();
+            assertEquals("BaseClass", ancestor.getTargetIdentifier());
+            assertCodeEquals(
+                    """
                             package (default package);
 
                             public class BaseClass {
                             }
                             """,
-                    txt);
+                    ancestor.text().join());
         }
     }
 
@@ -101,15 +108,22 @@ public class JavaTypeHierarchyTest {
 
                             class ServiceImpl implements ServiceInterface {
                             }
+                            """,
+                    txt);
 
-                            // Direct ancestors of ServiceImpl: ServiceInterface
-
+            var supporting = frag.supportingFragments();
+            assertEquals(1, supporting.size());
+            var ancestor =
+                    (ContextFragments.SummaryFragment) supporting.iterator().next();
+            assertEquals("ServiceInterface", ancestor.getTargetIdentifier());
+            assertCodeEquals(
+                    """
                             package (default package);
 
                             interface ServiceInterface {
                             }
                             """,
-                    txt);
+                    ancestor.text().join());
         }
     }
 
@@ -146,7 +160,7 @@ public class JavaTypeHierarchyTest {
                     transitive,
                     "Transitive ancestors should maintain discovery order");
 
-            // Summary fragment should include direct ancestors, preserving order
+            // Summary fragment should include direct ancestors
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
             var frag = new ContextFragments.SummaryFragment(
                     cm, "ExtendsAndImplements", ContextFragment.SummaryType.CODEUNIT_SKELETON);
@@ -157,21 +171,13 @@ public class JavaTypeHierarchyTest {
 
                             class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {
                             }
-
-                            // Direct ancestors of ExtendsAndImplements: BaseClass, ServiceInterface, Interface
-
-                            package (default package);
-
-                            class BaseClass {
-                            }
-
-                            interface ServiceInterface {
-                            }
-
-                            interface Interface {
-                            }
                             """,
                     txt);
+
+            var supportingIdentifiers = frag.supportingFragments().stream()
+                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+            assertEquals(Set.of("BaseClass", "ServiceInterface", "Interface"), supportingIdentifiers);
         }
     }
 
@@ -204,6 +210,7 @@ public class JavaTypeHierarchyTest {
                             }
                             """,
                     txt);
+            assertTrue(frag.supportingFragments().isEmpty());
         }
     }
 

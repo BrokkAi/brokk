@@ -42,7 +42,6 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
-import dev.langchain4j.model.openai.internal.Json;
 import dev.langchain4j.model.openai.internal.OpenAiUtils;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.shared.StreamOptions;
@@ -292,8 +291,15 @@ public class Llm {
                     .stream(true)
                     .streamOptions(StreamOptions.builder().includeUsage(true).build())
                     .build();
-            return Json.toJson(
-                    ChatCompletionRequest.builder().from(openAiRequest).build());
+            try {
+                return objectMapper
+                        .writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(ChatCompletionRequest.builder()
+                                .from(openAiRequest)
+                                .build());
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
         }
         try {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
@@ -1486,7 +1492,8 @@ public class Llm {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
             logger.trace("Writing history to file {}", filePath);
-            Files.writeString(filePath, formattedRequest + formattedTools + formattedResponse, options);
+            Files.writeString(
+                    filePath, formattedRequest + "\n\n" + formattedTools + "\n\n" + formattedResponse, options);
         } catch (IOException e) {
             logger.error("Failed to write LLM response history file", e);
         }
@@ -1511,7 +1518,8 @@ public class Llm {
                     logger.debug("Cost notifications disabled by user settings");
                     return;
                 }
-                var pricing = service.getModelPricing(modelName);
+                var tier = Service.getProcessingTier(model);
+                var pricing = service.getModelPricing(modelName, tier);
 
                 int input = usage.inputTokens();
                 int cached = usage.cachedInputTokens();
@@ -1717,8 +1725,41 @@ public class Llm {
                        """
                         .formatted(formatThrowable(error), contentToShow);
             }
-            // If no error, originalResponse is guaranteed to be non-null by the record's invariant.
-            return castNonNull(originalResponse()).toString();
+
+            AiMessage ai = aiMessage();
+            String toolRequestsJson = "[]";
+            String metadataJson = "{}";
+
+            try {
+                toolRequestsJson =
+                        objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(ai.toolExecutionRequests());
+                if (originalResponse() != null) {
+                    metadataJson = objectMapper
+                            .writerWithDefaultPrettyPrinter()
+                            .writeValueAsString(originalResponse().metadata());
+                }
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to serialize components for formatted()", e);
+            }
+
+            return """
+                ## text
+                %s
+
+                ## reasoningContent
+                %s
+
+                ## toolExecutionRequests
+                %s
+
+                ## metadata
+                %s
+                """
+                    .formatted(
+                            ai.text() == null ? "" : ai.text(),
+                            ai.reasoningContent() == null ? "" : ai.reasoningContent(),
+                            toolRequestsJson,
+                            metadataJson);
         }
 
         private String formatThrowable(Throwable th) {

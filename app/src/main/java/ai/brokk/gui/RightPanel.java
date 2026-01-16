@@ -48,6 +48,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     // Review tab infrastructure
     private final JComponent reviewTabComponent;
+    private @Nullable ai.brokk.gui.util.BadgedIcon buildTabBadgedIcon;
 
     private int getReviewTabIndex() {
         return buildReviewTabs.indexOfComponent(reviewTabComponent);
@@ -766,6 +767,55 @@ public class RightPanel extends JPanel implements ThemeAware {
             scp.refreshTitleAsync();
             scp.requestUpdate();
         }
+    }
+
+    /**
+     * Loads a review from markdown text into the SessionChangesPanel.
+     * Selects the Review tab and displays the parsed review.
+     *
+     * @param markdown The markdown text containing the review
+     * @param context The context associated with this review
+     */
+    public void loadReviewFromMarkdown(String markdown, ai.brokk.context.Context context) {
+        // Focus the Review tab/frame
+        if (!GlobalUiSettings.isReviewDocked() && reviewFrame != null) {
+            // Review is undocked - bring the frame to front
+            reviewFrame.toFront();
+            reviewFrame.requestFocus();
+        } else {
+            // Review is docked - select the tab by component reference (title may be modified)
+            int reviewIdx = getReviewTabIndex();
+            if (reviewIdx != -1) {
+                buildReviewTabs.setSelectedIndex(reviewIdx);
+            }
+        }
+
+        // Load the review into SessionChangesPanel
+        if (reviewTabComponent instanceof SessionChangesPanel scp) {
+            scp.loadExternalReview(markdown, context);
+        }
+    }
+
+    /**
+     * Updates the "Build" tab icon with a numeric badge showing the incomplete task count.
+     * @param count The number of incomplete tasks.
+     */
+    public void updateBuildTabBadge(int count) {
+        SwingUtilities.invokeLater(() -> {
+            int idx = buildReviewTabs.indexOfTab("Build");
+            if (idx == -1) return;
+
+            if (count <= 0) {
+                buildReviewTabs.setIconAt(idx, Icons.HANDYMAN);
+                buildTabBadgedIcon = null;
+            } else {
+                if (buildTabBadgedIcon == null) {
+                    buildTabBadgedIcon = new ai.brokk.gui.util.BadgedIcon(Icons.HANDYMAN, chrome.getTheme());
+                }
+                buildTabBadgedIcon.setCount(count, buildReviewTabs);
+                buildReviewTabs.setIconAt(idx, buildTabBadgedIcon);
+            }
+        });
     }
 
     public void selectPreviewTab() {

@@ -55,6 +55,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
     private @Nullable Chrome chrome;
     private @Nullable ContextManager contextManager;
     private @Nullable Component hostComponent;
+    private boolean showEmptyState = false;
 
     public JCEFBridge(JCEFWebViewHost host) {
         this.host = host;
@@ -68,8 +69,16 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
         this.contextManager = contextManager;
     }
 
+    public @Nullable ContextManager getContextManager() {
+        return contextManager;
+    }
+
     public void setHostComponent(@Nullable Component hostComponent) {
         this.hostComponent = hostComponent;
+    }
+
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
     }
 
     public void addSearchStateListener(Consumer<IWebViewHost.SearchState> l) {
@@ -451,6 +460,13 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
         sendEvent(browser, event);
     }
 
+    /** Send a static document event to the frontend. */
+    public void sendStaticDocument(CefBrowser browser, @org.jetbrains.annotations.Nullable String markdown) {
+        int e = epoch.incrementAndGet();
+        var event = new BrokkEvent.StaticDocument(e, markdown);
+        sendEvent(browser, event);
+    }
+
     /**
      * Send a theme event to the frontend.
      */
@@ -549,6 +565,12 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
     public void setTaskInProgress(CefBrowser browser, boolean inProgress) {
         var js = "if (window.brokk && window.brokk.setTaskInProgress) { window.brokk.setTaskInProgress(" + inProgress
                 + "); }";
+        browser.executeJavaScript(js, browser.getURL(), 0);
+    }
+
+    public void setShowEmptyState(CefBrowser browser, boolean show) {
+        var js =
+                "if (window.brokk && window.brokk.setShowEmptyState) { window.brokk.setShowEmptyState(" + show + "); }";
         browser.executeJavaScript(js, browser.getURL(), 0);
     }
 
@@ -725,6 +747,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
             payload.put("projectName", projectName);
             payload.put("totalFileCount", totalFileCount);
             payload.put("analyzerReady", analyzerReady);
+            payload.put("showEmptyState", showEmptyState);
             if (!analyzerLanguagesInfo.isEmpty()) {
                 payload.put("analyzerLanguages", analyzerLanguagesInfo);
             }

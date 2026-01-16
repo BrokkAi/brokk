@@ -11,14 +11,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.IConsoleIO;
 import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
+import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import java.awt.Panel;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.swing.JOptionPane;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,10 +56,10 @@ class HeadlessHttpConsoleTest {
      * {@link HeadlessHttpConsole#getLastSeq()} as a fence, ensuring that all events known to
      * the console at the start of the wait have been flushed to the JobStore before returning.
      */
-    private List<ai.brokk.executor.jobs.JobEvent> awaitEvents(int expectedCount, long timeoutMillis) throws Exception {
+    private List<JobEvent> awaitEvents(int expectedCount, long timeoutMillis) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         long targetLastSeq = console.getLastSeq();
-        List<ai.brokk.executor.jobs.JobEvent> events = List.of();
+        List<JobEvent> events = List.of();
         while (System.nanoTime() < deadline) {
             events = jobStore.readEvents(jobId, -1, 0);
             if (events.size() >= expectedCount && hasContiguousIncreasingSeq(events, expectedCount)) {
@@ -76,7 +79,7 @@ class HeadlessHttpConsoleTest {
      * Returns true if the first {@code count} events in the list have strictly increasing,
      * contiguous sequence numbers (i.e., seq[i+1] == seq[i] + 1).
      */
-    private static boolean hasContiguousIncreasingSeq(List<ai.brokk.executor.jobs.JobEvent> events, int count) {
+    private static boolean hasContiguousIncreasingSeq(List<JobEvent> events, int count) {
         if (events.size() < count) {
             return false;
         }
@@ -150,7 +153,7 @@ class HeadlessHttpConsoleTest {
 
     @Test
     void testSystemNotify_MapsToNotificationEvent() throws Exception {
-        console.systemNotify("System message", "System Title", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+        console.systemNotify("System message", "System Title", JOptionPane.INFORMATION_MESSAGE);
 
         var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
@@ -169,12 +172,12 @@ class HeadlessHttpConsoleTest {
 
     @Test
     void testShowConfirmDialog_MapsToConfirmRequestEvent() throws Exception {
-        int optionType = javax.swing.JOptionPane.YES_NO_OPTION;
-        int messageType = javax.swing.JOptionPane.QUESTION_MESSAGE;
+        int optionType = JOptionPane.YES_NO_OPTION;
+        int messageType = JOptionPane.QUESTION_MESSAGE;
         int decision = console.showConfirmDialog("Proceed?", "Confirm", optionType, messageType);
 
         // Decision should be the default YES_OPTION for YES_NO* option types
-        assertEquals(javax.swing.JOptionPane.YES_OPTION, decision);
+        assertEquals(JOptionPane.YES_OPTION, decision);
 
         var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
@@ -187,23 +190,23 @@ class HeadlessHttpConsoleTest {
         assertEquals("Confirm", data.get("title"));
         assertEquals(optionType, data.get("optionType"));
         assertEquals(messageType, data.get("messageType"));
-        assertEquals(javax.swing.JOptionPane.YES_OPTION, data.get("defaultDecision"));
+        assertEquals(JOptionPane.YES_OPTION, data.get("defaultDecision"));
 
         cleanup();
     }
 
     @Test
     void testShowConfirmDialog_EmitsConfirmRequestEventAndReturnsDefault() throws Exception {
-        int optionType1 = javax.swing.JOptionPane.YES_NO_OPTION;
-        int messageType1 = javax.swing.JOptionPane.INFORMATION_MESSAGE;
+        int optionType1 = JOptionPane.YES_NO_OPTION;
+        int messageType1 = JOptionPane.INFORMATION_MESSAGE;
         int decision1 = console.showConfirmDialog("Proceed with step 1?", "Confirm Step 1", optionType1, messageType1);
-        assertEquals(javax.swing.JOptionPane.YES_OPTION, decision1);
+        assertEquals(JOptionPane.YES_OPTION, decision1);
 
-        int optionType2 = javax.swing.JOptionPane.OK_CANCEL_OPTION;
-        int messageType2 = javax.swing.JOptionPane.WARNING_MESSAGE;
+        int optionType2 = JOptionPane.OK_CANCEL_OPTION;
+        int messageType2 = JOptionPane.WARNING_MESSAGE;
         int decision2 = console.showConfirmDialog(
-                new java.awt.Panel(), "Proceed with step 2?", "Confirm Step 2", optionType2, messageType2);
-        assertEquals(javax.swing.JOptionPane.OK_OPTION, decision2);
+                new Panel(), "Proceed with step 2?", "Confirm Step 2", optionType2, messageType2);
+        assertEquals(JOptionPane.OK_OPTION, decision2);
 
         var events = awaitEvents(2, 1_000);
         assertEquals(2, events.size());
@@ -216,7 +219,7 @@ class HeadlessHttpConsoleTest {
         assertEquals("Confirm Step 1", data1.get("title"));
         assertEquals(optionType1, data1.get("optionType"));
         assertEquals(messageType1, data1.get("messageType"));
-        assertEquals(javax.swing.JOptionPane.YES_OPTION, data1.get("defaultDecision"));
+        assertEquals(JOptionPane.YES_OPTION, data1.get("defaultDecision"));
 
         var event2 = events.get(1);
         assertEquals("CONFIRM_REQUEST", event2.type());
@@ -226,7 +229,7 @@ class HeadlessHttpConsoleTest {
         assertEquals("Confirm Step 2", data2.get("title"));
         assertEquals(optionType2, data2.get("optionType"));
         assertEquals(messageType2, data2.get("messageType"));
-        assertEquals(javax.swing.JOptionPane.OK_OPTION, data2.get("defaultDecision"));
+        assertEquals(JOptionPane.OK_OPTION, data2.get("defaultDecision"));
 
         cleanup();
     }

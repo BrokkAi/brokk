@@ -66,7 +66,7 @@ public class Completions {
     private static List<CodeUnit> enhanceWithParentClasses(
             String query, List<CodeUnit> candidates, IAnalyzer analyzer) {
         // Preserve insertion order while deduping by FQN
-        java.util.LinkedHashMap<String, CodeUnit> dedup = new java.util.LinkedHashMap<>();
+        LinkedHashMap<String, CodeUnit> dedup = new LinkedHashMap<>();
         for (CodeUnit cu : candidates) {
             dedup.put(cu.fqName(), cu);
         }

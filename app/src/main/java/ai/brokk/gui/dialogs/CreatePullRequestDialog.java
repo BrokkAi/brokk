@@ -930,25 +930,25 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     private DiffService.CumulativeChanges computeCumulativeChanges(List<GitRepo.ModifiedFile> files) {
         if (mergeBaseCommit == null || files.isEmpty()) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of());
+            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), currentCommits);
         }
 
         var repo = contextManager.getProject().getRepo();
         if (!(repo instanceof GitRepo)) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of());
+            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), currentCommits);
         }
 
         // Get the source branch for right-side content (committed content, not working tree)
         var sourceBranch = sourceBranchComboBox.getSelectedItem();
         if (sourceBranch == null) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of());
+            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), currentCommits);
         }
 
         // Convert List<GitRepo.ModifiedFile> to Set for DiffService.summarizeDiff
         Set<ai.brokk.git.IGitRepo.ModifiedFile> fileSet = new HashSet<>(files);
 
         // Use DiffService to summarize changes between merge base and source branch
-        return DiffService.summarizeDiff(repo, mergeBaseCommit, sourceBranch, fileSet);
+        return DiffService.summarizeDiff(repo, mergeBaseCommit, sourceBranch, fileSet, currentCommits);
     }
 
     private void updateReviewTabContent(

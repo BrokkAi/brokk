@@ -8,11 +8,14 @@ import ai.brokk.ContextManager;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
 import ai.brokk.util.FileUtil;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -70,8 +73,8 @@ public class AskModeSearchAgentTest {
         executor.start();
 
         httpClient = new OkHttpClient.Builder()
-                .connectTimeout(java.time.Duration.ofSeconds(10))
-                .readTimeout(java.time.Duration.ofSeconds(30))
+                .connectTimeout(Duration.ofSeconds(10))
+                .readTimeout(Duration.ofSeconds(30))
                 .build();
 
         mapper = new ObjectMapper();
@@ -163,7 +166,7 @@ public class AskModeSearchAgentTest {
         long after = -1;
 
         // keep a small ring of recent events for debug output on timeout
-        var recentEvents = new java.util.ArrayDeque<com.fasterxml.jackson.databind.JsonNode>(32);
+        var recentEvents = new ArrayDeque<JsonNode>(32);
 
         while (System.currentTimeMillis() < deadline) {
             var eventsUrl = baseUrl() + "/v1/jobs/" + jobId + "/events?after=" + after + "&limit=100";
@@ -239,7 +242,7 @@ public class AskModeSearchAgentTest {
 
         // Timeout reached: dump recent events to stderr to aid debugging
         try {
-            var list = new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>(recentEvents);
+            var list = new ArrayList<JsonNode>(recentEvents);
             System.err.println("[AskModeSearchAgentTest] Timeout waiting for '" + matchText + "' for job " + jobId);
             try {
                 System.err.println("[AskModeSearchAgentTest] Last events: "

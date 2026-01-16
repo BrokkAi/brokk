@@ -167,18 +167,18 @@ public class SearchPrompts {
                 Scope:
                 - Workspace curation ONLY. No code, no answers, no plans.
 
+                Curation guidelines:
+                - KEEP any fragment that contains logic, UI components, or utility methods
+                  related to the search goal.
+                - DROP if the fragment is irrelevant OR if a concise summary provides
+                  100% of the value with 0% information loss.
+
                 Tools (call exactly one):
-                - performedInitialReview(): use ONLY when ALL fragments are short, focused, clean, and directly relevant.
+                - performedInitialReview(): Signals that ALL unpinned fragments are relevant to the search goal.
                 - dropWorkspaceFragments(fragments: {fragmentId, explanation}[]): batch ALL drops in a single call.
+                  Include ONLY the irrelevant fragments to drop in this call.
 
-                Default behavior:
-                - If a fragment is large, noisy, or of mixed relevance → write a detailed summary of anything relevant to the search goal in the drop explanation and DROP it.
-                  (Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.)
-
-                Keep rule:
-                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing (i.e. to much information loss on summary).
-
-                fragment.explanation (string) format:
+                drop explanation format:
                 - Summary: information needed to solve the goal (e.g. descriptions, file paths, class names, method names, code snippets, stack traces)
                 - Reason: one short sentence why dropped.
                 - DO NOT include instructions for implementing a solution for the search goal.
@@ -445,7 +445,8 @@ public class SearchPrompts {
         TASK_LIST,
         ANSWER,
         WORKSPACE,
-        CODE
+        CODE,
+        REVIEW
     }
 
     private record TerminalObjective(String type, String text) {}

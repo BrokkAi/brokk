@@ -109,8 +109,11 @@ public class SearchToolsTest {
 
         IContextManager ctxManager = (IContextManager) Proxy.newProxyInstance(
                 getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
-                    if ("getProject".equals(method.getName())) return projectProxy;
-                    else throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    return switch (method.getName()) {
+                        case "getProject" -> projectProxy;
+                        case "getRepo" -> repo;
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    };
                 });
 
         searchTools = new SearchTools(ctxManager);

@@ -190,6 +190,11 @@ public interface IAnalyzer {
      */
     Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
 
+    /**
+     * @return the nearest enclosing code unit of the line range within the file. Returns empty if none exists.
+     */
+    Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine);
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
@@ -485,5 +490,38 @@ public interface IAnalyzer {
         } else {
             return Optional.empty();
         }
+    }
+
+    default String buildRelatedIdentifiers(ProjectFile file) {
+        return buildRelatedIdentifiers(file, CodeUnitType.ALL);
+    }
+
+    default String buildRelatedIdentifiers(ProjectFile file, Set<CodeUnitType> types) {
+        return buildRelatedIdentifiers(getTopLevelDeclarations(file), types, 0);
+    }
+
+    default String buildRelatedIdentifiers(List<CodeUnit> units, Set<CodeUnitType> types, int indent) {
+        var prefix = "  ".repeat(Math.max(0, indent));
+        var sb = new StringBuilder();
+        for (var cu : units) {
+            // Skip anonymous/lambda artifacts
+            if (cu.isAnonymous()) {
+                continue;
+            }
+
+            // Use FQN for top-level entries, simple identifier for nested entries
+            String name = indent == 0 ? cu.fqName() : cu.identifier();
+            sb.append(prefix).append("- ").append(name);
+
+            var children = getDirectChildren(cu).stream()
+                    .filter(child -> types.contains(child.kind()))
+                    .toList();
+            if (!children.isEmpty()) {
+                sb.append("\n");
+                sb.append(this.buildRelatedIdentifiers(children, types, indent + 1));
+            }
+            sb.append("\n");
+        }
+        return sb.toString().stripTrailing();
     }
 }

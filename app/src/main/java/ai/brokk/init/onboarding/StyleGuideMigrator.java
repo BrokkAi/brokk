@@ -1,5 +1,6 @@
 package ai.brokk.init.onboarding;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -27,10 +28,7 @@ public class StyleGuideMigrator {
      * <p>
      * The migration copies content to AGENTS.md and then deletes the legacy file.
      */
-    public static MigrationResult migrate(
-            ai.brokk.analyzer.ProjectFile legacyStyle,
-            ai.brokk.analyzer.ProjectFile agentsFile,
-            @Nullable GitRepo gitRepo) {
+    public static MigrationResult migrate(ProjectFile legacyStyle, ProjectFile agentsFile, @Nullable GitRepo gitRepo) {
         // Check if legacy file exists
         if (!Files.exists(legacyStyle.absPath())) {
             return new MigrationResult(false, "Legacy style.md does not exist");
