@@ -31,8 +31,6 @@ public class ChipColorUtils {
      *
      * Do NOT use this when you need to know the actual fragment type (use fragment.getType() instead) because
      * INVALID overlaps with other ChipKinds.
-     *
-     * This method must be called off the EDT to avoid blocking UI operations.
      */
     public static ClassifiedFragment classify(ContextFragment fragment) {
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
