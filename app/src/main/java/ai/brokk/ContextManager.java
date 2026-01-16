@@ -1018,7 +1018,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param fragments The fragments to copy to the current context.
      * @return A Future representing the completion of the task.
      */
-    public Future<?> copyFragmentToCurrentContextAsync(List<ContextFragment> fragments) {
+    public Future<?> copyFragmentsToCurrentContextAsync(List<ContextFragment> fragments) {
         if (fragments.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
@@ -1036,7 +1036,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             }
 
-            // Handle history fragments: collect and append all task entries with deduplication
+            // Build new history if history fragments were collected
+            List<TaskEntry> newHistory = List.of();
             if (!historyFragments.isEmpty()) {
                 List<TaskEntry> currentHistory = new ArrayList<>(liveContext().getTaskHistory());
                 Set<TaskEntry> existingEntries = new HashSet<>(currentHistory);
@@ -1049,15 +1050,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
                 }
                 currentHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
-                List<TaskEntry> newHistory = List.copyOf(currentHistory);
-
-                pushContext(currentLiveCtx -> currentLiveCtx.withHistory(newHistory));
+                newHistory = List.copyOf(currentHistory);
             }
 
-            // Handle other fragments: add via addFragments in a single call
-            if (!otherFragments.isEmpty()) {
-                pushContext(currentLiveCtx -> currentLiveCtx.addFragments(otherFragments));
-            }
+            // Single atomic context update combining both history and other fragments
+            final List<TaskEntry> finalNewHistory = newHistory;
+            pushContext(currentLiveCtx -> {
+                Context updated = currentLiveCtx;
+                if (!finalNewHistory.isEmpty()) {
+                    updated = updated.withHistory(finalNewHistory);
+                }
+                if (!otherFragments.isEmpty()) {
+                    updated = updated.addFragments(otherFragments);
+                }
+                return updated;
+            });
 
             // Build notification message
             String actionMessage;

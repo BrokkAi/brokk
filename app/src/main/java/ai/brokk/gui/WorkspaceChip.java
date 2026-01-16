@@ -363,7 +363,7 @@ public class WorkspaceChip extends JPanel {
         if (!isOnLatestContext() || isPanelReadOnly()) {
             JMenuItem copyToCurrentItem = new JMenuItem("Copy to Current Context");
             copyToCurrentItem.addActionListener(e -> {
-                contextManager.copyFragmentToCurrentContextAsync(List.of(getPrimaryFragment()));
+                contextManager.copyFragmentsToCurrentContextAsync(List.of(getPrimaryFragment()));
             });
             menu.add(copyToCurrentItem);
             return menu;
@@ -674,7 +674,7 @@ public class WorkspaceChip extends JPanel {
             if (!isOnLatestContext() || isPanelReadOnly()) {
                 JMenuItem copyToCurrentItem = new JMenuItem("Copy to Current Context");
                 copyToCurrentItem.addActionListener(e -> {
-                    contextManager.copyFragmentToCurrentContextAsync(summaryFragments);
+                    contextManager.copyFragmentsToCurrentContextAsync(summaryFragments);
                 });
                 menu.add(copyToCurrentItem);
                 return menu;
