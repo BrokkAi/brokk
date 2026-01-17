@@ -475,7 +475,9 @@ public class ArchitectAgent {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(context, goal, scanModel, this.scope);
-        searchAgent.pruneContext();
+        if (Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2) {
+            searchAgent.pruneContext();
+        }
         context = searchAgent.scanContext();
 
         // Run Architect proper
