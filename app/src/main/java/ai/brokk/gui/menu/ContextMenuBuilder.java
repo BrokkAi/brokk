@@ -141,7 +141,7 @@ public class ContextMenuBuilder {
     }
 
     /**
-     * Helper method to add symbol actions (Open in Preview, Open in Project Tree, Read File, Edit File, Summarize File)
+     * Helper method to add symbol actions (Open in Preview, Open in Project Tree, Read File, Attach File, Summarize File)
      * to a container
      */
     private void addSymbolActions(Container parent, SymbolMenuContext context, boolean analyzerReady) {
@@ -159,8 +159,8 @@ public class ContextMenuBuilder {
 
         parent.add(new JPopupMenu.Separator());
 
-        // Edit File
-        var editFileItem = new JMenuItem("Edit File");
+        // Attach File
+        var editFileItem = new JMenuItem("Attach File");
         editFileItem.setEnabled(analyzerReady);
         editFileItem.addActionListener(e -> editFiles(context));
         parent.add(editFileItem);
@@ -378,33 +378,18 @@ public class ContextMenuBuilder {
         var fqn = context.fqn() != null ? context.fqn() : symbolName;
         var analyzer = context.contextManager().getAnalyzerUninterrupted();
 
-        try {
-            // First try exact FQN match
-            var definition = analyzer.getDefinitions(fqn).stream().findFirst();
-            if (definition.isPresent()) {
-                return definition;
-            }
-        } catch (Exception e) {
-            logger.warn("Error during exact FQN lookup for '{}': {}", fqn, e.getMessage());
-            context.chrome().toolError("Failed to find definition: " + e.getMessage(), "Symbol Lookup Error");
-            return Optional.empty();
+        // First try exact FQN match
+        var definition = analyzer.getDefinitions(fqn).stream().findFirst();
+        if (definition.isPresent()) {
+            return definition;
         }
 
         // Fallback: search for candidates with the symbol name
-        Set<CodeUnit> candidates;
-        try {
-            candidates = analyzer.searchDefinitions(symbolName);
-            if (candidates.isEmpty()) {
-                context.chrome()
-                        .systemNotify(
-                                "Definition not found for: " + symbolName,
-                                "Symbol Lookup",
-                                JOptionPane.WARNING_MESSAGE);
-                return Optional.empty();
-            }
-        } catch (Exception e) {
-            logger.warn("Error during fallback search for '{}': {}", symbolName, e.getMessage());
-            context.chrome().toolError("Search failed: " + e.getMessage(), "Symbol Lookup Error");
+        Set<CodeUnit> candidates = analyzer.searchDefinitions(symbolName);
+        if (candidates.isEmpty()) {
+            context.chrome()
+                    .systemNotify(
+                            "Definition not found for: " + symbolName, "Symbol Lookup", JOptionPane.WARNING_MESSAGE);
             return Optional.empty();
         }
 
@@ -559,7 +544,7 @@ public class ContextMenuBuilder {
                         context.contextManager().getProject().getRepo().getTrackedFiles();
                 if (!trackedFiles.contains(file)) {
                     SwingUtilities.invokeLater(() -> {
-                        context.chrome().toolError("Cannot edit file: not tracked by git", "Edit File Error");
+                        context.chrome().toolError("Cannot attach file: not tracked by git", "Edit File Error");
                     });
                     return;
                 }
@@ -640,8 +625,7 @@ public class ContextMenuBuilder {
                 FileManagerUtil.revealPath(target);
             } catch (IOException | UnsupportedOperationException ex) {
                 logger.warn("Failed to open file manager for {}: {}", target, ex.getMessage());
-                SwingUtilities.invokeLater(() -> context.chrome()
-                        .toolError("Failed to open file manager: " + ex.getMessage(), "Open in File Manager"));
+                context.chrome().toolError("Failed to open file manager: " + ex.getMessage(), "Open in File Manager");
             }
         });
     }

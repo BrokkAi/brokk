@@ -127,7 +127,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         var viewDiffItem = new JMenuItem("View Diff (All Files)");
         uncommittedContextMenu.add(viewDiffItem);
 
-        var editFileItem = new JMenuItem("Edit File(s)");
+        var editFileItem = new JMenuItem("Attach File(s)");
         uncommittedContextMenu.add(editFileItem);
 
         // Add "View History" item
@@ -510,7 +510,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                     (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
             String status = fileStatusPane.statusFor(projectFile);
 
-            // Enable Edit File
+            // Enable Attach File
             editFileItem.setEnabled(true);
             editFileItem.setToolTipText("Edit this file");
 
