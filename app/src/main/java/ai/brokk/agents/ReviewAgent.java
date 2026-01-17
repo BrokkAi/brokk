@@ -139,14 +139,7 @@ public class ReviewAgent {
         long startTime = System.currentTimeMillis();
 
         // Prepare the initial context with the diff pinned
-        String diff = changes.perFileChanges().stream()
-                .map(fd -> {
-                    String oldName = fd.oldFile() == null ? null : fd.oldFile().toString();
-                    String newName = fd.newFile() == null ? null : fd.newFile().toString();
-                    return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
-                            .diff();
-                })
-                .collect(Collectors.joining("\n\n"));
+        String diff = changes.toDiff();
         var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
 
         try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {

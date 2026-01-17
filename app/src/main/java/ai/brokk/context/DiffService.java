@@ -19,11 +19,13 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -184,7 +186,7 @@ public final class DiffService {
         // Delegate to the general-purpose computeDiff helper which handles text vs image parity,
         // content extraction, and diff computation.
         return computeDiff(otherFragment, thisFragment).exceptionally(ex -> {
-            var desc = thisFragment.shortDescription().renderNowOr(thisFragment.toString());
+            var desc = thisFragment.shortDescription().join();
             logger.warn("Error computing diff for fragment '{}'", desc, ex);
             return null;
         });
@@ -205,8 +207,8 @@ public final class DiffService {
                 return CompletableFuture.completedFuture(null);
             }
             return extractFragmentContentAsync(newFragment).thenApply(newContent -> {
-                var oldName = "old/" + newFragment.shortDescription().renderNowOr("");
-                var newName = "new/" + newFragment.shortDescription().renderNowOr("");
+                var oldName = newFragment.shortDescription().join();
+                var newName = newFragment.shortDescription().join();
                 var result = ContentDiffUtils.computeDiffResult("", newContent, oldName, newName);
                 if (result.diff().isEmpty()) {
                     return null;
@@ -233,17 +235,17 @@ public final class DiffService {
                     newContent.isEmpty() ? 0 : (int) newContent.lines().count();
             logger.trace(
                     "computeDiff: fragment='{}' oldLines={} newLines={}",
-                    newFragment.shortDescription().renderNowOr(""),
+                    newFragment.shortDescription().join(),
                     oldLineCount,
                     newLineCount);
 
-            var oldName = "old/" + newFragment.shortDescription().renderNowOr("");
-            var newName = "new/" + newFragment.shortDescription().renderNowOr("");
+            var oldName = newFragment.shortDescription().join();
+            var newName = newFragment.shortDescription().join();
             var result = ContentDiffUtils.computeDiffResult(oldContent, newContent, oldName, newName);
 
             logger.trace(
                     "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                    newFragment.shortDescription().renderNowOr(""),
+                    newFragment.shortDescription().join(),
                     result.added(),
                     result.deleted(),
                     result.diff().isEmpty());
@@ -279,7 +281,7 @@ public final class DiffService {
                             """
                                     .formatted(
                                             fragment.getClass().getSimpleName(),
-                                            fragment.shortDescription().renderNowOr(fragment.toString()),
+                                            fragment.shortDescription().join(),
                                             ExceptionReporter.formatStackTrace(ex));
                     logger.warn(msg, ex);
                     return msg;
@@ -393,6 +395,20 @@ public final class DiffService {
                 List<FileDiff> perFileChanges,
                 List<CommitInfo> commits) {
             this(filesChanged, totalAdded, totalDeleted, perFileChanges, commits, null);
+        }
+
+        @NotNull
+        public String toDiff() {
+            return perFileChanges().stream()
+                    .map(fd -> {
+                        String oldName =
+                                fd.oldFile() == null ? null : fd.oldFile().toString();
+                        String newName =
+                                fd.newFile() == null ? null : fd.newFile().toString();
+                        return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
+                                .diff();
+                    })
+                    .collect(Collectors.joining("\n\n"));
         }
     }
 

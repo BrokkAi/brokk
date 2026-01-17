@@ -13,6 +13,7 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractContentPanel;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
@@ -46,11 +47,8 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.io.IOException;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -157,7 +155,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialProgressButton guidedReviewBtn;
 
-    private final MaterialButton pasteBtn;
+    private final MaterialButton captureBtn;
 
     private final CardLayout mainCardLayout;
     private final JPanel cardsPanel;
@@ -206,7 +204,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
         this.guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
 
-        this.pasteBtn = createIconButton(Icons.CONTENT_CAPTURE, "Paste a code review from the clipboard (JSON format)");
+        this.captureBtn =
+                createIconButton(Icons.CONTENT_CAPTURE, "Capture these changes and add them to the workspace context");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -257,9 +256,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.add(pullBtn);
         buttonPanel.add(pushBtn);
         buttonPanel.add(prBtn);
-        if (Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"))) {
-            buttonPanel.add(pasteBtn);
-        }
+        buttonPanel.add(captureBtn);
         buttonPanel.add(guidedReviewBtn);
         headerPanel.add(buttonPanel, BorderLayout.EAST);
 
@@ -312,7 +309,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         pullBtn.addActionListener(e -> performPull());
         pushBtn.addActionListener(e -> performPush());
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
-        pasteBtn.addActionListener(e -> handlePasteReview());
+        captureBtn.addActionListener(e -> handleCaptureDiff());
 
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
         guidedReviewBtn.setIdleAction(this::generateGuidedReview);
@@ -1157,37 +1154,20 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private void handlePasteReview() {
-        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-        if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
+    private void handleCaptureDiff() {
+        var changes = lastCumulativeChanges;
+        if (changes == null || changes.filesChanged() == 0) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No changes to capture.");
             return;
         }
 
-        String clipboardData;
-        try {
-            clipboardData = (String) clipboard.getData(DataFlavor.stringFlavor);
-        } catch (UnsupportedFlavorException | IOException e) {
-            logger.warn("Failed to get clipboard data", e);
-            return;
-        }
-
-        if (clipboardData == null || clipboardData.isBlank()) {
-            return;
-        }
-
-        LoggingFuture.supplyAsync(() -> {
-                    var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(cm, clipboardData);
-                    return ReviewParser.instance.parseMarkdownReview(clipboardData, resolvedExcerpts);
-                })
-                .thenAccept(guidedReview -> SwingUtilities.invokeLater(() -> {
-                    setMode(PanelMode.REVIEW);
-                    deferredUpdateHelper.requestUpdate();
-                    codeReviewPanel.displayReview(guidedReview, Context.EMPTY);
-                    codeReviewPanel.getListPanel().setStalenessNotice(null);
-                }))
+        var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, changes.toDiff());
+        cm.addFragmentAsync(diffFragment)
+                .thenAccept(unused -> chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Diff captured and added to workspace context."))
                 .exceptionally(ex -> {
-                    logger.warn("Failed to parse pasted review", ex);
-                    SwingUtilities.invokeLater(() -> chrome.toolError("Failed to parse review: " + ex.getMessage()));
+                    logger.error("Failed to capture diff", ex);
+                    chrome.toolError("Failed to capture diff: " + ex.getMessage());
                     return null;
                 });
     }

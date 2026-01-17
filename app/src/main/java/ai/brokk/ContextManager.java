@@ -804,7 +804,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     // TODO should we just merge ContextTask w/ BackgroundTask?
-    public Future<?> submitContextTask(Runnable task) {
+    public CompletableFuture<Void> submitContextTask(Runnable task) {
         return contextActionExecutor.submit(task);
     }
 
@@ -1096,9 +1096,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Adds a specific ContextFragment (like GitHistoryFragment) to the live context.
      *
      * @param fragment The PathFragment to add.
+     * @return
      */
-    public void addFragmentAsync(ContextFragment fragment) {
-        submitContextTask(() -> {
+    public CompletableFuture<Void> addFragmentAsync(ContextFragment fragment) {
+        return submitContextTask(() -> {
             pushContext(currentLiveCtx -> currentLiveCtx.addFragments(List.of(fragment)));
         });
     }
