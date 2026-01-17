@@ -1,5 +1,7 @@
 package ai.brokk.util;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.AbstractDelta;
@@ -8,8 +10,15 @@ import com.github.difflib.patch.DeleteDelta;
 import com.github.difflib.patch.InsertDelta;
 import com.github.difflib.patch.Patch;
 import com.github.difflib.patch.PatchFailedException;
+import com.github.difflib.unifieddiff.UnifiedDiff;
+import com.github.difflib.unifieddiff.UnifiedDiffParserException;
+import com.github.difflib.unifieddiff.UnifiedDiffReader;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -111,9 +120,117 @@ public class ContentDiffUtils {
                     contextLines);
         }
 
-        var diffLines = UnifiedDiffUtils.generateUnifiedDiff(oldName, newName, oldLines, patch, contextLines);
+        var diffLines = UnifiedDiffUtils.generateUnifiedDiff(
+                oldName == null ? null : "a/" + oldName,
+                newName == null ? null : "b/" + newName,
+                oldLines,
+                patch,
+                contextLines);
         var diffText = String.join("\n", diffLines);
         return new DiffComputationResult(diffText, added, deleted);
+    }
+
+    /**
+     * Parses a raw unified diff string into a {@link UnifiedDiff} structure.
+     * This handles common issues like empty file creations and malformed headers.
+     *
+     * @param diffTxt the raw unified diff text
+     * @return an Optional containing the parsed UnifiedDiff, or empty if parsing fails or input is invalid
+     */
+    public static Optional<UnifiedDiff> parseUnifiedDiff(String diffTxt) {
+        if (diffTxt.trim().isEmpty()) {
+            return Optional.empty();
+        }
+
+        // Check for basic diff structure - should contain "diff --git" or at least "@@ "
+        String trimmed = diffTxt.trim();
+        if (!trimmed.contains("diff --git") && !trimmed.contains("@@ ")) {
+            logger.debug(
+                    "Diff text lacks expected diff markers (no 'diff --git' or '@@'), skipping parse. Length: {} chars",
+                    diffTxt.length());
+            return Optional.empty();
+        }
+
+        // Pre-process diff to remove empty file sections that would cause parser failures
+        String processedDiff = filterEmptyFileCreations(diffTxt);
+
+        if (processedDiff.trim().isEmpty()) {
+            logger.debug("Diff contains only empty file creations, skipping parse");
+            return Optional.empty();
+        }
+
+        try {
+            var input = new ByteArrayInputStream(processedDiff.getBytes(UTF_8));
+            return Optional.of(UnifiedDiffReader.parseUnifiedDiff(input));
+        } catch (IOException | UnifiedDiffParserException e) {
+            logger.warn("Failed to parse unified diff\n{}", diffTxt, e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Filters out empty file creations that would cause UnifiedDiffReader to fail. Empty files have index lines like
+     * "0000000..e69de29" and include --- /+++ headers but no @@ hunk headers, which confuses the parser.
+     */
+    private static String filterEmptyFileCreations(String diffTxt) {
+        String[] lines = diffTxt.split("\n", -1);
+        var result = new ArrayList<String>();
+        int i = 0;
+
+        while (i < lines.length) {
+            String line = lines[i];
+
+            // Look for file headers
+            if (line.startsWith("diff --git ")) {
+                int fileStart = i;
+                int j = i + 1; // Start looking from the line after diff --git
+
+                // Check if this is an empty file creation
+                boolean isEmptyFile = false;
+                boolean hasFromToPaths = false;
+
+                // Look ahead to analyze this file section
+                while (j < lines.length && !lines[j].startsWith("diff --git ")) {
+                    String currentLine = lines[j];
+
+                    // Check for empty blob hash (e69de29 is SHA1 of empty content)
+                    if (currentLine.contains("index ") && currentLine.contains("e69de29")) {
+                        isEmptyFile = true;
+                    }
+
+                    // Check for from/to path headers
+                    if (currentLine.startsWith("--- ") && (j + 1 < lines.length) && lines[j + 1].startsWith("+++ ")) {
+                        hasFromToPaths = true;
+                    }
+
+                    // If we find a hunk header, this is not problematic
+                    if (currentLine.startsWith("@@ ")) {
+                        isEmptyFile = false;
+                        break;
+                    }
+
+                    j++;
+                }
+
+                // If this is an empty file creation with from/to headers but no hunks, skip it
+                if (isEmptyFile && hasFromToPaths) {
+                    logger.debug("Filtering out empty file creation: {}", line);
+                    i = j; // Skip to next file or end
+                    continue;
+                }
+
+                // Otherwise, add all lines for this file (including the diff --git line)
+                for (int k = fileStart; k < j; k++) {
+                    result.add(lines[k]);
+                }
+                i = j; // Move to next file or end
+            } else {
+                result.add(line);
+                i++;
+            }
+        }
+
+        return String.join("\n", result);
     }
 
     /**

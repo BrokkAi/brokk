@@ -33,6 +33,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -156,15 +158,17 @@ public final class JobRunner {
                         (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
-                final StreamingChatModel architectPlannerModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
-                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
-                        : null;
-                final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
-                        ? (trimmedCodeModelName != null
-                                ? resolveModelOrThrow(
-                                        trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
-                                : defaultCodeModel(spec))
-                        : null;
+                final StreamingChatModel architectPlannerModel =
+                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
+                                ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                                : null;
+                final StreamingChatModel architectCodeModel =
+                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
+                                ? (trimmedCodeModelName != null
+                                        ? resolveModelOrThrow(
+                                                trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
+                                        : defaultCodeModel(spec))
+                                : null;
                 final StreamingChatModel reviewPlannerModel = mode == Mode.REVIEW
                         ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                         : null;
@@ -775,6 +779,11 @@ public final class JobRunner {
                                         }
                                     }
                                     case ISSUE -> {
+                                        StreamingChatModel issuePlannerModel = Objects.requireNonNull(
+                                                architectPlannerModel, "plannerModel required for ISSUE jobs");
+                                        StreamingChatModel issueCodeModel = Objects.requireNonNull(
+                                                architectCodeModel, "code model required for ISSUE jobs");
+
                                         // 1. Extract and validate Issue metadata
                                         String githubToken = spec.getGithubToken();
                                         String repoOwner = spec.getRepoOwner();
@@ -832,9 +841,7 @@ public final class JobRunner {
                                                 var searchAgent = new LutzAgent(
                                                         context,
                                                         issueTaskPrompt,
-                                                        Objects.requireNonNull(
-                                                                architectPlannerModel,
-                                                                "plannerModel required for ISSUE jobs"),
+                                                        issuePlannerModel,
                                                         SearchPrompts.Objective.TASKS_ONLY,
                                                         scope);
                                                 var taskListResult = searchAgent.execute();
@@ -850,10 +857,7 @@ public final class JobRunner {
                                                     if (cancelled.get()) return;
 
                                                     // Execute task with ArchitectAgent
-                                                    cm.executeTask(
-                                                            generatedTask,
-                                                            architectPlannerModel,
-                                                            Objects.requireNonNull(architectCodeModel));
+                                                    cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
                                                     // 4. Verification loop: run build and retry on failure
                                                     int buildAttempts = 0;
@@ -891,8 +895,8 @@ public final class JobRunner {
                                                                                 + buildError;
                                                                 cm.executeTask(
                                                                         TaskList.TaskItem.createFixTask(fixPrompt),
-                                                                        architectPlannerModel,
-                                                                        architectCodeModel);
+                                                                        issuePlannerModel,
+                                                                        issueCodeModel);
                                                             } else {
                                                                 throw new IssueExecutionException(
                                                                         "Failed to pass build verification after "
@@ -902,6 +906,37 @@ public final class JobRunner {
                                                         }
                                                     }
                                                 }
+
+                                                runPrePrGateWithFixRetryLoop(
+                                                        jobId,
+                                                        store,
+                                                        cm.getIo(),
+                                                        buildDetailsOverride,
+                                                        spec.effectiveMaxIssueFixAttempts(),
+                                                        cmd -> {
+                                                            try {
+                                                                return BuildAgent.runExplicitCommand(
+                                                                        cm, cmd, buildDetailsOverride);
+                                                            } catch (InterruptedException e) {
+                                                                Thread.currentThread()
+                                                                        .interrupt();
+                                                                return "Interrupted while running command: " + cmd;
+                                                            }
+                                                        },
+                                                        prompt -> {
+                                                            try {
+                                                                cm.executeTask(
+                                                                        TaskList.TaskItem.createFixTask(prompt),
+                                                                        issuePlannerModel,
+                                                                        issueCodeModel);
+                                                            } catch (InterruptedException e) {
+                                                                Thread.currentThread()
+                                                                        .interrupt();
+                                                                throw new IssueExecutionException(
+                                                                        "Interrupted while attempting to fix pre-PR gate failure",
+                                                                        e);
+                                                            }
+                                                        });
 
                                                 // 5. Commit and Create Pull Request
                                                 var workflow = new GitWorkflow(cm);
@@ -1358,5 +1393,104 @@ public final class JobRunner {
             return throwable.getClass().getSimpleName();
         }
         return throwable.getClass().getSimpleName() + ": " + message;
+    }
+
+    static void runPrePrGateWithFixRetryLoop(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            int maxAttempts,
+            Function<String, String> commandRunner,
+            Consumer<String> fixTaskRunner) {
+        if (maxAttempts < 1) {
+            throw new IssueExecutionException("maxIssueFixAttempts must be >= 1");
+        }
+
+        String testCmd = buildDetailsOverride.testAllCommand();
+        String lintCmd = buildDetailsOverride.buildLintCommand();
+
+        boolean testsSkipped = testCmd.isBlank();
+        boolean lintSkipped = lintCmd.isBlank();
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            String startMsg = "Pre-PR gate attempt %d/%d: tests=%s, lint=%s"
+                    .formatted(attempt, maxAttempts, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
+            } catch (Throwable ignore) {
+                // best-effort only
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
+            } catch (IOException ioe) {
+                logger.warn(
+                        "Failed to append pre-PR gate start notification event for job {}: {}",
+                        jobId,
+                        ioe.getMessage(),
+                        ioe);
+            }
+
+            String testOut = testsSkipped ? "" : commandRunner.apply(testCmd);
+            String lintOut = lintSkipped ? "" : commandRunner.apply(lintCmd);
+
+            boolean testsPassed = testsSkipped || testOut.isBlank();
+            boolean lintPassed = lintSkipped || lintOut.isBlank();
+
+            var resultMsg = "Pre-PR gate attempt " + attempt + "/" + maxAttempts + " results: tests="
+                    + (testsSkipped ? "SKIP" : (testsPassed ? "PASS" : "FAIL")) + ", lint="
+                    + (lintSkipped ? "SKIP" : (lintPassed ? "PASS" : "FAIL"));
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
+            } catch (Throwable ignore) {
+                // best-effort only
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", resultMsg));
+            } catch (IOException ioe) {
+                logger.warn(
+                        "Failed to append pre-PR gate results notification event for job {}: {}",
+                        jobId,
+                        ioe.getMessage(),
+                        ioe);
+            }
+
+            if (testsPassed && lintPassed) {
+                return;
+            }
+
+            if (attempt == maxAttempts) {
+                var failureParts = new java.util.ArrayList<String>();
+                if (!testsPassed) {
+                    failureParts.add("Tests failed (" + testCmd + "):\n" + testOut);
+                }
+                if (!lintPassed) {
+                    failureParts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
+                }
+
+                String failedDetails =
+                        failureParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", failureParts);
+
+                throw new IssueExecutionException(
+                        "Pre-PR gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
+            }
+
+            var fixParts = new java.util.ArrayList<String>();
+            if (!testsPassed) {
+                fixParts.add("Tests failed when running:\n" + testCmd + "\n\nOutput:\n" + testOut);
+            }
+            if (!lintPassed) {
+                fixParts.add("Lint failed when running:\n" + lintCmd + "\n\nOutput:\n" + lintOut);
+            }
+
+            String fixPrompt = fixParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", fixParts);
+
+            String fullFixPrompt = "Pre-PR gate failed (attempt " + attempt + "/" + maxAttempts + ").\n\n" + fixPrompt
+                    + "\n\nPlease fix the issues so that BOTH full tests and full lint pass.";
+
+            fixTaskRunner.accept(fullFixPrompt);
+        }
+
+        throw new IssueExecutionException("Pre-PR gate failed unexpectedly");
     }
 }

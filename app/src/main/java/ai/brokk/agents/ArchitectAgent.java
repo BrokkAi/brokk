@@ -816,6 +816,10 @@ public class ArchitectAgent {
                     throw new InterruptedException();
                 }
 
+                // SearchAgents like to drop fragments unrelated to their mission; union our original context
+                // with the Search results
+                combinedContext = combinedContext.union(context);
+
                 // Post-batch message with workspace merge summary
                 printSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
 

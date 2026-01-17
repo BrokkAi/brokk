@@ -1,9 +1,9 @@
 package ai.brokk.context;
 
+import ai.brokk.IContextManager;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import java.util.Optional;
-import java.util.Set;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,11 +29,6 @@ public enum SpecialTextType {
         public String renderPreview(String rawContent) {
             return rawContent;
         }
-
-        @Override
-        public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
-            return !suppressedTypes.contains(this);
-        }
     },
 
     SEARCH_NOTES(
@@ -46,11 +41,6 @@ public enum SpecialTextType {
         public String renderPreview(String rawContent) {
             return rawContent;
         }
-
-        @Override
-        public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
-            return !suppressedTypes.contains(this);
-        }
     },
 
     DISCARDED_CONTEXT(
@@ -62,11 +52,6 @@ public enum SpecialTextType {
         @Override
         public String renderPreview(String rawContent) {
             return rawContent;
-        }
-
-        @Override
-        public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
-            return !suppressedTypes.contains(this);
         }
     },
 
@@ -149,10 +134,26 @@ public enum SpecialTextType {
                         .formatted(quoted);
             }
         }
+    },
 
+    REVIEW_METADATA(
+            "Guided Review Metadata",
+            SyntaxConstants.SYNTAX_STYLE_JSON,
+            SyntaxConstants.SYNTAX_STYLE_JSON,
+            true // droppable
+            ) {
         @Override
-        public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
-            return !suppressedTypes.contains(this);
+        public String renderPreview(String rawContent) {
+            return rawContent;
+        }
+    },
+
+    REVIEW_DIFF(
+            "Diff to Review", SyntaxConstants.SYNTAX_STYLE_NONE, SyntaxConstants.SYNTAX_STYLE_NONE, true // droppable
+            ) {
+        @Override
+        public String renderPreview(String rawContent) {
+            return rawContent;
         }
     };
 
@@ -170,8 +171,8 @@ public enum SpecialTextType {
 
     public abstract String renderPreview(String rawContent);
 
-    public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
-        return !suppressedTypes.contains(this);
+    public ContextFragments.StringFragment create(IContextManager cm, String text) {
+        return new ContextFragments.StringFragment(cm, text, description, syntaxStyle);
     }
 
     // --- Lookups and helpers ---

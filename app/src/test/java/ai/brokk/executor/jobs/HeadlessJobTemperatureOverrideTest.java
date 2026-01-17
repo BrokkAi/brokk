@@ -93,7 +93,8 @@ class HeadlessJobTemperatureOverrideTest {
                 null,
                 null,
                 0.7,
-                null);
+                null,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         runner.runAsync("job-unsupported", spec).get(5, TimeUnit.SECONDS);
 
@@ -120,7 +121,8 @@ class HeadlessJobTemperatureOverrideTest {
                 null,
                 null,
                 0.7,
-                null);
+                null,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         runner.runAsync("job-supported", spec).get(5, TimeUnit.SECONDS);
 
@@ -149,7 +151,8 @@ class HeadlessJobTemperatureOverrideTest {
                 "LOW",
                 "HIGH",
                 null,
-                null);
+                null,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         runner.runAsync("job-reasoning-split", spec).get(5, TimeUnit.SECONDS);
 
@@ -187,7 +190,8 @@ class HeadlessJobTemperatureOverrideTest {
                 null,
                 null,
                 0.11,
-                0.88);
+                0.88,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         runner.runAsync("job-temp-split", spec).get(5, TimeUnit.SECONDS);
 

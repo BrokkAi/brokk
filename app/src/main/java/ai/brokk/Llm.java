@@ -632,11 +632,9 @@ public class Llm {
 
         // poor man's ToolChoice.REQUIRED (not supported by langchain4j for some providers)
         // Also needed for our emulation if it returns a response without a tool call
-        var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
         int totalAttemptsMade = result.retries() + 1;
         while (result.error == null
-                && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED
                 && totalAttemptsMade < MAX_ATTEMPTS) {
@@ -654,7 +652,6 @@ public class Llm {
         // If we exhausted attempts and still don't have tool calls when REQUIRED, fail
         if (totalAttemptsMade >= MAX_ATTEMPTS
                 && result.error == null
-                && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED) {
             return new StreamingResult(null, new MissingToolCallsException(totalAttemptsMade), result.retries());
@@ -671,6 +668,10 @@ public class Llm {
             List<ChatMessage> rawMessages, ToolContext toolContext, int maxAttempts) throws InterruptedException {
         if (SwingUtilities.isEventDispatchThread() && Boolean.getBoolean("brokk.devmode")) {
             throw new IllegalStateException("LLM calls must not be made from the EDT");
+        }
+        if (toolContext.toolChoice().equals(ToolChoice.REQUIRED)
+                && toolContext.toolSpecifications().isEmpty()) {
+            throw new IllegalArgumentException("REQUIRED tool specifications must not be empty");
         }
 
         Throwable lastError = null;
