@@ -15,11 +15,14 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import java.util.jar.JarFile;
 import javax.swing.*;
@@ -48,7 +51,7 @@ public class GuiTheme {
     private final Chrome chrome;
 
     // Track registered popup menus that need theme updates
-    private final List<JPopupMenu> popupMenus = new ArrayList<>();
+    private final Set<JPopupMenu> popupMenus = Collections.newSetFromMap(new WeakHashMap<>());
 
     /**
      * Creates a new theme manager
@@ -438,9 +441,7 @@ public class GuiTheme {
      * @param menu The popup menu to register
      */
     public void registerPopupMenu(JPopupMenu menu) {
-        if (!popupMenus.contains(menu)) {
-            popupMenus.add(menu);
-
+        if (popupMenus.add(menu)) {
             // Apply current theme immediately if already initialized
             SwingUtilities.invokeLater(() -> SwingUtilities.updateComponentTreeUI(menu));
         }
