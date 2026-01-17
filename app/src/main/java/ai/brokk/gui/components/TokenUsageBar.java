@@ -560,6 +560,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 if (currentCtx == null) return;
                 List<ContextFragment> toDrop = currentCtx.getAllFragmentsInDisplayOrder().stream()
                         .filter(f -> !hovered.contains(f))
+                        .filter(f -> !currentCtx.isPinned(f))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                         .toList();
                 if (!toDrop.isEmpty()) {
