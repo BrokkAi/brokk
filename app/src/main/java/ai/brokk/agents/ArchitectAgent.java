@@ -478,6 +478,7 @@ public class ArchitectAgent {
         if (Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2) {
             searchAgent.pruneContext();
         }
+        // (appends prune + scan results to scope)
         context = searchAgent.scanContext();
 
         // Run Architect proper

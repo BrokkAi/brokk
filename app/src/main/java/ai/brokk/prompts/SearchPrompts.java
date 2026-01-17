@@ -227,8 +227,9 @@ public class SearchPrompts {
                         + DROP_EXPLANATION_GUIDANCE.indent(4).stripTrailing()
                         + """
 
-                Response rule:
+                Response rules:
                 - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
+                - Don't give up: if the number of irrelevant fragments is overwhelming, do your best. It’s okay to not get everything, but it’s not okay to call performedInitialReview without trying to clean up.
                 </instructions>
                 """;
         messages.add(new SystemMessage(sysText));
