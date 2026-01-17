@@ -152,7 +152,7 @@ public enum SpecialTextType {
             "Diff to Review",
             SyntaxConstants.SYNTAX_STYLE_NONE,
             SyntaxConstants.SYNTAX_STYLE_NONE,
-            false // pinned (non-droppable)
+            true // droppable
             ) {
         @Override
         public String renderPreview(String rawContent) {
