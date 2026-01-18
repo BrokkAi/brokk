@@ -4,9 +4,9 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
@@ -180,62 +180,41 @@ public class SearchAgent {
         return tools;
     }
 
-    private static final Set<String> ANALYZER_REQUIRED_TOOLS = Set.of(
-            "getClassSkeletons",
-            "searchSymbols",
-            "getSymbolLocations",
-            "getUsages",
-            "addSymbolUsagesToWorkspace",
-            "getMethodSources",
-            "getClassSources",
-            "skimDirectory",
-            "addClassesToWorkspace",
-            "addClassSummariesToWorkspace",
-            "addMethodsToWorkspace",
-            "addFileSummariesToWorkspace");
-
     private static List<String> initStaticTools(
             @Nullable List<String> explicitTools, IProject project, List<McpPrompts.McpTool> mcpTools) {
-        boolean hasAnalyzedLanguage = !project.getAnalyzerLanguages().equals(Set.of(Languages.NONE));
-
         if (explicitTools != null) {
-            if (hasAnalyzedLanguage) {
-                return explicitTools;
-            }
-            return explicitTools.stream()
-                    .filter(tool -> !ANALYZER_REQUIRED_TOOLS.contains(tool))
-                    .toList();
+            return WorkspaceTools.filterByAnalyzerAvailability(explicitTools, project);
         }
 
         var tools = new ArrayList<String>();
-        if (hasAnalyzedLanguage) {
-            tools.add("getClassSkeletons");
-            tools.add("searchSymbols");
-            tools.add("getSymbolLocations");
-            tools.add("getUsages");
-            tools.add("addSymbolUsagesToWorkspace");
-            tools.add("getMethodSources");
-            tools.add("getClassSources");
-            tools.add("skimDirectory");
-            tools.add("addClassesToWorkspace");
-            tools.add("addClassSummariesToWorkspace");
-            tools.add("addMethodsToWorkspace");
-            tools.add("addFileSummariesToWorkspace");
-        }
 
+        // Search-specific analyzer tools
+        tools.add("searchSymbols");
+        tools.add("getSymbolLocations");
+        tools.add("skimDirectory");
+
+        // Workspace analyzer tools
+        tools.add("addSymbolUsagesToWorkspace");
+        tools.add("addClassesToWorkspace");
+        tools.add("addClassSummariesToWorkspace");
+        tools.add("addMethodsToWorkspace");
+        tools.add("addFileSummariesToWorkspace");
+
+        // Non-analyzer tools
         tools.add("searchSubstrings");
         tools.add("searchGitCommitMessages");
+        tools.add("explainCommit");
         tools.add("searchFilenames");
-        tools.add("getFileContents");
-        tools.add("getFileSummaries");
         tools.add("addFilesToWorkspace");
+        tools.add("addUrlContentsToWorkspace");
         tools.add("appendNote");
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
         }
 
-        return tools;
+        // Filter out analyzer-required tools at the very end
+        return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
     }
 
     public SearchAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope) {
@@ -346,6 +325,7 @@ public class SearchAgent {
 
             Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
             boolean executedResearch = false;
+            boolean executedNonHygiene = false;
             Context contextAtTurnStart = context;
             try {
                 var sortedNonterminalCalls = ai.toolExecutionRequests().stream()
@@ -377,10 +357,13 @@ public class SearchAgent {
                     }
 
                     sessionMessages.add(finalResult.toExecutionResultMessage());
-                    if (categorizeTool(req.name()) == ToolCategory.RESEARCH) {
-                        if (!isWorkspaceTool(req, tr)) {
-                            executedResearch = true;
-                        }
+
+                    var category = categorizeTool(req.name());
+                    if (category != ToolCategory.WORKSPACE_HYGIENE) {
+                        executedNonHygiene = true;
+                    }
+                    if (category == ToolCategory.RESEARCH && !isWorkspaceTool(req, tr)) {
+                        executedResearch = true;
                     }
                 }
 
@@ -388,7 +371,9 @@ public class SearchAgent {
                         .filter(req -> categorizeTool(req.name()) == ToolCategory.TERMINAL)
                         .min(Comparator.comparingInt(this::priority));
 
-                if (terminal.isPresent() && context.equals(contextAtTurnStart) && !executedResearch) {
+                boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
+
+                if (terminal.isPresent() && contextSafeForTerminal && !executedResearch) {
                     var termReq = terminal.get();
                     var termExec = executeTool(termReq, tr, wst);
                     sessionMessages.add(termExec.toExecutionResultMessage());
@@ -543,7 +528,8 @@ public class SearchAgent {
         }
         var toolSpecs = tr.getTools(toolNames);
 
-        io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
+        io.llmOutput(
+                "\n**Brokk** performing initial workspace review…", ChatMessageType.AI, LlmOutputMeta.newMessage());
         var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
@@ -575,7 +561,10 @@ public class SearchAgent {
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
         var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
-        io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
+        io.llmOutput(
+                "\n**Brokk Context Engine** analyzing repository context…\n",
+                ChatMessageType.AI,
+                LlmOutputMeta.newMessage());
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
@@ -598,10 +587,11 @@ public class SearchAgent {
                 addToWorkspace(recommendation);
                 io.llmOutput(
                         "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
-                        ChatMessageType.AI);
+                        ChatMessageType.AI,
+                        LlmOutputMeta.DEFAULT);
             }
         } else {
-            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
         }
 
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
@@ -672,7 +662,7 @@ public class SearchAgent {
         }
 
         var explanation = ExplanationRenderer.renderExplanation("Adding context to workspace", details);
-        io.llmOutput(explanation, ChatMessageType.AI);
+        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
     }
 
     @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
@@ -689,7 +679,7 @@ public class SearchAgent {
     @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
-        io.llmOutput(explanation, ChatMessageType.AI);
+        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
         return explanation;
     }
 
@@ -801,12 +791,9 @@ public class SearchAgent {
                         "getSymbolLocations",
                         "searchSymbols",
                         "getUsages",
-                        "getClassSources",
                         "searchSubstrings",
                         "searchFilenames",
-                        "searchGitCommitMessages",
-                        "getFileContents",
-                        "getFileSummaries")
+                        "searchGitCommitMessages")
                 .contains(toolName);
     }
 

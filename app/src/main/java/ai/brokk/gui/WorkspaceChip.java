@@ -411,6 +411,7 @@ public class WorkspaceChip extends JPanel {
                 ? List.of()
                 : selected.getAllFragmentsInDisplayOrder().stream()
                         .filter(f -> !fragments.contains(f))
+                        .filter(f -> !selected.isPinned(f))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                         .toList();
 

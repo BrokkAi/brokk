@@ -963,7 +963,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         var viewFileAtRevisionItem = new JMenuItem("View File at Revision");
         var viewDiffItem = new JMenuItem("View Diff");
         var viewHistoryItem = new JMenuItem("View History");
-        var editFileItem = new JMenuItem("Edit File(s)");
+        var editFileItem = new JMenuItem("Attach File(s)");
         var comparePrevWithLocalItem = new JMenuItem("Compare Previous with Local");
         JMenuItem rollbackFilesItem = new JMenuItem("Rollback Files to This Commit");
 

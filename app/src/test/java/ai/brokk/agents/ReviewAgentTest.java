@@ -1,13 +1,17 @@
 package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.DiffService;
+import ai.brokk.git.GitRepoData.FileDiff;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.ReviewParser;
@@ -26,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -35,15 +40,92 @@ class ReviewAgentTest {
     Path tempDir;
 
     @Test
-    void testFindFileComparison() {
-        var left = new BufferSource.StringSource("old", "OLD", "old_path.java");
-        var right = new BufferSource.StringSource("new", "NEW", "new_path.java");
-        var info = new FileComparisonInfo(null, left, right);
-        var comparisons = List.of(info);
+    void testFindFileDiff() {
+        ProjectFile oldFile = new ProjectFile(tempDir, "old_path.java");
+        ProjectFile newFile = new ProjectFile(tempDir, "new_path.java");
+        var diff = new FileDiff(oldFile, newFile, "old", "new");
+        var diffs = List.of(diff);
 
-        assertEquals(info, ReviewAgent.findFileComparison("old_path.java", comparisons));
-        assertEquals(info, ReviewAgent.findFileComparison("new_path.java", comparisons));
-        assertNull(ReviewAgent.findFileComparison("other.java", comparisons));
+        assertEquals(diff, ReviewAgent.findFileDiff("old_path.java", diffs));
+        assertEquals(diff, ReviewAgent.findFileDiff("new_path.java", diffs));
+        assertNull(ReviewAgent.findFileDiff("other.java", diffs));
+    }
+
+    @Test
+    void testComputeCumulativeDiff_betweenCommits() throws IOException, GitAPIException {
+        // Create project with initial commit
+        var project = InlineTestProjectCreator.code("line1\n", "file.txt")
+                .withGit()
+                .addCommit("file.txt", "file.txt")
+                .build();
+
+        var repo = (ai.brokk.git.GitRepo) project.getRepo();
+        String initialCommit = repo.getCurrentCommitId();
+
+        // Make a change and commit it
+        ProjectFile pf = new ProjectFile(project.getRoot(), "file.txt");
+        Files.writeString(pf.absPath(), "line1\nline2\n");
+        repo.add(pf);
+        repo.commitCommand().setMessage("Add line2").call();
+        String secondCommit = repo.getCurrentCommitId();
+
+        // Test computeCumulativeDiff directly between two commits
+        var commits = repo.listCommitsBetweenBranches(initialCommit, secondCommit, false);
+        var cumulativeChanges = DiffService.computeCumulativeDiff(repo, initialCommit, secondCommit, commits);
+
+        assertNotNull(cumulativeChanges);
+        assertEquals(1, cumulativeChanges.filesChanged());
+        assertEquals(1, cumulativeChanges.totalAdded());
+        assertFalse(cumulativeChanges.commits().isEmpty());
+
+        project.close();
+    }
+
+    @Test
+    void testComputeCumulativeDiff_noChanges() throws IOException, GitAPIException {
+        // Create project with initial commit
+        var project = InlineTestProjectCreator.code("line1\n", "file.txt")
+                .withGit()
+                .addCommit("file.txt", "file.txt")
+                .build();
+
+        var repo = (ai.brokk.git.GitRepo) project.getRepo();
+        String currentCommit = repo.getCurrentCommitId();
+
+        // Diff HEAD to HEAD should show no changes
+        var cumulativeChanges = DiffService.computeCumulativeDiff(repo, currentCommit, currentCommit, List.of());
+
+        assertNotNull(cumulativeChanges);
+        assertEquals(0, cumulativeChanges.filesChanged());
+        assertTrue(cumulativeChanges.commits().isEmpty());
+
+        project.close();
+    }
+
+    @Test
+    void testFromBaseline_simpleRef() throws IOException {
+        var project = InlineTestProjectCreator.code("line1\n", "file.txt")
+                .withGit()
+                .addCommit("file.txt", "file.txt")
+                .build();
+        IContextManager cm = new TestContextManager(project);
+
+        // Smoke test: should handle "HEAD" ref without crashing
+        var ctx = ReviewScope.fromBaseline(cm, "HEAD");
+        assertNotNull(ctx);
+        assertTrue(ctx.changes().perFileChanges().isEmpty());
+        project.close();
+    }
+
+    @Test
+    void testFindOverlappingSessions_returnsEmptyForNoCommits() {
+        // Test the edge case where commits list is empty
+        TestProject project = new TestProject(tempDir);
+        IContextManager cm = new TestContextManager(project);
+
+        var overlapping = ReviewScope.findOverlappingSessions(cm, List.of());
+
+        assertTrue(overlapping.isEmpty(), "Empty commits list should return empty overlapping sessions");
     }
 
     @Test
@@ -54,16 +136,13 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var info1 = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("content1", "NEW", "file1.java"),
-                new BufferSource.StringSource("content1", "NEW", "file1.java"));
-        var info2 = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("content2", "NEW", "file2.java"),
-                new BufferSource.StringSource("content2", "NEW", "file2.java"));
+        ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
+        ProjectFile f2 = new ProjectFile(tempDir, "file2.java");
+        var d1 = new FileDiff(f1, f1, "content1", "content1");
+        var d2 = new FileDiff(f2, f2, "content2", "content2");
 
-        ReviewAgent agent = new ReviewAgent(cm, cm.getIo(), List.of(info1, info2));
+        var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Turn 1: Excerpt for file1 is good (index 0), Excerpt for wrong.java is bad (index 1)
         String resp1 =
@@ -109,7 +188,8 @@ class ReviewAgentTest {
     void testRetryInStages_exhaustsRetries() throws InterruptedException, ReviewGenerationException {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
-        ReviewAgent agent = new ReviewAgent(cm, cm.getIo(), List.of());
+        var changes = new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Always return the same bad excerpt
         String badResp =
@@ -152,12 +232,11 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var info1 = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("content1", "NEW", "file1.java"),
-                new BufferSource.StringSource("content1", "NEW", "file1.java"));
+        ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
+        var d1 = new FileDiff(f1, f1, "content1", "content1");
 
-        ReviewAgent agent = new ReviewAgent(cm, cm.getIo(), List.of(info1));
+        var changes = new DiffService.CumulativeChanges(1, 0, 0, List.of(d1), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Path is bad initially
         String resp1 = "At `bad.java` line 1:\n```\nc1\n```";
@@ -184,11 +263,10 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var info = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("line1\nline2\nline3\nline4", "OLD", "file.java"),
-                new BufferSource.StringSource("line1\nline2-new\nline3\nline4", "NEW", "file.java"));
-        ReviewAgent agent = new ReviewAgent(cm, cm.getIo(), List.of(info));
+        ProjectFile f = new ProjectFile(tempDir, "file.java");
+        var diff = new FileDiff(f, f, "line1\nline2\nline3\nline4", "line1\nline2-new\nline3\nline4");
+        var changes = new DiffService.CumulativeChanges(1, 1, 1, List.of(diff), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // 1. Content normalization (excerpt has \r\n, file has \n - WhitespaceMatch handles this)
         String resp1 =
@@ -251,16 +329,13 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var info1 = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("public class Good {}", "NEW", "good.java"),
-                new BufferSource.StringSource("public class Good {}", "NEW", "good.java"));
-        var info2 = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("public class Fixed {}", "NEW", "fixed.java"),
-                new BufferSource.StringSource("public class Fixed {}", "NEW", "fixed.java"));
+        ProjectFile f1 = new ProjectFile(tempDir, "good.java");
+        ProjectFile f2 = new ProjectFile(tempDir, "fixed.java");
+        var d1 = new FileDiff(f1, f1, "public class Good {}", "public class Good {}");
+        var d2 = new FileDiff(f2, f2, "public class Fixed {}", "public class Fixed {}");
 
-        ReviewAgent agent = new ReviewAgent(cm, cm.getIo(), List.of(info1, info2));
+        var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Initial response: good.java is good, bad.java has bad path
         String resp1 =
@@ -306,16 +381,13 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var info1 = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("content1", "NEW", "file1.java"),
-                new BufferSource.StringSource("content1", "NEW", "file1.java"));
-        var info2 = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("content2", "NEW", "file2.java"),
-                new BufferSource.StringSource("content2", "NEW", "file2.java"));
+        ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
+        ProjectFile f2 = new ProjectFile(tempDir, "file2.java");
+        var d1 = new FileDiff(f1, f1, "content1", "content1");
+        var d2 = new FileDiff(f2, f2, "content2", "content2");
 
-        ReviewAgent agent = new ReviewAgent(cm, cm.getIo(), List.of(info1, info2));
+        var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Scenario: Text, Excerpt for file1 (Good), Text, Excerpt for missing.java (Bad Path), Text
         String resp1 =
@@ -369,11 +441,10 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var info = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("line1\nline2", "NEW", "file.java"),
-                new BufferSource.StringSource("line1\nline2", "NEW", "file.java"));
-        ReviewAgent agent = new ReviewAgent(cm, cm.getIo(), List.of(info));
+        ProjectFile f = new ProjectFile(tempDir, "file.java");
+        var diff = new FileDiff(f, f, "line1\nline2", "line1\nline2");
+        var changes = new DiffService.CumulativeChanges(1, 0, 0, List.of(diff), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Valid response with proper recommendation
         String resp1 = "## Overview\n" + "Some overview.\n"
@@ -404,11 +475,10 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var info = new FileComparisonInfo(
-                null,
-                new BufferSource.StringSource("line1\nline2\nline3", "NEW", "file.java"),
-                new BufferSource.StringSource("line1\nline2\nline3", "NEW", "file.java"));
-        ReviewAgent agent = new ReviewAgent(cm, cm.getIo(), List.of(info));
+        ProjectFile f = new ProjectFile(tempDir, "file.java");
+        var diff = new FileDiff(f, f, "line1\nline2\nline3", "line1\nline2\nline3");
+        var changes = new DiffService.CumulativeChanges(1, 0, 0, List.of(diff), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Turn 1: badpath.java doesn't exist
         String resp1 =

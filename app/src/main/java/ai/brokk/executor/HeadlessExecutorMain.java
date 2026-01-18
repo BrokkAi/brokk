@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -34,6 +35,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
@@ -49,6 +52,15 @@ public final class HeadlessExecutorMain {
     private static final Set<String> VALID_ARGS =
             Set.of("exec-id", "listen-addr", "auth-token", "workspace-dir", "brokk-api-key", "proxy-setting", "help");
 
+    private static final ai.brokk.AbstractService.ReasoningLevel[] REASONING_LEVEL_VALUES =
+            ai.brokk.AbstractService.ReasoningLevel.values();
+
+    private static final Set<String> ALLOWED_REASONING_LEVELS =
+            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.toUnmodifiableSet());
+
+    private static final String ALLOWED_REASONING_LEVELS_LIST =
+            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.joining(", "));
+
     private final UUID execId;
     private final SimpleHttpServer server;
     private final ContextManager contextManager;
@@ -57,6 +69,7 @@ public final class HeadlessExecutorMain {
     private final JobReservation jobReservation = new JobReservation();
     private final JobRunner jobRunner;
     private final Thread initThread;
+    private final CompletableFuture<Void> headlessInit = new CompletableFuture<>();
     // Indicates whether a session has been loaded (either uploaded or created) at least once.
     // Used to gate /health/ready until the first session is available.
     private volatile boolean sessionLoaded = false;
@@ -209,8 +222,10 @@ public final class HeadlessExecutorMain {
                 () -> {
                     try {
                         this.contextManager.createHeadless();
+                        headlessInit.complete(null);
                         logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {
+                        headlessInit.completeExceptionally(e);
                         logger.warn("ContextManager headless initialization failed", e);
                     }
                 },
@@ -284,6 +299,40 @@ public final class HeadlessExecutorMain {
         var response = Map.of("execId", this.execId.toString(), "version", BuildInfo.version, "protocolVersion", 1);
 
         SimpleHttpServer.sendJsonResponse(exchange, response);
+    }
+
+    /**
+     * Await headless ContextManager initialization (with timeout) or respond with an error.
+     *
+     * @param exchange the HTTP exchange for sending an error response
+     * @param jobId the job identifier (used for logging and reservation cleanup)
+     * @return true if initialization completed successfully; false if an error response was sent
+     */
+    private boolean awaitHeadlessInitOrRespond(HttpExchange exchange, String jobId) throws IOException {
+        try {
+            headlessInit.get(30, TimeUnit.SECONDS);
+            return true;
+        } catch (TimeoutException e) {
+            logger.warn("Headless initialization timed out; rejecting job {}", jobId);
+            jobReservation.releaseIfOwner(jobId);
+            var error = ErrorPayload.of("NOT_READY", "Executor is still initializing");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
+            return false;
+        } catch (ExecutionException e) {
+            logger.warn("Headless initialization failed; rejecting job {}", jobId, e.getCause());
+            jobReservation.releaseIfOwner(jobId);
+            var error = ErrorPayload.internalError(
+                    "Executor initialization failed", Objects.requireNonNullElse(e.getCause(), e));
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while awaiting headless initialization; rejecting job {}", jobId);
+            jobReservation.releaseIfOwner(jobId);
+            var error = ErrorPayload.of("NOT_READY", "Executor is still initializing");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
+            return false;
+        }
     }
 
     /**
@@ -836,11 +885,11 @@ public final class HeadlessExecutorMain {
 
         // Switch ContextManager to this session with timeout to avoid indefinite blocking
         try {
-            contextManager.switchSessionAsync(sessionId).get(3, TimeUnit.SECONDS);
+            contextManager.switchSessionAsync(sessionId).get(30, TimeUnit.SECONDS);
             logger.info(
                     "Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
         } catch (TimeoutException e) {
-            logger.warn("Timed out switching to session {}; continuing asynchronously", sessionId);
+            throw new IOException("Timed out switching to session " + sessionId + " after 30 seconds", e);
         }
 
         System.out.println("Session imported: " + sessionId);
@@ -904,6 +953,53 @@ public final class HeadlessExecutorMain {
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
             boolean preScanFlag = Objects.requireNonNullElse(jobSpecRequest.preScan(), false);
 
+            @Nullable String reasoningLevel = null;
+            var reasoningLevelRaw = jobSpecRequest.reasoningLevel();
+            if (reasoningLevelRaw != null && !reasoningLevelRaw.isBlank()) {
+                var normalized = reasoningLevelRaw.strip().toUpperCase(Locale.ROOT);
+
+                if (!ALLOWED_REASONING_LEVELS.contains(normalized)) {
+                    sendValidationError(exchange, "reasoningLevel must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
+                    return;
+                }
+
+                reasoningLevel = normalized;
+            }
+
+            @Nullable String reasoningLevelCode = null;
+            var reasoningLevelCodeRaw = jobSpecRequest.reasoningLevelCode();
+            if (reasoningLevelCodeRaw != null && !reasoningLevelCodeRaw.isBlank()) {
+                var normalized = reasoningLevelCodeRaw.strip().toUpperCase(Locale.ROOT);
+
+                if (!ALLOWED_REASONING_LEVELS.contains(normalized)) {
+                    sendValidationError(
+                            exchange, "reasoningLevelCode must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
+                    return;
+                }
+
+                reasoningLevelCode = normalized;
+            }
+
+            @Nullable Double temperature = null;
+            var tempRaw = jobSpecRequest.temperature();
+            if (tempRaw != null) {
+                if (tempRaw.isNaN() || tempRaw < 0.0 || tempRaw > 2.0) {
+                    sendValidationError(exchange, "temperature must be between 0.0 and 2.0");
+                    return;
+                }
+                temperature = tempRaw;
+            }
+
+            @Nullable Double temperatureCode = null;
+            var tempCodeRaw = jobSpecRequest.temperatureCode();
+            if (tempCodeRaw != null) {
+                if (tempCodeRaw.isNaN() || tempCodeRaw < 0.0 || tempCodeRaw > 2.0) {
+                    sendValidationError(exchange, "temperatureCode must be between 0.0 and 2.0");
+                    return;
+                }
+                temperatureCode = tempCodeRaw;
+            }
+
             // Optional job-scoped context text: accept from either top-level contextText or nested context.text
             var requestedJobContextTexts = new ArrayList<String>();
             var topLevelTexts = jobSpecRequest.contextText();
@@ -966,7 +1062,8 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.scanModel(),
                     jobSpecRequest.codeModel(),
                     preScanFlag,
-                    safeTags);
+                    safeTags,
+                    new JobSpec.ModelOverrides(reasoningLevel, reasoningLevelCode, temperature, temperatureCode));
 
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
@@ -1007,6 +1104,11 @@ public final class HeadlessExecutorMain {
                         jobId,
                         idempotencyKey,
                         contextManager.getCurrentSessionId());
+
+                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
+                    return;
+                }
+
                 try {
                     // Add any validated job-scoped context text fragments before starting execution
                     var contextTextFragmentIds = new ArrayList<String>();
@@ -1251,6 +1353,10 @@ public final class HeadlessExecutorMain {
                     return;
                 }
 
+                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
+                    return;
+                }
+
                 try {
                     executeJobAsync(jobId, jobSpec, List.of());
                 } catch (Exception ex) {
@@ -1478,7 +1584,11 @@ public final class HeadlessExecutorMain {
             @Nullable Boolean preScan,
             @Nullable Map<String, String> tags,
             @Nullable List<String> contextText,
-            @Nullable ContextPayload context) {}
+            @Nullable ContextPayload context,
+            @Nullable String reasoningLevel,
+            @Nullable String reasoningLevelCode,
+            @Nullable Double temperature,
+            @Nullable Double temperatureCode) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 
@@ -1511,7 +1621,8 @@ public final class HeadlessExecutorMain {
             @Nullable String githubToken,
             @Nullable String plannerModel,
             @Nullable String codeModel,
-            @Nullable Map<String, Object> buildSettings) {}
+            @Nullable Map<String, Object> buildSettings,
+            @Nullable Integer maxIssueFixAttempts) {}
 
     /**
      * POST /v1/jobs/issue - Convenience endpoint for starting an ISSUE mode job.
@@ -1555,6 +1666,17 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
+            int maxAttempts;
+            if (request.maxIssueFixAttempts() == null) {
+                maxAttempts = JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS;
+            } else {
+                maxAttempts = request.maxIssueFixAttempts();
+                if (maxAttempts <= 0) {
+                    sendValidationError(exchange, "maxIssueFixAttempts must be a positive integer");
+                    return;
+                }
+            }
+
             String buildSettingsJson = "";
             if (request.buildSettings() != null) {
                 buildSettingsJson = OBJECT_MAPPER.writeValueAsString(request.buildSettings());
@@ -1567,7 +1689,8 @@ public final class HeadlessExecutorMain {
                     Objects.requireNonNull(request.owner()),
                     Objects.requireNonNull(request.repo()),
                     request.issueNumber(),
-                    buildSettingsJson);
+                    buildSettingsJson,
+                    maxAttempts);
 
             // Create or get job
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
@@ -1585,6 +1708,10 @@ public final class HeadlessExecutorMain {
                 if (!tryReserveJobSlot(jobId)) {
                     var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
                     SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
                     return;
                 }
 

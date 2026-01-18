@@ -3,11 +3,15 @@ package ai.brokk.executor.jobs;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
 import ai.brokk.util.Json;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,7 +72,8 @@ class JobRunnerIssueModeTest {
                         "github_token", "fake-token",
                         "repo_owner", "owner",
                         "repo_name", "repo",
-                        "issue_number", "42"));
+                        "issue_number", "42"),
+                (String) null);
 
         assertEquals(JobRunner.Mode.ISSUE, JobRunner.parseMode(specWithMode));
     }
@@ -91,6 +96,7 @@ class JobRunnerIssueModeTest {
         assertEquals("{\"buildLintCommand\":\"./gradlew build\"}", spec.getBuildSettingsJson());
         assertEquals("gpt-4", spec.plannerModel());
         assertEquals("gpt-4-mini", spec.codeModel());
+        assertEquals(5, spec.effectiveMaxIssueFixAttempts());
     }
 
     @Test
@@ -145,7 +151,7 @@ class JobRunnerIssueModeTest {
 
     @Test
     void testJobStoreCreatesIssueJob() throws Exception {
-        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "{}");
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "{}", 7);
 
         String idempotencyKey = "issue-job-test";
         var result = store.createOrGetJob(idempotencyKey, spec);
@@ -160,9 +166,99 @@ class JobRunnerIssueModeTest {
         assertNotNull(status);
         assertEquals("QUEUED", status.state());
 
+        JobSpec persistedSpec = store.loadSpec(result.jobId());
+        assertNotNull(persistedSpec);
+        assertEquals(7, persistedSpec.effectiveMaxIssueFixAttempts());
+
         // Verify idempotency: same key returns same job
         var secondResult = store.createOrGetJob(idempotencyKey, spec);
         assertFalse(secondResult.isNewJob());
         assertEquals(result.jobId(), secondResult.jobId());
+    }
+
+    @Test
+    void testJobStorePersistsDefaultMaxIssueFixAttempts() throws Exception {
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "{}");
+
+        var result = store.createOrGetJob("issue-job-default-attempts", spec);
+
+        JobSpec persistedSpec = store.loadSpec(result.jobId());
+        assertNotNull(persistedSpec);
+        assertEquals(JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, persistedSpec.effectiveMaxIssueFixAttempts());
+    }
+
+    @Test
+    void testPrePrGateExhaustsAttemptsBlocksPrCreation() {
+        var prCreated = new AtomicBoolean(false);
+        var fixCalls = new AtomicInteger(0);
+
+        var io = new TestConsoleIO();
+        var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
+
+        assertThrows(IssueExecutionException.class, () -> {
+            JobRunner.runPrePrGateWithFixRetryLoop(
+                    "job-1",
+                    store,
+                    io,
+                    details,
+                    3,
+                    cmd -> cmd.contains("testAll") ? "tests failed" : "lint failed",
+                    prompt -> fixCalls.incrementAndGet());
+            prCreated.set(true);
+        });
+
+        assertFalse(prCreated.get());
+        assertEquals(2, fixCalls.get());
+    }
+
+    @Test
+    void testPrePrGateSucceedsAfterFixAllowsPrCreation() {
+        var prCreated = new AtomicBoolean(false);
+        var fixCalls = new AtomicInteger(0);
+
+        var io = new TestConsoleIO();
+        var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
+
+        var testCmdCalls = new AtomicInteger(0);
+
+        assertDoesNotThrow(() -> {
+            JobRunner.runPrePrGateWithFixRetryLoop(
+                    "job-2",
+                    store,
+                    io,
+                    details,
+                    5,
+                    cmd -> {
+                        if (cmd.contains("testAll")) {
+                            int attempt = testCmdCalls.incrementAndGet();
+                            return attempt == 1 ? "tests failed on attempt 1" : "";
+                        }
+                        return "";
+                    },
+                    prompt -> fixCalls.incrementAndGet());
+            prCreated.set(true);
+        });
+
+        assertTrue(prCreated.get());
+        assertEquals(1, fixCalls.get());
+    }
+
+    @Test
+    void testPrePrGateBlankCommandsAreSkippedAndPassing() {
+        var fixCalls = new AtomicInteger(0);
+
+        var io = new TestConsoleIO();
+        var details = new BuildAgent.BuildDetails("", "", "", Set.of());
+
+        assertDoesNotThrow(() -> JobRunner.runPrePrGateWithFixRetryLoop(
+                "job-blank-cmds",
+                store,
+                io,
+                details,
+                3,
+                cmd -> fail("commandRunner should not be invoked when commands are blank: " + cmd),
+                prompt -> fixCalls.incrementAndGet()));
+
+        assertEquals(0, fixCalls.get());
     }
 }

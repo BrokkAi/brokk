@@ -785,9 +785,12 @@ class HeadlessExecutorMainIntegrationTest {
                     .getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();
 
-            // Add empty contexts.jsonl
+            // Add contexts.jsonl with at least one valid context entry (required by HistoryIo)
             var contextsEntry = new ZipEntry("contexts.jsonl");
             zos.putNextEntry(contextsEntry);
+            zos.write(
+                    "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"editable\":[],\"readonly\":[],\"virtuals\":[],\"pinned\":[],\"tasks\":[],\"parsedOutputId\":null}\n"
+                            .getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();
         }
         return out.toByteArray();

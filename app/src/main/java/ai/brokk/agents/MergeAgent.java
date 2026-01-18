@@ -6,6 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
@@ -307,7 +308,7 @@ public class MergeAgent {
             var msg = "Merge completed successfully. Processed %d conflicted files. Verification passed."
                     .formatted(hasConflictLines.size());
             logger.debug(msg);
-            cm.getIo().llmOutput(msg, ChatMessageType.AI);
+            cm.getIo().llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
             var ctx = new Context(cm).addFragments(cm.toPathFragments(changedFiles));
             return new TaskResult(

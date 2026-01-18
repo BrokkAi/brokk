@@ -68,6 +68,16 @@ public class GitRepoRemote {
      * "origin" and the remote branch has the same name as the local branch.
      */
     public void push(String branchName) throws GitAPIException {
+        push(branchName, null);
+    }
+
+    /**
+     * Push the committed changes for the specified branch to the "origin" remote. This method assumes the remote is
+     * "origin" and the remote branch has the same name as the local branch.
+     *
+     * @param token Explicit GitHub token override, or null to use the repo's default token supplier.
+     */
+    public void push(String branchName, @Nullable String token) throws GitAPIException {
         assert !branchName.isBlank();
 
         logger.debug("Pushing branch {} to origin", branchName);
@@ -75,7 +85,7 @@ public class GitRepoRemote {
 
         var pushCommand = git.push().setRemote("origin").setRefSpecs(refSpec).setTimeout((int)
                 Environment.GIT_NETWORK_TIMEOUT.toSeconds());
-        repo.applyGitHubAuthentication(pushCommand, getUrl("origin"));
+        repo.applyGitHubAuthentication(pushCommand, getUrl("origin"), token);
         Iterable<PushResult> results = pushCommand.call();
         List<String> rejectionMessages = new ArrayList<>();
 
@@ -111,7 +121,15 @@ public class GitRepoRemote {
      */
     public Iterable<PushResult> pushAndSetRemoteTracking(String localBranchName, String remoteName)
             throws GitAPIException {
-        return pushAndSetRemoteTracking(localBranchName, remoteName, localBranchName);
+        return pushAndSetRemoteTracking(localBranchName, remoteName, localBranchName, null);
+    }
+
+    /**
+     * Pushes the given local branch to the "origin" remote, creates upstream tracking for it, and returns the
+     * PushResult list. Assumes the remote branch should have the same name as the local branch.
+     */
+    public Iterable<PushResult> pushAndSetRemoteTracking(String branchName) throws GitAPIException {
+        return pushAndSetRemoteTracking(branchName, "origin", branchName, null);
     }
 
     /**
@@ -120,6 +138,18 @@ public class GitRepoRemote {
      */
     public Iterable<PushResult> pushAndSetRemoteTracking(
             String localBranchName, String remoteName, String remoteBranchName) throws GitAPIException {
+        return pushAndSetRemoteTracking(localBranchName, remoteName, remoteBranchName, null);
+    }
+
+    /**
+     * Pushes the given local branch to the specified remote, creates upstream tracking for it, and returns the
+     * PushResult list.
+     *
+     * @param token Explicit GitHub token override, or null to use the repo's default token supplier.
+     */
+    public Iterable<PushResult> pushAndSetRemoteTracking(
+            String localBranchName, String remoteName, String remoteBranchName, @Nullable String token)
+            throws GitAPIException {
         logger.debug(
                 "Pushing branch {} to {}/{} and setting up remote tracking",
                 localBranchName,
@@ -132,7 +162,7 @@ public class GitRepoRemote {
                 Environment.GIT_NETWORK_TIMEOUT.toSeconds());
         var remoteUrl = getUrl(remoteName);
 
-        repo.applyGitHubAuthentication(pushCommand, remoteUrl);
+        repo.applyGitHubAuthentication(pushCommand, remoteUrl, token);
         Iterable<PushResult> results = pushCommand.call();
 
         List<String> rejectionMessages = new ArrayList<>();

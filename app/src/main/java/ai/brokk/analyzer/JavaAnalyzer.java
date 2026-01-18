@@ -68,7 +68,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     ANNOTATION_TYPE_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT),
-            Set.of("annotation", "marker_annotation"),
+            Set.of(ANNOTATION, MARKER_ANNOTATION),
             IMPORT_DECLARATION,
             "name", // identifier field name
             "body", // body field name
@@ -84,7 +84,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
-                    CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE),
+                    CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.PACKAGE_DEFINITION, SkeletonType.MODULE_STATEMENT),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );
@@ -119,6 +120,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     }
                 };
 
+        // For modules, compute the parent package and short name from the full package string.
+        // simpleName contains the full package (e.g., "com.example.foo"), so split it.
+        if (type == CodeUnitType.MODULE) {
+            String fullPackage = simpleName;
+            int lastDot = fullPackage.lastIndexOf('.');
+            String parentPkg = lastDot > 0 ? fullPackage.substring(0, lastDot) : "";
+            String leafName = lastDot > 0 ? fullPackage.substring(lastDot + 1) : fullPackage;
+            return new CodeUnit(file, type, parentPkg, leafName);
+        }
+
         return new CodeUnit(file, type, packageName, shortName);
     }
 
@@ -148,24 +159,55 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         TSNode maybeDeclaration = null;
         for (int i = 0; i < rootNode.getChildCount(); i++) {
             final var child = rootNode.getChild(i);
-            if (packageDef.equals(child.getType())) {
+            String type = child.getType();
+            if (packageDef.equals(type)) {
                 maybeDeclaration = child;
                 break;
-            } else if (classLikeNodeType.contains(child.getType())) {
+            }
+
+            // Skip annotations when searching for the package declaration
+            if (ANNOTATION.equals(type) || MARKER_ANNOTATION.equals(type)) {
+                continue;
+            }
+
+            if (classLikeNodeType.contains(type)) {
                 break;
             }
         }
 
         if (maybeDeclaration != null && packageDef.equals(maybeDeclaration.getType())) {
+            // In Java, package_declaration has a single identifier or scoped_identifier child.
+            // In Scala, it may have multiple package_identifier children.
+            // We iterate through named children and skip annotations (blacklist approach).
             for (int i = 0; i < maybeDeclaration.getNamedChildCount(); i++) {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {
+                    String type = nameNode.getType();
+                    if (ANNOTATION.equals(type) || MARKER_ANNOTATION.equals(type)) {
+                        continue;
+                    }
                     String nsPart = textSlice.apply(nameNode, sourceContent);
-                    namespaceParts.add(nsPart);
+                    // Special handling for nodes that might have child identifiers (like Scala package_identifier)
+                    if (nsPart.isEmpty() && nameNode.getNamedChildCount() > 0) {
+                        List<String> parts = new ArrayList<>();
+                        for (int j = 0; j < nameNode.getNamedChildCount(); j++) {
+                            TSNode child = nameNode.getNamedChild(j);
+                            if (child != null && !child.isNull()) {
+                                String childText = textSlice.apply(child, sourceContent);
+                                if (!childText.isEmpty()) {
+                                    parts.add(childText);
+                                }
+                            }
+                        }
+                        nsPart = String.join(".", parts);
+                    }
+                    if (!nsPart.isEmpty()) {
+                        namespaceParts.add(nsPart);
+                    }
                 }
             }
         }
-        Collections.reverse(namespaceParts);
+        // Join parts with dots. Java's single scoped_identifier is preserved; Scala's parts are joined.
         return String.join(".", namespaceParts);
     }
 
@@ -553,61 +595,31 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
             Map<CodeUnit, List<CodeUnit>> localChildren) {
-        // Create a MODULE CodeUnit for the current file's package and attach the file's top-level classes as children.
         if (modulePackageName.isBlank()) {
-            return; // default package: no module CU
+            return;
         }
 
-        // Locate the package_declaration node to compute a precise range for the module signature
-        TSNode packageNode = null;
-        for (int i = 0; i < rootNode.getChildCount(); i++) {
-            TSNode child = rootNode.getChild(i);
-            if (child != null && !child.isNull() && PACKAGE_DECLARATION.equals(child.getType())) {
-                packageNode = child;
-                break;
-            }
+        // Look up the module in localCuByFqName (created via captures).
+        // Only use modules that are already present; do not create new ones.
+        CodeUnit moduleCu = localCuByFqName.get(modulePackageName);
+        if (moduleCu == null || !moduleCu.isModule()) {
+            return;
         }
 
-        // Determine parent package and simple name, so that fqName(parent + "." + short) == modulePackageName
-        int idx = modulePackageName.lastIndexOf('.');
-        String parentPkg = idx >= 0 ? modulePackageName.substring(0, idx) : "";
-        String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
+        // Filter localTopLevelCUs to find top-level classes in this package.
+        List<CodeUnit> classesInPackage = localTopLevelCUs.stream()
+                .filter(cu -> cu.isClass() && modulePackageName.equals(cu.packageName()))
+                .toList();
 
-        CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
-
-        // Signature for a Java package module
-        String signature = "package " + modulePackageName + ";";
-        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(signature);
-
-        // Range covering the package declaration (when available)
-        if (packageNode != null) {
-            Range r = new Range(
-                    packageNode.getStartByte(),
-                    packageNode.getEndByte(),
-                    packageNode.getStartPoint().getRow(),
-                    packageNode.getEndPoint().getRow(),
-                    packageNode.getStartByte());
-            localSourceRanges.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(r);
-        }
-
-        // Children: include only top-level classes declared in this exact package
-        List<CodeUnit> classesInThisFileAndPackage = new ArrayList<>();
-        for (CodeUnit cu : localTopLevelCUs) {
-            if (cu.isClass() && modulePackageName.equals(cu.packageName())) {
-                classesInThisFileAndPackage.add(cu);
-            }
-        }
-        localChildren.put(moduleCu, classesInThisFileAndPackage);
-
-        // Register in local lookup for potential parent-child bindings (not added as a top-level CU)
-        localCuByFqName.put(moduleCu.fqName(), moduleCu);
+        // Always record the module's children (even if empty) so callers can distinguish
+        // "known module with no children" from "no relationship recorded".
+        localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
     }
 
     @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
-        // Previously only the first match was considered, which dropped additional interfaces.
         var query = getThreadLocalQuery();
 
         // Ascend to the root node for matching
@@ -642,12 +654,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             }
 
             if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
-                // Accumulate all type.super nodes for this declaration; do not break after first match.
                 aggregateSuperNodes.addAll(superCapturesThisMatch);
             }
         }
 
-        // Sort once to preserve source order: superclass first, then interfaces in declaration order
         aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
 
         List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
@@ -658,7 +668,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        // Deduplicate while preserving order to avoid duplicates like [BaseClass, BaseClass, ...]
         LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
         return List.copyOf(unique);
     }

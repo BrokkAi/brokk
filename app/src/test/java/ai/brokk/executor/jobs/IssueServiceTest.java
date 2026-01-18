@@ -82,4 +82,23 @@ class IssueServiceTest {
             assertEquals(branchName, repo.getCurrentBranch());
         }
     }
+
+    @Test
+    void testBuildPrDescription_NonEmptySummary() {
+        String input = "  Hello world  \n";
+        String expected = "Hello world\n\nFixes #42";
+        assertEquals(expected, IssueService.buildPrDescription(input, 42));
+    }
+
+    @Test
+    void testBuildPrDescription_EmptySummary() {
+        String expected = "Fixes #99";
+        assertEquals(expected, IssueService.buildPrDescription("", 99));
+    }
+
+    @Test
+    void testBuildPrDescription_WhitespaceOnlySummary() {
+        String expected = "Fixes #7";
+        assertEquals(expected, IssueService.buildPrDescription(" \n\t ", 7));
+    }
 }

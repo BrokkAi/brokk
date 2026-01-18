@@ -38,7 +38,6 @@ import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
-import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -47,7 +46,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private static final String CARD_CONTENT = "content";
 
     private final ContextManager contextManager;
-    private final CodeReviewPanel parent;
     private final Runnable onNext;
 
     private final MarkdownOutputPanel markdownPanel;
@@ -61,9 +59,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
     private final List<String> markdownChunks = new ArrayList<>();
 
-    public ReviewDetailPanel(ContextManager contextManager, CodeReviewPanel parent, Runnable onNext) {
+    public ReviewDetailPanel(ContextManager contextManager, Runnable onNext) {
         this.contextManager = contextManager;
-        this.parent = parent;
         this.onNext = onNext;
 
         cardLayout = new CardLayout();
@@ -121,76 +118,62 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         cardLayout.show(this, CARD_CONTENT);
         clearContent();
 
-        if (item instanceof String text) {
-            // This is the Overview
-            markdownChunks.add(text);
+        switch (item) {
+            case String text -> {
+                // This is the Overview
+                markdownChunks.add(text);
 
-            buttonPanel.removeAll();
-            buttonPanel.setVisible(true);
+                if (!isLast) {
+                    buttonPanel.removeAll();
+                    buttonPanel.setVisible(true);
 
-            var captureBtn = new MaterialButton("Capture to new Session");
-            captureBtn.addActionListener(e -> {
-                var ctx = parent.getReviewContext();
-                if (ctx != null) {
-                    contextManager
-                            .createSessionFromContextAsync(ctx, "Code Review")
-                            .exceptionally(ex -> {
-                                contextManager
-                                        .getIo()
-                                        .toolError("Failed to create session: " + ex.getMessage(), "Session Error");
-                                return null;
-                            });
-                } else {
-                    contextManager.getIo().toolError("No review context available to capture", "Capture Error");
+                    var nextBtn = new MaterialButton("Next");
+                    nextBtn.addActionListener(e -> onNext.run());
+                    buttonPanel.add(nextBtn);
                 }
-            });
-            buttonPanel.add(captureBtn);
-
-            if (!isLast) {
-                var nextBtn = new MaterialButton("Next");
-                nextBtn.addActionListener(e -> onNext.run());
-                buttonPanel.add(Box.createHorizontalStrut(10));
-                buttonPanel.add(nextBtn);
             }
-        } else if (item instanceof KeyChanges change) {
-            markdownChunks.add("### " + change.title());
-            markdownChunks.add(change.description());
-            if (!excerpts.isEmpty()) {
-                addExcerptsTable(excerpts);
-            }
-            addNavigationButtons(isLast);
-        } else if (item instanceof DesignFeedback design) {
-            markdownChunks.add("### " + design.title());
-            markdownChunks.add(design.description());
-            if (!excerpts.isEmpty()) {
-                addExcerptsTable(excerpts);
-            }
-            if (!design.recommendation().isBlank()) {
-                markdownChunks.add("**Recommendation:**\n" + design.recommendation());
-                String combinedText = design.description() + "\n\n" + design.recommendation();
-                addRecommendationButtons(design.title(), combinedText, isLast);
-            }
-        } else if (item instanceof TacticalFeedback tactical) {
-            markdownChunks.add("### " + tactical.title());
-            markdownChunks.add(tactical.description());
-            if (!excerpts.isEmpty()) {
-                addExcerptsTable(excerpts);
-            }
-            if (!tactical.recommendation().isBlank()) {
-                markdownChunks.add("**Recommendation:**\n" + tactical.recommendation());
-                String combinedText = tactical.description() + "\n\n" + tactical.recommendation();
-                addRecommendationButtons(tactical.title(), combinedText, isLast);
-            }
-        } else if (item instanceof TestFeedback feedback) {
-            markdownChunks.add("### " + feedback.title());
-            if (!feedback.recommendation().isBlank()) {
-                markdownChunks.add("**Recommendation:**\n" + feedback.recommendation());
-                addRecommendationButtons(feedback.title(), feedback.recommendation(), isLast);
-            } else {
+            case KeyChanges change -> {
+                markdownChunks.add("### " + change.title());
+                markdownChunks.add(change.description());
+                if (!excerpts.isEmpty()) {
+                    addExcerptsTable(excerpts);
+                }
                 addNavigationButtons(isLast);
             }
-        } else {
-            throw new IllegalArgumentException("Unknown item type: " + item.getClass());
+            case DesignFeedback design -> {
+                markdownChunks.add("### " + design.title());
+                markdownChunks.add(design.description());
+                if (!excerpts.isEmpty()) {
+                    addExcerptsTable(excerpts);
+                }
+                if (!design.recommendation().isBlank()) {
+                    markdownChunks.add("**Recommendation:**\n" + design.recommendation());
+                    String combinedText = design.description() + "\n\n" + design.recommendation();
+                    addRecommendationButtons(design.title(), combinedText, isLast);
+                }
+            }
+            case TacticalFeedback tactical -> {
+                markdownChunks.add("### " + tactical.title());
+                markdownChunks.add(tactical.description());
+                if (!excerpts.isEmpty()) {
+                    addExcerptsTable(excerpts);
+                }
+                if (!tactical.recommendation().isBlank()) {
+                    markdownChunks.add("**Recommendation:**\n" + tactical.recommendation());
+                    String combinedText = tactical.description() + "\n\n" + tactical.recommendation();
+                    addRecommendationButtons(tactical.title(), combinedText, isLast);
+                }
+            }
+            case TestFeedback feedback -> {
+                markdownChunks.add("### " + feedback.title());
+                if (!feedback.recommendation().isBlank()) {
+                    markdownChunks.add("**Recommendation:**\n" + feedback.recommendation());
+                    addRecommendationButtons(feedback.title(), feedback.recommendation(), isLast);
+                } else {
+                    addNavigationButtons(isLast);
+                }
+            }
+            default -> throw new IllegalArgumentException("Unknown item type: " + item.getClass());
         }
 
         flushContent();
@@ -228,7 +211,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         markdownPanel.setStaticDocument(combined);
     }
 
-    private void addRecommendationButtons(@Nullable String title, String recommendation, boolean isLast) {
+    private void addRecommendationButtons(String title, String recommendation, boolean isLast) {
         buttonPanel.removeAll();
         buttonPanel.setVisible(true);
 
@@ -275,7 +258,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void enqueueTask(@Nullable String title, String text) {
+    private void enqueueTask(String title, String text) {
         var currentData = contextManager.liveContext().getTaskListDataOrEmpty();
         var currentTasks = currentData.tasks();
 

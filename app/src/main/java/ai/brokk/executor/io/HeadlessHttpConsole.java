@@ -1,5 +1,6 @@
 package ai.brokk.executor.io;
 
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.cli.MemoryConsole;
@@ -59,13 +60,14 @@ public class HeadlessHttpConsole extends MemoryConsole {
      * Map LLM token output to LLM_TOKEN event.
      */
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-        super.llmOutput(token, type, isNewMessage, isReasoning);
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+        super.llmOutput(token, type, meta);
         var data = Map.of(
                 "token", token,
                 "messageType", type.name(),
-                "isNewMessage", isNewMessage,
-                "isReasoning", isReasoning);
+                "isNewMessage", meta.isNewMessage(),
+                "isReasoning", meta.isReasoning(),
+                "isTerminal", meta.isTerminal());
         appendEvent("LLM_TOKEN", data);
     }
 

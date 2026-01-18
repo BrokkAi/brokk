@@ -67,6 +67,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     private Object excerptHighlightTag;
 
     private UnifiedDiffDocument.ContextMode contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
+    private boolean showHunkSeparators = true;
 
     /** Custom RSyntaxTextArea that preserves font sizes during theme changes */
     private class UnifiedEditorArea extends RSyntaxTextArea implements FontSizeAware, ThemeAware {
@@ -165,14 +166,14 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         // Generate the UnifiedDiffDocument (for line number metadata and display content)
-        this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode);
+        this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode, showHunkSeparators);
 
         if (unifiedDocument == null) {
             logger.warn(
                     "UnifiedDiffPanel.generateDiffFromDiffNode: Failed to generate diff content for {}",
                     diffNode.getName());
             textArea.setText("ERROR: Failed to generate diff content for " + diffNode.getName());
-            this.navigator = new UnifiedDiffNavigator("", textArea);
+            this.navigator = new UnifiedDiffNavigator(textArea, null);
             return;
         }
 
@@ -204,12 +205,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             customLineNumberList.setContextMode(contextMode);
         }
 
-        // Create navigator with defensive checks
-        if (plainTextContent != null) {
-            this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
-        } else {
-            this.navigator = null;
-        }
+        // Create navigator using the UnifiedDiffDocument for hunk detection
+        this.navigator = new UnifiedDiffNavigator(textArea, unifiedDocument);
 
         // Apply syntax highlighting only (diff coloring disabled)
         applySyntaxHighlighting();
@@ -227,7 +224,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             // Clear the content when no diff node is provided
             textArea.setText("");
             this.unifiedDocument = null;
-            this.navigator = new UnifiedDiffNavigator("", textArea);
+            this.navigator = new UnifiedDiffNavigator(textArea, null);
 
             // Clear the line number list reference
             if (customLineNumberList != null) {
@@ -335,6 +332,16 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Get the current context mode. */
     public UnifiedDiffDocument.ContextMode getContextMode() {
         return contextMode;
+    }
+
+    /** Set whether to show wavy line separators between hunks. */
+    public void setShowHunkSeparators(boolean show) {
+        this.showHunkSeparators = show;
+    }
+
+    /** Get whether wavy line separators are shown between hunks. */
+    public boolean isShowHunkSeparators() {
+        return showHunkSeparators;
     }
 
     // IDiffPanel implementation
@@ -674,7 +681,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     private void applyHighlights() {
         try {
             boolean isDarkTheme = getTheme().isDarkTheme();
-            UnifiedDiffHighlighter.applyHighlights(textArea, jmHighlighter, isDarkTheme);
+            if (unifiedDocument != null) {
+                UnifiedDiffHighlighter.applyHighlights(textArea, jmHighlighter, unifiedDocument, isDarkTheme);
+            }
         } catch (Exception e) {
             logger.warn("Failed to apply highlights: {}", e.getMessage(), e);
         }
@@ -747,14 +756,16 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     @Override
     public void applyEditorFontSize(float size) {
-        applyDerivedFont(textArea, size);
-
-        var gutter = customLineNumberList;
-        if (gutter != null) {
-            applyDerivedFontToGutter(gutter, size);
+        if (customLineNumberList != null) {
+            applyFontToEditorAndGutter(textArea, customLineNumberList, size);
+        } else {
+            applyDerivedFont(textArea, size);
+            textArea.revalidate();
+            textArea.repaint();
         }
 
         scrollPane.revalidate();
+        scrollPane.repaint();
     }
 
     /**

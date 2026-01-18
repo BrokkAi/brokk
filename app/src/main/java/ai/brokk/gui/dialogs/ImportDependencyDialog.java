@@ -145,7 +145,12 @@ public class ImportDependencyDialog {
                     lp.addSelectionListener(pkg -> updateImportButtonState());
                     lp.addDoubleClickListener(() -> {
                         if (importButton.isEnabled() && tabbedPane.getSelectedComponent() == lp) {
-                            lp.initiateImport();
+                            if (lp.initiateImport()) {
+                                // Close the import dialog right away for language-based imports
+                                dialog.dispose();
+                                // Ensure the dependencies dialog stays visible and on top
+                                SwingUtilities.invokeLater(this::bringDependenciesDialogToFront);
+                            }
                         }
                     });
 

@@ -425,14 +425,6 @@ public final class HistoryIo {
             logger.trace("  group {} -> label '{}'", entry.getKey(), entry.getValue());
         }
 
-        // Validate that all context IDs in group mappings exist in the history
-        var historyContextIds = ch.getHistory().stream().map(Context::id).collect(Collectors.toSet());
-        for (var ctxId : ctxToGrp.keySet()) {
-            if (!historyContextIds.contains(ctxId)) {
-                logger.warn("writeZip: context {} in group mapping not found in history!", ctxId);
-            }
-        }
-
         groupInfoBytes = objectMapper.writeValueAsBytes(groupDto);
 
         byte[] resetEdgesBytes = null;

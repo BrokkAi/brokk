@@ -36,6 +36,7 @@ import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.eclipse.jgit.util.SystemReader;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
@@ -246,6 +247,91 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public Path getWorkTreeRoot() {
         return repository.getWorkTree().toPath().normalize();
+    }
+
+    @Override
+    public List<Path> getFixedGitignoreFiles() {
+        var fixedFiles = new ArrayList<Path>();
+
+        getGlobalGitignorePath().ifPresent(fixedFiles::add);
+
+        // info/exclude: check the private git directory first
+        Path gitDir = repository.getDirectory().toPath();
+        Path infoExclude = gitDir.resolve("info/exclude");
+        if (Files.exists(infoExclude)) {
+            fixedFiles.add(infoExclude);
+        }
+
+        // For worktrees, also check the common directory (shared info/exclude)
+        // The commondir file points to the shared git directory
+        Path commondirFile = gitDir.resolve("commondir");
+        if (Files.exists(commondirFile)) {
+            try {
+                var commonDirContent =
+                        Files.readString(commondirFile, StandardCharsets.UTF_8).trim();
+                var commonDirPath = Path.of(commonDirContent);
+                // commondir can be absolute or relative; handle both cases explicitly
+                var commonDir =
+                        (commonDirPath.isAbsolute() ? commonDirPath : gitDir.resolve(commonDirPath)).normalize();
+                var commonInfoExclude = commonDir.resolve("info/exclude");
+                if (!commonInfoExclude.equals(infoExclude) && Files.exists(commonInfoExclude)) {
+                    fixedFiles.add(commonInfoExclude);
+                }
+            } catch (IOException | InvalidPathException e) {
+                logger.debug("Could not resolve common info/exclude", e);
+            }
+        }
+
+        // Root .gitignore is in the working tree, which differs for worktrees
+        var workTreeRoot = getWorkTreeRoot();
+        var rootGitignore = workTreeRoot.resolve(".gitignore");
+        if (Files.exists(rootGitignore)) {
+            fixedFiles.add(rootGitignore);
+        }
+
+        return fixedFiles;
+    }
+
+    @Override
+    public Optional<Path> getGlobalGitignorePath() {
+        var config = repository.getConfig();
+        var fs = repository.getFS();
+
+        // JGit's Config.getPath handles ~/ expansion and resolution against the FS's user home
+        Path globalIgnore = config.getPath("core", null, "excludesfile", fs, null, null);
+
+        if (globalIgnore != null && Files.exists(globalIgnore)) {
+            logger.trace("Using global gitignore from core.excludesfile: {}", globalIgnore);
+            return Optional.of(globalIgnore);
+        }
+
+        // Fallback to XDG location or legacy home location if core.excludesfile is not set
+        // Use JGit's SystemReader to respect environment variables correctly
+        String xdgConfigHome = SystemReader.getInstance().getenv("XDG_CONFIG_HOME");
+        if (xdgConfigHome != null && !xdgConfigHome.isEmpty()) {
+            Path xdgIgnore = Path.of(xdgConfigHome).resolve("git/ignore");
+            if (Files.exists(xdgIgnore)) {
+                logger.trace("Using global gitignore from XDG_CONFIG_HOME: {}", xdgIgnore);
+                return Optional.of(xdgIgnore);
+            }
+        }
+
+        File userHome = fs.userHome();
+        if (userHome != null) {
+            Path xdgIgnore = userHome.toPath().resolve(".config/git/ignore");
+            if (Files.exists(xdgIgnore)) {
+                logger.trace("Using global gitignore from default XDG location: {}", xdgIgnore);
+                return Optional.of(xdgIgnore);
+            }
+
+            Path legacyIgnore = userHome.toPath().resolve(".gitignore_global");
+            if (Files.exists(legacyIgnore)) {
+                logger.trace("Using global gitignore from legacy location: {}", legacyIgnore);
+                return Optional.of(legacyIgnore);
+            }
+        }
+
+        return Optional.empty();
     }
 
     /**

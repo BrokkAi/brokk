@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -221,7 +222,7 @@ public interface IContextManager {
     }
 
     default AbstractService getService() {
-        throw new UnsupportedOperationException();
+        return new OfflineService(getProject());
     }
 
     default void reportException(Throwable th) {}
@@ -329,6 +330,19 @@ public interface IContextManager {
 
     @Blocking
     default CompletableFuture<String> summarizeTaskForConversation(String taskText) {
+        return CompletableFuture.completedFuture(taskText);
+    }
+
+    @Nullable
+    default UUID getCurrentSessionId() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void reloadCurrentSessionAsync() {
+        throw new UnsupportedOperationException();
+    }
+
+    default CompletableFuture<Void> createSessionAsync(String name) {
         throw new UnsupportedOperationException();
     }
 }

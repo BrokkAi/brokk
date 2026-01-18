@@ -92,7 +92,7 @@ public class GitHistoryTab extends JPanel {
         var viewFileAtRevItem = new JMenuItem("View File at Revision");
         var viewDiffItem = new JMenuItem("View Diff");
         var viewInLogItem = new JMenuItem("View in Log");
-        var editFileItem = new JMenuItem("Edit File");
+        var editFileItem = new JMenuItem("Attach File");
 
         menu.add(captureDiffItem);
         menu.add(editFileItem);

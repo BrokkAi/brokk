@@ -793,7 +793,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         // Load the review into SessionChangesPanel
         if (reviewTabComponent instanceof SessionChangesPanel scp) {
-            scp.loadExternalReview(markdown, context);
+            scp.loadExternalReviewAsync(markdown, context);
         }
     }
 

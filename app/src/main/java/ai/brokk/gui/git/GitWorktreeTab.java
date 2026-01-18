@@ -3,6 +3,7 @@ package ai.brokk.gui.git;
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
@@ -55,6 +56,10 @@ public class GitWorktreeTab extends JPanel {
 
     private final boolean isWorktreeWindow;
 
+    /** Cached result of repo.supportsWorktrees(); null until computed. */
+    @Nullable
+    private Boolean supportsWorktrees;
+
     public GitWorktreeTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
@@ -63,15 +68,44 @@ public class GitWorktreeTab extends JPanel {
         var project = contextManager.getProject();
         this.isWorktreeWindow = project instanceof WorktreeProject;
 
-        IGitRepo repo = project.getRepo();
-        if (repo.supportsWorktrees()) {
-            buildWorktreeTabUI();
-            loadWorktrees();
-        } else {
-            buildUnsupportedUI();
-        }
         // Deferred update helper for worktree refreshes
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
+
+        // Show placeholder while we check worktree support off the EDT
+        buildLoadingUI();
+
+        // Check worktree support on background thread, then build appropriate UI
+        LoggingFuture.supplyAsync(() -> {
+                    IGitRepo repo = project.getRepo();
+                    return repo.supportsWorktrees();
+                })
+                .thenAccept(supported -> {
+                    supportsWorktrees = supported;
+                    SwingUtilities.invokeLater(() -> {
+                        if (supported) {
+                            buildWorktreeTabUI();
+                            loadWorktrees();
+                        } else {
+                            buildUnsupportedUI();
+                        }
+                    });
+                });
+    }
+
+    private void buildLoadingUI() {
+        removeAll();
+        JPanel contentPanel = new JPanel(new GridBagLayout());
+        JLabel loadingLabel = new JLabel("Checking worktree support...");
+        loadingLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        contentPanel.add(loadingLabel, new GridBagConstraints());
+
+        JPanel titledPanel = new JPanel(new BorderLayout());
+        titledPanel.setBorder(BorderFactory.createTitledBorder("Worktrees"));
+        titledPanel.add(contentPanel, BorderLayout.CENTER);
+
+        add(titledPanel, BorderLayout.CENTER);
+        revalidate();
+        repaint();
     }
 
     private void buildUnsupportedUI() {
@@ -370,7 +404,7 @@ public class GitWorktreeTab extends JPanel {
     }
 
     private void loadWorktrees() {
-        contextManager.submitBackgroundTask("Loading worktrees", () -> {
+        LoggingFuture.supplyCallableAsync(() -> {
             IGitRepo repo = contextManager.getProject().getRepo();
             if (repo instanceof GitRepo gitRepo) {
                 var result = gitRepo.worktrees().listWorktreesAndInvalid();
@@ -845,14 +879,14 @@ public class GitWorktreeTab extends JPanel {
                 }
                 try {
                     logger.debug("Attempting non-forced removal of worktree {}", worktreePath);
-                    attemptRemoveWorktree(repo, worktreePath, false);
+                    attemptRemoveWorktree(worktreePath, false);
                 } catch (GitRepo.WorktreeNeedsForceException ne) {
                     logger.warn("Worktree {} removal needs force: {}", worktreePath, ne.getMessage());
 
                     if (forceAll) {
                         try {
                             logger.debug("ForceAll active; attempting forced removal of worktree {}", worktreePath);
-                            attemptRemoveWorktree(repo, worktreePath, true);
+                            attemptRemoveWorktree(worktreePath, true);
                         } catch (
                                 GitRepo.GitRepoException
                                         forceEx) { // WorktreeNeedsForceException is a subclass and would be caught here
@@ -892,7 +926,7 @@ public class GitWorktreeTab extends JPanel {
                             }
                             try {
                                 logger.debug("Attempting forced removal of worktree {}", worktreePath);
-                                attemptRemoveWorktree(repo, worktreePath, true);
+                                attemptRemoveWorktree(worktreePath, true);
                             } catch (
                                     GitRepo.GitRepoException
                                             forceEx) { // WorktreeNeedsForceException is a subclass and would be caught
@@ -947,10 +981,9 @@ public class GitWorktreeTab extends JPanel {
         });
     }
 
-    private void attemptRemoveWorktree(IGitRepo repo, Path worktreePath, boolean force)
-            throws GitRepo.WorktreeNeedsForceException, GitRepo.GitRepoException {
+    private void attemptRemoveWorktree(Path worktreePath, boolean force) throws GitRepo.GitRepoException {
         try {
-            repo.removeWorktree(worktreePath, force);
+            contextManager.getProject().getMainProject().deleteWorktree(worktreePath, force);
 
             chrome.showNotification(
                     IConsoleIO.NotificationRole.INFO,
@@ -999,13 +1032,21 @@ public class GitWorktreeTab extends JPanel {
 
     /** Performs the actual refresh logic previously in refresh(). */
     private void performRefresh() {
-        IGitRepo repo = contextManager.getProject().getRepo();
-        if (repo.supportsWorktrees()) {
-            // If UI was previously the unsupported one, rebuild the proper UI
-            loadWorktrees();
-        } else {
-            buildUnsupportedUI();
-        }
+        // Re-check worktree support off the EDT and update cached value
+        LoggingFuture.supplyAsync(() -> {
+                    IGitRepo repo = contextManager.getProject().getRepo();
+                    return repo.supportsWorktrees();
+                })
+                .thenAccept(supported -> {
+                    supportsWorktrees = supported;
+                    SwingUtilities.invokeLater(() -> {
+                        if (supported) {
+                            loadWorktrees();
+                        } else {
+                            buildUnsupportedUI();
+                        }
+                    });
+                });
     }
 
     public record WorktreeSetupResult(Path worktreePath, String branchName) {}
@@ -1155,10 +1196,8 @@ public class GitWorktreeTab extends JPanel {
                 // Post-Merge Cleanup
                 if (deleteWorktree) {
                     logger.info("Attempting to delete worktree: {}", worktreePath);
-                    MainProject.removeFromOpenProjectsListAndClearActiveSession(
-                            worktreePath); // Attempt to close if open
                     try {
-                        parentGitRepo.removeWorktree(worktreePath, true); // Force remove during automated cleanup
+                        parentProject.deleteWorktree(worktreePath, true); // Force remove during automated cleanup
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
                                 "Worktree " + worktreePath.getFileName() + " removed.");

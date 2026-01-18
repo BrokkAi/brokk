@@ -13,7 +13,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
-public final class TestService extends AbstractService {
+public class TestService extends AbstractService {
 
     private final Map<ModelType, StreamingChatModel> modelOverrides = new HashMap<>();
 

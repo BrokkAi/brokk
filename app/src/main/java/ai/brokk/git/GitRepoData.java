@@ -412,13 +412,13 @@ public class GitRepoData {
         return result;
     }
 
-    private String getRefContent(String ref, ProjectFile file) throws GitAPIException {
+    public String getRefContent(String ref, ProjectFile file) throws GitAPIException {
         if ("WORKING".equals(ref)) {
             return file.read().orElse("");
         }
         try {
             return getFileContent(ref, file);
-        } catch (Exception e) {
+        } catch (GitAPIException e) {
             logger.debug("File {} not found at ref {}, treating as empty", file, ref);
             return "";
         }

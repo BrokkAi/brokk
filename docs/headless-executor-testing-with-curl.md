@@ -218,6 +218,10 @@ JSON
 
 All job payloads must include `plannerModel`. The examples below use inline JSON via stdin; swap in real identifiers.
 
+Notes on request vs persisted fields:
+- `sessionId` exists in the request body and is used to select the active session; it is not persisted in `JobSpec` (it may be copied into tags as `session_id`).
+- `sourceBranch` / `targetBranch` are persisted/reserved `JobSpec` fields but are not currently accepted by `POST /v1/jobs`.
+
 ### Job-scoped free-form text seeding (inline)
 
 You can seed free-form text that applies only to the newly created job. These fragments are added just before execution and automatically cleaned up when the job finishes.
@@ -644,7 +648,20 @@ JSON
 
 ### ISSUE Mode (Automated Issue Resolution)
 
-ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (up to 3 attempts per task).
+ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (controlled by `buildSettings.maxBuildAttempts`, per task).
+
+Additionally, you can cap the overall issue remediation workflow using `maxIssueFixAttempts`: this is the maximum number of ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). Default: 5.
+
+#### Retry limits: per-task vs overall
+
+ISSUE mode has two retry limits: one for repeating build verification for a single task, and one for how many times the overall ISSUE workflow will try before giving up.
+
+| Setting | What it limits | Default |
+|---------|----------------|---------|
+| `buildSettings.maxBuildAttempts` | Per task: how many times to rerun build/lint/test for that task after attempting fixes when verification fails. | 3 |
+| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 5 |
+
+Example: if `maxBuildAttempts=3` and `maxIssueFixAttempts=5`, each task can retry verification up to 3 times, but the job will stop entirely after 5 overall ISSUE attempts.
 
 Upon success, it automatically commits the work, pushes the branch, and creates a Pull Request.
 
@@ -663,6 +680,7 @@ curl -sS -X POST "${BASE}/v1/jobs/issue" \
   "githubToken": "ghp_xxxxxxxxxxxx",
   "plannerModel": "gpt-5",
   "codeModel": "gpt-5-mini",
+  "maxIssueFixAttempts": 5,
   "buildSettings": {
     "buildLintCommand": "./gradlew classes",
     "testAllCommand": "./gradlew test",
@@ -787,7 +805,8 @@ curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
 - Uses LUTZ-style planning to decompose issue into tasks.
 - Executes each task with ArchitectAgent (uses `plannerModel` + `codeModel`).
 - Runs build verification after each task.
-- Automatically retries failed builds (default: 3 attempts per task, configurable via `maxBuildAttempts`).
+- Retries failed builds per task (default: 3 attempts per task, configurable via `buildSettings.maxBuildAttempts`).
+- Caps overall issue remediation attempts (default: 5, configurable via `maxIssueFixAttempts`).
 - **PR Creation**: On success, pushes changes and creates a Pull Request with an AI-generated title and description.
 - `buildSettings` overrides project defaults for the job duration.
 - `codeModel` is optional; defaults to project default if omitted.
@@ -830,10 +849,50 @@ curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
   -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
 
+## Job-level model overrides (optional): reasoningLevel and temperature
+
+You can pass these optional top-level fields in any `POST /v1/jobs` payload:
+
+- `reasoningLevel` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"` — applies to the planner model.
+- `reasoningLevelCode` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"` — applies to the code model (CODE and ARCHITECT modes).
+- `temperature` (number): `0.0` to `2.0` inclusive — applies to the planner model.
+- `temperatureCode` (number): `0.0` to `2.0` inclusive — applies to the code model (CODE and ARCHITECT modes).
+
+If omitted, the executor uses the model/service defaults.
+
+### Example: CODE mode with overrides
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Implement a utility to sanitize filenames.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "reasoningLevel": "MEDIUM",
+  "reasoningLevelCode": "LOW",
+  "temperature": 0.0,
+  "temperatureCode": 0.2,
+  "tags": {
+    "mode": "CODE"
+  }
+}
+JSON
+```
+
 ## Troubleshooting
 
 - Missing `plannerModel` triggers `HTTP 400` with a validation error (`plannerModel is required`).
 - Providing an unknown `plannerModel` yields a job that transitions to `FAILED` with an error containing `MODEL_UNAVAILABLE`.
 - In CODE mode, changing `plannerModel` does not alter execution, but it must still be supplied; `codeModel` selects the LLM used for code actions.
+- `reasoningLevel` must be one of `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`; invalid values trigger `HTTP 400`.
+- `temperature` (planner model) must be a number between `0.0` and `2.0` inclusive; invalid values trigger `HTTP 400`.
+- `temperatureCode` (code model) must be a number between `0.0` and `2.0` inclusive; invalid values trigger `HTTP 400`.
 - Free-form text that exceeds 1 MiB (UTF-8 bytes) is rejected with `HTTP 400`.
 - Blank free-form text is rejected with `HTTP 400`.

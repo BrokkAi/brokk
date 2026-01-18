@@ -7,6 +7,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.menu.ContextMenuBuilder;
+import ai.brokk.gui.mop.ChunkMeta;
 import ai.brokk.gui.mop.FilePathLookupService;
 import ai.brokk.gui.mop.SymbolLookupService;
 import ai.brokk.project.MainProject;
@@ -154,12 +155,12 @@ public final class MOPBridge {
         Platform.runLater(() -> engine.executeScript(js));
     }
 
-    public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
+    public void append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta) {
         if (text.isEmpty()) {
             return;
         }
 
-        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning));
+        eventQueue.add(new BrokkEvent.Chunk(text, msgType, -1, streaming, chunkMeta));
         scheduleSend();
     }
 
@@ -234,8 +235,11 @@ public final class MOPBridge {
             var msgs = taskFragment.messages();
             for (var message : msgs) {
                 var text = Messages.getText(message);
-                messages.add(
-                        new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
+                messages.add(new BrokkEvent.HistoryTask.Message(
+                        text,
+                        message.type(),
+                        Messages.isReasoningMessage(message),
+                        Messages.isTerminalMessage(message)));
             }
         }
 
@@ -285,10 +289,11 @@ public final class MOPBridge {
                 if (event instanceof BrokkEvent.Chunk chunk) {
                     if (firstChunk == null) {
                         firstChunk = chunk;
-                    } else if (chunk.isNew()
-                            || chunk.msgType() != firstChunk.msgType()
-                            || chunk.reasoning() != firstChunk.reasoning()) {
-                        // A new bubble is starting, so send the previously buffered one
+                    } else if (chunk.chunkMeta().isNewMessage()) {
+                        // isNewMessage is the authoritative signal from MarkdownOutputPanel
+                        // for all semantic boundaries (type changes, reasoning transitions, terminality).
+                        // We trust the upstream logic to set this flag correctly and do not apply
+                        // additional heuristics here.
                         flushCurrentChunk(firstChunk, currentText);
                         firstChunk = chunk;
                     }
@@ -314,19 +319,14 @@ public final class MOPBridge {
 
     private void flushCurrentChunk(@Nullable BrokkEvent.Chunk firstChunk, StringBuilder currentText) {
         if (firstChunk != null) {
-            sendChunk(
-                    currentText.toString(),
-                    firstChunk.isNew(),
-                    firstChunk.msgType(),
-                    firstChunk.streaming(),
-                    firstChunk.reasoning());
+            sendChunk(currentText.toString(), firstChunk.msgType(), firstChunk.streaming(), firstChunk.chunkMeta());
             currentText.setLength(0);
         }
     }
 
-    private void sendChunk(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
+    private void sendChunk(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta) {
         var e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming, reasoning);
+        var event = new BrokkEvent.Chunk(text, msgType, e, streaming, chunkMeta);
         sendEvent(event);
     }
 

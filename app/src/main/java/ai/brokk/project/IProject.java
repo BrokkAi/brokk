@@ -5,6 +5,7 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
+import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
@@ -12,7 +13,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.Environment;
-import ai.brokk.util.StringDiskCache;
+import ai.brokk.util.IStringDiskCache;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -43,8 +44,8 @@ public interface IProject extends AutoCloseable {
      * <p>Implementations (MainProject) should return a properly initialized StringDiskCache.
      * WorktreeProject will forward to its MainProject parent.
      */
-    default StringDiskCache getDiskCache() {
-        throw new UnsupportedOperationException();
+    default IStringDiskCache getDiskCache() {
+        return new IStringDiskCache.NoopDiskCache();
     }
 
     /**
@@ -378,6 +379,14 @@ public interface IProject extends AutoCloseable {
     /** Sets a UI filter property for persistence across sessions. */
     default void setUiFilterProperty(String key, @Nullable String value) {}
 
+    /** Gets the list of expanded directory paths in the project tree (relative to project root). */
+    default List<Path> getExpandedTreePaths() {
+        return List.of();
+    }
+
+    /** Sets the list of expanded directory paths in the project tree (relative to project root). */
+    default void setExpandedTreePaths(List<Path> paths) {}
+
     default boolean getArchitectRunInWorktree() {
         throw new UnsupportedOperationException();
     }
@@ -400,7 +409,15 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default SessionRegistry getSessionRegistry() {
+        throw new UnsupportedOperationException();
+    }
+
     default SessionManager getSessionManager() {
+        throw new UnsupportedOperationException();
+    }
+
+    default String getRemoteProjectName() {
         throw new UnsupportedOperationException();
     }
 

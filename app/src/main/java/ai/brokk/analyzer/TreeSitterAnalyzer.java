@@ -1115,7 +1115,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     .forEach(results::add);
         }
 
-        return results.stream().filter(cu -> !isAnonymousStructure(cu.fqName())).collect(Collectors.toSet());
+        return results.stream()
+                .filter(cu -> !isAnonymousStructure(cu.fqName()))
+                .sorted(IAnalyzer.autocompleteDefinitionsSortComparator())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**
@@ -3029,7 +3032,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 if (firstLine.endsWith("{")) {
                     firstLine = firstLine.substring(0, firstLine.length() - 1).stripTrailing();
                 }
-                signatureLines.add(exportPrefix + firstLine);
+                String moduleSig = exportPrefix + firstLine;
+                if (requiresSemicolons() && !moduleSig.endsWith(";")) {
+                    moduleSig += ";";
+                }
+                signatureLines.add(moduleSig);
                 break;
             }
 

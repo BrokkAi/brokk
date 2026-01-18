@@ -410,8 +410,13 @@ public class Context {
         assert fragments.contains(fragment) : "%s is not part of %s".formatted(fragment, fragments);
 
         var newPinned = new HashSet<>(this.pinnedFragments);
+        var newFragments = new ArrayList<>(this.fragments);
+
         if (pinned) {
             newPinned.add(fragment);
+            // Move to front: remove from current position and add at index 0
+            newFragments.remove(fragment);
+            newFragments.add(0, fragment);
         } else {
             newPinned.remove(fragment);
         }
@@ -419,7 +424,7 @@ public class Context {
         return new Context(
                 newContextId(),
                 contextManager,
-                fragments,
+                newFragments,
                 taskHistory,
                 parsedOutput,
                 this.markedReadonlyFragments,

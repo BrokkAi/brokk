@@ -6,7 +6,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.ToolRegistry;
-import ai.brokk.util.Exceptions;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
@@ -373,10 +372,14 @@ public class Llm {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         if (addJsonFence && !fenceOpen.get()) {
-                            io.llmOutput("\n```json\n", ChatMessageType.AI, false, forceReasoningEcho);
+                            io.llmOutput(
+                                    "\n```json\n",
+                                    ChatMessageType.AI,
+                                    LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                             fenceOpen.set(true);
                         }
-                        io.llmOutput(token, ChatMessageType.AI, false, forceReasoningEcho);
+                        io.llmOutput(
+                                token, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     }
                 });
             }
@@ -391,7 +394,7 @@ public class Llm {
 
                     accumulatedReasoningBuilder.append(out);
                     if (echo) {
-                        io.llmOutput(out, ChatMessageType.AI, false, true);
+                        io.llmOutput(out, ChatMessageType.AI, LlmOutputMeta.reasoning());
                     }
                 });
             }
@@ -424,7 +427,8 @@ public class Llm {
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+                        io.llmOutput(
+                                "\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -442,7 +446,8 @@ public class Llm {
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     errorRef.set(th);
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+                        io.llmOutput(
+                                "\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -467,7 +472,7 @@ public class Llm {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 errorRef.set(mapped);
                 if (echo && addJsonFence && fenceOpen.get()) {
-                    io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+                    io.llmOutput("\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     fenceOpen.set(false);
                 }
                 completed.set(true);
@@ -508,7 +513,7 @@ public class Llm {
 
         // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
         if (echo && addJsonFence && fenceOpen.get()) {
-            io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+            io.llmOutput("\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
             fenceOpen.set(false);
         }
 
@@ -539,9 +544,6 @@ public class Llm {
         // Happy path: successful completion, no errors
         var response = completedChatResponse.get(); // Will be null if an error occurred or onComplete got null
         assert response != null : "If no error, completedChatResponse must be set by onCompleteResponse";
-        if (echo) {
-            io.llmOutput("\n", ChatMessageType.AI, false, forceReasoningEcho);
-        }
         return StreamingResult.fromResponse(response, null, elapsedMs);
     }
 
@@ -630,11 +632,9 @@ public class Llm {
 
         // poor man's ToolChoice.REQUIRED (not supported by langchain4j for some providers)
         // Also needed for our emulation if it returns a response without a tool call
-        var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
         int totalAttemptsMade = result.retries() + 1;
         while (result.error == null
-                && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED
                 && totalAttemptsMade < MAX_ATTEMPTS) {
@@ -652,10 +652,9 @@ public class Llm {
         // If we exhausted attempts and still don't have tool calls when REQUIRED, fail
         if (totalAttemptsMade >= MAX_ATTEMPTS
                 && result.error == null
-                && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED) {
-            return new StreamingResult(cr, new MissingToolCallsException(totalAttemptsMade), result.retries());
+            return new StreamingResult(null, new MissingToolCallsException(totalAttemptsMade), result.retries());
         }
 
         return result;
@@ -669,6 +668,10 @@ public class Llm {
             List<ChatMessage> rawMessages, ToolContext toolContext, int maxAttempts) throws InterruptedException {
         if (SwingUtilities.isEventDispatchThread() && Boolean.getBoolean("brokk.devmode")) {
             throw new IllegalStateException("LLM calls must not be made from the EDT");
+        }
+        if (toolContext.toolChoice().equals(ToolChoice.REQUIRED)
+                && toolContext.toolSpecifications().isEmpty()) {
+            throw new IllegalArgumentException("REQUIRED tool specifications must not be empty");
         }
 
         Throwable lastError = null;
@@ -809,12 +812,14 @@ public class Llm {
         }
         var tr = toolContext.toolRegistry();
 
+        // we need an empty line before each tool call render (needed for rehype-plugin to render correctly)
         var rendered = requests.stream()
                 .map(tr::getExplanationForToolRequest)
                 .filter(s -> !s.isBlank())
-                .collect(Collectors.joining("\n"));
+                .collect(Collectors.joining("\n\n"));
         if (!rendered.isBlank()) {
-            io.llmOutput("\n" + rendered, ChatMessageType.AI, false, forceReasoningEcho);
+            io.llmOutput(
+                    "\n\n" + rendered, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
         }
     }
 
@@ -901,7 +906,7 @@ public class Llm {
                     // output the LLM's thinking
                     String textToOutput = parseResult.text();
                     if (textToOutput != null && !textToOutput.isBlank()) {
-                        io.llmOutput(textToOutput, ChatMessageType.AI, false, false);
+                        io.llmOutput(textToOutput, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     }
                 }
 
@@ -928,8 +933,7 @@ public class Llm {
                         io.llmOutput(
                                 "\nTool call validation errors:\n- " + String.join("\n- ", validationErrors),
                                 ChatMessageType.CUSTOM,
-                                false,
-                                forceReasoningEcho);
+                                LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     }
                     attemptMessages.add(new AiMessage(rawResult.text()));
                     attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(new IllegalArgumentException(
@@ -953,8 +957,7 @@ public class Llm {
                         "\nRetry " + attempt + "/" + (maxTries - 1)
                                 + ": invalid JSON response; requesting proper format.",
                         ChatMessageType.CUSTOM,
-                        false,
-                        forceReasoningEcho);
+                        LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                 var txt = rawResult.text();
                 attemptMessages.add(new AiMessage(txt));
                 attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(parseError)));
@@ -1721,7 +1724,7 @@ public class Llm {
                        [Error: %s]
                        %s
                        """
-                        .formatted(Exceptions.formatThrowable(error), contentToShow);
+                        .formatted(ExceptionReporter.formatStackTrace(error), contentToShow);
             }
 
             AiMessage ai = aiMessage();

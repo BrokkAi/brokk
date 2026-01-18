@@ -31,7 +31,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         setLayout(new BorderLayout());
 
         listPanel = new ReviewListPanel(triggerCallback, this::handleItemSelected);
-        detailPanel = new ReviewDetailPanel(contextManager, this, this::selectNext);
+        detailPanel = new ReviewDetailPanel(contextManager, this::selectNext);
     }
 
     public ReviewListPanel getListPanel() {

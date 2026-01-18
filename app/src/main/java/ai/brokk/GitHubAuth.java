@@ -51,6 +51,9 @@ public class GitHubAuth {
     private static @Nullable GitHubAuth instance;
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
+    private record ResolvedRepo(
+            String owner, String repoName, @Nullable String host, boolean usingOverride, String projectName) {}
+
     private final String owner;
     private final String repoName;
 
@@ -85,11 +88,64 @@ public class GitHubAuth {
      * @throws IllegalArgumentException If the project is null.
      */
     public static synchronized GitHubAuth getOrCreateInstance(IProject project) throws IOException {
+        var resolved = resolveRepoForProject(project);
+
+        if (instance != null
+                && instance.getOwner().equals(resolved.owner)
+                && instance.getRepoName().equals(resolved.repoName)
+                && Objects.equals(instance.host, resolved.host)) {
+            logger.debug(
+                    "Using existing GitHubAuth instance for {}/{} (Host: {}) (project {})",
+                    instance.getOwner(),
+                    instance.getRepoName(),
+                    (instance.host == null ? "github.com" : instance.host),
+                    resolved.projectName);
+            return instance;
+        }
+
+        if (instance != null) {
+            logger.info(
+                    "GitHubAuth instance for {}/{} (Host: {}) (project {}) is outdated (current effective {}/{} Host: {}). Re-creating.",
+                    instance.getOwner(),
+                    instance.getRepoName(),
+                    (instance.host == null ? "github.com" : instance.host),
+                    resolved.projectName,
+                    resolved.owner,
+                    resolved.repoName,
+                    (resolved.host == null || resolved.host.isBlank() ? "github.com" : resolved.host));
+        } else {
+            logger.info(
+                    "No existing GitHubAuth instance. Creating new instance for {}/{} (Host: {}) (project {})",
+                    resolved.owner,
+                    resolved.repoName,
+                    (resolved.host == null || resolved.host.isBlank() ? "github.com" : resolved.host),
+                    resolved.projectName);
+        }
+
+        GitHubAuth newAuth = new GitHubAuth(resolved.owner, resolved.repoName, resolved.host);
+        instance = newAuth;
+        logger.info(
+                "Created and set new GitHubAuth instance for {}/{} (Host: {}) (project {})",
+                newAuth.getOwner(),
+                newAuth.getRepoName(),
+                (newAuth.host == null ? "github.com" : newAuth.host),
+                resolved.projectName);
+        return instance;
+    }
+
+    public static synchronized GitHubAuth createForProject(IProject project, @Nullable String tokenOverride)
+            throws IOException {
+        var resolved = resolveRepoForProject(project);
+        return new GitHubAuth(resolved.owner, resolved.repoName, resolved.host, tokenOverride);
+    }
+
+    private static ResolvedRepo resolveRepoForProject(IProject project) throws IOException {
         IssueProvider provider = project.getIssuesProvider();
         String effectiveOwner = null;
         String effectiveRepoName = null;
         String effectiveHost = null; // For GHES
         boolean usingOverride = false;
+        String projectName = project.getRoot().getFileName().toString();
 
         if (provider.type() == IssueProviderType.GITHUB
                 && provider.config() instanceof IssuesProviderConfig.GithubConfig githubConfig) {
@@ -105,7 +161,7 @@ public class GitHubAuth {
                         effectiveOwner,
                         effectiveRepoName,
                         (effectiveHost == null || effectiveHost.isBlank() ? "github.com (default)" : effectiveHost),
-                        project.getRoot().getFileName().toString());
+                        projectName);
             }
         }
 
@@ -120,45 +176,47 @@ public class GitHubAuth {
             }
 
             var remoteUrl = repo.getOriginRemoteUrl();
-            // Use GitUiUtil for parsing owner/repo from URL
             var parsedOwnerRepoDetails = GitRepoIdUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
             if (parsedOwnerRepoDetails != null) {
                 effectiveOwner = parsedOwnerRepoDetails.owner();
                 effectiveRepoName = parsedOwnerRepoDetails.repo();
-                // effectiveHost remains as set by override, or null (github.com) if no override.
-                // If we are here because override didn't specify owner/repo, we still use override's host if present.
                 logger.info(
                         "Derived GitHub owner/repo from git remote: {}/{}. Host remains: '{}' for project {}",
                         effectiveOwner,
                         effectiveRepoName,
                         (effectiveHost == null || effectiveHost.isBlank() ? "github.com (default)" : effectiveHost),
-                        project.getRoot().getFileName().toString());
+                        projectName);
             } else {
                 logger.warn(
                         "Could not parse owner/repo from git remote URL: {} for project {}. GitHub integration might fail if owner/repo not set in override.",
                         remoteUrl,
-                        project.getRoot().getFileName().toString());
-                // effectiveOwner and effectiveRepoName may remain null from override or become null here.
+                        projectName);
             }
         }
 
-        if (effectiveHost != null && !effectiveHost.isBlank()) {
-            var normalizedHostOpt = GitRepoIdUtil.normalizeGitHubHost(effectiveHost);
-            if (normalizedHostOpt.isPresent()) {
-                var hostValidationError = GitRepoIdUtil.validateGitHubHost(normalizedHostOpt.get());
+        if (effectiveHost == null || effectiveHost.isBlank()) {
+            effectiveHost = null;
+        } else {
+            effectiveHost = effectiveHost.trim();
+            effectiveHost = GitRepoIdUtil.normalizeGitHubHost(effectiveHost)
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .orElse(null);
+
+            if (effectiveHost != null) {
+                var hostValidationError = GitRepoIdUtil.validateGitHubHost(effectiveHost);
                 if (hostValidationError.isPresent()) {
                     logger.warn(
                             "Invalid GitHub host for project '{}': '{}'. Validation error: {}",
-                            project.getRoot().getFileName().toString(),
+                            projectName,
                             effectiveHost,
                             hostValidationError.get());
                     throw new IOException("Invalid GitHub Enterprise host for project '"
-                            + project.getRoot().getFileName().toString()
+                            + projectName
                             + "': "
                             + hostValidationError.get());
                 }
-                effectiveHost = normalizedHostOpt.get();
             }
         }
 
@@ -169,14 +227,14 @@ public class GitHubAuth {
             if (instance != null) {
                 logger.warn(
                         "Could not determine effective owner/repo for project '{}'. Invalidating GitHubAuth instance for {}/{} (Host: {}).",
-                        project.getRoot().getFileName().toString(),
+                        projectName,
                         instance.getOwner(),
                         instance.getRepoName(),
                         instance.host);
                 instance = null;
             }
             throw new IOException("Could not determine effective 'owner/repo' for GitHubAuth (project: "
-                    + project.getRoot().getFileName().toString()
+                    + projectName
                     + "). Check git remote or GitHub override settings for owner/repo.");
         }
 
@@ -186,63 +244,16 @@ public class GitHubAuth {
             String source = usingOverride ? "GitHub config override" : "git remote URL";
             logger.warn(
                     "Invalid owner/repo format for project '{}': owner='{}', repo='{}' (from {}). Error: {}",
-                    project.getRoot().getFileName().toString(),
+                    projectName,
                     effectiveOwner,
                     effectiveRepoName,
                     source,
                     e.getMessage());
-            throw new IOException("Invalid GitHub repository identifier for project '"
-                    + project.getRoot().getFileName().toString()
-                    + "': "
-                    + e.getMessage());
+            throw new IOException(
+                    "Invalid GitHub repository identifier for project '" + projectName + "': " + e.getMessage());
         }
 
-        // Compare all three: owner, repo, and host
-        boolean hostMatches =
-                (instance != null && instance.host == null && (effectiveHost == null || effectiveHost.isBlank()))
-                        || (instance != null && instance.host != null && instance.host.equals(effectiveHost));
-
-        if (instance != null
-                && instance.getOwner().equals(effectiveOwner)
-                && instance.getRepoName().equals(effectiveRepoName)
-                && hostMatches) {
-            logger.debug(
-                    "Using existing GitHubAuth instance for {}/{} (Host: {}) (project {})",
-                    instance.getOwner(),
-                    instance.getRepoName(),
-                    (instance.host == null ? "github.com" : instance.host),
-                    project.getRoot().getFileName().toString());
-            return instance;
-        }
-
-        if (instance != null) {
-            logger.info(
-                    "GitHubAuth instance for {}/{} (Host: {}) (project {}) is outdated (current effective {}/{} Host: {}). Re-creating.",
-                    instance.getOwner(),
-                    instance.getRepoName(),
-                    (instance.host == null ? "github.com" : instance.host),
-                    project.getRoot().getFileName().toString(),
-                    effectiveOwner,
-                    effectiveRepoName,
-                    (effectiveHost == null || effectiveHost.isBlank() ? "github.com" : effectiveHost));
-        } else {
-            logger.info(
-                    "No existing GitHubAuth instance. Creating new instance for {}/{} (Host: {}) (project {})",
-                    effectiveOwner,
-                    effectiveRepoName,
-                    (effectiveHost == null || effectiveHost.isBlank() ? "github.com" : effectiveHost),
-                    project.getRoot().getFileName().toString());
-        }
-
-        GitHubAuth newAuth = new GitHubAuth(effectiveOwner, effectiveRepoName, effectiveHost);
-        instance = newAuth;
-        logger.info(
-                "Created and set new GitHubAuth instance for {}/{} (Host: {}) (project {})",
-                newAuth.getOwner(),
-                newAuth.getRepoName(),
-                (newAuth.host == null ? "github.com" : newAuth.host),
-                project.getRoot().getFileName().toString());
-        return instance;
+        return new ResolvedRepo(effectiveOwner, effectiveRepoName, effectiveHost, usingOverride, projectName);
     }
 
     /**

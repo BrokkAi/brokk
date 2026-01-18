@@ -193,17 +193,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void updateChips(List<ContextFragment> fragments) {
-        updateChips(fragments, false);
-    }
-
-    private void updateChips(List<ContextFragment> fragments, boolean fromBackground) {
-        if (!fromBackground && SwingUtilities.isEventDispatchThread()) {
-            var fragmentsCopy = List.copyOf(fragments);
-            contextManager.submitBackgroundTask(
-                    "WorkspaceItemsChipPanel.updateChips", () -> updateChips(fragmentsCopy, true));
-            return;
-        }
-
         logger.debug(
                 "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
                 fragments.size(),
@@ -217,7 +206,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
                 .toList();
 
-        // Pre-compute classifications off-EDT
         var classifiedNonSummaries =
                 nonSummaryFragments.stream().map(ChipColorUtils::classify).toList();
 

@@ -393,12 +393,23 @@ When you submit an ISSUE job, the system follows these steps:
 4. **Execution & Verification Loop**: For each generated task:
     - **Implementation**: ArchitectAgent implements the task using `plannerModel` and `codeModel`.
     - **Build Verification**: Runs the project's build/lint command.
-    - **Self-Correction**: If the build fails, the system automatically attempts to fix the errors (up to 3 attempts per task) before proceeding.
+    - **Self-Correction**: If the build fails, the system automatically attempts to fix the errors (up to `buildSettings.maxBuildAttempts` attempts per task) before proceeding.
 5. **Completion & PR**: Upon successful verification of all tasks, the system:
     - Commits the changes with an automated message (e.g., `Resolves #42: ...`).
     - Pushes the branch to the remote.
-    - Automatically generates a Pull Request title and description.
+    - Automatically generates a Pull Request title and description. The PR description is generated from a summary of the merge-base diff (i.e., a concise summary of the changes introduced by the issue branch) and the system automatically appends a "Fixes #<issueNumber>" line so the issue will be closed when the PR is merged.
     - Creates the Pull Request on GitHub.
+
+Example Pull Request description produced by ISSUE mode:
+
+```markdown
+Brief summary of the changes and intent (one or two short paragraphs).
+
+- Fixed null pointer in UserService by adding a defensive null check.
+- Added unit tests covering the new behavior.
+
+Fixes #42
+```
 
 ### Configuration
 
@@ -407,6 +418,18 @@ ISSUE mode requires:
 - `codeModel` (optional): The LLM model for code generation; defaults to project default.
 - GitHub Issue metadata: `github_token`, `repo_owner`, `repo_name`, `issue_number`.
 - `buildSettings` (optional): JSON object defining how to verify the project (see below).
+- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap). After it is exhausted, the executor stops and does not create a PR. Default: 5.
+
+### Retry limits: per-task vs overall
+
+ISSUE mode has two retry limits: one for repeating build verification for a single task, and one for how many times the overall ISSUE workflow will try before giving up.
+
+| Setting | What it limits | Default |
+|---------|----------------|---------|
+| `buildSettings.maxBuildAttempts` | Per task: how many times to rerun build/lint/test for that task after attempting fixes when verification fails. | 3 |
+| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 5 |
+
+Example: if `maxBuildAttempts=3` and `maxIssueFixAttempts=5`, each task can retry verification up to 3 times, but the job will stop entirely after 5 overall ISSUE attempts.
 
 ### Build Settings Structure
 
@@ -418,7 +441,7 @@ The `buildSettings` object configures how Brokk verifies its changes. If provide
 | `testAllCommand` | String | Command to run the full test suite. |
 | `testSomeCommand` | String | Command to run specific tests. |
 | `environmentVariables` | Map | Key-value pairs of environment variables required for the build. |
-| `maxBuildAttempts` | Integer (optional) | Maximum number of build verification attempts per task (default: 3). |
+| `maxBuildAttempts` | Integer (optional) | Maximum number of build verification attempts per task (default: 3). This controls the per-task build verification retry loop. |
 
 ### Example: Using the Convenience Endpoint
 
@@ -437,6 +460,7 @@ curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
   "githubToken": "ghp_xxxxxxxxxxxx",
   "plannerModel": "gpt-4o",
   "codeModel": "gpt-4o",
+  "maxIssueFixAttempts": 5,
   "buildSettings": {
     "buildLintCommand": "./gradlew classes",
     "environmentVariables": {
@@ -495,7 +519,9 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/jobs`** - Create and execute a job
   - Requires `Idempotency-Key` header for safe retries
-  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, LUTZ, ASK, SEARCH, CODE, or REVIEW)
+  - Body: Job JSON accepted by the headless API. Most fields correspond to persisted `JobSpec`, but:
+    - `sessionId` exists in the request body and is used to select the active session; it is not persisted in `JobSpec` (it may be copied into tags as `session_id`).
+    - `sourceBranch` / `targetBranch` are persisted/reserved `JobSpec` fields but are not currently accepted by `POST /v1/jobs` (they will always be null when jobs are created via this endpoint).
   - Returns: `{ "jobId": "<uuid>", "state": "running", ... }`
   - **SEARCH mode**: Set `"tags": { "mode": "SEARCH" }` to run a read-only repository scan. Optionally include `"scanModel": "<model>"` to override the default scan model used for repository scanning. `plannerModel` is still required by the API for validation.
   - **ASK mode**: Set `"tags": { "mode": "ASK" }` for ad-hoc read-only searches (uses service default scan model unless otherwise configured).
@@ -504,6 +530,65 @@ Once running, the executor exposes the following endpoints:
   - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
   - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
+
+#### Job-level model overrides (optional)
+
+You can optionally override model behaviors per job:
+
+- `reasoningLevel` (string, optional): Controls how much explicit reasoning effort the planner model should use.
+- `reasoningLevelCode` (string, optional): Controls how much explicit reasoning effort the code model should use. Applies to CODE and ARCHITECT modes.
+- `temperature` (number, optional): Controls sampling randomness for the planner model.
+- `temperatureCode` (number, optional): Controls sampling randomness for the code model. Applies to CODE and ARCHITECT modes.
+
+These fields are accepted in the top-level job payload alongside `plannerModel` / `codeModel` / `scanModel`.
+
+##### Validation rules
+
+- `reasoningLevel`:
+  - If provided, must be a string.
+  - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the planner model.
+
+- `reasoningLevelCode`:
+  - If provided, must be a string.
+  - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the code model.
+
+- `temperature`:
+  - If provided, must be a JSON number.
+  - Must be between `0.0` and `2.0` (inclusive).
+  - If omitted or null, the executor uses the model/service default temperature for the planner model.
+
+- `temperatureCode`:
+  - If provided, must be a JSON number.
+  - Must be between `0.0` and `2.0` (inclusive).
+  - If omitted or null, the executor uses the model/service default temperature for the code model.
+
+##### Example: ARCHITECT with reasoningLevel + temperature
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: architect-overrides-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Refactor the auth module to improve logging and error messages.",
+  "autoCommit": true,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "reasoningLevel": "HIGH",
+  "reasoningLevelCode": "MEDIUM",
+  "temperature": 0.2,
+  "temperatureCode": 0.0,
+  "tags": {
+    "mode": "ARCHITECT"
+  }
+}
+JSON
+```
 
 - **`POST /v1/jobs/issue`** - Create an issue resolution job (convenience endpoint)
   - Requires `Idempotency-Key` header
@@ -564,7 +649,7 @@ Build the shadow JAR:
 Run the JAR:
 
 ```bash
-java -co app/build/libs/brokk-<version>.jar \
+java -cp app/build/libs/brokk-<version>.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \
