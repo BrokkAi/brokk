@@ -36,6 +36,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import org.jspecify.annotations.NullMarked;
@@ -246,6 +247,10 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         copyBtn.addActionListener(e -> {
             String combined = String.join("\n\n", markdownChunks);
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(combined), null);
+            copyBtn.setText("Copied");
+            Timer timer = new Timer(1000, evt -> copyBtn.setText("Copy Markdown"));
+            timer.setRepeats(false);
+            timer.start();
         });
         buttonPanel.add(Box.createHorizontalStrut(10));
         buttonPanel.add(copyBtn);

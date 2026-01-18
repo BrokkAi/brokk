@@ -300,9 +300,17 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
 
         codeReviewPanel.addReviewNavigationListener(ce -> {
-            fileTreePanel.selectFileQuietly(ce.file());
-            activeExcerpt = ce;
-            diffCore.showLocation(ce.file(), ce.line(), ce.side());
+            if (ce != null) {
+                fileTreePanel.selectFileQuietly(ce.file());
+                activeExcerpt = ce;
+                diffCore.showLocation(ce.file(), ce.line(), ce.side());
+            } else {
+                fileTreePanel.clearSelection();
+                diffContainer.removeAll();
+                diffContainer.revalidate();
+                diffContainer.repaint();
+                activeExcerpt = null;
+            }
         });
 
         commitBtn.addActionListener(e -> showCommitDialog());

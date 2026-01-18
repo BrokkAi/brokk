@@ -17,7 +17,9 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -92,25 +94,10 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
 
         addItem("Overview", review.overview(), true);
 
-        addHeader("Key Changes");
-        for (KeyChanges change : review.keyChanges()) {
-            addItem(change.title(), change, false);
-        }
-
-        addHeader("Design");
-        for (DesignFeedback design : review.designNotes()) {
-            addItem(design.title(), design, false);
-        }
-
-        addHeader("Tactical");
-        for (TacticalFeedback tactical : review.tacticalNotes()) {
-            addItem(tactical.title(), tactical, false);
-        }
-
-        addHeader("Tests");
-        for (TestFeedback test : review.additionalTests()) {
-            addItem(test.title(), test, false);
-        }
+        addSectionIfNotEmpty("Key Changes", review.keyChanges(), KeyChanges::title);
+        addSectionIfNotEmpty("Design", review.designNotes(), DesignFeedback::title);
+        addSectionIfNotEmpty("Tactical", review.tacticalNotes(), TacticalFeedback::title);
+        addSectionIfNotEmpty("Tests", review.additionalTests(), TestFeedback::title);
 
         // Auto-select Overview
         for (Component c : contentPanel.getComponents()) {
@@ -153,6 +140,15 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
             }
         });
         contentPanel.add(item);
+    }
+
+    private <T> void addSectionIfNotEmpty(String header, List<T> items, Function<T, String> titleProvider) {
+        if (!items.isEmpty()) {
+            addHeader(header);
+            for (T item : items) {
+                addItem(titleProvider.apply(item), item, false);
+            }
+        }
     }
 
     private void selectItem(JLabel item, Object data) {
