@@ -9,11 +9,15 @@ import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.util.ReviewParser;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -21,6 +25,7 @@ import org.jetbrains.annotations.Nullable;
  * and a sliding cache of diff panels.
  */
 public class DiffDisplayCore {
+    private static final Logger logger = LogManager.getLogger(DiffDisplayCore.class);
 
     private final BrokkDiffPanel mainPanel;
     private final ContextManager contextManager;
@@ -124,12 +129,25 @@ public class DiffDisplayCore {
     private void updateCacheAndDisplay(int targetLine, ReviewParser.DiffSide targetSide) {
         // Evict panels outside the cache radius
         var it = panelCache.entrySet().iterator();
+        List<Integer> retainedIndices = new ArrayList<>();
+
         while (it.hasNext()) {
             var entry = it.next();
-            if (!isWithinCacheWindow(entry.getKey())) {
-                entry.getValue().dispose();
-                it.remove();
+            int index = entry.getKey();
+            AbstractDiffPanel panel = entry.getValue();
+
+            if (!isWithinCacheWindow(index)) {
+                if (panel.hasUnsavedChanges()) {
+                    retainedIndices.add(index);
+                } else {
+                    panel.dispose();
+                    it.remove();
+                }
             }
+        }
+
+        if (!retainedIndices.isEmpty()) {
+            logger.warn("Memory usage increased: retaining {} edited files outside sliding window", retainedIndices.size());
         }
 
         // Ensure current is loading/loaded
@@ -244,7 +262,7 @@ public class DiffDisplayCore {
         return panelCache.get(index);
     }
 
-    public Iterable<AbstractDiffPanel> getCachedPanels() {
+    public Collection<AbstractDiffPanel> getCachedPanels() {
         return panelCache.values();
     }
 

@@ -1299,7 +1299,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         private void applyFontSizeToAllPanels() {
             float fontSize = GlobalUiSettings.getEditorFontSize();
             if (fontSize <= 0f) return;
-            for (var diffPanel : panel.diffCore.getCachedPanels()) {
+            for (AbstractDiffPanel diffPanel : panel.diffCore.getCachedPanels()) {
                 diffPanel.applyEditorFontSize(fontSize);
             }
         }
@@ -1347,7 +1347,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     public void applyTheme(GuiTheme guiTheme) {
         codeReviewPanel.applyTheme(guiTheme);
         fileTreePanel.applyTheme(guiTheme);
-        for (var panel : diffCore.getCachedPanels()) {
+        for (AbstractDiffPanel panel : diffCore.getCachedPanels()) {
             panel.applyTheme(guiTheme);
         }
         guidedReviewBtn.repaint();

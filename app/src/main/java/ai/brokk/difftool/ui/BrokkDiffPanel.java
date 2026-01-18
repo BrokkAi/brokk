@@ -526,7 +526,7 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public boolean hasUnsavedChanges() {
         if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
-        for (DiffPanelLifecycle p : core.getCachedPanels()) {
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
             if (p.hasUnsavedChanges()) return true;
         }
         return false;
@@ -547,7 +547,7 @@ public class BrokkDiffPanel extends JPanel
         if (currentBufferPanel != null) {
             visited.add(currentBufferPanel);
         }
-        for (var p : core.getCachedPanels()) {
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
             if (p instanceof BufferDiffPanel bufferPanel) {
                 visited.add(bufferPanel);
             }
@@ -1129,7 +1129,11 @@ public class BrokkDiffPanel extends JPanel
     private void refreshAllDiffPanels() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Refresh existing cached panels (preserves cache for performance)
-        core.getCachedPanels().forEach(panel -> panel.diff(true)); // Scroll to selection for user-initiated refresh
+        for (DiffPanelLifecycle p : core.getCachedPanels()) {
+            if (p instanceof AbstractDiffPanel adp) {
+                adp.diff(true); // Scroll to selection for user-initiated refresh
+            }
+        }
         // Refresh current panel if it's not cached
         var current = getBufferDiffPanel();
         if (current != null) {
@@ -1150,7 +1154,9 @@ public class BrokkDiffPanel extends JPanel
 
         // Apply theme to cached panels
         for (var panel : core.getCachedPanels()) {
-            panel.applyTheme(guiTheme);
+            if (panel instanceof AbstractDiffPanel adp) {
+                adp.applyTheme(guiTheme);
+            }
         }
 
         // Apply theme to file tree panel (only if multiple files)
@@ -1315,7 +1321,9 @@ public class BrokkDiffPanel extends JPanel
 
         // Apply to cached panels
         for (var p : core.getCachedPanels()) {
-            applySizeToSinglePanel(p, fontSize);
+            if (p instanceof AbstractDiffPanel adp) {
+                applySizeToSinglePanel(adp, fontSize);
+            }
         }
 
         // Apply to currently visible panel too
@@ -1823,7 +1831,7 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public int getUnsavedCount() {
         int count = 0;
-        var visited = new HashSet<DiffPanelLifecycle>();
+        var visited = new HashSet<AbstractDiffPanel>();
 
         if (currentDiffPanel != null) {
             visited.add(currentDiffPanel);
@@ -1832,7 +1840,7 @@ public class BrokkDiffPanel extends JPanel
             }
         }
 
-        for (DiffPanelLifecycle p : core.getCachedPanels()) {
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
             if (visited.add(p) && p.hasUnsavedChanges()) {
                 count++;
             }
@@ -1843,18 +1851,17 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public boolean isSaveEnabled() {
         // Save is enabled only if there are unsaved changes AND at least one editable panel
-        var visited = new HashSet<DiffPanelLifecycle>();
+        var visited = new HashSet<AbstractDiffPanel>();
         if (currentDiffPanel != null) {
             visited.add(currentDiffPanel);
             if (currentDiffPanel.hasUnsavedChanges() && currentDiffPanel.atLeastOneSideEditable()) {
                 return true;
             }
         }
-        for (DiffPanelLifecycle p : core.getCachedPanels()) {
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
             if (visited.add(p)
                     && p.hasUnsavedChanges()
-                    && p instanceof AbstractDiffPanel adp
-                    && adp.atLeastOneSideEditable()) {
+                    && p.atLeastOneSideEditable()) {
                 return true;
             }
         }
