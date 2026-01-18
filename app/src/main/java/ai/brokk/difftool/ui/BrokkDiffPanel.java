@@ -1851,7 +1851,8 @@ public class BrokkDiffPanel extends JPanel
             }
         }
         for (DiffPanelLifecycle p : core.getCachedPanels()) {
-            if (visited.add(p) && p.hasUnsavedChanges()
+            if (visited.add(p)
+                    && p.hasUnsavedChanges()
                     && p instanceof AbstractDiffPanel adp
                     && adp.atLeastOneSideEditable()) {
                 return true;

@@ -155,6 +155,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
         });
     }
 
+    @Override
     public void dispose() {
         // Default cleanup - subclasses should override and call super
         removeAll();
@@ -320,6 +321,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     /**
      * Returns whether this panel has unsaved changes. The base implementation returns the cached dirty flag.
      */
+    @Override
     public final boolean hasUnsavedChanges() {
         return dirty;
     }

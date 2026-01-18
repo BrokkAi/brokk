@@ -1207,7 +1207,21 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
             } else if (eventType == DocumentEvent.EventType.CHANGE) {
                 // CHANGE events are for attribute changes (font, style, etc.), not content changes.
-                // No need to sync content - doing so would incorrectly mark the document as dirty.
+                // We expect PlainDocument or RSyntaxDocument, not StyledDocument.
+                if (sourceDoc instanceof javax.swing.text.StyledDocument
+                        || destinationDoc instanceof javax.swing.text.StyledDocument) {
+                    logger.error("Unexpected StyledDocument detected during CHANGE event sync");
+                }
+
+                // Invariant check: Content length should not change during a CHANGE event.
+                if (sourceDoc.getLength() != destinationDoc.getLength()) {
+                    logger.warn(
+                            "Document length mismatch during CHANGE event (Source: {}, Dest: {}). Syncing fallback.",
+                            sourceDoc.getClass().getSimpleName(),
+                            destinationDoc.getClass().getSimpleName());
+                    BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
+                }
+                // Otherwise, no need to sync content - doing so would incorrectly mark the document as dirty.
             }
         } catch (BadLocationException ex) {
             // Fallback to full document copy only on error

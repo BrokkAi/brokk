@@ -157,7 +157,7 @@ public class ScrollSynchronizer {
                         return;
                     }
 
-                    // Only process on value adjusting to reduce noise
+                    // Skip events while adjusting and only process the final non-adjusting event to reduce noise
                     if (e.getValueIsAdjusting()) {
                         return;
                     }
