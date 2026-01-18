@@ -148,18 +148,8 @@ public class ScrollSynchronizer {
     private AdjustmentListener getVerticalAdjustmentListener() {
         if (verticalAdjustmentListener == null) {
             verticalAdjustmentListener = new AdjustmentListener() {
-                private long lastScrollTime = 0;
-                private static final long SCROLL_THROTTLE_MS = 16; // 60 FPS max
-
                 @Override
                 public void adjustmentValueChanged(AdjustmentEvent e) {
-                    // Performance optimization: throttle scroll events to prevent excessive processing
-                    long currentTime = System.currentTimeMillis();
-                    if (currentTime - lastScrollTime < SCROLL_THROTTLE_MS) {
-                        return; // Skip this event to reduce processing load
-                    }
-                    lastScrollTime = currentTime;
-
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     var leftScrolled = (e.getSource() == leftV);
 

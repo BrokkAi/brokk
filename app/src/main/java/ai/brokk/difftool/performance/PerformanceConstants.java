@@ -39,7 +39,7 @@ public final class PerformanceConstants {
 
     // Scroll throttling mode configuration (mutable for developer UI)
     public static volatile boolean ENABLE_FRAME_BASED_THROTTLING = false; // Frame-based throttling
-    public static volatile boolean ENABLE_ADAPTIVE_THROTTLING = true; // Adaptive mode (default)
+    public static volatile boolean ENABLE_ADAPTIVE_THROTTLING = false; // Adaptive mode (disabled)
     public static volatile int SCROLL_FRAME_RATE_MS = 16; // 60fps default (configurable via UI)
 
     // Adaptive throttling thresholds
