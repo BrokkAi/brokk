@@ -305,6 +305,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 activeExcerpt = ce;
                 diffCore.showLocation(ce.file(), ce.line(), ce.side());
             } else {
+                fileTreePanel.clearSelection();
                 diffContainer.removeAll();
                 diffContainer.revalidate();
                 diffContainer.repaint();
