@@ -176,8 +176,9 @@ public class BufferDiffPanel extends AbstractDiffPanel {
         this.mainPanel = mainPanel;
         this.guiTheme = theme;
 
-        // Let the mainPanel keep a reference to us for toolbar/undo/redo interplay
-        mainPanel.setBufferDiffPanel(this);
+        // Note: We no longer call mainPanel.setBufferDiffPanel(this) here.
+        // BrokkDiffPanel.displayAndRefreshPanel handles setting the active panel
+        // to ensure preloaded background panels don't overwrite the visible one.
 
         init();
         setFocusable(true);
@@ -1404,6 +1405,8 @@ public class BufferDiffPanel extends AbstractDiffPanel {
         diffNode = null;
         patch = null;
         selectedDelta = null;
+
+        super.dispose();
     }
 
     /**

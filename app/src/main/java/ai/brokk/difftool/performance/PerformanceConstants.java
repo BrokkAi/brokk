@@ -43,14 +43,11 @@ public final class PerformanceConstants {
     // UI Configuration
     public static final int DEFAULT_EDITOR_TAB_SIZE = 4;
 
-    // Sliding window cache configuration
-    public static final int SMALL_SLIDING_WINDOW = 3; // Memory-focused: current + 2 adjacent
-
-    // Default choice - can be made configurable via settings
-    public static final int DEFAULT_SLIDING_WINDOW = SMALL_SLIDING_WINDOW;
-
-    // Maximum cache size should match or exceed window size
-    public static final int MAX_CACHED_DIFF_PANELS = Math.max(10, DEFAULT_SLIDING_WINDOW);
+    /**
+     * The number of panels to keep in cache on either side of the current index.
+     * A radius of 1 means the cache will hold: [currentIndex - 1, currentIndex, currentIndex + 1].
+     */
+    public static final int DIFF_PANEL_CACHE_RADIUS = 1;
 
     // Memory management thresholds
     public static final int MEMORY_HIGH_THRESHOLD_PERCENT = 70; // Memory usage threshold for cleanup

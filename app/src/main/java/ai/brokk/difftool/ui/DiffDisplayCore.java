@@ -122,14 +122,11 @@ public class DiffDisplayCore {
     }
 
     private void updateCacheAndDisplay(int targetLine, ReviewParser.DiffSide targetSide) {
-        // Simple cache of {prev, current, next}
-        List<Integer> keep = List.of(currentIndex - 1, currentIndex, currentIndex + 1);
-
-        // Evict
+        // Evict panels outside the cache radius
         var it = panelCache.entrySet().iterator();
         while (it.hasNext()) {
             var entry = it.next();
-            if (!keep.contains(entry.getKey())) {
+            if (!isWithinCacheWindow(entry.getKey())) {
                 entry.getValue().dispose();
                 it.remove();
             }
@@ -138,9 +135,17 @@ public class DiffDisplayCore {
         // Ensure current is loading/loaded
         ensurePanel(currentIndex, targetLine, targetSide);
 
-        // Background preload adjacent
-        if (currentIndex > 0) ensurePanel(currentIndex - 1, -1, ReviewParser.DiffSide.NEW);
-        if (currentIndex < fileComparisons.size() - 1) ensurePanel(currentIndex + 1, -1, ReviewParser.DiffSide.NEW);
+        // Background preload adjacent panels within the radius
+        int radius = PerformanceConstants.DIFF_PANEL_CACHE_RADIUS;
+        for (int i = 1; i <= radius; i++) {
+            ensurePanel(currentIndex - i, -1, ReviewParser.DiffSide.NEW);
+            ensurePanel(currentIndex + i, -1, ReviewParser.DiffSide.NEW);
+        }
+    }
+
+    private boolean isWithinCacheWindow(int index) {
+        int radius = PerformanceConstants.DIFF_PANEL_CACHE_RADIUS;
+        return index >= currentIndex - radius && index <= currentIndex + radius;
     }
 
     private void ensurePanel(int index, int targetLine, ReviewParser.DiffSide targetSide) {
@@ -182,9 +187,23 @@ public class DiffDisplayCore {
             diffNode.diff();
 
             SwingUtilities.invokeLater(() -> {
+                // If the generation changed (e.g. file list refreshed), ignore the result
                 if (generation != updateGeneration.get()) return;
+
+                // Check if the user has navigated away from the cache window for this panel
+                if (!isWithinCacheWindow(index)) {
+                    return;
+                }
+
+                // If another task already finished for this index, don't overwrite
+                if (panelCache.containsKey(index)) {
+                    return;
+                }
+
                 AbstractDiffPanel panel = createPanel(index, diffNode);
                 panelCache.put(index, panel);
+
+                // Only display if the user is still waiting for this specific file
                 if (index == currentIndex) {
                     displayPanel(index, panel, targetLine, targetSide);
                 }
