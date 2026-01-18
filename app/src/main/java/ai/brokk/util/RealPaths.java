@@ -7,8 +7,8 @@ import java.nio.file.Path;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
-public final class Paths {
-    private Paths() {}
+public final class RealPaths {
+    private RealPaths() {}
 
     private static final Cache<Path, Path> REAL_PATH_CACHE =
             Caffeine.newBuilder().maximumSize(1024).build();
@@ -21,7 +21,7 @@ public final class Paths {
      * Helper to compare paths robustly by resolving real paths if possible.
      * Uses a cache to avoid redundant I/O for real path resolution.
      */
-    public static boolean equalsReal(Path a, Path b) {
+    public static boolean equals(Path a, Path b) {
         if (a.equals(b)) {
             return true;
         }
