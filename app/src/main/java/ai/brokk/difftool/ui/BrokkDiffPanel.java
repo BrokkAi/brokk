@@ -526,9 +526,8 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public boolean hasUnsavedChanges() {
         if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
-        for (int i = 0; i < getFileComparisonCount(); i++) {
-            var p = core.getCachedPanel(i);
-            if (p != null && p.hasUnsavedChanges()) return true;
+        for (DiffPanelLifecycle p : core.getCachedPanels()) {
+            if (p.hasUnsavedChanges()) return true;
         }
         return false;
     }
@@ -1824,7 +1823,7 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public int getUnsavedCount() {
         int count = 0;
-        var visited = new HashSet<AbstractDiffPanel>();
+        var visited = new HashSet<DiffPanelLifecycle>();
 
         if (currentDiffPanel != null) {
             visited.add(currentDiffPanel);
@@ -1833,7 +1832,7 @@ public class BrokkDiffPanel extends JPanel
             }
         }
 
-        for (var p : core.getCachedPanels()) {
+        for (DiffPanelLifecycle p : core.getCachedPanels()) {
             if (visited.add(p) && p.hasUnsavedChanges()) {
                 count++;
             }
@@ -1844,15 +1843,17 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public boolean isSaveEnabled() {
         // Save is enabled only if there are unsaved changes AND at least one editable panel
-        var visited = new HashSet<AbstractDiffPanel>();
+        var visited = new HashSet<DiffPanelLifecycle>();
         if (currentDiffPanel != null) {
             visited.add(currentDiffPanel);
             if (currentDiffPanel.hasUnsavedChanges() && currentDiffPanel.atLeastOneSideEditable()) {
                 return true;
             }
         }
-        for (var p : core.getCachedPanels()) {
-            if (visited.add(p) && p.hasUnsavedChanges() && p.atLeastOneSideEditable()) {
+        for (DiffPanelLifecycle p : core.getCachedPanels()) {
+            if (visited.add(p) && p.hasUnsavedChanges()
+                    && p instanceof AbstractDiffPanel adp
+                    && adp.atLeastOneSideEditable()) {
                 return true;
             }
         }

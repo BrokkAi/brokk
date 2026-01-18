@@ -24,7 +24,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>Note: This extends AbstractContentPanel to leverage existing undo/redo infrastructure while providing diff panel
  * functionality.
  */
-public abstract class AbstractDiffPanel extends AbstractContentPanel implements ThemeAware {
+public abstract class AbstractDiffPanel extends AbstractContentPanel implements ThemeAware, DiffPanelLifecycle {
     protected final BrokkDiffPanel parent;
     protected final GuiTheme theme;
 
