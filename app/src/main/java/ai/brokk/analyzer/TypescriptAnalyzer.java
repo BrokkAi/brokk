@@ -1038,7 +1038,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      */
     private String extractExportDecorators(TSNode classNode, SourceContent sourceContent) {
         TSNode parent = classNode.getParent();
-        if (parent == null || parent.isNull() || !"export_statement".equals(parent.getType())) {
+        if (parent == null || parent.isNull() || !EXPORT_STATEMENT.equals(parent.getType())) {
             return "";
         }
 
