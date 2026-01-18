@@ -1222,6 +1222,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                     BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
                 }
                 // Otherwise, no need to sync content - doing so would incorrectly mark the document as dirty.
+                if (logger.isDebugEnabled()) {
+                    logger.debug("CHANGE event with matching lengths received; skipping sync to avoid dirtying doc.");
+                }
             }
         } catch (BadLocationException ex) {
             // Fallback to full document copy only on error

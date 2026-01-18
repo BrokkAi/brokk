@@ -147,7 +147,8 @@ public class DiffDisplayCore {
         }
 
         if (!retainedIndices.isEmpty()) {
-            logger.warn("Memory usage increased: retaining {} edited files outside sliding window", retainedIndices.size());
+            logger.warn(
+                    "Memory usage increased: retaining {} edited files outside sliding window", retainedIndices.size());
         }
 
         // Ensure current is loading/loaded
@@ -187,6 +188,8 @@ public class DiffDisplayCore {
     }
 
     private void createSync(int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
+        // Note: createDiffNode is @Blocking but for small files (checked via size thresholds in ensurePanel)
+        // the overhead is minimal and worth the immediate UI response.
         var diffNode = FileComparisonHelper.createDiffNode(
                 info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
 
@@ -197,26 +200,32 @@ public class DiffDisplayCore {
         }
     }
 
-    private void createAsync(int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
+    private void createAsync(
+            int index, FileComparisonInfo expectedInfo, int targetLine, ReviewParser.DiffSide targetSide) {
         int generation = updateGeneration.get();
-        contextManager.submitBackgroundTask("Computing diff: " + info.getDisplayName(), () -> {
+        contextManager.submitBackgroundTask("Computing diff: " + expectedInfo.getDisplayName(), () -> {
+            // Expensive I/O and CPU work (diffing) happens here on a virtual thread
             var diffNode = FileComparisonHelper.createDiffNode(
-                    info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
+                    expectedInfo.leftSource(), expectedInfo.rightSource(), contextManager, isMultipleCommitsContext);
             diffNode.diff();
 
             SwingUtilities.invokeLater(() -> {
-                // If the generation changed (e.g. file list refreshed), ignore the result
+                // RACE CONDITION GUARDS:
+                // 1. Generation check: if the entire file list was refreshed, this result is stale.
                 if (generation != updateGeneration.get()) return;
 
-                // Check if the user has navigated away from the cache window for this panel
-                if (!isWithinCacheWindow(index)) {
-                    return;
-                }
+                // 2. Index bounds check: ensure index is still valid for the current list.
+                if (index < 0 || index >= fileComparisons.size()) return;
 
-                // If another task already finished for this index, don't overwrite
-                if (panelCache.containsKey(index)) {
-                    return;
-                }
+                // 3. Identity check: Ensure the file at this index is still the one we computed.
+                // This handles cases where the user navigated away and back quickly.
+                if (!fileComparisons.get(index).equals(expectedInfo)) return;
+
+                // 4. Cache window check: if user scrolled far away, don't waste memory caching this.
+                if (!isWithinCacheWindow(index)) return;
+
+                // 5. Concurrent task check: if another creation task finished first, don't overwrite.
+                if (panelCache.containsKey(index)) return;
 
                 AbstractDiffPanel panel = createPanel(index, diffNode);
                 panelCache.put(index, panel);

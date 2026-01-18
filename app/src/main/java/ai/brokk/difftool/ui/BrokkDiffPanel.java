@@ -1154,8 +1154,8 @@ public class BrokkDiffPanel extends JPanel
 
         // Apply theme to cached panels
         for (var panel : core.getCachedPanels()) {
-            if (panel instanceof AbstractDiffPanel adp) {
-                adp.applyTheme(guiTheme);
+            if (panel != null) {
+                panel.applyTheme(guiTheme);
             }
         }
 
@@ -1321,8 +1321,8 @@ public class BrokkDiffPanel extends JPanel
 
         // Apply to cached panels
         for (var p : core.getCachedPanels()) {
-            if (p instanceof AbstractDiffPanel adp) {
-                applySizeToSinglePanel(adp, fontSize);
+            if (p != null) {
+                applySizeToSinglePanel(p, fontSize);
             }
         }
 
@@ -1859,9 +1859,7 @@ public class BrokkDiffPanel extends JPanel
             }
         }
         for (AbstractDiffPanel p : core.getCachedPanels()) {
-            if (visited.add(p)
-                    && p.hasUnsavedChanges()
-                    && p.atLeastOneSideEditable()) {
+            if (visited.add(p) && p.hasUnsavedChanges() && p.atLeastOneSideEditable()) {
                 return true;
             }
         }

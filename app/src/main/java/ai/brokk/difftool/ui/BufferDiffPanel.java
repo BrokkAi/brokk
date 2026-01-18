@@ -1407,6 +1407,8 @@ public class BufferDiffPanel extends AbstractDiffPanel {
         patch = null;
         selectedDelta = null;
 
+        // super.dispose() called last to ensure subclass resources (listeners, editor models)
+        // are cleaned up before the superclass container is destroyed.
         super.dispose();
     }
 

@@ -12,6 +12,7 @@ import ai.brokk.git.IGitRepo;
 import java.util.Objects;
 import javax.swing.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -21,6 +22,7 @@ import org.jetbrains.annotations.Nullable;
 public class FileComparisonHelper {
 
     /** Creates a JMDiffNode from two buffer sources. This is the core logic extracted from FileComparison for reuse. */
+    @Blocking
     public static JMDiffNode createDiffNode(
             BufferSource left, BufferSource right, ContextManager contextManager, boolean isMultipleCommitsContext) {
 
