@@ -12,6 +12,8 @@ import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
+import java.awt.font.TextHitInfo;
+import java.awt.im.InputMethodRequests;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -19,6 +21,8 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.AttributedCharacterIterator;
+import java.text.AttributedCharacterIterator.Attribute;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
@@ -131,7 +135,18 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     private void initializeFxPanel() {
-        fxPanel = new JFXPanel();
+        fxPanel = new JFXPanel() {
+            // Solves a NPE on Linux:
+            // Cannot invoke "java.awt.font.TextHitInfo.getInsertionIndex()" because "<parameter1>" is null
+            @Override
+            public @Nullable InputMethodRequests getInputMethodRequests() {
+                var delegate = super.getInputMethodRequests();
+                if (delegate == null) {
+                    return null;
+                }
+                return new InputMethodRequestsWrapper(delegate);
+            }
+        };
         fxPanel.setVisible(false); // Start hidden to prevent flicker
         add(fxPanel, BorderLayout.CENTER);
         revalidate();
@@ -625,5 +640,52 @@ public final class MOPWebViewHost extends JPanel {
             }
         });
         // Note: ClasspathHttpServer shutdown is handled at application level, not per WebView instance
+    }
+
+    private static class InputMethodRequestsWrapper implements InputMethodRequests {
+        private final InputMethodRequests delegate;
+
+        InputMethodRequestsWrapper(InputMethodRequests delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Rectangle getTextLocation(@Nullable TextHitInfo offset) {
+            if (offset == null) {
+                return new Rectangle(0, 0, 0, 0);
+            }
+            return delegate.getTextLocation(offset);
+        }
+
+        @Override
+        public @Nullable TextHitInfo getLocationOffset(int x, int y) {
+            return delegate.getLocationOffset(x, y);
+        }
+
+        @Override
+        public int getInsertPositionOffset() {
+            return delegate.getInsertPositionOffset();
+        }
+
+        @Override
+        public @Nullable AttributedCharacterIterator getCommittedText(
+                int beginIndex, int endIndex, @Nullable Attribute[] attributes) {
+            return delegate.getCommittedText(beginIndex, endIndex, attributes);
+        }
+
+        @Override
+        public int getCommittedTextLength() {
+            return delegate.getCommittedTextLength();
+        }
+
+        @Override
+        public @Nullable AttributedCharacterIterator cancelLatestCommittedText(@Nullable Attribute[] attributes) {
+            return delegate.cancelLatestCommittedText(attributes);
+        }
+
+        @Override
+        public @Nullable AttributedCharacterIterator getSelectedText(@Nullable Attribute[] attributes) {
+            return delegate.getSelectedText(attributes);
+        }
     }
 }
