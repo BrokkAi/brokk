@@ -172,11 +172,13 @@ public class DependencyTools {
             contextManager
                     .getProject()
                     .addLiveDependency(depName, analyzerWrapper)
-                    .orTimeout(60, TimeUnit.SECONDS)
-                    .join();
+                    .get(60, TimeUnit.SECONDS);
             logger.info("Successfully added {} to live dependencies", depName);
             contextManager.notifyLiveDependenciesChanged();
             intelligenceStatus = "The library has been added to live dependencies and Code Intelligence is updating.";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
         } catch (Exception e) {
             logger.error("Failed to add live dependency: {}", depName, e);
             contextManager.requestRebuild();
