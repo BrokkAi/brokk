@@ -78,6 +78,13 @@ public class DependencyTools {
         // Check for early cancellation
         checkInterrupted();
 
+        // Normalize input - LLM may include extra whitespace
+        coordinates = coordinates.trim();
+        if (coordinates.isEmpty()) {
+            return "Invalid coordinates format. Expected 'groupId:artifactId' or 'groupId:artifactId:version'. "
+                    + "Examples: 'com.google.guava:guava' or 'com.google.guava:guava:32.1.2-jre'";
+        }
+
         // Count colons to validate format (only accept g:a or g:a:v)
         long colonCount = coordinates.chars().filter(c -> c == ':').count();
         if (colonCount < 1 || colonCount > 2) {
@@ -148,7 +155,7 @@ public class DependencyTools {
                 IConsoleIO.NotificationRole.INFO,
                 "Importing " + artifactId + " (this may take a moment for large libraries)...");
         logger.info("Importing JAR to {}", projectRoot.resolve(".brokk/dependencies"));
-        var resultOpt = Decompiler.decompileJarBlocking(jarPath, projectRoot, false);
+        var resultOpt = Decompiler.decompileJarBlocking(jarPath, projectRoot, false, fetcher);
         if (resultOpt.isEmpty()) {
             logger.error("Decompile failed for {}", fullCoordinates);
             return "Failed to import %s. Check logs for details.".formatted(fullCoordinates);

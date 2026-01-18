@@ -154,6 +154,21 @@ public class Decompiler {
      */
     @org.jetbrains.annotations.Blocking
     public static Optional<DecompileResult> decompileJarBlocking(Path jarPath, Path projectRoot, boolean overwrite) {
+        return decompileJarBlocking(jarPath, projectRoot, overwrite, null);
+    }
+
+    /**
+     * Synchronous decompile/extract without GUI dialogs. For use by tools/agents.
+     *
+     * @param jarPath path to the JAR file to decompile
+     * @param projectRoot project root directory (output goes to .brokk/dependencies/)
+     * @param overwrite if true, delete existing output dir; if false and exists, return early
+     * @param fetcher optional MavenArtifactFetcher to use for sources JAR download; if null, creates a new one
+     * @return result with output directory and file count, or empty if skipped/failed
+     */
+    @org.jetbrains.annotations.Blocking
+    public static Optional<DecompileResult> decompileJarBlocking(
+            Path jarPath, Path projectRoot, boolean overwrite, @Nullable MavenArtifactFetcher fetcher) {
         var jarName = jarPath.getFileName().toString();
         var brokkDir = projectRoot.resolve(AbstractProject.BROKK_DIR);
         var depsDir = brokkDir.resolve("dependencies");
@@ -182,8 +197,8 @@ public class Decompiler {
             if (coordsOpt.isPresent()) {
                 var coords = coordsOpt.get();
                 logger.info("Detected Maven coordinates: {}. Attempting to download sources...", coords);
-                var fetcher = new MavenArtifactFetcher();
-                sourcesJarPathOpt = fetcher.fetch(coords, "sources");
+                var effectiveFetcher = fetcher != null ? fetcher : new MavenArtifactFetcher();
+                sourcesJarPathOpt = effectiveFetcher.fetch(coords, "sources");
             }
 
             // Check for local sibling sources JAR

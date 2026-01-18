@@ -130,7 +130,7 @@ public class MavenArtifactFetcher {
      * @return the latest version if found, empty otherwise
      */
     @org.jetbrains.annotations.Blocking
-    public Optional<String> resolveLatestVersion(String groupId, String artifactId) {
+    public Optional<String> resolveLatestVersion(String groupId, String artifactId) throws InterruptedException {
         var query = "g:%s AND a:%s".formatted(groupId, artifactId);
         var url = "https://search.maven.org/solrsearch/select?q=%s&rows=1&wt=json"
                 .formatted(URLEncoder.encode(query, StandardCharsets.UTF_8));
@@ -162,10 +162,7 @@ public class MavenArtifactFetcher {
 
             logger.info("No version found for {}:{}", groupId, artifactId);
             return Optional.empty();
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
+        } catch (IOException e) {
             logger.warn("Failed to query Maven Central for {}:{}: {}", groupId, artifactId, e.getMessage());
             return Optional.empty();
         }
