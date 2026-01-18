@@ -3,6 +3,7 @@ package ai.brokk.watchservice;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.util.RealPaths;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -30,9 +31,6 @@ public abstract class AbstractWatchService implements AutoCloseable {
     @Nullable
     protected final Path globalGitignorePath;
 
-    @Nullable
-    protected final Path globalGitignoreRealPath;
-
     protected final List<Listener> listeners;
 
     protected AbstractWatchService(
@@ -42,21 +40,6 @@ public abstract class AbstractWatchService implements AutoCloseable {
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
         this.gitMetaDir = resolveGitMetaDir(gitRepoRoot);
-
-        // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
-        if (globalGitignorePath != null) {
-            Path realPath;
-            try {
-                realPath = globalGitignorePath.toRealPath();
-            } catch (IOException e) {
-                // If file doesn't exist or can't be resolved, use original path as fallback
-                realPath = globalGitignorePath;
-                logger.debug("Could not resolve global gitignore to real path: {}", e.getMessage());
-            }
-            this.globalGitignoreRealPath = realPath;
-        } else {
-            this.globalGitignoreRealPath = null;
-        }
     }
 
     /**
@@ -80,14 +63,8 @@ public abstract class AbstractWatchService implements AutoCloseable {
                     // Resolve against .git file's parent to handle both absolute and relative paths,
                     // then resolve symlinks for consistent path matching during event handling
                     // gitPath is gitRepoRoot.resolve(".git"), so parent is always gitRepoRoot
-                    var resolved = requireNonNull(gitPath.getParent())
-                            .resolve(gitDirPath)
-                            .normalize();
-                    try {
-                        resolved = resolved.toRealPath();
-                    } catch (IOException ignored) {
-                        // Directory may not exist yet; use normalized path as fallback
-                    }
+                    var resolved = RealPaths.toRealPath(
+                            requireNonNull(gitPath.getParent()).resolve(gitDirPath));
                     LogManager.getLogger(AbstractWatchService.class)
                             .debug("Resolved worktree git metadata directory: {} -> {}", gitPath, resolved);
                     return resolved;
@@ -130,6 +107,49 @@ public abstract class AbstractWatchService implements AutoCloseable {
     public abstract void close();
 
     /**
+     * Checks if an event path originates from the global gitignore's parent directory
+     * but is not the gitignore file itself and is not under the project root.
+     * This is used to filter out noise when watching a broad directory (like the user home)
+     * just to track the global gitignore file.
+     *
+     * @return true if this event should be skipped (unrelated file in gitignore's parent dir),
+     *         false if this event should be processed (either the gitignore itself, under project root,
+     *         or not in the gitignore's parent directory)
+     */
+    protected boolean isUnrelatedEventFromGitignoreParentDirectory(Path eventPath) {
+        if (globalGitignorePath == null) {
+            return false;
+        }
+
+        Path globalGitignoreDir = globalGitignorePath.getParent();
+        if (globalGitignoreDir == null) {
+            return false;
+        }
+
+        Path eventParent = eventPath.getParent();
+        if (eventParent == null) {
+            return false;
+        }
+
+        // Events under project root are always relevant
+        if (eventPath.startsWith(root)) {
+            return false;
+        }
+
+        // Check if this event is in the gitignore's parent directory
+        if (!RealPaths.equals(eventParent, globalGitignoreDir)) {
+            return false;
+        }
+
+        // It's in the gitignore directory - only the gitignore file itself is relevant
+        if (RealPaths.equals(eventPath, globalGitignorePath)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Checks if a gitignore-related file change should trigger cache invalidation.
      */
     protected boolean shouldInvalidateForGitignoreChange(Path eventPath) {
@@ -154,20 +174,9 @@ public abstract class AbstractWatchService implements AutoCloseable {
         }
 
         // Check if this is the global gitignore file
-        if (globalGitignoreRealPath != null) {
-            try {
-                Path eventRealPath = eventPath.toRealPath();
-                if (eventRealPath.equals(globalGitignoreRealPath)) {
-                    logger.debug("Global gitignore file changed: {}", eventPath);
-                    return true;
-                }
-            } catch (IOException e) {
-                // If toRealPath() fails (file deleted during event), fall back to simple comparison
-                if (eventPath.equals(globalGitignorePath)) {
-                    logger.debug("Global gitignore file changed: {} (fallback comparison)", eventPath);
-                    return true;
-                }
-            }
+        if (globalGitignorePath != null && RealPaths.equals(eventPath, globalGitignorePath)) {
+            logger.debug("Global gitignore file changed: {}", eventPath);
+            return true;
         }
 
         return false;

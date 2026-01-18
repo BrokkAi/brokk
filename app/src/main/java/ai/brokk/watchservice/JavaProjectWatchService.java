@@ -169,6 +169,11 @@ public class JavaProjectWatchService extends AbstractWatchService {
             // convert to ProjectFile
             Path eventPath = watchPath.resolve(ctx);
 
+            if (isUnrelatedEventFromGitignoreParentDirectory(eventPath)) {
+                logger.trace("Skipping non-gitignore event from global gitignore directory: {}", eventPath);
+                continue;
+            }
+
             // Check if this is an untracked gitignore change that should invalidate cache
             if (shouldInvalidateForGitignoreChange(eventPath)) {
                 batch.untrackedGitignoreChanged = true;
