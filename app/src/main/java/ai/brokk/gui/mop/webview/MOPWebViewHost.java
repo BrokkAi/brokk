@@ -12,11 +12,13 @@ import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
+import java.awt.font.TextHitInfo;
 import java.awt.im.InputMethodRequests;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Proxy;
+import java.text.AttributedCharacterIterator;
+import java.text.AttributedCharacterIterator.Attribute;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -142,18 +144,7 @@ public final class MOPWebViewHost extends JPanel {
                 if (delegate == null) {
                     return null;
                 }
-                return (InputMethodRequests) Proxy.newProxyInstance(
-                        InputMethodRequests.class.getClassLoader(),
-                        new Class<?>[] {InputMethodRequests.class},
-                        (proxy, method, args) -> {
-                            if ("getTextLocation".equals(method.getName())
-                                    && args != null
-                                    && args.length > 0
-                                    && args[0] == null) {
-                                return null;
-                            }
-                            return method.invoke(delegate, args);
-                        });
+                return new InputMethodRequestsWrapper(delegate);
             }
         };
         fxPanel.setVisible(false); // Start hidden to prevent flicker
@@ -649,5 +640,51 @@ public final class MOPWebViewHost extends JPanel {
             }
         });
         // Note: ClasspathHttpServer shutdown is handled at application level, not per WebView instance
+    }
+
+    private static class InputMethodRequestsWrapper implements InputMethodRequests {
+        private final InputMethodRequests delegate;
+
+        InputMethodRequestsWrapper(InputMethodRequests delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public @Nullable Rectangle getTextLocation(@Nullable TextHitInfo offset) {
+            if (offset == null) {
+                return null;
+            }
+            return delegate.getTextLocation(offset);
+        }
+
+        @Override
+        public @Nullable TextHitInfo getLocationOffset(int x, int y) {
+            return delegate.getLocationOffset(x, y);
+        }
+
+        @Override
+        public int getInsertPositionOffset() {
+            return delegate.getInsertPositionOffset();
+        }
+
+        @Override
+        public @Nullable AttributedCharacterIterator getCommittedText(int beginIndex, int endIndex, @Nullable Attribute[] attributes) {
+            return delegate.getCommittedText(beginIndex, endIndex, attributes);
+        }
+
+        @Override
+        public int getCommittedTextLength() {
+            return delegate.getCommittedTextLength();
+        }
+
+        @Override
+        public @Nullable AttributedCharacterIterator cancelLatestCommittedText(@Nullable Attribute[] attributes) {
+            return delegate.cancelLatestCommittedText(attributes);
+        }
+
+        @Override
+        public @Nullable AttributedCharacterIterator getSelectedText(@Nullable Attribute[] attributes) {
+            return delegate.getSelectedText(attributes);
+        }
     }
 }
