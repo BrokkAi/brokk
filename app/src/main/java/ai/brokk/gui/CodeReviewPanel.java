@@ -54,11 +54,9 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         List<CodeExcerpt> excerpts = itemExcerpts.getOrDefault(item, List.of());
         detailPanel.showItem(item, excerpts, listPanel.isLastItemSelected());
 
-        if (!excerpts.isEmpty()) {
-            CodeExcerpt first = excerpts.getFirst();
-            for (ReviewNavigationListener listener : navigationListeners) {
-                listener.onNavigate(first);
-            }
+        CodeExcerpt target = excerpts.isEmpty() ? null : excerpts.getFirst();
+        for (ReviewNavigationListener listener : navigationListeners) {
+            listener.onNavigate(target);
         }
     }
 
