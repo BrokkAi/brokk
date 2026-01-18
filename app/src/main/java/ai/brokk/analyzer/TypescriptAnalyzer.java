@@ -496,11 +496,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         String decoratorPrefix = extractExportDecorators(classNode, sourceContent);
 
         // Use text slicing approach but include export prefix
-        TSNode bodyNode = classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+        TSNode bodyNode =
+                classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (bodyNode != null && !bodyNode.isNull()) {
             int startByte = classNode.getStartByte();
             int endByte = bodyNode.getStartByte();
-            String signature = sourceContent.substringFromBytes(startByte, endByte).strip();
+            String signature =
+                    sourceContent.substringFromBytes(startByte, endByte).strip();
 
             // Prepend export and other modifiers if not already present
             String prefix = exportAndModifierPrefix.stripTrailing();
