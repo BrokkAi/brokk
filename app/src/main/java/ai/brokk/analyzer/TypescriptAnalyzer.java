@@ -493,14 +493,14 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String exportAndModifierPrefix,
             String signatureText,
             String baseIndent) {
+        String decoratorPrefix = extractExportDecorators(classNode, sourceContent);
+
         // Use text slicing approach but include export prefix
-        TSNode bodyNode =
-                classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+        TSNode bodyNode = classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (bodyNode != null && !bodyNode.isNull()) {
             int startByte = classNode.getStartByte();
             int endByte = bodyNode.getStartByte();
-            String signature =
-                    sourceContent.substringFromBytes(startByte, endByte).strip();
+            String signature = sourceContent.substringFromBytes(startByte, endByte).strip();
 
             // Prepend export and other modifiers if not already present
             String prefix = exportAndModifierPrefix.stripTrailing();
@@ -518,7 +518,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 }
             }
 
-            return baseIndent + signature + " {";
+            return decoratorPrefix + baseIndent + signature + " {";
         }
 
         // Fallback for classes without bodies
@@ -533,7 +533,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         String finalPrefix = prefix.isEmpty() ? "" : prefix + " ";
         String cleanSignature = signatureText.stripLeading();
 
-        return baseIndent + finalPrefix + classKeyword + " " + cleanSignature + " {";
+        return decoratorPrefix + baseIndent + finalPrefix + classKeyword + " " + cleanSignature + " {";
     }
 
     @Override
@@ -1021,6 +1021,39 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
         // For all other cases, use the parent implementation
         super.buildFunctionSkeleton(funcNode, providedNameOpt, sourceContent, indent, lines, exportPrefix);
+    }
+
+    /**
+     * Extracts decorators from an {@code export_statement} parent node.
+     * <p>
+     * In TypeScript, when a class is exported (e.g., {@code @Component export class A {}}),
+     * the decorators often belong to the {@code export_statement} rather than the
+     * {@code class_declaration} itself.
+     *
+     * @param classNode the class definition node
+     * @param sourceContent the source code content
+     * @return a newline-separated string of decorators including a trailing newline, or empty string
+     */
+    private String extractExportDecorators(TSNode classNode, SourceContent sourceContent) {
+        TSNode parent = classNode.getParent();
+        if (parent == null || parent.isNull() || !"export_statement".equals(parent.getType())) {
+            return "";
+        }
+
+        int classStartByte = classNode.getStartByte();
+        var decorators = new ArrayList<String>();
+
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            TSNode child = parent.getChild(i);
+            if (child != null
+                    && !child.isNull()
+                    && "decorator".equals(child.getType())
+                    && child.getStartByte() < classStartByte) {
+                decorators.add(sourceContent.substringFrom(child).strip());
+            }
+        }
+
+        return decorators.isEmpty() ? "" : String.join("\n", decorators) + "\n";
     }
 
     @Override
