@@ -1210,7 +1210,10 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 // We expect PlainDocument or RSyntaxDocument, not StyledDocument.
                 if (sourceDoc instanceof javax.swing.text.StyledDocument
                         || destinationDoc instanceof javax.swing.text.StyledDocument) {
-                    logger.error("Unexpected StyledDocument detected during CHANGE event sync");
+                    logger.warn(
+                            "Unexpected StyledDocument during CHANGE sync: src={}, dst={}",
+                            sourceDoc.getClass().getName(),
+                            destinationDoc.getClass().getName());
                 }
 
                 // Invariant check: Content length should not change during a CHANGE event.

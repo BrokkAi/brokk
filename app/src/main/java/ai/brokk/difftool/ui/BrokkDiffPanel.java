@@ -1129,10 +1129,8 @@ public class BrokkDiffPanel extends JPanel
     private void refreshAllDiffPanels() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Refresh existing cached panels (preserves cache for performance)
-        for (DiffPanelLifecycle p : core.getCachedPanels()) {
-            if (p instanceof AbstractDiffPanel adp) {
-                adp.diff(true); // Scroll to selection for user-initiated refresh
-            }
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
+            p.diff(true); // Scroll to selection for user-initiated refresh
         }
         // Refresh current panel if it's not cached
         var current = getBufferDiffPanel();
@@ -1154,9 +1152,7 @@ public class BrokkDiffPanel extends JPanel
 
         // Apply theme to cached panels
         for (var panel : core.getCachedPanels()) {
-            if (panel != null) {
-                panel.applyTheme(guiTheme);
-            }
+            panel.applyTheme(guiTheme);
         }
 
         // Apply theme to file tree panel (only if multiple files)
@@ -1321,9 +1317,7 @@ public class BrokkDiffPanel extends JPanel
 
         // Apply to cached panels
         for (var p : core.getCachedPanels()) {
-            if (p != null) {
-                applySizeToSinglePanel(p, fontSize);
-            }
+            applySizeToSinglePanel(p, fontSize);
         }
 
         // Apply to currently visible panel too
