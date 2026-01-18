@@ -15,6 +15,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.text.JTextComponent;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -66,6 +67,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     // Editing and state - abstract methods that subclasses must implement
     public abstract List<BufferDiffPanel.AggregatedChange> collectChangesForAggregation();
 
+    @Blocking
     public abstract BufferDiffPanel.SaveResult writeChangedDocuments();
 
     public abstract void finalizeAfterSaveAggregation(Set<String> successfulFiles);
@@ -73,6 +75,9 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     /**
      * Compute whether this panel has unsaved changes. Subclasses implement policy; the base class manages the
      * mechanism via recalcDirty().
+     *
+     * <p>Called from EDT - must not perform blocking operations (I/O, heavy computation). Implementations
+     * should only check cached flags or in-memory state.
      *
      * @return true if there are unsaved changes
      */
@@ -157,6 +162,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
 
     @Override
     public void dispose() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Default cleanup - subclasses should override and call super
         removeAll();
         this.diffNode = null;
@@ -230,6 +236,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
 
     /**
      * Apply a font size to a component by deriving from its current font. Best-effort: no-op if font is null.
+     * Must be called on EDT.
      *
      * @param component component to update
      * @param size font size in points
@@ -243,6 +250,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
 
     /**
      * Apply a font size to the diff gutter, including the blame font when supported.
+     * Must be called on EDT.
      *
      * @param gutter gutter to update
      * @param size font size in points
@@ -267,6 +275,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
 
     /**
      * Helper to apply a font size to an editor and its associated gutter, ensuring they stay in sync.
+     * Must be called on EDT.
      *
      * @param editor the text component
      * @param gutter the associated gutter component

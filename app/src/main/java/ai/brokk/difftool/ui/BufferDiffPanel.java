@@ -41,6 +41,7 @@ import javax.swing.text.JTextComponent;
 import javax.swing.undo.UndoableEdit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -1686,6 +1687,7 @@ public class BufferDiffPanel extends AbstractDiffPanel {
     }
 
     /** Writes all changed, non-readonly documents in this panel to disk and returns per-file results. */
+    @Blocking
     @Override
     public SaveResult writeChangedDocuments() {
         var succeeded = new LinkedHashSet<String>();
