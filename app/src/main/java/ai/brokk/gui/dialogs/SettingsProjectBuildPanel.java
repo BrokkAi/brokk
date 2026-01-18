@@ -817,16 +817,22 @@ public class SettingsProjectBuildPanel extends JPanel {
                     return false;
                 }
 
-                String normalizedPath = normalizeJdkPath(rawPath);
-                Path path = Path.of(normalizedPath);
-                String error = JdkSelector.validateJdkPath(path);
-                if (error != null) {
-                    JOptionPane.showMessageDialog(this, error, "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
-                    return false;
-                }
+                // Sentinel value bypasses validation (it's a marker for dynamic JAVA_HOME resolution, not a real path)
+                if (rawPath.equals(EnvironmentJava.JAVA_HOME_SENTINEL)) {
+                    project.setJdk(rawPath);
+                    logger.debug("Applied JDK Home sentinel: {}", rawPath);
+                } else {
+                    String normalizedPath = normalizeJdkPath(rawPath);
+                    Path path = Path.of(normalizedPath);
+                    String error = JdkSelector.validateJdkPath(path);
+                    if (error != null) {
+                        JOptionPane.showMessageDialog(this, error, "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+                        return false;
+                    }
 
-                project.setJdk(normalizedPath);
-                logger.debug("Applied JDK Home: {}", normalizedPath);
+                    project.setJdk(normalizedPath);
+                    logger.debug("Applied JDK Home: {}", normalizedPath);
+                }
             } else {
                 project.setJdk(null);
                 logger.debug("Removed JDK Home override");
