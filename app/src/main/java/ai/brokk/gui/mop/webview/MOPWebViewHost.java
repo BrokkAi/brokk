@@ -17,12 +17,12 @@ import java.awt.im.InputMethodRequests;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.text.AttributedCharacterIterator;
-import java.text.AttributedCharacterIterator.Attribute;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.AttributedCharacterIterator;
+import java.text.AttributedCharacterIterator.Attribute;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
@@ -650,9 +650,9 @@ public final class MOPWebViewHost extends JPanel {
         }
 
         @Override
-        public @Nullable Rectangle getTextLocation(@Nullable TextHitInfo offset) {
+        public Rectangle getTextLocation(@Nullable TextHitInfo offset) {
             if (offset == null) {
-                return null;
+                return new Rectangle(0, 0, 0, 0);
             }
             return delegate.getTextLocation(offset);
         }
@@ -668,7 +668,8 @@ public final class MOPWebViewHost extends JPanel {
         }
 
         @Override
-        public @Nullable AttributedCharacterIterator getCommittedText(int beginIndex, int endIndex, @Nullable Attribute[] attributes) {
+        public @Nullable AttributedCharacterIterator getCommittedText(
+                int beginIndex, int endIndex, @Nullable Attribute[] attributes) {
             return delegate.getCommittedText(beginIndex, endIndex, attributes);
         }
 
