@@ -911,8 +911,10 @@ public final class JobRunner {
                                                     String testCmd = buildDetailsOverride.testAllCommand();
                                                     String lintCmd = buildDetailsOverride.buildLintCommand();
 
-                                                    String testOut = testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
-                                                    String lintOut = lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
+                                                    String testOut =
+                                                            testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
+                                                    String lintOut =
+                                                            lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
 
                                                     boolean testsPassed = testOut.isBlank();
                                                     boolean lintPassed = lintOut.isBlank();
