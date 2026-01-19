@@ -260,6 +260,41 @@ public class BlockingOperationCheckerTest {
     }
 
     @Test
+    public void doesNotWarnOnSimpleSubmitBackgroundTask() {
+        helper.addSourceLines(
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
+                .addSourceLines(
+                        "test/IContextManager.java",
+                        "package test;",
+                        "import java.util.concurrent.CompletableFuture;",
+                        "import java.util.concurrent.Callable;",
+                        "public interface IContextManager {",
+                        "  <T> CompletableFuture<T> submitBackgroundTask(String desc, Callable<T> task);",
+                        "}")
+                .addSourceLines(
+                        "test/CF.java",
+                        "package test;",
+                        "import org.jetbrains.annotations.Blocking;",
+                        "public interface CF {",
+                        "  @Blocking",
+                        "  java.util.Set<String> files();",
+                        "}")
+                .addSourceLines(
+                        "test/Use.java",
+                        "package test;",
+                        "class Use {",
+                        "  void f(CF cf, IContextManager cm) {",
+                        "    cm.submitBackgroundTask(\"task\", () -> {",
+                        "      return cf.files();",
+                        "    });",
+                        "  }",
+                        "}")
+                .doTest();
+    }
+
+    @Test
     public void doesNotWarnOnNestedBlockingCallInSubmitBackgroundTask() {
         helper.addSourceLines(
                         "org/jetbrains/annotations/Blocking.java",
