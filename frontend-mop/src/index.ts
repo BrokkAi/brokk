@@ -129,19 +129,11 @@ function setupBrokkInterface(): any[] {
 }
 
 async function handleEvent(payload: any): Promise<void> {
-    console.log('*** handleEvent called with payload:', JSON.stringify(payload));
-    if (window.javaBridge && window.javaBridge.jsLog) {
-        window.javaBridge.jsLog('INFO', 'handleEvent called with type: ' + payload.type);
-    }
     if (payload.type === 'history-reset' || payload.type === 'history-task') {
         onHistoryEvent(payload);
     } else if (payload.type === 'live-summary') {
         onLiveSummary(payload);
     } else if (payload.type === 'theme') {
-        console.log('*** Theme event received, calling setAppTheme with:', payload.themeName, payload.isDevMode, payload.wrapMode);
-        if (window.javaBridge && window.javaBridge.jsLog) {
-            window.javaBridge.jsLog('INFO', 'Theme event: ' + payload.themeName + ', devMode=' + payload.isDevMode + ', wrap=' + payload.wrapMode);
-        }
         setAppTheme(payload.themeName, payload.isDevMode, payload.wrapMode);
     } else if (payload.type === 'static-document') {
         onStaticDocument(payload);
@@ -233,9 +225,6 @@ function clearChat(): void {
 }
 
 function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {
-    console.log('*** setAppTheme called with: themeName=' + themeName + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode + ', zoom=' + zoom);
-    console.info('setTheme executed: themeName=' + themeName + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode + ', zoom=' + zoom);
-
     // Store dark mode status for backward compatibility with components that use themeStore
     const isDark = themeName !== 'light';
     themeStore.set(isDark);
@@ -273,10 +262,8 @@ function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean,
     const shouldWrap = wrapMode !== undefined ? wrapMode : true;
     if (shouldWrap) {
         html.classList.add('code-wrap-mode');
-        console.info('Applied code-wrap-mode class');
     } else {
         html.classList.remove('code-wrap-mode');
-        console.info('Removed code-wrap-mode class');
     }
 
     // Trigger status update for debug display

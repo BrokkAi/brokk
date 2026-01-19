@@ -77,10 +77,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         String javaVendor = System.getProperty("java.vendor");
         boolean isJBR = javaVendor != null && javaVendor.contains("JetBrains");
 
-        System.out.printf(
-                "*** MarkdownOutputPanel using JCEF (%s %s%s) ***%n",
-                isJBR ? "JBR" : "JDK", javaVersion, isJBR ? "" : " - requires JBR for full JCEF support");
-        logger.info("Initializing JCEF-based MarkdownOutputPanel (Java {}, vendor: {})", javaVersion, javaVendor);
+        logger.info("Initializing JCEF-based MarkdownOutputPanel ({} {}, vendor: {})",
+                    isJBR ? "JBR" : "JDK", javaVersion, javaVendor);
 
         // Set background to match theme to avoid white flash while JCEF loads
         String themeName = MainProject.getTheme();

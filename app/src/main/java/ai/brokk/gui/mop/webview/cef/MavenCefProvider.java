@@ -6,7 +6,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import me.friwi.jcefmaven.CefAppBuilder;
 import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
-import me.friwi.jcefmaven.impl.progress.ConsoleProgressHandler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cef.CefApp;
@@ -84,7 +83,8 @@ public class MavenCefProvider implements CefAppProvider {
         Path jcefDir = getJcefDir();
         var builder = new CefAppBuilder();
         builder.setInstallDir(jcefDir.toFile());
-        builder.setProgressHandler(new ConsoleProgressHandler());
+        // Use logger-based progress handler instead of ConsoleProgressHandler
+        builder.setProgressHandler((state, percent) -> logger.debug("JCEF maven progress: {} ({}%)", state, percent));
 
         CefSettings settings = builder.getCefSettings();
         CefSettingsHelper.configureCommonSettings(settings);
