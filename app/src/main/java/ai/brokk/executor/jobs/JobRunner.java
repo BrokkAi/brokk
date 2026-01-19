@@ -861,157 +861,78 @@ public final class JobRunner {
                                                 // Execute task with ArchitectAgent
                                                 cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
-                                                // Per-task verification: run verification once
-                                                String verificationOut;
-                                                try {
-                                                    verificationOut = BuildAgent.runVerification(cm, buildDetailsOverride);
-                                                } catch (InterruptedException ie) {
-                                                    Thread.currentThread().interrupt();
-                                                    throw new IssueExecutionException(
-                                                            "Interrupted while running verification",
-                                                            ie);
-                                                }
-
-                                                if (verificationOut == null || verificationOut.isBlank()) {
-                                                    // verification passed — continue to next task
-                                                    continue;
-                                                }
-
-                                                // verification failed: log event and allow exactly one fix pass
-                                                String taskLabel = Objects.requireNonNullElse(generatedTask.title(), generatedTask.text());
-                                                if (taskLabel == null || taskLabel.isBlank()) {
-                                                    taskLabel = generatedTask.text();
-                                                }
-                                                String failMsg = "Verification failed after task: " + taskLabel;
-                                                // Use the job console (if available) to notify; fall back to cm.getIo()
-                                                IConsoleIO notifierToUse = console != null ? console : cm.getIo();
-                                                try {
-                                                    notifierToUse.showNotification(IConsoleIO.NotificationRole.INFO, failMsg);
-                                                } catch (Throwable ignore) {
-                                                }
-                                                try {
-                                                    store.appendEvent(jobId, JobEvent.of("NOTIFICATION", failMsg));
-                                                } catch (IOException ioe) {
-                                                    logger.warn("Failed to append verification failure event for job {}: {}", jobId, ioe.getMessage());
-                                                }
-
-                                                // Create a single fix task prompt and run one fix attempt
-                                                String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n"
-                                                        + verificationOut + "\n\nPlease make a single fix attempt to resolve this verification failure.";
-                                                var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
-
-                                                try {
-                                                    cm.executeTask(fixTask, issuePlannerModel, issueCodeModel);
-                                                } catch (Exception e) {
-                                                    logger.warn("Fix attempt failed for job {} task {}: {}", jobId, taskLabel, e.getMessage());
-                                                }
-
-                                                // Re-run verification exactly once
-                                                String verificationOutAfterFix;
-                                                try {
-                                                    verificationOutAfterFix = BuildAgent.runVerification(cm, buildDetailsOverride);
-                                                } catch (InterruptedException ie) {
-                                                    Thread.currentThread().interrupt();
-                                                    throw new IssueExecutionException(
-                                                            "Interrupted while running verification after fix",
-                                                            ie);
-                                                }
-
-                                                if (verificationOutAfterFix == null || verificationOutAfterFix.isBlank()) {
-                                                    // fix succeeded — continue to next task
-                                                    String okMsg = "Verification passed after fix for task: " + taskLabel;
-                                                    IConsoleIO notifier = console != null ? console : cm.getIo();
+                                                // Per-task verification: enforce single-fix semantics via helper.
+                                                java.util.function.Supplier<String> verificationRunner = () -> {
                                                     try {
-                                                    notifier.showNotification(IConsoleIO.NotificationRole.INFO, okMsg);
-                                                    } catch (Throwable ignore) {
+                                                        return BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                    } catch (InterruptedException ie) {
+                                                        Thread.currentThread().interrupt();
+                                                        throw new RuntimeException(ie);
                                                     }
+                                                };
+
+                                                java.util.function.Consumer<String> fixTaskRunner = prompt -> {
+                                                    String taskLabel = Objects.requireNonNullElse(generatedTask.title(), generatedTask.text());
+                                                    if (taskLabel == null || taskLabel.isBlank()) {
+                                                        taskLabel = generatedTask.text();
+                                                    }
+                                                    String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n"
+                                                            + prompt + "\n\nPlease make a single fix attempt to resolve this verification failure.";
+                                                    var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
                                                     try {
-                                                    store.appendEvent(jobId, JobEvent.of("NOTIFICATION", okMsg));
-                                                    } catch (IOException ioe) {
-                                                    logger.warn("Failed to append verification success event for job {}: {}", jobId, ioe.getMessage());
+                                                        cm.executeTask(fixTask, issuePlannerModel, issueCodeModel);
+                                                    } catch (Exception e) {
+                                                        logger.warn("Fix attempt failed for job {} task {}: {}", jobId, taskLabel, e.getMessage());
                                                     }
-                                                    continue;
-                                                } else {
-                                                    // fix did not resolve verification — fail the ISSUE workflow
-                                                    String detailsMsg = "Verification failed after fix for task: " + taskLabel + "\n\nOutput:\n"
-                                                            + verificationOutAfterFix;
-                                                    throw new IssueExecutionException(detailsMsg);
-                                                }
+                                                };
+
+                                                // Delegate to single-shot gate helper which will append notifications/events.
+                                                runSingleFixVerificationGate(jobId, store, console != null ? console : cm.getIo(), verificationRunner, fixTaskRunner);
                                             }
 
-                                            // After all tasks completed, run the end-of-run final gate which runs full
-                                            // tests and lint once each. If either fails, perform exactly one fix pass, re-run once, then fail if still failing.
-                                            String testCmd = buildDetailsOverride.testAllCommand();
-                                            String lintCmd = buildDetailsOverride.buildLintCommand();
-
-                                            java.util.function.Function<String, String> runCmd = cmd -> {
+                                            // After all tasks completed, run the end-of-run final gate using the single-fix helper.
+                                            java.util.function.Function<String, String> commandRunner = cmd -> {
                                                 try {
                                                     return BuildAgent.runExplicitCommand(cm, cmd, buildDetailsOverride);
                                                 } catch (InterruptedException ie) {
                                                     Thread.currentThread().interrupt();
-                                                    throw new IssueExecutionException("Interrupted while running command: " + cmd, ie);
+                                                    throw new RuntimeException(ie);
                                                 }
                                             };
 
-                                            // Run tests and lint once
-                                            String testOut = (testCmd == null || testCmd.isBlank()) ? "" : runCmd.apply(testCmd);
-                                            String lintOut = (lintCmd == null || lintCmd.isBlank()) ? "" : runCmd.apply(lintCmd);
+                                            java.util.function.Supplier<String> finalVerificationRunner = () -> {
+                                                // Run tests and lint once each and compose combined output if any failed.
+                                                String testCmd = buildDetailsOverride.testAllCommand();
+                                                String lintCmd = buildDetailsOverride.buildLintCommand();
 
-                                            boolean testsPassed = testOut.isBlank();
-                                            boolean lintPassed = lintOut.isBlank();
+                                                String testOut = (testCmd == null || testCmd.isBlank()) ? "" : commandRunner.apply(testCmd);
+                                                String lintOut = (lintCmd == null || lintCmd.isBlank()) ? "" : commandRunner.apply(lintCmd);
 
-                                            if (!(testsPassed && lintPassed)) {
-                                                // Compose combined output
-                                                var failureParts = new java.util.ArrayList<String>();
-                                                if (!testsPassed) {
-                                                    failureParts.add("Tests failed (" + testCmd + "):\n" + testOut);
-                                                }
-                                                if (!lintPassed) {
-                                                    failureParts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
-                                                }
-                                                String combinedFailure = String.join("\n\n", failureParts);
+                                                boolean testsPassed = testOut.isBlank();
+                                                boolean lintPassed = lintOut.isBlank();
 
-                                                String finalFailMsg = "Final gate failed: " + combinedFailure;
-                                                IConsoleIO notifier = console != null ? console : cm.getIo();
-                                                try {
-                                                    notifier.showNotification(IConsoleIO.NotificationRole.INFO, finalFailMsg);
-                                                } catch (Throwable ignore) {
-                                                }
-                                                try {
-                                                    store.appendEvent(jobId, JobEvent.of("NOTIFICATION", finalFailMsg));
-                                                } catch (IOException ioe) {
-                                                    logger.warn("Failed to append final gate failure event for job {}: {}", jobId, ioe.getMessage());
+                                                if (testsPassed && lintPassed) {
+                                                    return "";
                                                 }
 
-                                                // Single fix pass for final gate
-                                                String finalFixPrompt = "Final checks failed. Output:\n" + combinedFailure + "\n\nPlease make a single fix attempt to resolve these failures.";
+                                                var parts = new java.util.ArrayList<String>();
+                                                if (!testsPassed) parts.add("Tests failed (" + testCmd + "):\n" + testOut);
+                                                if (!lintPassed) parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
+                                                return String.join("\n\n", parts);
+                                            };
+
+                                            java.util.function.Consumer<String> finalFixTaskRunner = prompt -> {
+                                                String finalFixPrompt = "Final checks failed. Output:\n" + prompt + "\n\nPlease make a single fix attempt to resolve these failures.";
                                                 var finalFixTask = TaskList.TaskItem.createFixTask(finalFixPrompt);
                                                 try {
                                                     cm.executeTask(finalFixTask, issuePlannerModel, issueCodeModel);
                                                 } catch (Exception e) {
                                                     logger.warn("Final fix attempt failed for job {}: {}", jobId, e.getMessage());
                                                 }
+                                            };
 
-                                                // Re-run final checks once
-                                                String testOutAfterFix = (testCmd == null || testCmd.isBlank()) ? "" : runCmd.apply(testCmd);
-                                                String lintOutAfterFix = (lintCmd == null || lintCmd.isBlank()) ? "" : runCmd.apply(lintCmd);
-
-                                                boolean testsPassedAfter = testOutAfterFix.isBlank();
-                                                boolean lintPassedAfter = lintOutAfterFix.isBlank();
-
-                                                if (!(testsPassedAfter && lintPassedAfter)) {
-                                                    var failurePartsAfter = new java.util.ArrayList<String>();
-                                                    if (!testsPassedAfter) {
-                                                        failurePartsAfter.add("Tests failed (" + testCmd + "):\n" + testOutAfterFix);
-                                                    }
-                                                    if (!lintPassedAfter) {
-                                                        failurePartsAfter.add("Lint failed (" + lintCmd + "):\n" + lintOutAfterFix);
-                                                    }
-                                                    String failedDetails =
-                                                            failurePartsAfter.isEmpty() ? "Unknown final gate failure" : String.join("\n\n", failurePartsAfter);
-                                                    throw new IssueExecutionException("Final gate failed after fix attempt:\n\n" + failedDetails);
-                                                } // else continue to PR creation
-                                            }
+                                            // Delegate to single-shot gate helper which will throw on persistent failure.
+                                            runSingleFixVerificationGate(jobId, store, console != null ? console : cm.getIo(), finalVerificationRunner, finalFixTaskRunner);
 
                                             // 5. Commit and Create Pull Request (conditional)
                                             // Only create a PR if:
@@ -1576,215 +1497,8 @@ public final class JobRunner {
         }
     }
 
-    static void runVerificationRetryLoop(
-            String jobId,
-            JobStore store,
-            IConsoleIO io,
-            int maxAttempts,
-            java.util.function.Supplier<String> verificationRunner,
-            java.util.function.Consumer<String> fixTaskRunner) {
-        // Backwards-compatible entry point: delegate to AtomicInteger-based implementation.
-        java.util.concurrent.atomic.AtomicInteger attemptsLeft =
-                new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
-        runVerificationRetryLoop(jobId, store, io, attemptsLeft, verificationRunner, fixTaskRunner);
-    }
-
-    static void runVerificationRetryLoop(
-            String jobId,
-            JobStore store,
-            IConsoleIO io,
-            java.util.concurrent.atomic.AtomicInteger attemptsLeft,
-            java.util.function.Supplier<String> verificationRunner,
-            java.util.function.Consumer<String> fixTaskRunner) {
-        if (attemptsLeft.get() < 1) {
-            throw new IssueExecutionException("verification maxAttempts must be >= 1");
-        }
-
-        int attemptNumber = 1;
-        while (attemptsLeft.get() > 0) {
-            int maxAttempts = attemptNumber + attemptsLeft.get() - 1;
-            String startMsg = "Verification attempt %d/%d".formatted(attemptNumber, maxAttempts);
-            logger.info("Job {} {}", jobId, startMsg);
-            try {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
-            } catch (Throwable ignore) {
-                // best-effort only
-            }
-            try {
-                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
-            } catch (IOException ioe) {
-                logger.warn(
-                        "Failed to append verification start notification event for job {}: {}",
-                        jobId,
-                        ioe.getMessage(),
-                        ioe);
-            }
-
-            String verificationOut;
-            try {
-                verificationOut = verificationRunner.get();
-            } catch (RuntimeException re) {
-                // Propagate runtime exceptions but attach context
-                throw new IssueExecutionException("Verification runner failed: " + re.getMessage(), re);
-            }
-
-            boolean passed = verificationOut == null || verificationOut.isBlank();
-
-            String resultMsg = "Verification attempt %d/%d results: %s"
-                    .formatted(attemptNumber, maxAttempts, passed ? "PASS" : "FAIL");
-            try {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
-            } catch (Throwable ignore) {
-                // best-effort only
-            }
-            try {
-                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", resultMsg));
-            } catch (IOException ioe) {
-                logger.warn(
-                        "Failed to append verification results notification event for job {}: {}",
-                        jobId,
-                        ioe.getMessage(),
-                        ioe);
-            }
-
-            if (passed) {
-                return;
-            }
-
-            // consume one attempt and possibly request a fix
-            attemptsLeft.decrementAndGet();
-            if (attemptsLeft.get() <= 0) {
-                String details = "Verification failed after " + maxAttempts + " attempt(s):\n\n" + verificationOut;
-                throw new IssueExecutionException(details);
-            } else {
-                String prompt = "Verification failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\nOutput:\n"
-                        + verificationOut
-                        + "\n\nPlease fix the issue so that verification will pass on the next attempt.";
-                fixTaskRunner.accept(prompt);
-            }
-            attemptNumber++;
-        }
-
-        throw new IssueExecutionException("Verification failed unexpectedly");
-    }
-
-    static void runFinalGateRetryLoop(
-            String jobId,
-            JobStore store,
-            IConsoleIO io,
-            BuildAgent.BuildDetails buildDetailsOverride,
-            int maxAttempts,
-            Function<String, String> commandRunner,
-            Consumer<String> fixTaskRunner) {
-        // Backwards-compatible entry point: delegate to AtomicInteger-based implementation.
-        java.util.concurrent.atomic.AtomicInteger attemptsLeft =
-                new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
-        runFinalGateRetryLoop(jobId, store, io, buildDetailsOverride, attemptsLeft, commandRunner, fixTaskRunner);
-    }
-
-    static void runFinalGateRetryLoop(
-            String jobId,
-            JobStore store,
-            IConsoleIO io,
-            BuildAgent.BuildDetails buildDetailsOverride,
-            java.util.concurrent.atomic.AtomicInteger attemptsLeft,
-            Function<String, String> commandRunner,
-            Consumer<String> fixTaskRunner) {
-        if (attemptsLeft.get() < 1) {
-            throw new IssueExecutionException("Final gate maxAttempts must be >= 1");
-        }
-
-        String testCmd = buildDetailsOverride.testAllCommand();
-        String lintCmd = buildDetailsOverride.buildLintCommand();
-
-        boolean testsSkipped = testCmd.isBlank();
-        boolean lintSkipped = lintCmd.isBlank();
-
-        int attemptNumber = 1;
-        while (attemptsLeft.get() > 0) {
-            int maxAttempts = attemptNumber + attemptsLeft.get() - 1;
-            String startMsg = "Final gate attempt %d/%d: tests=%s, lint=%s"
-                    .formatted(attemptNumber, maxAttempts, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
-            try {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
-            } catch (Throwable ignore) {
-                // best-effort only
-            }
-            try {
-                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
-            } catch (IOException ioe) {
-                logger.warn(
-                        "Failed to append final gate start notification event for job {}: {}",
-                        jobId,
-                        ioe.getMessage(),
-                        ioe);
-            }
-
-            String testOut = testsSkipped ? "" : commandRunner.apply(testCmd);
-            String lintOut = lintSkipped ? "" : commandRunner.apply(lintCmd);
-
-            boolean testsPassed = testsSkipped || testOut.isBlank();
-            boolean lintPassed = lintSkipped || lintOut.isBlank();
-
-            var resultMsg = "Final gate attempt " + attemptNumber + "/" + maxAttempts + " results: tests="
-                    + (testsSkipped ? "SKIP" : (testsPassed ? "PASS" : "FAIL")) + ", lint="
-                    + (lintSkipped ? "SKIP" : (lintPassed ? "PASS" : "FAIL"));
-            try {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
-            } catch (Throwable ignore) {
-                // best-effort only
-            }
-            try {
-                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", resultMsg));
-            } catch (IOException ioe) {
-                logger.warn(
-                        "Failed to append final gate results notification event for job {}: {}",
-                        jobId,
-                        ioe.getMessage(),
-                        ioe);
-            }
-
-            if (testsPassed && lintPassed) {
-                return;
-            }
-
-            // consume one attempt and either fail or request a fix
-            attemptsLeft.decrementAndGet();
-            if (attemptsLeft.get() <= 0) {
-                var failureParts = new java.util.ArrayList<String>();
-                if (!testsPassed) {
-                    failureParts.add("Tests failed (" + testCmd + "):\n" + testOut);
-                }
-                if (!lintPassed) {
-                    failureParts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
-                }
-
-                String failedDetails =
-                        failureParts.isEmpty() ? "Unknown final gate failure" : String.join("\n\n", failureParts);
-
-                throw new IssueExecutionException(
-                        "Final gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
-            }
-
-            var fixParts = new java.util.ArrayList<String>();
-            if (!testsPassed) {
-                fixParts.add("Tests failed when running:\n" + testCmd + "\n\nOutput:\n" + testOut);
-            }
-            if (!lintPassed) {
-                fixParts.add("Lint failed when running:\n" + lintCmd + "\n\nOutput:\n" + lintOut);
-            }
-
-            String fixPrompt = fixParts.isEmpty() ? "Unknown final gate failure" : String.join("\n\n", fixParts);
-
-            String fullFixPrompt = "Final checks failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\n"
-                    + fixPrompt + "\n\nPlease fix the issues so that BOTH final tests and final lint pass.";
-
-            fixTaskRunner.accept(fullFixPrompt);
-            attemptNumber++;
-        }
-
-        throw new IssueExecutionException("Final gate failed unexpectedly");
-    }
+    // The retry-loop helpers (runVerificationRetryLoop, runFinalGateRetryLoop) were intentionally removed
+    // to ensure ISSUE mode uses single-attempt semantics via runSingleFixVerificationGate only.
 
     /**
      * Simplified helper that enforces "verify once, optional single fix attempt, verify once".
