@@ -50,7 +50,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class JobRunner {
     private static final Logger logger = LogManager.getLogger(JobRunner.class);
-    private static final int DEFAULT_MAX_BUILD_ATTEMPTS = 3;
 
     private static final PrReviewService.Severity DEFAULT_REVIEW_SEVERITY_THRESHOLD = PrReviewService.Severity.HIGH;
     private static final int DEFAULT_REVIEW_MAX_INLINE_COMMENTS = 5;
@@ -912,12 +911,8 @@ public final class JobRunner {
                                                     String testCmd = buildDetailsOverride.testAllCommand();
                                                     String lintCmd = buildDetailsOverride.buildLintCommand();
 
-                                                    String testOut = (testCmd == null || testCmd.isBlank())
-                                                            ? ""
-                                                            : commandRunner.apply(testCmd);
-                                                    String lintOut = (lintCmd == null || lintCmd.isBlank())
-                                                            ? ""
-                                                            : commandRunner.apply(lintCmd);
+                                                    String testOut = testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
+                                                    String lintOut = lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
 
                                                     boolean testsPassed = testOut.isBlank();
                                                     boolean lintPassed = lintOut.isBlank();
@@ -1057,7 +1052,8 @@ public final class JobRunner {
                                             boolean forceDelete = "always"
                                                     .equalsIgnoreCase(
                                                             spec.tags().getOrDefault("issue_branch_cleanup", ""));
-                                            cleanupIssueBranch(jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
+                                            cleanupIssueBranch(
+                                                    jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
@@ -1438,11 +1434,7 @@ public final class JobRunner {
     }
 
     static void cleanupIssueBranch(
-            String jobId,
-            GitRepo gitRepo,
-            String originalBranch,
-            String issueBranchName,
-            boolean forceDelete) {
+            String jobId, GitRepo gitRepo, String originalBranch, String issueBranchName, boolean forceDelete) {
 
         // Cleanup semantics (linear and auditable):
         // 1) Attempt to checkout originalBranch once.

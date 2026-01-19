@@ -145,10 +145,14 @@ class JobSpecTest {
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         // tags() must never be null; canonical constructor should normalize to empty immutable map.
-        assertTrue(spec.tags() != null && spec.tags().isEmpty(), "tags() must be non-null and empty when constructed with null");
+        assertTrue(
+                spec.tags() != null && spec.tags().isEmpty(),
+                "tags() must be non-null and empty when constructed with null");
         // redactedTags should not throw and should be empty
         var redacted = spec.redactedTags();
-        assertTrue(redacted != null && redacted.isEmpty(), "redactedTags() must be non-null and empty when tags() was null");
+        assertTrue(
+                redacted != null && redacted.isEmpty(),
+                "redactedTags() must be non-null and empty when tags() was null");
     }
 
     @Test
