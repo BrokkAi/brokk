@@ -818,7 +818,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 }
 
                 // Sentinel value bypasses validation (it's a marker for dynamic JAVA_HOME resolution, not a real path)
-                if (rawPath.equals(EnvironmentJava.JAVA_HOME_SENTINEL)) {
+                if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(rawPath)) {
                     project.setJdk(rawPath);
                     logger.debug("Applied JDK Home sentinel: {}", rawPath);
                 } else {
