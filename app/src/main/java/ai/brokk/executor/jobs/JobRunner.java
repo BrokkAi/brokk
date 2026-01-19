@@ -1521,6 +1521,7 @@ public final class JobRunner {
                     "ISSUE job {}: Unexpected error while attempting to restore original branch '{}': {}",
                     jobId,
                     originalBranch,
+                    e.getMessage(),
                     e);
         }
 
@@ -1557,7 +1558,11 @@ public final class JobRunner {
             }
         } catch (Exception e) {
             logger.warn(
-                    "ISSUE job {}: Failed to delete issue branch '{}' during cleanup: {}", jobId, issueBranchName, e);
+                    "ISSUE job {}: Failed to delete issue branch '{}' during cleanup: {}",
+                    jobId,
+                    issueBranchName,
+                    e.getMessage(),
+                    e);
         }
     }
 
