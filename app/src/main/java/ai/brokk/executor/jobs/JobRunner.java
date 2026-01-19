@@ -874,10 +874,10 @@ public final class JobRunner {
                                                     }
 
                                                     if (verificationOut != null && !verificationOut.isBlank()) {
-                                                        String taskLabel = generatedTask.text();
-                                                        String title = generatedTask.title();
-                                                        if (title != null && !title.isBlank()) {
-                                                            taskLabel = title;
+                                                        // Prefer task.text() for user-facing messages; title() may be null/blank.
+                                                        String taskLabel = Objects.requireNonNullElse(generatedTask.title(), generatedTask.text());
+                                                        if (taskLabel == null || taskLabel.isBlank()) {
+                                                            taskLabel = generatedTask.text();
                                                         }
                                                         String verDetails = "Verification failed after task: "
                                                                 + taskLabel
