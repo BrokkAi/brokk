@@ -396,9 +396,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
         popup.add(newSessionFromWorkspaceItem);
 
-        // Register popup with theme manager
-        chrome.getThemeManager().registerPopupMenu(popup);
-
         // Show popup menu
         popup.show(historyTableComponent.getTable(), x, y);
     }
@@ -576,7 +573,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 compressItem.setEnabled(compressButton.isEnabled());
                 popup.add(compressItem);
 
-                chrome.getThemeManager().registerPopupMenu(popup);
                 popup.show(e.getComponent(), e.getX(), e.getY());
             }
 

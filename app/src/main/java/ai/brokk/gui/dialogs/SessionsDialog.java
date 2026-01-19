@@ -390,9 +390,6 @@ public class SessionsDialog extends BaseThemedDialog {
         });
         popup.add(newSessionFromWorkspaceItem);
 
-        // Register popup with theme manager
-        chrome.getTheme().registerPopupMenu(popup);
-
         popup.show(e.getComponent(), e.getX(), e.getY());
     }
 
@@ -536,9 +533,6 @@ public class SessionsDialog extends BaseThemedDialog {
             });
         });
         popup.add(dupItem);
-
-        // Register popup with theme manager
-        chrome.getTheme().registerPopupMenu(popup);
 
         popup.show(sessionsTable, e.getX(), e.getY());
     }

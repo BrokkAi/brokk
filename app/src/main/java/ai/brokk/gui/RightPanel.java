@@ -289,7 +289,6 @@ public class RightPanel extends JPanel implements ThemeAware {
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.setPreferredSize(new Dimension(360, 200));
         popup.add(scroll);
-        chrome.getThemeManager().registerPopupMenu(popup);
         return popup;
     }
 
@@ -484,7 +483,6 @@ public class RightPanel extends JPanel implements ThemeAware {
                 }
 
                 if (popup.getComponentCount() > 0) {
-                    chrome.getThemeManager().registerPopupMenu(popup);
                     popup.show(buildReviewTabs, e.getX(), e.getY());
                 }
             }

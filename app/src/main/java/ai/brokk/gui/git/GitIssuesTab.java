@@ -573,7 +573,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
         // Initialize context menu and items
         issueContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(issueContextMenu);
 
         issueContextMenu.add(new JMenuItem(copyDescriptionAction));
         issueContextMenu.add(new JMenuItem(openInBrowserAction));

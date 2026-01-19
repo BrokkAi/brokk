@@ -393,7 +393,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Local branch context menu
         JPopupMenu branchContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(branchContextMenu);
         JMenuItem checkoutItem = new JMenuItem("Checkout");
         JMenuItem newBranchItem = new JMenuItem("New Branch From This");
         JMenuItem mergeItem = new JMenuItem("Merge into...");
@@ -528,7 +527,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Remote branch context menu
         JPopupMenu remoteBranchContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(remoteBranchContextMenu);
         JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
         JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");
         JMenuItem remoteMergeItem = new JMenuItem(); // text set dynamically
@@ -599,7 +597,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Tags context menu
         JPopupMenu tagContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(tagContextMenu);
         JMenuItem tagNewBranchItem = new JMenuItem("New Branch From This");
         tagContextMenu.add(tagNewBranchItem);
 

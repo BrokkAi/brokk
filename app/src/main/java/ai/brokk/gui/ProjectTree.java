@@ -307,7 +307,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private JPopupMenu getOrCreateContextMenu() {
         if (currentContextMenu == null) {
             currentContextMenu = new JPopupMenu();
-            chrome.getThemeManager().registerPopupMenu(currentContextMenu);
         }
         return currentContextMenu;
     }
