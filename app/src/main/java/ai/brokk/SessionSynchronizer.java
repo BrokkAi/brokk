@@ -209,22 +209,23 @@ class SessionSynchronizer {
                 } catch (ExecutionException executionException) {
                     Throwable cause = executionException.getCause();
                     Exception ex = (cause instanceof Exception e) ? e : new Exception(cause);
-                    result.failed.put(id, ex);
-                    logger.warn("Action {} failed for session {}: {}", action.type(), id, ex.getMessage());
-                } catch (IOException e) {
-                    result.failed.put(id, e);
-                    logger.warn("Action {} failed for session {}: {}", action.type(), id, e.getMessage());
-
-                    // If we hit a rate limit on upload, stop processing further actions in this cycle
-                    if (action.type() == ActionType.UPLOAD
-                            && e.getMessage() != null
-                            && e.getMessage().contains("429")) {
+                    actionFailedForSession(action, ex, result, id);
+                } catch (ServiceHttpException e) {
+                    actionFailedForSession(action, e, result, id);
+                    if (action.type() == ActionType.UPLOAD && e.getStatusCode() == 429) {
                         logger.warn("Daily upload limit reached. Pausing remaining uploads for this sync cycle.");
                         break;
                     }
+                } catch (IOException e) {
+                    actionFailedForSession(action, e, result, id);
                 }
             }
             return result;
+        }
+
+        private void actionFailedForSession(SyncAction action, Exception e, SyncResult result, UUID id) {
+            result.failed.put(id, e);
+            logger.warn("Action {} failed for session {}: {}", action.type(), id, e.getMessage());
         }
 
         private void handleDeleteRemote(SyncAction action, SyncCallbacks callbacks, SyncResult result)
