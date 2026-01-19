@@ -2,10 +2,10 @@ package ai.brokk.errorprone;
 
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Type;
-import org.jspecify.annotations.NullMarked;
-
 import java.util.HashSet;
 import java.util.Set;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Utility methods for traversing and querying the Java type hierarchy using Javac symbols.
@@ -28,7 +28,7 @@ public final class TypeHierarchyUtils {
      * @param targetFqcn the fully qualified name of the target interface or class
      * @return true if the symbol or any of its supertypes match the target FQCN, false otherwise
      */
-    public static boolean implementsOrExtends(Symbol.@org.jspecify.annotations.Nullable ClassSymbol cs, String targetFqcn) {
+    public static boolean implementsOrExtends(Symbol.@Nullable ClassSymbol cs, String targetFqcn) {
         if (cs == null) {
             return false;
         }
@@ -55,7 +55,7 @@ public final class TypeHierarchyUtils {
 
         // Check superclass
         Type superclass = cs.getSuperclass();
-        if (superclass != null && superclass.tsym instanceof Symbol.ClassSymbol superclassSymbol) {
+        if (superclass.tsym instanceof Symbol.ClassSymbol superclassSymbol) {
             return walkHierarchy(superclassSymbol, targetFqcn, visited);
         }
 

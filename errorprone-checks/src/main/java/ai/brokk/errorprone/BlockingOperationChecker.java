@@ -13,6 +13,8 @@ import com.sun.source.util.TreePath;
 import com.sun.source.util.TreeScanner;
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Symbol.MethodSymbol;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Flags invocations of methods annotated with ai.brokk.annotations.Blocking
@@ -34,9 +36,17 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
     private static final String BLOCKING_ANN_FQCN = "org.jetbrains.annotations.Blocking";
     private static final String SWING_UTILS_FQCN = "javax.swing.SwingUtilities";
     private static final String EVENT_QUEUE_FQCN = "java.awt.EventQueue";
-    private static final String CONTEXT_MANAGER_FQCN = "ai.brokk.IContextManager";
-    private static final String LOGGING_FUTURE_FQCN = "ai.brokk.concurrent.LoggingFuture";
-    private static final String SUBMIT_BACKGROUND_TASK_METHOD = "submitBackgroundTask";
+
+    /**
+     * Map of owner class FQCNs to method names that represent safe background contexts.
+     * When a @Blocking call occurs within an argument to any of these methods, it is considered safe.
+     *
+     * <p>For interface types (like IContextManager), the check uses type hierarchy traversal
+     * to match any implementing class. For final classes (like LoggingFuture), a direct FQCN match is used.
+     */
+    private static final Map<String, List<String>> SAFE_BACKGROUND_CONTEXTS = Map.of(
+            "ai.brokk.IContextManager", List.of("submitBackgroundTask"),
+            "ai.brokk.concurrent.LoggingFuture", List.of("supplyAsync", "supplyCallableAsync", "allOf", "anyOf"));
 
     private static boolean hasDirectAnnotation(Symbol sym, String fqcn) {
         for (var a : sym.getAnnotationMirrors()) {
@@ -59,8 +69,8 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
             return Description.NO_MATCH;
         }
 
-        // Do not warn if we are already inside a background task submission
-        if (isWithinSubmitBackgroundTaskArgument(state) || isWithinLoggingFutureArgument(state)) {
+        // Do not warn if we are already inside a safe background context
+        if (isWithinSafeBackgroundContext(state)) {
             return Description.NO_MATCH;
         }
 
@@ -77,14 +87,15 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
         return buildDescription(tree).setMessage(message).build();
     }
 
-    private static boolean isWithinSubmitBackgroundTaskArgument(VisitorState state) {
-        // The node being analyzed (e.g., the @Blocking method invocation)
+    /**
+     * Checks if the current node is within an argument to any method defined in SAFE_BACKGROUND_CONTEXTS.
+     */
+    private static boolean isWithinSafeBackgroundContext(VisitorState state) {
         Tree target = state.getPath().getLeaf();
 
         for (TreePath path = state.getPath(); path != null; path = path.getParentPath()) {
             Tree node = path.getLeaf();
-            if (node instanceof MethodInvocationTree mit && isSubmitBackgroundTask(mit)) {
-                // Check whether the target node is within any of the method arguments
+            if (node instanceof MethodInvocationTree mit && isSafeBackgroundMethod(mit)) {
                 for (Tree arg : mit.getArguments()) {
                     if (containsTree(arg, target)) {
                         return true;
@@ -95,53 +106,39 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
         return false;
     }
 
-    private static boolean isWithinLoggingFutureArgument(VisitorState state) {
-        // The node being analyzed (e.g., the @Blocking method invocation)
-        Tree target = state.getPath().getLeaf();
+    /**
+     * Checks if the method invocation matches any entry in SAFE_BACKGROUND_CONTEXTS.
+     * For instance methods, uses type hierarchy traversal to match implementing classes.
+     * For static methods, uses direct FQCN comparison.
+     */
+    private static boolean isSafeBackgroundMethod(MethodInvocationTree mit) {
+        MethodSymbol ms = ASTHelpers.getSymbol(mit);
+        if (ms == null) {
+            return false;
+        }
 
-        for (TreePath path = state.getPath(); path != null; path = path.getParentPath()) {
-            Tree node = path.getLeaf();
-            if (node instanceof MethodInvocationTree mit && isLoggingFutureStaticMethod(mit)) {
-                // Check whether the target node is within any of the method arguments
-                for (Tree arg : mit.getArguments()) {
-                    if (containsTree(arg, target)) {
-                        return true;
-                    }
-                }
+        String methodName = ms.getSimpleName().toString();
+        if (!(ms.owner instanceof Symbol.ClassSymbol ownerClass)) {
+            return false;
+        }
+
+        for (var entry : SAFE_BACKGROUND_CONTEXTS.entrySet()) {
+            String targetFqcn = entry.getKey();
+            List<String> methods = entry.getValue();
+
+            if (!methods.contains(methodName)) {
+                continue;
+            }
+
+            // Check if owner matches directly or via type hierarchy
+            if (ownerClass.getQualifiedName().contentEquals(targetFqcn)) {
+                return true;
+            }
+            if (TypeHierarchyUtils.implementsOrExtends(ownerClass, targetFqcn)) {
+                return true;
             }
         }
         return false;
-    }
-
-    private static boolean isLoggingFutureStaticMethod(MethodInvocationTree mit) {
-        MethodSymbol ms = ASTHelpers.getSymbol(mit);
-        if (ms == null || !ms.isStatic()) {
-            return false;
-        }
-
-        String name = ms.getSimpleName().toString();
-        boolean matchesMethod = name.equals("supplyAsync")
-                || name.equals("supplyCallableAsync")
-                || name.equals("allOf")
-                || name.equals("anyOf");
-
-        if (!matchesMethod) {
-            return false;
-        }
-
-        return ms.owner instanceof Symbol.ClassSymbol cs
-                && cs.getQualifiedName().contentEquals(LOGGING_FUTURE_FQCN);
-    }
-
-    private static boolean isSubmitBackgroundTask(MethodInvocationTree mit) {
-        // Match by method name and ensure the owner class implements IContextManager
-        // to correctly handle any IContextManager implementation or wrapper.
-        MethodSymbol ms = ASTHelpers.getSymbol(mit);
-        if (ms == null || !ms.getSimpleName().contentEquals(SUBMIT_BACKGROUND_TASK_METHOD)) {
-            return false;
-        }
-        return ms.owner instanceof Symbol.ClassSymbol cs
-                && TypeHierarchyUtils.implementsOrExtends(cs, CONTEXT_MANAGER_FQCN);
     }
 
     private static boolean isWithinInvokeLaterArgument(VisitorState state) {
