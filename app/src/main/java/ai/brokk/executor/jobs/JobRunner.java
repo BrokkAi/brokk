@@ -36,6 +36,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import ai.brokk.git.GitWorkflow;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
@@ -1490,5 +1491,13 @@ public final class JobRunner {
         }
 
         throw new IssueExecutionException("Pre-PR gate failed unexpectedly");
+    }
+
+    static boolean issueDeliveryEnabled(JobSpec spec) {
+        String raw = spec.tags().get("issue_delivery");
+        if (raw == null || raw.isBlank()) {
+            return true;
+        }
+        return !raw.trim().equalsIgnoreCase("none");
     }
 }

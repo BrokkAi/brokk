@@ -74,6 +74,39 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void testIssueDeliveryPolicy_DefaultsToPr() {
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 1, "{}");
+        assertTrue(JobRunner.issueDeliveryEnabled(spec), "Default policy should enable PR creation");
+    }
+
+    @Test
+    void testIssueDeliveryPolicy_DisableViaTag() {
+        JobSpec spec = new JobSpec(
+                "",
+                false,
+                false,
+                "gpt-4",
+                null,
+                null,
+                false,
+                Map.of(
+                        "mode", "ISSUE",
+                        "github_token", "token",
+                        "repo_owner", "owner",
+                        "repo_name", "repo",
+                        "issue_number", "2",
+                        "issue_delivery", "none"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+        assertFalse(JobRunner.issueDeliveryEnabled(spec), "issue_delivery=none should disable PR creation");
+    }
+
+    @Test
     void testJobSpecOfIssueCreatesCorrectTags() {
         JobSpec spec = JobSpec.ofIssue(
                 "gpt-4",
