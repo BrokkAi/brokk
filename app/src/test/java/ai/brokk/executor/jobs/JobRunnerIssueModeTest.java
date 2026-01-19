@@ -256,18 +256,12 @@ class JobRunnerIssueModeTest {
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runPrePrGateRetryLoop(
+                () -> JobRunner.runFinalGateRetryLoop(
                         "job-final-gate-1", store, io, buildDetails, attemptsLeft, commandRunner, fixRunner));
 
         String msg = ex.getMessage();
-        assertTrue(
-                msg.contains("Final gate failed after")
-                        || msg.contains("Pre-PR gate failed after")
-                        || msg.contains("Pre-PR gate failed"),
-                "Exception message should indicate final/pre-PR gate failure (kept for compatibility): " + msg);
+        assertTrue(msg.contains("Final gate failed after"), "Exception message should indicate final gate failure: " + msg);
 
-        // Ensure the message does not use legacy "pre-pr" casing variants (case-insensitive match of 'pre-pr' or
-        // 'prepr')
         assertFalse(
                 msg.toLowerCase().contains("pre-pr") || msg.toLowerCase().contains("prepr"),
                 "Exception message must not contain pre-PR terminology: " + msg);

@@ -1638,8 +1638,8 @@ public final class JobRunner {
         throw new IssueExecutionException("Verification failed after single fix attempt:\n\n" + secondOut);
     }
 
-    // Preserve a pre-PR variant for callers that need legacy wording.
-    static void runPrePrGateRetryLoop(
+    // Retry loop for the final gate (tests/lint) with a bounded number of fix attempts.
+    static void runFinalGateRetryLoop(
             String jobId,
             JobStore store,
             IConsoleIO io,
@@ -1649,10 +1649,10 @@ public final class JobRunner {
             Consumer<String> fixTaskRunner) {
         java.util.concurrent.atomic.AtomicInteger attemptsLeft =
                 new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
-        runPrePrGateRetryLoop(jobId, store, io, buildDetailsOverride, attemptsLeft, commandRunner, fixTaskRunner);
+        runFinalGateRetryLoop(jobId, store, io, buildDetailsOverride, attemptsLeft, commandRunner, fixTaskRunner);
     }
 
-    static void runPrePrGateRetryLoop(
+    static void runFinalGateRetryLoop(
             String jobId,
             JobStore store,
             IConsoleIO io,
@@ -1684,7 +1684,7 @@ public final class JobRunner {
                 store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
             } catch (IOException ioe) {
                 logger.warn(
-                        "Failed to append pre-PR gate start notification event for job {}: {}",
+                        "Failed to append final gate start notification event for job {}: {}",
                         jobId,
                         ioe.getMessage(),
                         ioe);
@@ -1708,7 +1708,7 @@ public final class JobRunner {
                 store.appendEvent(jobId, JobEvent.of("NOTIFICATION", resultMsg));
             } catch (IOException ioe) {
                 logger.warn(
-                        "Failed to append pre-PR gate results notification event for job {}: {}",
+                        "Failed to append final gate results notification event for job {}: {}",
                         jobId,
                         ioe.getMessage(),
                         ioe);
@@ -1730,7 +1730,7 @@ public final class JobRunner {
                 }
 
                 String failedDetails =
-                        failureParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", failureParts);
+                        failureParts.isEmpty() ? "Unknown final gate failure" : String.join("\n\n", failureParts);
 
                 throw new IssueExecutionException(
                         "Final gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
@@ -1744,16 +1744,16 @@ public final class JobRunner {
                 fixParts.add("Lint failed when running:\n" + lintCmd + "\n\nOutput:\n" + lintOut);
             }
 
-            String fixPrompt = fixParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", fixParts);
+            String fixPrompt = fixParts.isEmpty() ? "Unknown final gate failure" : String.join("\n\n", fixParts);
 
-            String fullFixPrompt = "Pre-PR gate failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\n"
+            String fullFixPrompt = "Final gate failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\n"
                     + fixPrompt + "\n\nPlease fix the issues so that BOTH full tests and full lint pass.";
 
             fixTaskRunner.accept(fullFixPrompt);
             attemptNumber++;
         }
 
-        throw new IssueExecutionException("Pre-PR gate failed unexpectedly");
+        throw new IssueExecutionException("Final gate failed unexpectedly");
     }
 
     static boolean issueDeliveryEnabled(JobSpec spec) {
