@@ -849,71 +849,45 @@ public final class JobRunner {
                                                 // Execute task with ArchitectAgent
                                                 cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
-                                                // 4. Verification loop: run build and retry on failure
-                                                //
-                                                // Purpose:
-                                                //   This per-task loop enforces an incremental verification guarantee:
-                                                //   after each individual task is executed, the repository should still
-                                                //   build and the configured incremental checks should pass. It is NOT
-                                                //   intended to run the full test-suite + full lint for PR gating; that
-                                                //   behaviour lives in the end-of-run "pre-PR gate" retry loop below.
-                                                //
-                                                // Counter documented:
-                                                //   maxBuildAttempts (derived from BuildDetails.maxBuildAttempts or
-                                                //   DEFAULT_MAX_BUILD_ATTEMPTS) bounds how many times we will attempt to
-                                                //   repair the repository to a locally verifiable (incremental) state
-                                                //   immediately after a single task. Each failed attempt produces a
-                                                //   small "fix" task for the architect/code agent to apply and then we
-                                                //   re-run verification until success or attempts are exhausted.
-                                                int buildAttempts = 0;
-                                                int maxBuildAttempts = Objects.requireNonNullElse(
+                                                // Per-task verification: ensure the workspace still verifies after this task.
+                                                // Extraction: delegate to helper to make the ISSUE flow linear and readable.
+                                                int maxPerTaskAttempts = Objects.requireNonNullElse(
                                                         buildDetailsOverride.maxBuildAttempts(),
                                                         DEFAULT_MAX_BUILD_ATTEMPTS);
 
-                                                boolean verified = false;
+                                                // Run verification attempts for this task. The verificationRunner
+                                                // returns non-blank output on failure; blank on success.
+                                                runVerificationRetryLoop(
+                                                        jobId,
+                                                        store,
+                                                        cm.getIo(),
+                                                        maxPerTaskAttempts,
+                                                        () -> {
+                                                            try {
+                                                                return BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                            } catch (InterruptedException ie) {
+                                                                Thread.currentThread().interrupt();
+                                                                return "Interrupted while running verification: " + ie.getMessage();
+                                                            }
+                                                        },
+                                                        prompt -> {
+                                                            try {
+                                                                cm.executeTask(
+                                                                        TaskList.TaskItem.createFixTask(prompt),
+                                                                        issuePlannerModel,
+                                                                        issueCodeModel);
+                                                            } catch (InterruptedException ie) {
+                                                                Thread.currentThread().interrupt();
+                                                                throw new IssueExecutionException(
+                                                                        "Interrupted while attempting to fix verification failure",
+                                                                        ie);
+                                                            }
+                                                        });
 
-                                                while (!verified && buildAttempts < maxBuildAttempts) {
-                                                    buildAttempts++;
-                                                    String buildError =
-                                                            BuildAgent.runVerification(cm, buildDetailsOverride);
-                                                    if (buildError.isBlank()) {
-                                                        verified = true;
-                                                        logger.info(
-                                                                "ISSUE job {} task '{}' verified successfully (per-task attempt {}/{})",
-                                                                jobId,
-                                                                generatedTask.text(),
-                                                                buildAttempts,
-                                                                maxBuildAttempts);
-                                                    } else {
-                                                        logger.warn(
-                                                                "ISSUE job {} task '{}' build failed (per-task attempt {}/{}): {}",
-                                                                jobId,
-                                                                generatedTask.text(),
-                                                                buildAttempts,
-                                                                maxBuildAttempts,
-                                                                buildError);
+                                            }
 
-                                                        if (buildAttempts < maxBuildAttempts) {
-                                                            // Ask architect to fix the build error
-                                                            String fixPrompt = "The build failed after the last task '"
-                                                                    + generatedTask.text()
-                                                                    + "'. Please fix the following error:\n\n"
-                                                                    + buildError;
-                                                            cm.executeTask(
-                                                                    TaskList.TaskItem.createFixTask(fixPrompt),
-                                                                    issuePlannerModel,
-                                                                    issueCodeModel);
-                                                        } else {
-                                                            throw new IssueExecutionException(
-                                                                    "Failed to pass build verification after "
-                                                                            + maxBuildAttempts + " attempts: "
-                                                                            + buildError);
-                                                        }
-                                                    }
-                                                }
-                                                }
-
-                                            runFixRetryLoop(
+                                            // After all tasks completed, run the end-of-run Pre-PR gate which runs full tests and lint.
+                                            runPrePrGateRetryLoop(
                                                     jobId,
                                                     store,
                                                     cm.getIo(),
@@ -943,10 +917,10 @@ public final class JobRunner {
                                                                     e);
                                                         }
                                                     });
-                                        }
-                                    }
-                                    default -> throw new IllegalStateException("Unhandled job mode: " + mode);
-                                }
+                                            }
+                                            }
+                                            default -> throw new IllegalStateException("Unhandled job mode: " + mode);
+                                            }
                                 completed.incrementAndGet();
 
                                 try {
@@ -1321,7 +1295,72 @@ public final class JobRunner {
         return throwable.getClass().getSimpleName() + ": " + message;
     }
 
-    static void runFixRetryLoop(
+    static void runVerificationRetryLoop(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            int maxAttempts,
+            java.util.function.Supplier<String> verificationRunner,
+            java.util.function.Consumer<String> fixTaskRunner) {
+        if (maxAttempts < 1) {
+            throw new IssueExecutionException("verification maxAttempts must be >= 1");
+        }
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            String startMsg = "Verification attempt %d/%d".formatted(attempt, maxAttempts);
+            logger.info("Job {} {}", jobId, startMsg);
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
+            } catch (Throwable ignore) {
+                // best-effort only
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
+            } catch (IOException ioe) {
+                logger.warn("Failed to append verification start notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
+            }
+
+            String verificationOut;
+            try {
+                verificationOut = verificationRunner.get();
+            } catch (RuntimeException re) {
+                // Propagate runtime exceptions but attach context
+                throw new IssueExecutionException("Verification runner failed: " + re.getMessage(), re);
+            }
+
+            boolean passed = verificationOut == null || verificationOut.isBlank();
+
+            String resultMsg = "Verification attempt %d/%d results: %s".formatted(attempt, maxAttempts, passed ? "PASS" : "FAIL");
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
+            } catch (Throwable ignore) {
+                // best-effort only
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", resultMsg));
+            } catch (IOException ioe) {
+                logger.warn("Failed to append verification results notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
+            }
+
+            if (passed) {
+                return;
+            }
+
+            // Failed
+            if (attempt == maxAttempts) {
+                String details = "Verification failed after " + maxAttempts + " attempt(s):\n\n" + verificationOut;
+                throw new IssueExecutionException(details);
+            } else {
+                String prompt = "Verification failed (attempt " + attempt + "/" + maxAttempts + ").\n\nOutput:\n" + verificationOut
+                        + "\n\nPlease fix the issue so that verification will pass on the next attempt.";
+                fixTaskRunner.accept(prompt);
+            }
+        }
+
+        throw new IssueExecutionException("Verification failed unexpectedly");
+    }
+
+    static void runPrePrGateRetryLoop(
             String jobId,
             JobStore store,
             IConsoleIO io,

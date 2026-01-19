@@ -191,7 +191,7 @@ class JobRunnerIssueModeTest {
         var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
 
         assertThrows(IssueExecutionException.class, () -> {
-            JobRunner.runFixRetryLoop(
+            JobRunner.runPrePrGateRetryLoop(
                     "job-1",
                     store,
                     io,
@@ -217,7 +217,7 @@ class JobRunnerIssueModeTest {
         var testCmdCalls = new AtomicInteger(0);
 
         assertDoesNotThrow(() -> {
-            JobRunner.runFixRetryLoop(
+            JobRunner.runPrePrGateRetryLoop(
                     "job-2",
                     store,
                     io,
@@ -245,7 +245,7 @@ class JobRunnerIssueModeTest {
         var io = new TestConsoleIO();
         var details = new BuildAgent.BuildDetails("", "", "", Set.of());
 
-        assertDoesNotThrow(() -> JobRunner.runFixRetryLoop(
+        assertDoesNotThrow(() -> JobRunner.runPrePrGateRetryLoop(
                 "job-blank-cmds",
                 store,
                 io,
