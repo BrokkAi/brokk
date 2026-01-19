@@ -190,6 +190,7 @@ class JobRunnerIssueModeTest {
         var io = new TestConsoleIO();
         var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
 
+        // maxAttempts = 3 -> fix called maxAttempts - 1 = 2 times
         assertThrows(IssueExecutionException.class, () -> {
             JobRunner.runPrePrGateRetryLoop(
                     "job-1",
