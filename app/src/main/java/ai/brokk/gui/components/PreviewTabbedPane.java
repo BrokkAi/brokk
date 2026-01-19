@@ -64,7 +64,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         // Tab list on the right
         tabList = new JList<>(listModel) {
             @Override
-            public String getToolTipText(MouseEvent e) {
+            public @Nullable String getToolTipText(MouseEvent e) {
                 int index = locationToIndex(e.getPoint());
                 if (index >= 0) {
                     var bounds = getCellBounds(index, index);
