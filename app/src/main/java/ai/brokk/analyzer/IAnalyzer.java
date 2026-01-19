@@ -8,9 +8,9 @@ import java.util.stream.Collectors;
 /**
  * Core analyzer interface providing code intelligence capabilities.
  *
- * <p><b>API Pattern:</b> Capability providers (e.g., {@link SourceCodeProvider}) accept {@link CodeUnit} parameters.
- * When you have a CodeUnit, call provider methods directly. When you only have a String FQN, use
- * {@link ai.brokk.AnalyzerUtil} convenience methods to convert and delegate.
+ * <p><b>API Pattern:</b> Capability providers (e.g., {@link ImportAnalysisProvider}, {@link TypeHierarchyProvider})
+ * accept {@link CodeUnit} parameters. When you have a CodeUnit, call provider methods directly. When you only have a
+ * String FQN, use {@link ai.brokk.AnalyzerUtil} convenience methods to convert and delegate.
  */
 public interface IAnalyzer {
     /**

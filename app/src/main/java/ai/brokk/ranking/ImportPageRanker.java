@@ -2,6 +2,7 @@ package ai.brokk.ranking;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -260,7 +261,7 @@ public final class ImportPageRanker {
             return cached;
         }
 
-        Set<CodeUnit> importedUnits = analyzer.as(ai.brokk.analyzer.ImportAnalysisProvider.class)
+        Set<CodeUnit> importedUnits = analyzer.as(ImportAnalysisProvider.class)
                 .map(p -> p.importedCodeUnitsOf(file))
                 .orElse(Set.of());
         Set<ProjectFile> resolved;
