@@ -216,7 +216,7 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void testPrePrGateExhaustsAttemptsBlocksPrCreation() {
+    void testFinalGateExhaustsAttemptsBlocksPrCreation() {
         var prCreated = new AtomicBoolean(false);
         var fixCalls = new AtomicInteger(0);
 
@@ -224,8 +224,8 @@ class JobRunnerIssueModeTest {
         var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
 
         // maxAttempts = 3 -> fix called maxAttempts - 1 = 2 times
-        assertThrows(IssueExecutionException.class, () -> {
-            JobRunner.runPrePrGateRetryLoop(
+        IssueExecutionException thrown = assertThrows(IssueExecutionException.class, () -> {
+            JobRunner.runFinalGateRetryLoop(
                     "job-1",
                     store,
                     io,
@@ -238,6 +238,7 @@ class JobRunnerIssueModeTest {
 
         assertFalse(prCreated.get());
         assertEquals(2, fixCalls.get());
+        assertTrue(thrown.getMessage().contains("Final gate"), "Exception message should mention 'Final gate'");
     }
 
     @Test

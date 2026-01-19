@@ -1525,7 +1525,7 @@ public final class JobRunner {
         throw new IssueExecutionException("Verification failed unexpectedly");
     }
 
-    static void runPrePrGateRetryLoop(
+    static void runFinalGateRetryLoop(
             String jobId,
             JobStore store,
             IConsoleIO io,
@@ -1534,6 +1534,124 @@ public final class JobRunner {
             Function<String, String> commandRunner,
             Consumer<String> fixTaskRunner) {
         // Backwards-compatible entry point: delegate to AtomicInteger-based implementation.
+        java.util.concurrent.atomic.AtomicInteger attemptsLeft =
+                new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
+        runFinalGateRetryLoop(jobId, store, io, buildDetailsOverride, attemptsLeft, commandRunner, fixTaskRunner);
+    }
+
+    static void runFinalGateRetryLoop(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            java.util.concurrent.atomic.AtomicInteger attemptsLeft,
+            Function<String, String> commandRunner,
+            Consumer<String> fixTaskRunner) {
+        if (attemptsLeft.get() < 1) {
+            throw new IssueExecutionException("Final gate maxAttempts must be >= 1");
+        }
+
+        String testCmd = buildDetailsOverride.testAllCommand();
+        String lintCmd = buildDetailsOverride.buildLintCommand();
+
+        boolean testsSkipped = testCmd.isBlank();
+        boolean lintSkipped = lintCmd.isBlank();
+
+        int attemptNumber = 1;
+        while (attemptsLeft.get() > 0) {
+            int maxAttempts = attemptNumber + attemptsLeft.get() - 1;
+            String startMsg = "Final gate attempt %d/%d: tests=%s, lint=%s"
+                    .formatted(attemptNumber, maxAttempts, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
+            } catch (Throwable ignore) {
+                // best-effort only
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
+            } catch (IOException ioe) {
+                logger.warn(
+                        "Failed to append final gate start notification event for job {}: {}",
+                        jobId,
+                        ioe.getMessage(),
+                        ioe);
+            }
+
+            String testOut = testsSkipped ? "" : commandRunner.apply(testCmd);
+            String lintOut = lintSkipped ? "" : commandRunner.apply(lintCmd);
+
+            boolean testsPassed = testsSkipped || testOut.isBlank();
+            boolean lintPassed = lintSkipped || lintOut.isBlank();
+
+            var resultMsg = "Final gate attempt " + attemptNumber + "/" + maxAttempts + " results: tests="
+                    + (testsSkipped ? "SKIP" : (testsPassed ? "PASS" : "FAIL")) + ", lint="
+                    + (lintSkipped ? "SKIP" : (lintPassed ? "PASS" : "FAIL"));
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
+            } catch (Throwable ignore) {
+                // best-effort only
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", resultMsg));
+            } catch (IOException ioe) {
+                logger.warn(
+                        "Failed to append final gate results notification event for job {}: {}",
+                        jobId,
+                        ioe.getMessage(),
+                        ioe);
+            }
+
+            if (testsPassed && lintPassed) {
+                return;
+            }
+
+            // consume one attempt and either fail or request a fix
+            attemptsLeft.decrementAndGet();
+            if (attemptsLeft.get() <= 0) {
+                var failureParts = new java.util.ArrayList<String>();
+                if (!testsPassed) {
+                    failureParts.add("Tests failed (" + testCmd + "):\n" + testOut);
+                }
+                if (!lintPassed) {
+                    failureParts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
+                }
+
+                String failedDetails =
+                        failureParts.isEmpty() ? "Unknown final gate failure" : String.join("\n\n", failureParts);
+
+                throw new IssueExecutionException(
+                        "Final gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
+            }
+
+            var fixParts = new java.util.ArrayList<String>();
+            if (!testsPassed) {
+                fixParts.add("Tests failed when running:\n" + testCmd + "\n\nOutput:\n" + testOut);
+            }
+            if (!lintPassed) {
+                fixParts.add("Lint failed when running:\n" + lintCmd + "\n\nOutput:\n" + lintOut);
+            }
+
+            String fixPrompt = fixParts.isEmpty() ? "Unknown final gate failure" : String.join("\n\n", fixParts);
+
+            String fullFixPrompt = "Final checks failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\n"
+                    + fixPrompt + "\n\nPlease fix the issues so that BOTH final tests and final lint pass.";
+
+            fixTaskRunner.accept(fullFixPrompt);
+            attemptNumber++;
+        }
+
+        throw new IssueExecutionException("Final gate failed unexpectedly");
+    }
+
+    // Preserve a pre-PR variant for callers that need legacy wording.
+    static void runPrePrGateRetryLoop(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            int maxAttempts,
+            Function<String, String> commandRunner,
+            Consumer<String> fixTaskRunner) {
         java.util.concurrent.atomic.AtomicInteger attemptsLeft =
                 new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
         runPrePrGateRetryLoop(jobId, store, io, buildDetailsOverride, attemptsLeft, commandRunner, fixTaskRunner);
