@@ -778,7 +778,6 @@ class FragmentEqualityTest {
         }
     }
 
-
     @Nested
     class TaskFragmentEqualityTest {
         @Test
