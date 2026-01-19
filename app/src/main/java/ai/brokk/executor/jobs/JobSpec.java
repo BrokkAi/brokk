@@ -50,6 +50,15 @@ public record JobSpec(
      * Sensitive keys are replaced with "[REDACTED]" rather than removed entirely,
      * to preserve the structure for debugging while protecting the actual values.
      */
+    public JobSpec {
+        // Normalize tags to a non-null, immutable map so callers never see null.
+        if (tags == null) {
+            tags = Map.of();
+        } else {
+            tags = Map.copyOf(tags);
+        }
+    }
+
     public Map<String, String> redactedTags() {
         var result = new HashMap<>(tags);
         for (var key : SENSITIVE_TAG_KEYS) {
