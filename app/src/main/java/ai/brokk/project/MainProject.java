@@ -763,27 +763,8 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    public void saveProjectProperties() {
-        // Use AbstractProject's saveProperties for consistency if it were public static or passed instance
-        // For now, keep local implementation matching AbstractProject's logic.
-        try {
-            Files.createDirectories(propertiesFile.getParent());
-            Properties existingProps = new Properties();
-            if (Files.exists(propertiesFile)) {
-                try (var reader = Files.newBufferedReader(propertiesFile)) {
-                    existingProps.load(reader);
-                } catch (IOException e) {
-                    /* ignore loading error, will attempt to save anyway */
-                }
-            }
-
-            if (Objects.equals(existingProps, projectProps)) {
-                return;
-            }
-            AtomicWrites.save(propertiesFile, projectProps, "Brokk project configuration");
-        } catch (IOException e) {
-            logger.error("Error saving properties to {}: {}", propertiesFile, e.getMessage());
-        }
+    private void saveProjectProperties() {
+        saveProperties(propertiesFile, projectProps, "Brokk project configuration");
     }
 
     @Override

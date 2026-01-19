@@ -128,7 +128,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     /** Generic method to save properties to a file */
-    private void saveProperties(Path file, Properties properties, String comment) {
+    protected static void saveProperties(Path file, Properties properties, String comment) {
         try {
             if (Files.exists(file)) {
                 Properties existingProps = new Properties();
@@ -141,6 +141,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     return;
                 }
             }
+            Files.createDirectories(file.getParent());
             AtomicWrites.save(file, properties, comment);
         } catch (IOException e) {
             logger.error("Error saving properties to {}: {}", file, e.getMessage());

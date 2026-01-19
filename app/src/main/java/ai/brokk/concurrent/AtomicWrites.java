@@ -1,5 +1,7 @@
 package ai.brokk.concurrent;
 
+import org.jetbrains.annotations.Blocking;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.StringWriter;
@@ -28,6 +30,7 @@ public class AtomicWrites {
      * @param content the text content to write.
      * @throws IOException if an I/O error occurs during writing or moving the file.
      */
+    @Blocking
     public static void save(Path targetPath, String content) throws IOException {
         save(targetPath, content.getBytes(StandardCharsets.UTF_8));
     }
@@ -43,6 +46,7 @@ public class AtomicWrites {
      * @param content the text content to write.
      * @throws IOException if an I/O error occurs during writing or moving the file.
      */
+    @Blocking
     public static void save(Path targetPath, byte[] content) throws IOException {
         // Create a temporary file in the same directory as the target file.
         Path tempFile = Files.createTempFile(targetPath.getParent(), "temp-", ".tmp");
@@ -76,10 +80,8 @@ public class AtomicWrites {
      * @param comment optional comment for the properties file
      * @throws IOException if an I/O error occurs
      */
+    @Blocking
     public static void save(Path path, Properties properties, String comment) throws IOException {
-        // Create parent directories if they don't exist
-        Files.createDirectories(path.getParent());
-
         // Serialize the properties to a string
         StringWriter writer = new StringWriter();
         properties.store(writer, comment);
@@ -100,10 +102,8 @@ public class AtomicWrites {
      * @param writerAction the action that writes content to the output stream of the temporary file.
      * @throws IOException if an I/O error occurs during writing or moving the file.
      */
+    @Blocking
     public static void save(Path targetPath, WriterAction writerAction) throws IOException {
-        // Create parent directories if they don't exist
-        Files.createDirectories(targetPath.getParent());
-
         // Create a temporary file in the same directory as the target file.
         Path tempFile = Files.createTempFile(targetPath.getParent(), "temp-", ".tmp");
 
