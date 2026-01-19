@@ -421,4 +421,82 @@ public class BlockingOperationCheckerTest {
                         "}")
                 .doTest();
     }
+
+    @Test
+    public void doesNotWarnOnLoggingFutureAllOf() {
+        helper.addSourceLines(
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
+                .addSourceLines(
+                        "ai/brokk/concurrent/LoggingFuture.java",
+                        "package ai.brokk.concurrent;",
+                        "import java.util.concurrent.CompletableFuture;",
+                        "public final class LoggingFuture {",
+                        "  public static CompletableFuture<Void> allOf(CompletableFuture<?>... cfs) { return null; }",
+                        "  public static <T> CompletableFuture<T> supplyAsync(java.util.function.Supplier<T> s) { return null; }",
+                        "}")
+                .addSourceLines(
+                        "test/CF.java",
+                        "package test;",
+                        "import org.jetbrains.annotations.Blocking;",
+                        "public interface CF {",
+                        "  @Blocking",
+                        "  java.util.Set<String> files();",
+                        "}")
+                .addSourceLines(
+                        "test/Use.java",
+                        "package test;",
+                        "import ai.brokk.concurrent.LoggingFuture;",
+                        "import javax.swing.SwingUtilities;",
+                        "class Use {",
+                        "  void f(CF cf) {",
+                        "    if (SwingUtilities.isEventDispatchThread()) {",
+                        "      LoggingFuture.allOf(",
+                        "        LoggingFuture.supplyAsync(() -> cf.files())",
+                        "      );",
+                        "    }",
+                        "  }",
+                        "}")
+                .doTest();
+    }
+
+    @Test
+    public void doesNotWarnOnLoggingFutureAnyOf() {
+        helper.addSourceLines(
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
+                .addSourceLines(
+                        "ai/brokk/concurrent/LoggingFuture.java",
+                        "package ai.brokk.concurrent;",
+                        "import java.util.concurrent.CompletableFuture;",
+                        "public final class LoggingFuture {",
+                        "  public static CompletableFuture<Object> anyOf(CompletableFuture<?>... cfs) { return null; }",
+                        "  public static <T> CompletableFuture<T> supplyAsync(java.util.function.Supplier<T> s) { return null; }",
+                        "}")
+                .addSourceLines(
+                        "test/CF.java",
+                        "package test;",
+                        "import org.jetbrains.annotations.Blocking;",
+                        "public interface CF {",
+                        "  @Blocking",
+                        "  java.util.Set<String> files();",
+                        "}")
+                .addSourceLines(
+                        "test/Use.java",
+                        "package test;",
+                        "import ai.brokk.concurrent.LoggingFuture;",
+                        "import javax.swing.SwingUtilities;",
+                        "class Use {",
+                        "  void f(CF cf) {",
+                        "    if (SwingUtilities.isEventDispatchThread()) {",
+                        "      LoggingFuture.anyOf(",
+                        "        LoggingFuture.supplyAsync(() -> cf.files())",
+                        "      );",
+                        "    }",
+                        "  }",
+                        "}")
+                .doTest();
+    }
 }
