@@ -238,6 +238,36 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void testRunFinalGateRetryLoop_exhaustsAttempts_andUsesFinalTerminology() {
+        var io = new TestConsoleIO();
+        // force commandRunner to always return failure output
+        java.util.function.Function<String, String> commandRunner = cmd -> "failing output";
+        java.util.function.Consumer<String> fixRunner = prompt -> {
+            // no-op: do not fix anything
+        };
+
+        // Build minimal BuildDetails with non-blank commands to ensure both test and lint run
+        BuildAgent.BuildDetails buildDetails = new BuildAgent.BuildDetails(
+                "./gradlew classes", "./gradlew test", "./gradlew test --tests", Set.of());
+
+        // attemptsLeft = 2 should cause two attempts then throw
+        java.util.concurrent.atomic.AtomicInteger attemptsLeft = new java.util.concurrent.atomic.AtomicInteger(2);
+
+        IssueExecutionException ex = assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runPrePrGateRetryLoop(
+                        "job-final-gate-1", store, io, buildDetails, attemptsLeft, commandRunner, fixRunner));
+
+        String msg = ex.getMessage();
+        assertTrue(msg.contains("Final gate failed after") || msg.contains("Pre-PR gate failed after") || msg.contains("Pre-PR gate failed"),
+                "Exception message should indicate final/pre-PR gate failure (kept for compatibility): " + msg);
+
+        // Ensure the message does not use legacy "pre-pr" casing variants (case-insensitive match of 'pre-pr' or 'prepr')
+        assertFalse(msg.toLowerCase().contains("pre-pr") || msg.toLowerCase().contains("prepr"),
+                "Exception message must not contain pre-PR terminology: " + msg);
+    }
+
+    @Test
     void testPrSkippedWhenFinalVerificationStillFails() {
         var verificationCalls = new AtomicInteger(0);
         var fixCalls = new AtomicInteger(0);

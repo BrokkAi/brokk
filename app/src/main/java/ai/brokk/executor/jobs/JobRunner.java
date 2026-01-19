@@ -1616,7 +1616,7 @@ public final class JobRunner {
         int attemptNumber = 1;
         while (attemptsLeft.get() > 0) {
             int maxAttempts = attemptNumber + attemptsLeft.get() - 1;
-            String startMsg = "Pre-PR gate attempt %d/%d: tests=%s, lint=%s"
+            String startMsg = "Final gate attempt %d/%d: tests=%s, lint=%s"
                     .formatted(attemptNumber, maxAttempts, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
@@ -1639,7 +1639,7 @@ public final class JobRunner {
             boolean testsPassed = testsSkipped || testOut.isBlank();
             boolean lintPassed = lintSkipped || lintOut.isBlank();
 
-            var resultMsg = "Pre-PR gate attempt " + attemptNumber + "/" + maxAttempts + " results: tests="
+            var resultMsg = "Final gate attempt " + attemptNumber + "/" + maxAttempts + " results: tests="
                     + (testsSkipped ? "SKIP" : (testsPassed ? "PASS" : "FAIL")) + ", lint="
                     + (lintSkipped ? "SKIP" : (lintPassed ? "PASS" : "FAIL"));
             try {
@@ -1676,7 +1676,7 @@ public final class JobRunner {
                         failureParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", failureParts);
 
                 throw new IssueExecutionException(
-                        "Pre-PR gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
+                        "Final gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
             }
 
             var fixParts = new java.util.ArrayList<String>();
