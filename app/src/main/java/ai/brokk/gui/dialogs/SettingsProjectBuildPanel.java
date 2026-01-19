@@ -11,8 +11,8 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.*;
 import com.google.common.io.Files;
-import java.nio.file.InvalidPathException;
 import java.awt.*;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -759,94 +759,94 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     public boolean applySettings() {
-            // Persist build-related settings to project.
-            // Use pendingBuildDetails for build commands if available (from recent BuildAgent run),
-            // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
-            var diskDetails = project.loadBuildDetails();
-            var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
-            var newBuildLint = buildCleanCommandField.getText();
-            var newTestAll = allTestsCommandField.getText();
-            var newTestSome = someTestsCommandField.getText();
+        // Persist build-related settings to project.
+        // Use pendingBuildDetails for build commands if available (from recent BuildAgent run),
+        // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
+        var diskDetails = project.loadBuildDetails();
+        var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
+        var newBuildLint = buildCleanCommandField.getText();
+        var newTestAll = allTestsCommandField.getText();
+        var newTestSome = someTestsCommandField.getText();
 
-            // Primary language
-            var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
+        // Primary language
+        var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
 
-            // Build environment variables map
-            var envVars = new HashMap<>(baseDetails.environmentVariables());
-            // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties
-            envVars.remove("JAVA_HOME");
-            envVars.remove("VIRTUAL_ENV");
-            if (selectedPrimaryLang == Languages.PYTHON) {
-                    envVars.put("VIRTUAL_ENV", ".venv");
+        // Build environment variables map
+        var envVars = new HashMap<>(baseDetails.environmentVariables());
+        // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties
+        envVars.remove("JAVA_HOME");
+        envVars.remove("VIRTUAL_ENV");
+        if (selectedPrimaryLang == Languages.PYTHON) {
+            envVars.put("VIRTUAL_ENV", ".venv");
+        }
+
+        // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
+        var newDetails = new BuildAgent.BuildDetails(
+                newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
+
+        // Compare against what's currently saved on disk
+        var currentDetails = project.loadBuildDetails();
+        if (!newDetails.equals(currentDetails)) {
+            project.saveBuildDetails(newDetails);
+            logger.debug("Applied Build Details changes.");
+        }
+
+        // Clear pending details after save
+        pendingBuildDetails = null;
+
+        MainProject.CodeAgentTestScope selectedScope =
+                runAllTestsRadio.isSelected() ? IProject.CodeAgentTestScope.ALL : IProject.CodeAgentTestScope.WORKSPACE;
+        if (selectedScope != project.getCodeAgentTestScope()) {
+            project.setCodeAgentTestScope(selectedScope);
+            logger.debug("Applied Code Agent Test Scope: {}", selectedScope);
+        }
+
+        var mainProject = project.getMainProject();
+        long timeout = ((Number) buildTimeoutSpinner.getValue()).longValue();
+        if (timeout != mainProject.getRunCommandTimeoutSeconds()) {
+            mainProject.setRunCommandTimeoutSeconds(timeout);
+            logger.debug("Applied Run Command Timeout: {} seconds", timeout);
+        }
+
+        // JDK Controls (only for Java)
+        if (selectedPrimaryLang == Languages.JAVA) {
+            if (setJavaHomeCheckbox.isSelected()) {
+                String rawPath = jdkSelector.getSelectedJdkPath();
+                if (!validateAndApplyJdkOverride(rawPath)) {
+                    return false;
+                }
+            } else {
+                project.setJdk(null);
+                logger.debug("Removed JDK Home override");
             }
+        }
 
-            // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
-            var newDetails = new BuildAgent.BuildDetails(
-                            newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
+        if (selectedPrimaryLang != null && selectedPrimaryLang != project.computedBuildLanguage()) {
+            project.setBuildLanguage(selectedPrimaryLang);
+            logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
+        }
 
-            // Compare against what's currently saved on disk
-            var currentDetails = project.loadBuildDetails();
-            if (!newDetails.equals(currentDetails)) {
-                    project.saveBuildDetails(newDetails);
-                    logger.debug("Applied Build Details changes.");
-            }
+        // Apply executor configuration
+        String currentExecutorPath = project.getCommandExecutor();
+        String currentExecutorArgs = project.getExecutorArgs();
+        var selectedExecutor = (String) commonExecutorsComboBox.getSelectedItem();
+        String newExecutorPath = selectedExecutor != null ? selectedExecutor.trim() : "";
+        String newExecutorArgs = executorArgsField.getText().trim();
 
-            // Clear pending details after save
-            pendingBuildDetails = null;
+        String pathToSet = newExecutorPath.isEmpty() ? null : newExecutorPath;
+        String argsToSet = newExecutorArgs.isEmpty() ? null : newExecutorArgs;
 
-            MainProject.CodeAgentTestScope selectedScope =
-                            runAllTestsRadio.isSelected() ? IProject.CodeAgentTestScope.ALL : IProject.CodeAgentTestScope.WORKSPACE;
-            if (selectedScope != project.getCodeAgentTestScope()) {
-                    project.setCodeAgentTestScope(selectedScope);
-                    logger.debug("Applied Code Agent Test Scope: {}", selectedScope);
-            }
+        if (!Objects.equals(currentExecutorPath, pathToSet)) {
+            project.setCommandExecutor(pathToSet);
+            logger.debug("Applied Custom Executor Path: {}", pathToSet);
+        }
 
-            var mainProject = project.getMainProject();
-            long timeout = ((Number) buildTimeoutSpinner.getValue()).longValue();
-            if (timeout != mainProject.getRunCommandTimeoutSeconds()) {
-                    mainProject.setRunCommandTimeoutSeconds(timeout);
-                    logger.debug("Applied Run Command Timeout: {} seconds", timeout);
-            }
+        if (!Objects.equals(currentExecutorArgs, argsToSet)) {
+            project.setExecutorArgs(argsToSet);
+            logger.debug("Applied Custom Executor Args: {}", argsToSet);
+        }
 
-            // JDK Controls (only for Java)
-            if (selectedPrimaryLang == Languages.JAVA) {
-                    if (setJavaHomeCheckbox.isSelected()) {
-                            String rawPath = jdkSelector.getSelectedJdkPath();
-                            if (!validateAndApplyJdkOverride(rawPath)) {
-                                    return false;
-                            }
-                    } else {
-                            project.setJdk(null);
-                            logger.debug("Removed JDK Home override");
-                    }
-            }
-
-            if (selectedPrimaryLang != null && selectedPrimaryLang != project.computedBuildLanguage()) {
-                    project.setBuildLanguage(selectedPrimaryLang);
-                    logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
-            }
-
-            // Apply executor configuration
-            String currentExecutorPath = project.getCommandExecutor();
-            String currentExecutorArgs = project.getExecutorArgs();
-            var selectedExecutor = (String) commonExecutorsComboBox.getSelectedItem();
-            String newExecutorPath = selectedExecutor != null ? selectedExecutor.trim() : "";
-            String newExecutorArgs = executorArgsField.getText().trim();
-
-            String pathToSet = newExecutorPath.isEmpty() ? null : newExecutorPath;
-            String argsToSet = newExecutorArgs.isEmpty() ? null : newExecutorArgs;
-
-            if (!Objects.equals(currentExecutorPath, pathToSet)) {
-                    project.setCommandExecutor(pathToSet);
-                    logger.debug("Applied Custom Executor Path: {}", pathToSet);
-            }
-
-            if (!Objects.equals(currentExecutorArgs, argsToSet)) {
-                    project.setExecutorArgs(argsToSet);
-                    logger.debug("Applied Custom Executor Args: {}", argsToSet);
-            }
-
-            return true;
+        return true;
     }
 
     /**
@@ -889,8 +889,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     boolean validateAndApplyJdkOverride(@Nullable String rawPath) {
         var result = validateJdkOverride(rawPath);
         if (!result.isValid()) {
-            JOptionPane.showMessageDialog(
-                    this, result.errorMessage(), "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, result.errorMessage(), "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
             return false;
         }
 
@@ -1099,7 +1098,6 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         return canonical;
     }
-
 
     private void showBuildAgentCancelledNotification() {
         SwingUtilities.invokeLater(() -> {

@@ -231,7 +231,8 @@ class JdkSelectorTest {
         List<String> pathsAfterSecond = selector.getItemPathsForTesting();
         assertEquals(initialCount, pathsAfterSecond.size(), "Should not have added duplicate path");
 
-        long customCount = pathsAfterSecond.stream().filter(p -> p.equals(customPath)).count();
+        long customCount =
+                pathsAfterSecond.stream().filter(p -> p.equals(customPath)).count();
         assertEquals(1, customCount, "Custom path should appear exactly once");
     }
 
@@ -245,7 +246,9 @@ class JdkSelectorTest {
         selector.setSelectedJdkPath(EnvironmentJava.JAVA_HOME_SENTINEL);
 
         List<String> paths = selector.getItemPathsForTesting();
-        long sentinelCount = paths.stream().filter(p -> p.equals(EnvironmentJava.JAVA_HOME_SENTINEL)).count();
+        long sentinelCount = paths.stream()
+                .filter(p -> p.equals(EnvironmentJava.JAVA_HOME_SENTINEL))
+                .count();
 
         assertEquals(1, sentinelCount, "Should only have one sentinel item");
         assertEquals(EnvironmentJava.JAVA_HOME_SENTINEL, selector.getSelectedJdkPath());
@@ -281,9 +284,13 @@ class JdkSelectorTest {
         selector.setSelectedJdkPath(discovered);
         selector.setSelectedJdkPath(discovered);
 
-        assertEquals(initialSize, selector.getItemPathsForTesting().size(), "Should not add items when selecting discovered JDK");
+        assertEquals(
+                initialSize,
+                selector.getItemPathsForTesting().size(),
+                "Should not add items when selecting discovered JDK");
         assertEquals(discovered, selector.getSelectedJdkPath());
-        assertFalse(selector.getItemDisplaysForTesting().stream().anyMatch(d -> d.contains("Custom JDK")),
+        assertFalse(
+                selector.getItemDisplaysForTesting().stream().anyMatch(d -> d.contains("Custom JDK")),
                 "Should not have created a Custom JDK entry for a discovered path");
     }
 }
