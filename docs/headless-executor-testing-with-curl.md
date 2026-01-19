@@ -652,18 +652,14 @@ ISSUE mode automates the resolution of GitHub Issues by combining intelligent pl
 
 Additionally, you can cap the overall issue remediation workflow using `maxIssueFixAttempts`: this is the maximum number of ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). Default: 5.
 
-#### Retry limits: per-task vs overall
+#### Verification and fix contract (ISSUE mode)
 
-ISSUE mode has two retry limits: one for repeating build verification for a single task, and one for how many times the overall ISSUE workflow will try before giving up.
+For ISSUE mode the executor follows a simplified verification contract:
 
-| Setting | What it limits | Default |
-|---------|----------------|---------|
-| `buildSettings.maxBuildAttempts` | Per task: how many times to rerun build/lint/test for that task after attempting fixes when verification fails. | 3 |
-| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 5 |
-
-Example: if `maxBuildAttempts=3` and `maxIssueFixAttempts=5`, each task can retry verification up to 3 times, but the job will stop entirely after 5 overall ISSUE attempts.
-
-Upon success, it automatically commits the work, pushes the branch, and creates a Pull Request.
+- For each verification point (per-task verification and final gate), Brokk runs verification once.
+- If verification fails, Brokk performs at most one fix attempt and then re-runs verification exactly once.
+- If verification still fails after the single fix attempt, the ISSUE workflow fails and no Pull Request is created.
+- The `buildSettings.maxBuildAttempts` and job-level `maxIssueFixAttempts` fields are currently not used as iterative retry budgets in the headless executor; they may be reserved for future enhancements.
 
 #### Option 1: Convenience Endpoint (Recommended)
 
