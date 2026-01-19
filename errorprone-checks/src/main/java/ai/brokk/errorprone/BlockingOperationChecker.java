@@ -94,6 +94,8 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
     }
 
     private static boolean isSubmitBackgroundTask(MethodInvocationTree mit) {
+        // Match by method name only (not owner class) to correctly handle any
+        // IContextManager implementation or wrapper.
         MethodSymbol ms = ASTHelpers.getSymbol(mit);
         return ms != null && ms.getSimpleName().contentEquals(SUBMIT_BACKGROUND_TASK_METHOD);
     }
