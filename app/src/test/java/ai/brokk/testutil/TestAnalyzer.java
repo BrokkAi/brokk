@@ -11,7 +11,11 @@ import org.jetbrains.annotations.Nullable;
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
  * without requiring a full CPG.
  */
-public class TestAnalyzer implements IAnalyzer {
+public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAnalysisProvider, TypeAliasProvider {
+    private boolean supportsImportAnalysis = true;
+    private boolean supportsTypeHierarchy = true;
+    private boolean supportsTypeAlias = true;
+
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
@@ -170,6 +174,21 @@ public class TestAnalyzer implements IAnalyzer {
         return ancestorsMap.getOrDefault(cu, List.of());
     }
 
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return Set.of();
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return Set.of();
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return Set.of();
+    }
+
     public void setDirectAncestors(CodeUnit cu, List<CodeUnit> ancestors) {
         this.ancestorsMap.put(cu, ancestors);
     }
@@ -182,5 +201,36 @@ public class TestAnalyzer implements IAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return Optional.empty();
+    }
+
+    @Override
+    public boolean isTypeAlias(CodeUnit cu) {
+        return false;
+    }
+
+    public void setSupportsImportAnalysis(boolean supportsImportAnalysis) {
+        this.supportsImportAnalysis = supportsImportAnalysis;
+    }
+
+    public void setSupportsTypeHierarchy(boolean supportsTypeHierarchy) {
+        this.supportsTypeHierarchy = supportsTypeHierarchy;
+    }
+
+    public void setSupportsTypeAlias(boolean supportsTypeAlias) {
+        this.supportsTypeAlias = supportsTypeAlias;
+    }
+
+    @Override
+    public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+        if (capability == ImportAnalysisProvider.class && !supportsImportAnalysis) {
+            return Optional.empty();
+        }
+        if (capability == TypeHierarchyProvider.class && !supportsTypeHierarchy) {
+            return Optional.empty();
+        }
+        if (capability == TypeAliasProvider.class && !supportsTypeAlias) {
+            return Optional.empty();
+        }
+        return IAnalyzer.super.as(capability);
     }
 }

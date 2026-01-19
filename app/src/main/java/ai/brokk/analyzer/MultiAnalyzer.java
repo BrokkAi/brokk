@@ -8,7 +8,7 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider {
+public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalysisProvider, TypeHierarchyProvider {
     private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
     private final Map<Language, IAnalyzer> delegates;
 
@@ -71,6 +71,24 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider {
     }
 
     @Override
+    public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+        // MultiAnalyzer implements these interfaces by delegating to whichever child supports them.
+        // We only return 'this' for these specific capabilities if at least one delegate supports them.
+        if (capability == ImportAnalysisProvider.class
+                || capability == TypeHierarchyProvider.class
+                || capability == TypeAliasProvider.class) {
+            boolean anyDelegateSupports =
+                    delegates.values().stream().anyMatch(d -> d.as(capability).isPresent());
+            return anyDelegateSupports ? Optional.of(capability.cast(this)) : Optional.empty();
+        }
+
+        // For other capabilities, return the first delegate that supports it directly.
+        return delegates.values().stream()
+                .flatMap(d -> d.as(capability).stream())
+                .findFirst();
+    }
+
+    @Override
     public List<String> importStatementsOf(ProjectFile file) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.importStatementsOf(file).stream())
@@ -80,14 +98,16 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider {
     @Override
     public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
         return delegateFor(file)
-                .map(delegate -> delegate.importedCodeUnitsOf(file))
+                .flatMap(delegate -> delegate.as(ImportAnalysisProvider.class))
+                .map(provider -> provider.importedCodeUnitsOf(file))
                 .orElse(Set.of());
     }
 
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return delegates.values().stream()
-                .flatMap(analyzer -> analyzer.referencingFilesOf(file).stream())
+                .flatMap(analyzer -> analyzer.as(ImportAnalysisProvider.class).stream())
+                .flatMap(provider -> provider.referencingFilesOf(file).stream())
                 .collect(Collectors.toSet());
     }
 
@@ -283,10 +303,10 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider {
 
     @Override
     public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        return delegates.values().stream()
-                .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
-                .distinct()
-                .toList();
+        return delegateFor(cu)
+                .flatMap(analyzer -> analyzer.as(TypeHierarchyProvider.class))
+                .map(provider -> provider.getDirectAncestors(cu))
+                .orElse(List.of());
     }
 
     @Override
@@ -296,8 +316,9 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider {
 
     @Override
     public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
-        return delegates.values().stream()
-                .flatMap(analyzer -> analyzer.getDirectDescendants(cu).stream())
-                .collect(Collectors.toSet());
+        return delegateFor(cu)
+                .flatMap(analyzer -> analyzer.as(TypeHierarchyProvider.class))
+                .map(provider -> provider.getDirectDescendants(cu))
+                .orElse(Set.of());
     }
 }

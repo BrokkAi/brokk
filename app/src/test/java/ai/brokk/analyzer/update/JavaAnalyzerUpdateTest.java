@@ -99,7 +99,8 @@ class JavaAnalyzerUpdateTest {
         CodeUnit unitA = analyzer.getDefinitions("A").stream().findFirst().orElseThrow();
 
         // Resolve ancestors to populate the lazy cache in TreeSitterAnalyzer
-        List<CodeUnit> ancestorsInitial = analyzer.getDirectAncestors(unitA);
+        var hierarchyInitial = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+        List<CodeUnit> ancestorsInitial = hierarchyInitial.getDirectAncestors(unitA);
         assertEquals(1, ancestorsInitial.size());
         assertEquals("B", ancestorsInitial.getFirst().shortName());
 
@@ -111,7 +112,8 @@ class JavaAnalyzerUpdateTest {
 
         CodeUnit unitAUpdated =
                 analyzer.getDefinitions("A").stream().findFirst().orElseThrow();
-        List<CodeUnit> ancestorsUpdated = analyzer.getDirectAncestors(unitAUpdated);
+        var hierarchyUpdated = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+        List<CodeUnit> ancestorsUpdated = hierarchyUpdated.getDirectAncestors(unitAUpdated);
 
         assertEquals(1, ancestorsUpdated.size());
         assertEquals("C", ancestorsUpdated.getFirst().shortName(), "Supertype should be updated to C");
