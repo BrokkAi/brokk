@@ -2490,6 +2490,7 @@ public class Chrome
         }
     }
 
+    @Blocking
     private void refreshGit(@Nullable String branchName) {
         try {
             var repo = getProject().getRepo();
