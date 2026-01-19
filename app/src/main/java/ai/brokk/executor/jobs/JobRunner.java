@@ -1488,6 +1488,7 @@ public final class JobRunner {
                         issueBranchName,
                         delEx.getMessage(),
                         delEx);
+                // Honor the forceDelete flag: only attempt force-delete when explicitly requested.
                 if (forceDelete) {
                     try {
                         gitRepo.forceDeleteBranch(issueBranchName);
@@ -1500,8 +1501,9 @@ public final class JobRunner {
                                 forceEx);
                     }
                 } else {
-                    logger.debug(
-                            "ISSUE job {}: forceDelete not enabled; not attempting force delete for branch '{}'",
+                    // Do not force-delete; log that we are leaving the branch in place.
+                    logger.info(
+                            "ISSUE job {}: Not force-deleting branch '{}' because forceDelete=false; leaving branch for manual inspection",
                             jobId,
                             issueBranchName);
                 }
