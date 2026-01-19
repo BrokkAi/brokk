@@ -1088,7 +1088,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of()));
                 emptySpaceMenu.add(paste);
 
-                chrome.getThemeManager().registerPopupMenu(emptySpaceMenu);
                 emptySpaceMenu.show(titledContainer, e.getX(), e.getY());
             }
         });
@@ -1457,7 +1456,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dropdown.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
             try {
                 var menu = historyMenuSupplier.get();
-                chrome.getThemeManager().registerPopupMenu(menu);
                 menu.show(dropdown, 0, dropdown.getHeight());
             } catch (Exception ex) {
                 logger.error("Error showing history dropdown", ex);

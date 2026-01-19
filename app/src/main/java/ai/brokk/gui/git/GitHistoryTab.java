@@ -85,7 +85,6 @@ public class GitHistoryTab extends JPanel {
         }
 
         var menu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(menu);
 
         var captureDiffItem = new JMenuItem("Capture Diff");
         var compareWithLocalItem = new JMenuItem("Compare with Local");

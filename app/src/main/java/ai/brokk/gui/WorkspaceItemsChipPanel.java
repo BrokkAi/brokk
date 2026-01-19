@@ -105,7 +105,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         var actions = scenario.getActions(chrome.getContextActionsHandler());
 
         // Show popup menu using PopupBuilder
-        ContextActionsHandler.PopupBuilder.create(chrome).add(actions).show(this, e.getX(), e.getY());
+        ContextActionsHandler.PopupBuilder.create().add(actions).show(this, e.getX(), e.getY());
     }
 
     /**

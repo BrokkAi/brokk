@@ -423,7 +423,6 @@ public class WorkspaceChip extends JPanel {
 
         safeAddSeparator(menu);
         menu.add(dropOther);
-        chrome.getThemeManager().registerPopupMenu(menu);
         return menu;
     }
 
@@ -711,7 +710,6 @@ public class WorkspaceChip extends JPanel {
                 menu.add(item);
             });
 
-            chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
         }
     }
@@ -800,7 +798,6 @@ public class WorkspaceChip extends JPanel {
                 }
                 menu.add(action);
             }
-            chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
         }
 

@@ -587,7 +587,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             menu.add(pasteMenuItem);
         }
 
-        chrome.getThemeManager().registerPopupMenu(menu);
         menu.show(this, e.getX(), e.getY());
     }
 

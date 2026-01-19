@@ -443,15 +443,13 @@ public class ContextActionsHandler {
 
     public static class PopupBuilder {
         private final JPopupMenu popup;
-        private final Chrome chrome;
 
-        private PopupBuilder(Chrome chrome) {
+        private PopupBuilder() {
             this.popup = new JPopupMenu();
-            this.chrome = chrome;
         }
 
-        public static PopupBuilder create(Chrome chrome) {
-            return new PopupBuilder(chrome);
+        public static PopupBuilder create() {
+            return new PopupBuilder();
         }
 
         public PopupBuilder add(List<Action> actions) {
@@ -471,7 +469,6 @@ public class ContextActionsHandler {
         }
 
         public void show(Component invoker, int x, int y) {
-            chrome.getThemeManager().registerPopupMenu(popup);
             popup.show(invoker, x, y);
         }
     }

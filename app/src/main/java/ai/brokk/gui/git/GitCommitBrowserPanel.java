@@ -525,7 +525,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void setupCommitContextMenu() {
         var commitsContextMenu = new JPopupMenu();
-        registerMenu(commitsContextMenu);
 
         addToContextItem = new JMenuItem("Capture Diff");
         reviewCommitsItem = new JMenuItem("Review Commits");
@@ -959,7 +958,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void setupChangesTreeContextMenu() {
         var changesContextMenu = new JPopupMenu();
-        registerMenu(changesContextMenu);
 
         var addFileToContextItem = new JMenuItem("Capture Diff");
         var compareFileWithLocalItem = new JMenuItem("Compare with Local");
@@ -1950,10 +1948,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 button.addActionListener(listener);
             }
         }
-    }
-
-    private void registerMenu(JPopupMenu menu) {
-        chrome.getTheme().registerPopupMenu(menu);
     }
 
     @Override
