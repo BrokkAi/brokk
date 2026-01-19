@@ -226,8 +226,8 @@ public class BlockingOperationCheckerTest {
                         "package org.jetbrains.annotations;",
                         "public @interface Blocking {}")
                 .addSourceLines(
-                        "test/IContextManager.java",
-                        "package test;",
+                        "ai/brokk/IContextManager.java",
+                        "package ai.brokk;",
                         "import java.util.concurrent.CompletableFuture;",
                         "import java.util.concurrent.Callable;",
                         "public interface IContextManager {",
@@ -245,6 +245,7 @@ public class BlockingOperationCheckerTest {
                         "test/Use.java",
                         "package test;",
                         "import javax.swing.SwingUtilities;",
+                        "import ai.brokk.IContextManager;",
                         "class Use {",
                         "  void f(CF cf, IContextManager cm) {",
                         "    if (SwingUtilities.isEventDispatchThread()) {",
@@ -266,8 +267,8 @@ public class BlockingOperationCheckerTest {
                         "package org.jetbrains.annotations;",
                         "public @interface Blocking {}")
                 .addSourceLines(
-                        "test/IContextManager.java",
-                        "package test;",
+                        "ai/brokk/IContextManager.java",
+                        "package ai.brokk;",
                         "import java.util.concurrent.CompletableFuture;",
                         "import java.util.concurrent.Callable;",
                         "public interface IContextManager {",
@@ -284,6 +285,7 @@ public class BlockingOperationCheckerTest {
                 .addSourceLines(
                         "test/Use.java",
                         "package test;",
+                        "import ai.brokk.IContextManager;",
                         "class Use {",
                         "  void f(CF cf, IContextManager cm) {",
                         "    cm.submitBackgroundTask(\"task\", () -> {",
@@ -301,8 +303,8 @@ public class BlockingOperationCheckerTest {
                         "package org.jetbrains.annotations;",
                         "public @interface Blocking {}")
                 .addSourceLines(
-                        "test/IContextManager.java",
-                        "package test;",
+                        "ai/brokk/IContextManager.java",
+                        "package ai.brokk;",
                         "import java.util.concurrent.CompletableFuture;",
                         "import java.util.concurrent.Callable;",
                         "public interface IContextManager {",
@@ -320,6 +322,7 @@ public class BlockingOperationCheckerTest {
                         "test/Use.java",
                         "package test;",
                         "import javax.swing.SwingUtilities;",
+                        "import ai.brokk.IContextManager;",
                         "import java.util.stream.Stream;",
                         "class Use {",
                         "  void f(CF cf, IContextManager cm) {",

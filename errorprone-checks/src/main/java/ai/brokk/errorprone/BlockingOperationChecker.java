@@ -34,6 +34,7 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
     private static final String BLOCKING_ANN_FQCN = "org.jetbrains.annotations.Blocking";
     private static final String SWING_UTILS_FQCN = "javax.swing.SwingUtilities";
     private static final String EVENT_QUEUE_FQCN = "java.awt.EventQueue";
+    private static final String CONTEXT_MANAGER_FQCN = "ai.brokk.IContextManager";
     private static final String SUBMIT_BACKGROUND_TASK_METHOD = "submitBackgroundTask";
 
     private static boolean hasDirectAnnotation(Symbol sym, String fqcn) {
@@ -94,10 +95,14 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
     }
 
     private static boolean isSubmitBackgroundTask(MethodInvocationTree mit) {
-        // Match by method name only (not owner class) to correctly handle any
-        // IContextManager implementation or wrapper.
+        // Match by method name and ensure the owner class implements IContextManager
+        // to correctly handle any IContextManager implementation or wrapper.
         MethodSymbol ms = ASTHelpers.getSymbol(mit);
-        return ms != null && ms.getSimpleName().contentEquals(SUBMIT_BACKGROUND_TASK_METHOD);
+        if (ms == null || !ms.getSimpleName().contentEquals(SUBMIT_BACKGROUND_TASK_METHOD)) {
+            return false;
+        }
+        return ms.owner instanceof Symbol.ClassSymbol cs
+                && TypeHierarchyUtils.implementsOrExtends(cs, CONTEXT_MANAGER_FQCN);
     }
 
     private static boolean isWithinInvokeLaterArgument(VisitorState state) {
