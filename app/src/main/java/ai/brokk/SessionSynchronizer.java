@@ -210,27 +210,27 @@ class SessionSynchronizer {
                     Throwable cause = executionException.getCause();
                     Exception ex = (cause instanceof Exception e) ? e : new Exception(cause);
                     actionFailedForSession(action, ex, result, id);
-                    if (isUploadRateLimit(action, ex)) {
-                        logger.warn("Daily upload limit reached. Pausing remaining uploads for this sync cycle.");
-                        break;
-                    }
-                } catch (ServiceHttpException e) {
-                    actionFailedForSession(action, e, result, id);
-                    if (isUploadRateLimit(action, e)) {
-                        logger.warn("Daily upload limit reached. Pausing remaining uploads for this sync cycle.");
+                    if (checkUploadRateLimit(action, ex)) {
                         break;
                     }
                 } catch (IOException e) {
                     actionFailedForSession(action, e, result, id);
+                    if (checkUploadRateLimit(action, e)) {
+                        break;
+                    }
                 }
             }
             return result;
         }
 
-        private boolean isUploadRateLimit(SyncAction action, Exception e) {
-            return action.type() == ActionType.UPLOAD
+        private boolean checkUploadRateLimit(SyncAction action, Exception e) {
+            var result = action.type() == ActionType.UPLOAD
                     && e instanceof ServiceHttpException se
                     && se.getStatusCode() == 429;
+            if (result) {
+                logger.warn("Daily upload limit reached. Pausing remaining uploads for this sync cycle.");
+            }
+            return result;
         }
 
         private void actionFailedForSession(SyncAction action, Exception e, SyncResult result, UUID id) {
