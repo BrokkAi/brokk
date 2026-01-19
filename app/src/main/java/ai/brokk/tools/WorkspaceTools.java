@@ -307,7 +307,6 @@ public class WorkspaceTools {
             @P(
                             "List of fully qualified class names (e.g., ['com.example.ClassA', 'org.another.ClassB']) to get summaries for. Must not be empty.")
                     List<String> classNames) {
-        assert getAnalyzer() instanceof SkeletonProvider : "Cannot add summary: Code Intelligence is not available.";
         if (classNames.isEmpty()) {
             return "Cannot add summary: class names list is empty";
         }
@@ -336,7 +335,6 @@ public class WorkspaceTools {
             @P(
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']. Must not be empty.")
                     List<String> filePaths) {
-        assert getAnalyzer() instanceof SkeletonProvider : "Cannot add summaries: Code Intelligence is not available.";
         if (filePaths.isEmpty()) {
             return "Cannot add summaries: file paths list is empty.";
         }

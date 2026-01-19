@@ -8,7 +8,6 @@ import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.AutoCompleteUtil;
@@ -418,14 +417,12 @@ public class AttachContextDialog extends BaseThemedDialog {
 
         // Analyzer is ready, enable/disable based on capabilities
         IAnalyzer analyzer = cm.getAnalyzerWrapper().getNonBlocking();
-        boolean hasSkeleton =
-                analyzer != null && analyzer.as(SkeletonProvider.class).isPresent();
         boolean hasSource =
                 analyzer != null && analyzer.as(SourceCodeProvider.class).isPresent();
         boolean hasUsages = analyzer != null;
 
         // Classes segment
-        boolean classesEnabled = hasSkeleton || hasSource;
+        boolean classesEnabled = hasSource;
         classesBtn.setEnabled(classesEnabled);
         classesBtn.setToolTipText(
                 classesEnabled ? hotkeyModifierString + "-3" : "Classes" + ANALYZER_NOT_READY_TOOLTIP);

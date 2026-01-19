@@ -3,7 +3,6 @@ package ai.brokk.testutil;
 import ai.brokk.analyzer.*;
 import ai.brokk.project.IProject;
 import java.util.*;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
@@ -12,13 +11,12 @@ import org.jetbrains.annotations.Nullable;
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
  * without requiring a full CPG.
  */
-public class TestAnalyzer implements IAnalyzer, SkeletonProvider {
+public class TestAnalyzer implements IAnalyzer {
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
     private final Map<CodeUnit, String> skeletons = new HashMap<>();
     private final Map<CodeUnit, String> sources = new HashMap<>();
-    private Function<List<ProjectFile>, LintResult> lintBehavior = files -> new LintResult(List.of());
     private @Nullable IProject testProject;
 
     public TestAnalyzer(
@@ -38,10 +36,6 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider {
 
     public void addDeclaration(CodeUnit cu) {
         this.allClasses.add(cu);
-    }
-
-    public void setLintBehavior(Function<List<ProjectFile>, LintResult> behavior) {
-        this.lintBehavior = behavior;
     }
 
     @Override

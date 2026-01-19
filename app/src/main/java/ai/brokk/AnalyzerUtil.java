@@ -5,7 +5,6 @@ import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -41,41 +40,32 @@ public class AnalyzerUtil {
             }
         });
 
-        var maybeSkeletonProvider = analyzer.as(SkeletonProvider.class);
-        if (maybeSkeletonProvider.isEmpty()) {
-            logger.warn("Analyzer ({}) does not provide skeletons, skipping", analyzer.getClass());
+        var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
+        for (var cu : typeUses) {
+            var skeletonHeader = analyzer.getSkeletonHeader(cu);
+            skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, cu)));
         }
-        maybeSkeletonProvider.ifPresent(skeletonProvider -> {
-            var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
-            for (var cu : typeUses) {
-                var skeletonHeader = skeletonProvider.getSkeletonHeader(cu);
-                skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, cu)));
-            }
-        });
 
         // Handle fields by showing their containing class skeleton
-        maybeSkeletonProvider.ifPresent(skeletonProvider -> {
-            var fieldUses = uses.stream().filter(CodeUnit::isField).sorted().toList();
-            for (var field : fieldUses) {
-                // Get the parent class by parsing the fqName (e.g., "com.example.Class.field" -> "com.example.Class")
-                var fqName = field.fqName();
-                var lastDot = fqName.lastIndexOf('.');
-                if (lastDot > 0) {
-                    var parentClassName = fqName.substring(0, lastDot);
-                    var parentClasses = analyzer.getDefinitions(parentClassName);
-                    if (!parentClasses.isEmpty()) {
-                        var parentClass =
-                                analyzer.sortDefinitions(parentClasses).getFirst();
-                        var skeletonHeader = skeletonProvider.getSkeletonHeader(parentClass);
-                        skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, parentClass)));
-                    } else {
-                        logger.warn("Unable to find parent class {} for field {}", parentClassName, field.fqName());
-                    }
+        var fieldUses = uses.stream().filter(CodeUnit::isField).sorted().toList();
+        for (var field : fieldUses) {
+            // Get the parent class by parsing the fqName (e.g., "com.example.Class.field" -> "com.example.Class")
+            var fqName = field.fqName();
+            var lastDot = fqName.lastIndexOf('.');
+            if (lastDot > 0) {
+                var parentClassName = fqName.substring(0, lastDot);
+                var parentClasses = analyzer.getDefinitions(parentClassName);
+                if (!parentClasses.isEmpty()) {
+                    var parentClass = analyzer.sortDefinitions(parentClasses).getFirst();
+                    var skeletonHeader = analyzer.getSkeletonHeader(parentClass);
+                    skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, parentClass)));
                 } else {
-                    logger.warn("Unable to parse parent class from field fqName: {}", field.fqName());
+                    logger.warn("Unable to find parent class {} for field {}", parentClassName, field.fqName());
                 }
+            } else {
+                logger.warn("Unable to parse parent class from field fqName: {}", field.fqName());
             }
-        });
+        }
 
         return results;
     }
@@ -143,16 +133,14 @@ public class AnalyzerUtil {
      * Get skeleton for a symbol by fully qualified name.
      */
     public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
-                .flatMap(skp -> skp.getSkeleton(cu)));
+        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(analyzer::getSkeleton);
     }
 
     /**
      * Get skeleton header (class signature + fields without method bodies) for a class by name.
      */
     public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
-        return analyzer.getDefinitions(className).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
-                .flatMap(skp -> skp.getSkeletonHeader(cu)));
+        return analyzer.getDefinitions(className).stream().findFirst().flatMap(analyzer::getSkeletonHeader);
     }
 
     /**

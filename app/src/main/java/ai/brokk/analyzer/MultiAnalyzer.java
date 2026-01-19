@@ -8,8 +8,7 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MultiAnalyzer
-        implements IAnalyzer, CallGraphProvider, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
+public class MultiAnalyzer implements IAnalyzer, CallGraphProvider, SourceCodeProvider, TypeAliasProvider {
     private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
     private final Map<Language, IAnalyzer> delegates;
 
@@ -129,16 +128,12 @@ public class MultiAnalyzer
 
     @Override
     public Optional<String> getSkeleton(CodeUnit cu) {
-        return delegateFor(cu)
-                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
-                .flatMap(skp -> skp.getSkeleton(cu));
+        return delegateFor(cu).flatMap(analyzer -> analyzer.getSkeleton(cu));
     }
 
     @Override
     public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
-        return delegateFor(classUnit)
-                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
-                .flatMap(skp -> skp.getSkeletonHeader(classUnit));
+        return delegateFor(classUnit).flatMap(analyzer -> analyzer.getSkeletonHeader(classUnit));
     }
 
     @Override
@@ -176,10 +171,7 @@ public class MultiAnalyzer
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        return delegateFor(file)
-                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
-                .map(sk -> sk.getSkeletons(file))
-                .orElse(Collections.emptyMap());
+        return delegateFor(file).map(analyzer -> analyzer.getSkeletons(file)).orElse(Collections.emptyMap());
     }
 
     @Override

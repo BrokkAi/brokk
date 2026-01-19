@@ -11,7 +11,6 @@ import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -598,9 +597,7 @@ public class ContextAgent {
 
         return coalescedClasses.parallelStream()
                 .map(cu -> {
-                    final String skeleton = analyzer.as(SkeletonProvider.class)
-                            .flatMap(skp -> skp.getSkeleton(cu))
-                            .orElse("");
+                    final String skeleton = analyzer.getSkeleton(cu).orElse("");
                     return Map.entry(cu, skeleton);
                 })
                 .filter(entry -> !entry.getValue().isEmpty())

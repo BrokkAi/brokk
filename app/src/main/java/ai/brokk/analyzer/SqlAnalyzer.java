@@ -10,7 +10,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
+public class SqlAnalyzer implements IAnalyzer {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
 
     private final IProject project;

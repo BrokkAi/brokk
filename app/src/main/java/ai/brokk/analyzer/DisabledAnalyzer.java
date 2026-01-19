@@ -113,4 +113,14 @@ public class DisabledAnalyzer implements IAnalyzer {
     public boolean containsTests(ProjectFile file) {
         return false;
     }
+
+    @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
+        return Optional.empty();
+    }
 }

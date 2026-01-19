@@ -14,7 +14,6 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
@@ -1699,15 +1698,11 @@ public class ContextFragments {
                 String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
-            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
             Set<CodeUnit> primaryTargets =
                     resolvePrimaryTargets(targetIdentifier, summaryType, analyzer, contextManager);
 
-            if (skeletonProviderOpt.isPresent()) {
-                var skeletonProvider = skeletonProviderOpt.get();
-                for (CodeUnit cu : primaryTargets) {
-                    skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
-                }
+            for (CodeUnit cu : primaryTargets) {
+                analyzer.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
             }
 
             String text;
@@ -1731,19 +1726,12 @@ public class ContextFragments {
         @Blocking
         private Map<String, CodeUnitSkeleton> skeletonsByFqName() {
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
-            if (skeletonProviderOpt.isEmpty()) {
-                return Map.of();
-            }
-            SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
-
             Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
             for (CodeUnit cu : sources().join()) {
                 if (cu.isAnonymous()) {
                     continue;
                 }
-                skeletonProvider
-                        .getSkeleton(cu)
+                analyzer.getSkeleton(cu)
                         .filter(s -> !s.isBlank())
                         .ifPresent(skeleton -> out.putIfAbsent(cu.fqName(), new CodeUnitSkeleton(cu, skeleton)));
             }
@@ -1757,7 +1745,7 @@ public class ContextFragments {
          * - Union CodeUnits across fragments via sources()
          * - Deduplicate by CodeUnit.fqName() (stable first-seen)
          * - Exclude anonymous units
-         * - Use each fragment's own analyzer via SkeletonProvider to obtain skeleton text
+         * - Use each fragment's own analyzer to obtain skeleton text
          * - Format via SkeletonFragmentFormatter in by-package mode
          */
         @Blocking

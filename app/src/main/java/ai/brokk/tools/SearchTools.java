@@ -8,7 +8,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
@@ -116,8 +115,6 @@ public class SearchTools {
             @P(
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
                     List<String> filePaths) {
-        assert getAnalyzer().as(SkeletonProvider.class).isPresent()
-                : "Cannot get summaries: Code Intelligence is not available.";
         if (filePaths.isEmpty()) {
             return "Cannot get summaries: file paths list is empty";
         }
@@ -138,7 +135,7 @@ public class SearchTools {
         List<String> allSkeletons = new ArrayList<>();
         List<String> filesProcessed = new ArrayList<>(); // Still useful for the "not found" message
         for (var file : projectFiles) {
-            var skeletonsInFile = ((SkeletonProvider) getAnalyzer()).getSkeletons(file);
+            var skeletonsInFile = getAnalyzer().getSkeletons(file);
             if (!skeletonsInFile.isEmpty()) {
                 // Add all skeleton strings from this file to the list
                 allSkeletons.addAll(skeletonsInFile.values());
@@ -298,9 +295,6 @@ public class SearchTools {
                     """)
     public String getClassSkeletons(
             @P("Fully qualified class names to get the skeleton structures for") List<String> classNames) {
-
-        assert getAnalyzer().as(SkeletonProvider.class).isPresent()
-                : "Cannot get skeletons: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
