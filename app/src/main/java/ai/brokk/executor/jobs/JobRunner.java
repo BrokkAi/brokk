@@ -13,7 +13,6 @@ import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitWorkflow;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -813,15 +812,7 @@ public final class JobRunner {
                                         // 3. Branch management
                                         var gitRepo = (GitRepo) cm.getProject().getRepo();
                                         String originalBranch = gitRepo.getCurrentBranch();
-                                        String originalCommitId = null;
-
                                         String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
-
-                                        try {
-                                            originalCommitId = gitRepo.getCurrentCommitId();
-                                        } catch (GitAPIException e) {
-                                            logger.warn("Failed to capture current commit ID for job {}", jobId, e);
-                                        }
 
                                         logger.info(
                                                 "ISSUE job {}: Creating branch {} from {}",
@@ -830,197 +821,115 @@ public final class JobRunner {
                                                 originalBranch);
                                         gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
 
-                                        try {
-                                            String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
-                                                    .formatted(issueNumber, details.title(), details.body());
+                                        String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
+                                                .formatted(issueNumber, details.title(), details.body());
 
-                                            // 4. Lutz-style execution: Planning then Task Iteration
-                                            String taskDescription = "Issue #" + issueNumber + ": " + details.title();
-                                            try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
-                                                var context = cm.liveContext();
-                                                var searchAgent = new LutzAgent(
-                                                        context,
-                                                        issueTaskPrompt,
-                                                        issuePlannerModel,
-                                                        SearchPrompts.Objective.TASKS_ONLY,
-                                                        scope);
-                                                var taskListResult = searchAgent.execute();
-                                                scope.append(taskListResult);
+                                        // 4. Lutz-style execution: Planning then Task Iteration
+                                        String taskDescription = "Issue #" + issueNumber + ": " + details.title();
+                                        try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
+                                            var context = cm.liveContext();
+                                            var searchAgent = new LutzAgent(
+                                                    context,
+                                                    issueTaskPrompt,
+                                                    issuePlannerModel,
+                                                    SearchPrompts.Objective.TASKS_ONLY,
+                                                    scope);
+                                            var taskListResult = searchAgent.execute();
+                                            scope.append(taskListResult);
 
-                                                var generatedTasks =
-                                                        cm.getTaskList().tasks();
-                                                var incompleteTasks = generatedTasks.stream()
-                                                        .filter(t -> !t.done())
-                                                        .toList();
+                                            var generatedTasks =
+                                                    cm.getTaskList().tasks();
+                                            var incompleteTasks = generatedTasks.stream()
+                                                    .filter(t -> !t.done())
+                                                    .toList();
 
-                                                for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                                                    if (cancelled.get()) return;
+                                            for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                if (cancelled.get()) return;
 
-                                                    // Execute task with ArchitectAgent
-                                                    cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
+                                                // Execute task with ArchitectAgent
+                                                cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
-                                                    // 4. Verification loop: run build and retry on failure
-                                                    int buildAttempts = 0;
-                                                    int maxBuildAttempts = Objects.requireNonNullElse(
-                                                            buildDetailsOverride.maxBuildAttempts(),
-                                                            DEFAULT_MAX_BUILD_ATTEMPTS);
+                                                // 4. Verification loop: run build and retry on failure
+                                                int buildAttempts = 0;
+                                                int maxBuildAttempts = Objects.requireNonNullElse(
+                                                        buildDetailsOverride.maxBuildAttempts(),
+                                                        DEFAULT_MAX_BUILD_ATTEMPTS);
 
-                                                    boolean verified = false;
+                                                boolean verified = false;
 
-                                                    while (!verified && buildAttempts < maxBuildAttempts) {
-                                                        buildAttempts++;
-                                                        String buildError =
-                                                                BuildAgent.runVerification(cm, buildDetailsOverride);
-                                                        if (buildError.isBlank()) {
-                                                            verified = true;
-                                                            logger.info(
-                                                                    "ISSUE job {} task '{}' verified successfully",
-                                                                    jobId,
-                                                                    generatedTask.text());
+                                                while (!verified && buildAttempts < maxBuildAttempts) {
+                                                    buildAttempts++;
+                                                    String buildError =
+                                                            BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                    if (buildError.isBlank()) {
+                                                        verified = true;
+                                                        logger.info(
+                                                                "ISSUE job {} task '{}' verified successfully",
+                                                                jobId,
+                                                                generatedTask.text());
+                                                    } else {
+                                                        logger.warn(
+                                                                "ISSUE job {} task '{}' build failed (attempt {}/{}): {}",
+                                                                jobId,
+                                                                generatedTask.text(),
+                                                                buildAttempts,
+                                                                maxBuildAttempts,
+                                                                buildError);
+
+                                                        if (buildAttempts < maxBuildAttempts) {
+                                                            // Ask architect to fix the build error
+                                                            String fixPrompt = "The build failed after the last task '"
+                                                                    + generatedTask.text()
+                                                                    + "'. Please fix the following error:\n\n"
+                                                                    + buildError;
+                                                            cm.executeTask(
+                                                                    TaskList.TaskItem.createFixTask(fixPrompt),
+                                                                    issuePlannerModel,
+                                                                    issueCodeModel);
                                                         } else {
-                                                            logger.warn(
-                                                                    "ISSUE job {} task '{}' build failed (attempt {}/{}): {}",
-                                                                    jobId,
-                                                                    generatedTask.text(),
-                                                                    buildAttempts,
-                                                                    maxBuildAttempts,
-                                                                    buildError);
-
-                                                            if (buildAttempts < maxBuildAttempts) {
-                                                                // Ask architect to fix the build error
-                                                                String fixPrompt =
-                                                                        "The build failed after the last task '"
-                                                                                + generatedTask.text()
-                                                                                + "'. Please fix the following error:\n\n"
-                                                                                + buildError;
-                                                                cm.executeTask(
-                                                                        TaskList.TaskItem.createFixTask(fixPrompt),
-                                                                        issuePlannerModel,
-                                                                        issueCodeModel);
-                                                            } else {
-                                                                throw new IssueExecutionException(
-                                                                        "Failed to pass build verification after "
-                                                                                + maxBuildAttempts + " attempts: "
-                                                                                + buildError);
-                                                            }
+                                                            throw new IssueExecutionException(
+                                                                    "Failed to pass build verification after "
+                                                                            + maxBuildAttempts + " attempts: "
+                                                                            + buildError);
                                                         }
                                                     }
                                                 }
-
-                                                runPrePrGateWithFixRetryLoop(
-                                                        jobId,
-                                                        store,
-                                                        cm.getIo(),
-                                                        buildDetailsOverride,
-                                                        spec.effectiveMaxIssueFixAttempts(),
-                                                        cmd -> {
-                                                            try {
-                                                                return BuildAgent.runExplicitCommand(
-                                                                        cm, cmd, buildDetailsOverride);
-                                                            } catch (InterruptedException e) {
-                                                                Thread.currentThread()
-                                                                        .interrupt();
-                                                                return "Interrupted while running command: " + cmd;
-                                                            }
-                                                        },
-                                                        prompt -> {
-                                                            try {
-                                                                cm.executeTask(
-                                                                        TaskList.TaskItem.createFixTask(prompt),
-                                                                        issuePlannerModel,
-                                                                        issueCodeModel);
-                                                            } catch (InterruptedException e) {
-                                                                Thread.currentThread()
-                                                                        .interrupt();
-                                                                throw new IssueExecutionException(
-                                                                        "Interrupted while attempting to fix pre-PR gate failure",
-                                                                        e);
-                                                            }
-                                                        });
-
-                                                // 5. Commit and Create Pull Request
-                                                var workflow = new GitWorkflow(cm);
-                                                workflow.performAutoCommit(
-                                                        "Resolves #" + issueNumber + ": " + details.title());
-
-                                                String targetBranch = gitHubAuth.getDefaultBranch();
-                                                var suggestion = workflow.suggestPullRequestDetails(
-                                                        issueBranchName, targetBranch, cm.getIo());
-
-                                                String prBody = IssueService.buildPrDescription(
-                                                        suggestion.description(), issueNumber);
-
-                                                var prUri = workflow.createPullRequest(
-                                                        issueBranchName,
-                                                        targetBranch,
-                                                        suggestion.title(),
-                                                        prBody,
-                                                        githubToken);
-
-                                                logger.info("ISSUE job {} created PR: {}", jobId, prUri);
-                                                if (console != null) {
-                                                    console.showNotification(
-                                                            IConsoleIO.NotificationRole.INFO,
-                                                            "Created Pull Request: " + prUri);
-                                                }
                                             }
-                                        } finally {
-                                            // Ensure we roll back to the original branch on failure or cancellation
-                                            try {
-                                                if (!gitRepo.getCurrentBranch().equals(originalBranch)) {
-                                                    // Count commits on issue branch before switching away
-                                                    int issueBranchCommits = originalCommitId != null
-                                                            ? gitRepo.countCommitsSince(originalCommitId)
-                                                            : 0;
 
-                                                    // Stash any uncommitted changes to ensure checkout of original
-                                                    // branch succeeds
-                                                    if (!gitRepo.getModifiedFiles()
-                                                            .isEmpty()) {
-                                                        logger.info(
-                                                                "ISSUE job {}: Stashing uncommitted changes before branch restoration",
-                                                                jobId);
-                                                        gitRepo.createStash("Brokk ISSUE job " + jobId + " cleanup");
-                                                    }
-
-                                                    logger.info(
-                                                            "ISSUE job {}: Restoring original branch {}",
-                                                            jobId,
-                                                            originalBranch);
-                                                    gitRepo.checkout(originalBranch);
-
-                                                    // If the issue branch was never committed to, delete it to avoid
-                                                    // orphans
-                                                    boolean noCommitsSince = issueBranchCommits == 0;
-
-                                                    if (gitRepo.isBranchMerged(issueBranchName) || noCommitsSince) {
+                                            runFixRetryLoop(
+                                                    jobId,
+                                                    store,
+                                                    cm.getIo(),
+                                                    buildDetailsOverride,
+                                                    spec.effectiveMaxIssueFixAttempts(),
+                                                    cmd -> {
                                                         try {
-                                                            gitRepo.deleteBranch(issueBranchName);
-                                                            logger.info(
-                                                                    "ISSUE job {}: Deleted empty issue branch {}",
-                                                                    jobId,
-                                                                    issueBranchName);
-                                                        } catch (Exception e) {
-                                                            logger.warn(
-                                                                    "ISSUE job {}: Failed to delete temporary branch {}",
-                                                                    jobId,
-                                                                    issueBranchName,
+                                                            return BuildAgent.runExplicitCommand(
+                                                                    cm, cmd, buildDetailsOverride);
+                                                        } catch (InterruptedException e) {
+                                                            Thread.currentThread()
+                                                                    .interrupt();
+                                                            return "Interrupted while running command: " + cmd;
+                                                        }
+                                                    },
+                                                    prompt -> {
+                                                        try {
+                                                            cm.executeTask(
+                                                                    TaskList.TaskItem.createFixTask(prompt),
+                                                                    issuePlannerModel,
+                                                                    issueCodeModel);
+                                                        } catch (InterruptedException e) {
+                                                            Thread.currentThread()
+                                                                    .interrupt();
+                                                            throw new IssueExecutionException(
+                                                                    "Interrupted while attempting to fix build failure",
                                                                     e);
                                                         }
-                                                    }
-                                                }
-                                            } catch (Exception e) {
-                                                logger.error(
-                                                        "ISSUE job {}: Failed to restore original branch {}",
-                                                        jobId,
-                                                        originalBranch,
-                                                        e);
-                                            }
+                                                    });
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                 }
-
                                 completed.incrementAndGet();
 
                                 try {
@@ -1395,7 +1304,7 @@ public final class JobRunner {
         return throwable.getClass().getSimpleName() + ": " + message;
     }
 
-    static void runPrePrGateWithFixRetryLoop(
+    static void runFixRetryLoop(
             String jobId,
             JobStore store,
             IConsoleIO io,

@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
-import ai.brokk.util.Json;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -54,10 +53,6 @@ class JobRunnerIssueModeTest {
 
     @Test
     void testIssueModeParseMode() {
-        // Verify parseMode correctly identifies ISSUE mode from tags
-        JobSpec issueSpec = JobSpec.ofIssue(
-                "gpt-4", null, "fake-token", "owner", "repo", 42, Json.toJson(BuildAgent.BuildDetails.EMPTY));
-
         // Add mode tag to verify parsing
         JobSpec specWithMode = JobSpec.of(
                 "",
@@ -196,7 +191,7 @@ class JobRunnerIssueModeTest {
         var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
 
         assertThrows(IssueExecutionException.class, () -> {
-            JobRunner.runPrePrGateWithFixRetryLoop(
+            JobRunner.runFixRetryLoop(
                     "job-1",
                     store,
                     io,
@@ -222,7 +217,7 @@ class JobRunnerIssueModeTest {
         var testCmdCalls = new AtomicInteger(0);
 
         assertDoesNotThrow(() -> {
-            JobRunner.runPrePrGateWithFixRetryLoop(
+            JobRunner.runFixRetryLoop(
                     "job-2",
                     store,
                     io,
@@ -250,7 +245,7 @@ class JobRunnerIssueModeTest {
         var io = new TestConsoleIO();
         var details = new BuildAgent.BuildDetails("", "", "", Set.of());
 
-        assertDoesNotThrow(() -> JobRunner.runPrePrGateWithFixRetryLoop(
+        assertDoesNotThrow(() -> JobRunner.runFixRetryLoop(
                 "job-blank-cmds",
                 store,
                 io,
