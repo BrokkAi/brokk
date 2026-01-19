@@ -93,55 +93,70 @@ public class JdkSelector extends JPanel {
             return;
         }
 
-        // Handle sentinel: resolve to actual JAVA_HOME and try to match
-        String effectivePath = path;
         boolean isSentinel = EnvironmentJava.JAVA_HOME_SENTINEL.equals(path);
         if (isSentinel) {
+            // Always create a dedicated item preserving the sentinel as the stored path
+            // so that "Apply" persists $JAVA_HOME, not the resolved concrete path
             String javaHome = System.getenv("JAVA_HOME");
+            String label;
             if (javaHome != null && !javaHome.isBlank()) {
-                effectivePath = javaHome;
+                // Try to find matching discovered JDK for a friendlier display
+                String matchedDisplay = null;
+                for (int i = 0; i < combo.getItemCount(); i++) {
+                    var it = combo.getItemAt(i);
+                    if (javaHome.equals(it.path)) {
+                        matchedDisplay = it.display;
+                        break;
+                    }
+                }
+                label = matchedDisplay != null
+                        ? "System JAVA_HOME (" + matchedDisplay + ")"
+                        : "System JAVA_HOME (" + abbreviatePath(javaHome) + ")";
+            } else {
+                label = "System JAVA_HOME";
             }
+            var sentinelItem = new JdkItem(label, EnvironmentJava.JAVA_HOME_SENTINEL);
+            combo.addItem(sentinelItem);
+            combo.setSelectedItem(sentinelItem);
+            return;
         }
 
-        // Try to match against discovered JDKs
-        int matchedIdx = -1;
+        // Non-sentinel: try to match against discovered JDKs
         for (int i = 0; i < combo.getItemCount(); i++) {
             var it = combo.getItemAt(i);
-            if (effectivePath.equals(it.path)) {
-                matchedIdx = i;
-                break;
+            if (path.equals(it.path)) {
+                combo.setSelectedIndex(i);
+                return;
             }
         }
 
-        if (matchedIdx >= 0) {
-            combo.setSelectedIndex(matchedIdx);
-        } else {
-            // Custom entry - use friendly label for sentinel
-            String label = isSentinel ? "System JAVA_HOME" : createDisplayName(path);
-            var custom = new JdkItem(label, path);
-            combo.addItem(custom);
-            combo.setSelectedItem(custom);
-        }
+        // Custom entry for non-sentinel path
+        var custom = new JdkItem(createDisplayName(path), path);
+        combo.addItem(custom);
+        combo.setSelectedItem(custom);
     }
 
     private static String createDisplayName(String path) {
-        var maxLength = 50;
-        var prefix = "Custom JDK: ";
-        if ((prefix + path).length() <= maxLength) {
-            return prefix + path;
+        return "Custom JDK: " + abbreviatePath(path);
+    }
+
+    private static String abbreviatePath(String path) {
+        var maxLength = 35;
+        if (path.length() <= maxLength) {
+            return path;
         }
         // Abbreviate long paths: show first component + ... + last three components
         var pathObj = Path.of(path);
         var nameCount = pathObj.getNameCount();
         if (nameCount <= 4) {
-            return prefix + path;
+            return path;
         }
-        // Show "Custom JDK: /first/.../third-to-last/second-to-last/last"
+        // Show "/first/.../third-to-last/second-to-last/last"
         var root = pathObj.getRoot();
         var first = pathObj.getName(0);
         var lastThree = pathObj.subpath(nameCount - 3, nameCount);
         var rootStr = root != null ? root.toString() : "";
-        return prefix + rootStr + first + "/.../" + lastThree;
+        return rootStr + first + "/.../" + lastThree;
     }
 
     /** @return the selected JDK path or null if none selected. */
