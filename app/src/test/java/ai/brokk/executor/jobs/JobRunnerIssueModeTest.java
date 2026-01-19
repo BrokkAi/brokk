@@ -216,135 +216,113 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void testFinalGateExhaustsAttemptsBlocksPrCreation() {
-        var prCreated = new AtomicBoolean(false);
-        var fixCalls = new AtomicInteger(0);
-
-        var io = new TestConsoleIO();
-        var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
-
-        // maxAttempts = 3 -> fix called maxAttempts - 1 = 2 times
-        IssueExecutionException thrown = assertThrows(IssueExecutionException.class, () -> {
-            JobRunner.runFinalGateRetryLoop(
-                    "job-1",
-                    store,
-                    io,
-                    details,
-                    3,
-                    cmd -> cmd.contains("testAll") ? "tests failed" : "lint failed",
-                    prompt -> fixCalls.incrementAndGet());
-            prCreated.set(true);
-        });
-
-        assertFalse(prCreated.get());
-        assertEquals(2, fixCalls.get());
-        assertTrue(thrown.getMessage().contains("Final gate"), "Exception message should mention 'Final gate'");
-    }
-
-    @Test
-    void testPrePrGateSucceedsAfterFixAllowsPrCreation() {
-        var prCreated = new AtomicBoolean(false);
-        var fixCalls = new AtomicInteger(0);
-
-        var io = new TestConsoleIO();
-        var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
-
-        var testCmdCalls = new AtomicInteger(0);
-
-        assertDoesNotThrow(() -> {
-            JobRunner.runPrePrGateRetryLoop(
-                    "job-2",
-                    store,
-                    io,
-                    details,
-                    5,
-                    cmd -> {
-                        if (cmd.contains("testAll")) {
-                            int attempt = testCmdCalls.incrementAndGet();
-                            return attempt == 1 ? "tests failed on attempt 1" : "";
-                        }
-                        return "";
-                    },
-                    prompt -> fixCalls.incrementAndGet());
-            prCreated.set(true);
-        });
-
-        assertTrue(prCreated.get());
-        assertEquals(1, fixCalls.get());
-    }
-
-    @Test
-    void testPrePrGateBlankCommandsAreSkippedAndPassing() {
-        var fixCalls = new AtomicInteger(0);
-
-        var io = new TestConsoleIO();
-        var details = new BuildAgent.BuildDetails("", "", "", Set.of());
-
-        assertDoesNotThrow(() -> JobRunner.runPrePrGateRetryLoop(
-                "job-blank-cmds",
-                store,
-                io,
-                details,
-                3,
-                cmd -> fail("commandRunner should not be invoked when commands are blank: " + cmd),
-                prompt -> fixCalls.incrementAndGet()));
-
-        assertEquals(0, fixCalls.get());
-    }
-
-    @Test
-    void testSharedAttemptBudgetAcrossVerificationAndPrePrGate() {
-        /*
-         * Simulate a shared budget across per-task verification and pre-PR gate.
-         * We'll exercise the helpers directly to validate budget accounting.
-         */
-        var fixCalls = new AtomicInteger(0);
-        var io = new TestConsoleIO();
-
-        var sharedAttempts = new java.util.concurrent.atomic.AtomicInteger(3);
-
-        // Verification runner: first call fails, second call passes.
+    void testSingleFixVerificationBehavior() {
         var verificationCalls = new AtomicInteger(0);
+        var fixCalls = new AtomicInteger(0);
+        var io = new TestConsoleIO();
+
         java.util.function.Supplier<String> verificationRunner = () -> {
             int c = verificationCalls.incrementAndGet();
-            return c == 1 ? "verification failed once" : "";
+            // First verification fails, second verification also fails to exercise exception path.
+            return c == 1 ? "initial failure" : "still failing";
         };
+        java.util.function.Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
-        java.util.function.Consumer<String> verificationFix = prompt -> fixCalls.incrementAndGet();
+        IssueExecutionException ex = assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runSingleFixVerificationGate("job-single-fix-1", store, io, verificationRunner, fixRunner));
 
-        // Run verification with per-task cap of 2 (but sharing the 3-attempt budget)
-        var perTaskAttempts = new java.util.concurrent.atomic.AtomicInteger(Math.min(sharedAttempts.get(), 2));
-        assertDoesNotThrow(() -> JobRunner.runVerificationRetryLoop(
-                "job-shared-1", store, io, perTaskAttempts, verificationRunner, verificationFix));
+        assertEquals(2, verificationCalls.get(), "Verification should be called exactly twice");
+        assertEquals(1, fixCalls.get(), "Fix runner should be called exactly once");
+        assertTrue(ex.getMessage().contains("Verification failed after single fix attempt"));
+    }
 
-        int consumedPerTask = 2 - perTaskAttempts.get();
-        sharedAttempts.addAndGet(-consumedPerTask);
+    @Test
+    void testPrSkippedWhenFinalVerificationStillFails() {
+        var verificationCalls = new AtomicInteger(0);
+        var fixCalls = new AtomicInteger(0);
+        var io = new TestConsoleIO();
+        var prCreated = new AtomicBoolean(false);
 
-        assertEquals(1, fixCalls.get(), "One fix should have been invoked during per-task verification");
-        assertEquals(2, sharedAttempts.get(), "Two attempts should remain in shared budget");
-
-        // Now run pre-PR gate which will fail twice and exhaust remaining attempts
-        var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
-        var testCmdCalls = new AtomicInteger(0);
-
-        java.util.function.Function<String, String> commandRunner = cmd -> {
-            if (cmd.contains("testAll")) {
-                int attempt = testCmdCalls.incrementAndGet();
-                // Fail twice to exhaust remaining attempts
-                return attempt <= 2 ? "tests failed" : "";
-            }
-            return "";
+        java.util.function.Supplier<String> verificationRunner = () -> {
+            verificationCalls.incrementAndGet();
+            return "still failing";
         };
-
-        java.util.function.Consumer<String> prePrFix = prompt -> fixCalls.incrementAndGet();
+        java.util.function.Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
         assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runPrePrGateRetryLoop(
-                        "job-shared-2", store, io, details, sharedAttempts, commandRunner, prePrFix));
+                () -> {
+                    JobRunner.runSingleFixVerificationGate("job-pr-skip-1", store, io, verificationRunner, fixRunner);
+                    // This line simulates PR creation that must not be reached if verification fails.
+                    prCreated.set(true);
+                });
 
-        assertEquals(2, fixCalls.get(), "Total fixes across verification and pre-PR gate should equal 2");
-        assertEquals(0, sharedAttempts.get(), "Shared attempts should be exhausted");
+        assertFalse(prCreated.get(), "PR creation path must not be reached when verification fails");
+        assertEquals(2, verificationCalls.get(), "Verification should be invoked twice (before and after fix)");
+        assertEquals(1, fixCalls.get(), "Exactly one fix attempt should be invoked");
+    }
+
+    // Keep cleanup tests but update names/expectations to match simplified semantics.
+    @Test
+    void cleanupIssueBranch_restoresOriginalBranch_andDeletesIssueBranch() throws Exception {
+        String originalBranch = repo.getCurrentBranch();
+        String originalCommitId = repo.getCurrentCommitId();
+
+        String issueBranchName = "brokk/issue-cleanup-1";
+        repo.createAndCheckoutBranch(issueBranchName, originalBranch);
+        assertEquals(issueBranchName, repo.getCurrentBranch());
+
+        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
+                "job-cleanup-1", repo, originalBranch, issueBranchName, originalCommitId, false));
+
+        assertEquals(originalBranch, repo.getCurrentBranch());
+        assertFalse(repo.isLocalBranch(issueBranchName), "Issue branch should be deleted after cleanup");
+    }
+
+    @Test
+    void cleanupIssueBranch_bestEffortStashAndRestore_whenCheckoutBlockedByLocalChanges() throws Exception {
+        String originalBranch = repo.getCurrentBranch();
+        String originalCommitId = repo.getCurrentCommitId();
+        Path root = repo.getWorkTreeRoot();
+
+        String issueBranchName = "brokk/issue-cleanup-2";
+        repo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
+        // Create a unique commit on issue branch.
+        Files.writeString(root.resolve("README.md"), "issue change");
+        repo.getGit().add().addFilepattern("README.md").call();
+        repo.getGit().commit().setMessage("issue commit").setSign(false).call();
+
+        // Now create an uncommitted change that would be overwritten by checkout.
+        int stashesBefore = repo.listStashes().size();
+        Files.writeString(root.resolve("README.md"), "uncommitted change");
+
+        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
+                "job-cleanup-2", repo, originalBranch, issueBranchName, originalCommitId, false));
+
+        assertEquals(originalBranch, repo.getCurrentBranch());
+        assertTrue(repo.listStashes().size() > stashesBefore, "Cleanup should create a stash when checkout is blocked");
+    }
+
+    @Test
+    void cleanupIssueBranch_forceDeleteFallback_deletesBranch() throws Exception {
+        String originalBranch = repo.getCurrentBranch();
+        String originalCommitId = repo.getCurrentCommitId();
+        Path root = repo.getWorkTreeRoot();
+
+        String issueBranchName = "brokk/issue-cleanup-3";
+        repo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
+        Files.writeString(root.resolve("README.md"), "unique commit");
+        repo.getGit().add().addFilepattern("README.md").call();
+        repo.getGit().commit().setMessage("unique").setSign(false).call();
+
+        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
+                "job-cleanup-3", repo, originalBranch, issueBranchName, originalCommitId, true));
+
+        assertEquals(originalBranch, repo.getCurrentBranch());
+        assertFalse(repo.isLocalBranch(issueBranchName), "Cleanup should delete issue branch even when forcing fallback");
     }
 
     @Test

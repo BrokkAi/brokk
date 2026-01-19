@@ -1782,6 +1782,74 @@ public final class JobRunner {
         throw new IssueExecutionException("Final gate failed unexpectedly");
     }
 
+    /**
+     * Simplified helper that enforces "verify once, optional single fix attempt, verify once".
+     * Calls verificationRunner once; if it returns non-blank, calls fixTaskRunner once and
+     * then calls verificationRunner a second time. Throws IssueExecutionException if still failing.
+     *
+     * Package-private for unit testing.
+     */
+    static void runSingleFixVerificationGate(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            java.util.function.Supplier<String> verificationRunner,
+            java.util.function.Consumer<String> fixTaskRunner) {
+        // First verification
+        String firstOut;
+        try {
+            firstOut = verificationRunner.get();
+        } catch (RuntimeException re) {
+            throw new IssueExecutionException("Verification runner failed: " + re.getMessage(), re);
+        }
+
+        boolean passedFirst = firstOut == null || firstOut.isBlank();
+        try {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Verification: " + (passedFirst ? "PASS" : "FAIL"));
+        } catch (Throwable ignore) {
+            // best-effort
+        }
+        try {
+            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Verification: " + (passedFirst ? "PASS" : "FAIL")));
+        } catch (IOException ioe) {
+            logger.warn("Failed to append verification notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
+        }
+
+        if (passedFirst) {
+            return;
+        }
+
+        // Perform exactly one fix attempt
+        String prompt = "Verification failed. Output:\n" + firstOut + "\n\nPlease make a single fix attempt.";
+        fixTaskRunner.accept(prompt);
+
+        // Re-run verification exactly once
+        String secondOut;
+        try {
+            secondOut = verificationRunner.get();
+        } catch (RuntimeException re) {
+            throw new IssueExecutionException("Verification runner failed after fix: " + re.getMessage(), re);
+        }
+
+        boolean passedSecond = secondOut == null || secondOut.isBlank();
+        try {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
+        } catch (Throwable ignore) {
+            // best-effort
+        }
+        try {
+            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Verification after fix: " + (passedSecond ? "PASS" : "FAIL")));
+        } catch (IOException ioe) {
+            logger.warn("Failed to append verification-after-fix notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
+        }
+
+        if (passedSecond) {
+            return;
+        }
+
+        throw new IssueExecutionException("Verification failed after single fix attempt:\n\n" + secondOut);
+    }
+
     // Preserve a pre-PR variant for callers that need legacy wording.
     static void runPrePrGateRetryLoop(
             String jobId,
