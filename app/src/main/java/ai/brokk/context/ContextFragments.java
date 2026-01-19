@@ -1421,7 +1421,7 @@ public class ContextFragments {
             } else {
                 var scp = scpOpt.get();
                 if (unit.isFunction()) {
-                    var codeOpt = scp.getMethodSource(unit, true);
+                    var codeOpt = scp.getSource(unit, true);
                     if (codeOpt.isPresent()) {
                         text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
                         hasSourceCode = true;
@@ -1429,7 +1429,7 @@ public class ContextFragments {
                         text = "No source found for method: " + fqName;
                     }
                 } else {
-                    var codeOpt = scp.getClassSource(unit, true);
+                    var codeOpt = scp.getSource(unit, true);
                     if (codeOpt.isPresent()) {
                         text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
                         hasSourceCode = true;

@@ -172,23 +172,31 @@ public class TestAnalyzer implements IAnalyzer {
         if (capability == SourceCodeProvider.class) {
             return Optional.of((T) new SourceCodeProvider() {
                 @Override
-                public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
-                    return getMethodSource(method, includeComments).map(Set::of).orElse(Set.of());
-                }
-
-                @Override
-                public Optional<String> getMethodSource(CodeUnit method, boolean includeComments) {
-                    return Optional.ofNullable(sources.get(method));
-                }
-
-                @Override
-                public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
-                    return Optional.ofNullable(sources.get(classUnit));
-                }
-
-                @Override
-                public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
+                public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
                     return Optional.ofNullable(sources.get(codeUnit));
+                }
+
+                @Override
+                public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+                    return getSource(codeUnit, includeComments).map(Set::of).orElse(Set.of());
+                }
+
+                @Override
+                @SuppressWarnings("deprecation")
+                public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
+                    return getSources(method, includeComments);
+                }
+
+                @Override
+                @SuppressWarnings("deprecation")
+                public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
+                    return getSource(classUnit, includeComments);
+                }
+
+                @Override
+                @SuppressWarnings("deprecation")
+                public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
+                    return getSource(codeUnit, includeComments);
                 }
             });
         }

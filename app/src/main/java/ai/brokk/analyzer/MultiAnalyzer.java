@@ -133,24 +133,30 @@ public class MultiAnalyzer implements IAnalyzer, SourceCodeProvider, TypeAliasPr
     }
 
     @Override
+    @Deprecated
+    @SuppressWarnings("deprecation")
     public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
         return delegateFor(method)
                 .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
-                .map(scp -> scp.getMethodSources(method, includeComments))
+                .map(scp -> scp.getSources(method, includeComments))
                 .orElse(Collections.emptySet());
     }
 
     @Override
+    @Deprecated
+    @SuppressWarnings("deprecation")
     public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
         return delegateFor(classUnit)
                 .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
-                .flatMap(scp -> scp.getClassSource(classUnit, includeComments));
+                .flatMap(scp -> scp.getSource(classUnit, includeComments));
     }
 
     @Override
+    @Deprecated
+    @SuppressWarnings("deprecation")
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
         return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class)
-                .flatMap(scp -> scp.getSourceForCodeUnit(codeUnit, includeComments)));
+                .flatMap(scp -> scp.getSource(codeUnit, includeComments)));
     }
 
     @Override

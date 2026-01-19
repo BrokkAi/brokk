@@ -830,7 +830,7 @@ public class EditBlock {
                     .findFirst();
             if (def.isPresent()) {
                 var cu = def.get();
-                var src = scp.getClassSource(cu, true);
+                var src = scp.getSource(cu, true);
                 if (src.isEmpty()) {
                     throw new NoMatchException("No class source found for '" + fqName + "'.");
                 }

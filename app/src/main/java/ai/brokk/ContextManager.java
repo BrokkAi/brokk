@@ -1210,7 +1210,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public void sourceCodeForCodeUnit(IAnalyzer analyzer, CodeUnit codeUnit) {
         String sourceCode = analyzer.as(SourceCodeProvider.class)
-                .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
+                .flatMap(provider -> provider.getSource(codeUnit, true))
                 .orElse(null);
 
         if (sourceCode != null) {
@@ -1268,11 +1268,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             for (var element : stacktrace.getFrames()) {
                 var methodFullName = element.getClassName() + "." + element.getMethodName();
                 localAnalyzer.getDefinitions(methodFullName).stream()
-                        .findFirst()
-                        .filter(CodeUnit::isFunction)
-                        .ifPresent(methodCu -> {
-                            var methodSource = sourceCodeProvider.getMethodSource(methodCu, true);
-                            if (methodSource.isPresent()) {
+                .findFirst()
+                .filter(CodeUnit::isFunction)
+                .ifPresent(methodCu -> {
+                    var methodSource = sourceCodeProvider.getSource(methodCu, true);
+                    if (methodSource.isPresent()) {
                                 String className = CodeUnit.toClassname(methodFullName);
                                 localAnalyzer.getDefinitions(className).stream()
                                         .findFirst()

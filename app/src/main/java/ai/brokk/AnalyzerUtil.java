@@ -31,7 +31,7 @@ public class AnalyzerUtil {
         maybeSourceCodeProvider.ifPresent(sourceCodeProvider -> {
             var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
             for (var cu : methodUses) {
-                var source = sourceCodeProvider.getMethodSource(cu, true);
+                var source = sourceCodeProvider.getSource(cu, true);
                 if (source.isPresent()) {
                     results.add(new CodeWithSource(source.get(), cu));
                 } else {
@@ -151,7 +151,7 @@ public class AnalyzerUtil {
                 .filter(CodeUnit::isFunction)
                 .findFirst()
                 .flatMap(cu ->
-                        analyzer.as(SourceCodeProvider.class).map(scp -> scp.getMethodSources(cu, includeComments)))
+                        analyzer.as(SourceCodeProvider.class).map(scp -> scp.getSources(cu, includeComments)))
                 .orElse(Collections.emptySet());
     }
 
@@ -164,7 +164,7 @@ public class AnalyzerUtil {
                 .filter(CodeUnit::isFunction)
                 .findFirst()
                 .flatMap(cu ->
-                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(cu, includeComments)));
+                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getSource(cu, includeComments)));
     }
 
     /**
@@ -175,7 +175,7 @@ public class AnalyzerUtil {
                 .filter(CodeUnit::isClass)
                 .findFirst()
                 .flatMap(cu ->
-                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(cu, includeComments)));
+                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getSource(cu, includeComments)));
     }
 
     /**

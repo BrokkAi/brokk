@@ -1296,6 +1296,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SourceCodeProvide
     }
 
     @Override
+    @Deprecated
+    @SuppressWarnings("deprecation")
     public Optional<String> getClassSource(CodeUnit cu, boolean includeComments) {
         if (!cu.isClass()) {
             return Optional.empty();
@@ -1322,6 +1324,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SourceCodeProvide
     }
 
     @Override
+    @Deprecated
+    @SuppressWarnings("deprecation")
     public Set<String> getMethodSources(CodeUnit cu, boolean includeComments) {
         if (!cu.isFunction()) {
             return Collections.emptySet();
@@ -1368,6 +1372,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SourceCodeProvide
     }
 
     @Override
+    @Deprecated
+    @SuppressWarnings("deprecation")
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
         if (codeUnit.isFunction()) {
             Set<String> sources = getMethodSources(codeUnit, includeComments);
