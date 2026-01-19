@@ -965,7 +965,7 @@ public final class JobRunner {
                                                         console.showNotification(IConsoleIO.NotificationRole.INFO, "Created Pull Request: " + prUri);
                                                     }
                                                 } catch (Exception e) {
-                                                    // Do not fail cleanup; surface the error
+                                                    // Surface the error to logs and headless console / events (best-effort)
                                                     logger.warn("ISSUE job {}: failed to create PR: {}", jobId, e.getMessage(), e);
                                                     if (console != null) {
                                                         try {
@@ -973,7 +973,21 @@ public final class JobRunner {
                                                         } catch (Throwable ignore) {
                                                             // best-effort only
                                                         }
+                                                    } else {
+                                                        try {
+                                                            cm.getIo().toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
+                                                        } catch (Throwable ignore) {
+                                                            // best-effort only
+                                                        }
                                                     }
+                                                    try {
+                                                        store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Failed to create PR: " + e.getMessage()));
+                                                    } catch (Exception ignore) {
+                                                        // best-effort only
+                                                    }
+
+                                                    // Delivery was enabled but creation failed — fail the job to preserve contract.
+                                                    throw new IssueExecutionException("Failed to create PR: " + e.getMessage(), e);
                                                 }
                                             } else {
                                                 // Delivery disabled by policy: inform console but continue cleanup.
