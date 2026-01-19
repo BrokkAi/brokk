@@ -779,243 +779,243 @@ public final class JobRunner {
                                         }
                                     }
                                     case ISSUE -> {
-                                    StreamingChatModel issuePlannerModel = Objects.requireNonNull(
-                                            architectPlannerModel, "plannerModel required for ISSUE jobs");
-                                    StreamingChatModel issueCodeModel = Objects.requireNonNull(
-                                            architectCodeModel, "code model required for ISSUE jobs");
+                                        StreamingChatModel issuePlannerModel = Objects.requireNonNull(
+                                                architectPlannerModel, "plannerModel required for ISSUE jobs");
+                                        StreamingChatModel issueCodeModel = Objects.requireNonNull(
+                                                architectCodeModel, "code model required for ISSUE jobs");
 
-                                    // 1. Extract and validate Issue metadata
-                                    String githubToken = spec.getGithubToken();
-                                    String repoOwner = spec.getRepoOwner();
-                                    String repoName = spec.getRepoName();
-                                    Integer issueNumber = spec.getIssueNumber();
+                                        // 1. Extract and validate Issue metadata
+                                        String githubToken = spec.getGithubToken();
+                                        String repoOwner = spec.getRepoOwner();
+                                        String repoName = spec.getRepoName();
+                                        Integer issueNumber = spec.getIssueNumber();
 
-                                    if (githubToken == null || githubToken.isBlank()) {
-                                        throw new IssueExecutionException("ISSUE requires github_token in tags");
-                                    }
-                                    if (repoOwner == null || repoOwner.isBlank()) {
-                                        throw new IssueExecutionException("ISSUE requires repo_owner in tags");
-                                    }
-                                    if (repoName == null || repoName.isBlank()) {
-                                        throw new IssueExecutionException("ISSUE requires repo_name in tags");
-                                    }
-                                    if (issueNumber == null) {
-                                        throw new IssueExecutionException("ISSUE requires issue_number in tags");
-                                    }
+                                        if (githubToken == null || githubToken.isBlank()) {
+                                            throw new IssueExecutionException("ISSUE requires github_token in tags");
+                                        }
+                                        if (repoOwner == null || repoOwner.isBlank()) {
+                                            throw new IssueExecutionException("ISSUE requires repo_owner in tags");
+                                        }
+                                        if (repoName == null || repoName.isBlank()) {
+                                            throw new IssueExecutionException("ISSUE requires repo_name in tags");
+                                        }
+                                        if (issueNumber == null) {
+                                            throw new IssueExecutionException("ISSUE requires issue_number in tags");
+                                        }
 
-                                    // 2. Resolve issue details and build settings
-                                    var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
-                                    var ghRepo = gitHubAuth.getGhRepository();
-                                    var details = IssueService.fetchIssueDetails(ghRepo, issueNumber);
-                                    var buildDetailsOverride =
-                                            IssueService.parseBuildSettings(spec.getBuildSettingsJson());
+                                        // 2. Resolve issue details and build settings
+                                        var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+                                        var ghRepo = gitHubAuth.getGhRepository();
+                                        var details = IssueService.fetchIssueDetails(ghRepo, issueNumber);
+                                        var buildDetailsOverride =
+                                                IssueService.parseBuildSettings(spec.getBuildSettingsJson());
 
-                                    // 3. Branch management
-                                    var gitRepo = (GitRepo) cm.getProject().getRepo();
+                                        // 3. Branch management
+                                        var gitRepo = (GitRepo) cm.getProject().getRepo();
 
-                                    // Capture original branch and commit id best-effort
-                                    String originalBranch = gitRepo.getCurrentBranch();
-                                    @Nullable String originalCommitId = null;
-                                    try {
-                                        originalCommitId = gitRepo.getCurrentCommitId();
-                                    } catch (Exception e) {
-                                        logger.warn("Failed to capture current commit ID for job {}", jobId, e);
-                                    }
+                                        // Capture original branch and commit id best-effort
+                                        String originalBranch = gitRepo.getCurrentBranch();
+                                        @Nullable String originalCommitId = null;
+                                        try {
+                                            originalCommitId = gitRepo.getCurrentCommitId();
+                                        } catch (Exception e) {
+                                            logger.warn("Failed to capture current commit ID for job {}", jobId, e);
+                                        }
 
-                                    String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
+                                        String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
 
-                                    // Run the ISSUE work inside a try/finally to guarantee cleanup, including
-                                    // branch creation/check-out.
-                                    try {
-                                        logger.info(
-                                                "ISSUE job {}: Creating branch {} from {}",
-                                                jobId,
-                                                issueBranchName,
-                                                originalBranch);
-                                        gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
-                                        String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
-                                                .formatted(issueNumber, details.title(), details.body());
+                                        // Run the ISSUE work inside a try/finally to guarantee cleanup, including
+                                        // branch creation/check-out.
+                                        try {
+                                            logger.info(
+                                                    "ISSUE job {}: Creating branch {} from {}",
+                                                    jobId,
+                                                    issueBranchName,
+                                                    originalBranch);
+                                            gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
+                                            String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
+                                                    .formatted(issueNumber, details.title(), details.body());
 
-                                        // 4. Lutz-style execution: Planning then Task Iteration
-                                        String taskDescription = "Issue #" + issueNumber + ": " + details.title();
-                                        try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
-                                            var context = cm.liveContext();
-                                            var searchAgent = new LutzAgent(
-                                                    context,
-                                                    issueTaskPrompt,
-                                                    issuePlannerModel,
-                                                    SearchPrompts.Objective.TASKS_ONLY,
-                                                    scope);
-                                            var taskListResult = searchAgent.execute();
-                                            scope.append(taskListResult);
+                                            // 4. Lutz-style execution: Planning then Task Iteration
+                                            String taskDescription = "Issue #" + issueNumber + ": " + details.title();
+                                            try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
+                                                var context = cm.liveContext();
+                                                var searchAgent = new LutzAgent(
+                                                        context,
+                                                        issueTaskPrompt,
+                                                        issuePlannerModel,
+                                                        SearchPrompts.Objective.TASKS_ONLY,
+                                                        scope);
+                                                var taskListResult = searchAgent.execute();
+                                                scope.append(taskListResult);
 
-                                            var generatedTasks =
-                                                    cm.getTaskList().tasks();
-                                            var incompleteTasks = generatedTasks.stream()
-                                                    .filter(t -> !t.done())
-                                                    .toList();
+                                                var generatedTasks =
+                                                        cm.getTaskList().tasks();
+                                                var incompleteTasks = generatedTasks.stream()
+                                                        .filter(t -> !t.done())
+                                                        .toList();
 
-                                            for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                                                if (cancelled.get()) return;
+                                                for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                    if (cancelled.get()) return;
 
-                                                // Execute task with ArchitectAgent
-                                                cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
+                                                    // Execute task with ArchitectAgent
+                                                    cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
-                                                // Per-task verification: enforce single-fix semantics via helper.
-                                                java.util.function.Supplier<String> verificationRunner = () -> {
+                                                    // Per-task verification: enforce single-fix semantics via helper.
+                                                    java.util.function.Supplier<String> verificationRunner = () -> {
+                                                        try {
+                                                            return BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                        } catch (InterruptedException ie) {
+                                                            Thread.currentThread().interrupt();
+                                                            throw new RuntimeException(ie);
+                                                        }
+                                                    };
+
+                                                    java.util.function.Consumer<String> fixTaskRunner = prompt -> {
+                                                        String taskLabel = Objects.requireNonNullElse(generatedTask.title(), generatedTask.text());
+                                                        if (taskLabel == null || taskLabel.isBlank()) {
+                                                            taskLabel = generatedTask.text();
+                                                        }
+                                                        String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n"
+                                                                + prompt + "\n\nPlease make a single fix attempt to resolve this verification failure.";
+                                                        var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
+                                                        try {
+                                                            cm.executeTask(fixTask, issuePlannerModel, issueCodeModel);
+                                                        } catch (Exception e) {
+                                                            logger.warn("Fix attempt failed for job {} task {}: {}", jobId, taskLabel, e.getMessage());
+                                                        }
+                                                    };
+
+                                                    // Delegate to single-shot gate helper which will append notifications/events.
+                                                    runSingleFixVerificationGate(jobId, store, console != null ? console : cm.getIo(), verificationRunner, fixTaskRunner);
+                                                }
+
+                                                // After all tasks completed, run the end-of-run final gate using the single-fix helper.
+                                                java.util.function.Function<String, String> commandRunner = cmd -> {
                                                     try {
-                                                        return BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                        return BuildAgent.runExplicitCommand(cm, cmd, buildDetailsOverride);
                                                     } catch (InterruptedException ie) {
                                                         Thread.currentThread().interrupt();
                                                         throw new RuntimeException(ie);
                                                     }
                                                 };
 
-                                                java.util.function.Consumer<String> fixTaskRunner = prompt -> {
-                                                    String taskLabel = Objects.requireNonNullElse(generatedTask.title(), generatedTask.text());
-                                                    if (taskLabel == null || taskLabel.isBlank()) {
-                                                        taskLabel = generatedTask.text();
+                                                java.util.function.Supplier<String> finalVerificationRunner = () -> {
+                                                    // Run tests and lint once each and compose combined output if any failed.
+                                                    String testCmd = buildDetailsOverride.testAllCommand();
+                                                    String lintCmd = buildDetailsOverride.buildLintCommand();
+
+                                                    String testOut = (testCmd == null || testCmd.isBlank()) ? "" : commandRunner.apply(testCmd);
+                                                    String lintOut = (lintCmd == null || lintCmd.isBlank()) ? "" : commandRunner.apply(lintCmd);
+
+                                                    boolean testsPassed = testOut.isBlank();
+                                                    boolean lintPassed = lintOut.isBlank();
+
+                                                    if (testsPassed && lintPassed) {
+                                                        return "";
                                                     }
-                                                    String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n"
-                                                            + prompt + "\n\nPlease make a single fix attempt to resolve this verification failure.";
-                                                    var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
+
+                                                    var parts = new java.util.ArrayList<String>();
+                                                    if (!testsPassed) parts.add("Tests failed (" + testCmd + "):\n" + testOut);
+                                                    if (!lintPassed) parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
+                                                    return String.join("\n\n", parts);
+                                                };
+
+                                                java.util.function.Consumer<String> finalFixTaskRunner = prompt -> {
+                                                    String finalFixPrompt = "Final checks failed. Output:\n" + prompt + "\n\nPlease make a single fix attempt to resolve these failures.";
+                                                    var finalFixTask = TaskList.TaskItem.createFixTask(finalFixPrompt);
                                                     try {
-                                                        cm.executeTask(fixTask, issuePlannerModel, issueCodeModel);
+                                                        cm.executeTask(finalFixTask, issuePlannerModel, issueCodeModel);
                                                     } catch (Exception e) {
-                                                        logger.warn("Fix attempt failed for job {} task {}: {}", jobId, taskLabel, e.getMessage());
+                                                        logger.warn("Final fix attempt failed for job {}: {}", jobId, e.getMessage());
                                                     }
                                                 };
 
-                                                // Delegate to single-shot gate helper which will append notifications/events.
-                                                runSingleFixVerificationGate(jobId, store, console != null ? console : cm.getIo(), verificationRunner, fixTaskRunner);
-                                            }
+                                                // Delegate to single-shot gate helper which will throw on persistent failure.
+                                                runSingleFixVerificationGate(jobId, store, console != null ? console : cm.getIo(), finalVerificationRunner, finalFixTaskRunner);
 
-                                            // After all tasks completed, run the end-of-run final gate using the single-fix helper.
-                                            java.util.function.Function<String, String> commandRunner = cmd -> {
-                                                try {
-                                                    return BuildAgent.runExplicitCommand(cm, cmd, buildDetailsOverride);
-                                                } catch (InterruptedException ie) {
-                                                    Thread.currentThread().interrupt();
-                                                    throw new RuntimeException(ie);
-                                                }
-                                            };
-
-                                            java.util.function.Supplier<String> finalVerificationRunner = () -> {
-                                                // Run tests and lint once each and compose combined output if any failed.
-                                                String testCmd = buildDetailsOverride.testAllCommand();
-                                                String lintCmd = buildDetailsOverride.buildLintCommand();
-
-                                                String testOut = (testCmd == null || testCmd.isBlank()) ? "" : commandRunner.apply(testCmd);
-                                                String lintOut = (lintCmd == null || lintCmd.isBlank()) ? "" : commandRunner.apply(lintCmd);
-
-                                                boolean testsPassed = testOut.isBlank();
-                                                boolean lintPassed = lintOut.isBlank();
-
-                                                if (testsPassed && lintPassed) {
-                                                    return "";
-                                                }
-
-                                                var parts = new java.util.ArrayList<String>();
-                                                if (!testsPassed) parts.add("Tests failed (" + testCmd + "):\n" + testOut);
-                                                if (!lintPassed) parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
-                                                return String.join("\n\n", parts);
-                                            };
-
-                                            java.util.function.Consumer<String> finalFixTaskRunner = prompt -> {
-                                                String finalFixPrompt = "Final checks failed. Output:\n" + prompt + "\n\nPlease make a single fix attempt to resolve these failures.";
-                                                var finalFixTask = TaskList.TaskItem.createFixTask(finalFixPrompt);
-                                                try {
-                                                    cm.executeTask(finalFixTask, issuePlannerModel, issueCodeModel);
-                                                } catch (Exception e) {
-                                                    logger.warn("Final fix attempt failed for job {}: {}", jobId, e.getMessage());
-                                                }
-                                            };
-
-                                            // Delegate to single-shot gate helper which will throw on persistent failure.
-                                            runSingleFixVerificationGate(jobId, store, console != null ? console : cm.getIo(), finalVerificationRunner, finalFixTaskRunner);
-
-                                            // 5. Commit and Create Pull Request (conditional)
-                                            // Only create a PR if:
-                                            //  - delivery policy enables PR creation (issue_delivery != "none")
-                                            //  - final gate verification passed (we reached here only when tests/lint passed)
-                                            if (issueDeliveryEnabled(spec)) {
-                                                try {
-                                                    var workflow = new GitWorkflow(cm);
-
-                                                    // Commit any remaining changes before creating the PR.
-                                                    // performAutoCommit returns Optional<CommitResult> in GitWorkflow.
-                                                    workflow.performAutoCommit("Resolves #" + issueNumber + ": " + details.title());
-
-                                                    String targetBranch = gitHubAuth.getDefaultBranch();
-                                                    var suggestion = workflow.suggestPullRequestDetails(
-                                                            issueBranchName, targetBranch, cm.getIo());
-
-                                                    String prBody = IssueService.buildPrDescription(
-                                                            suggestion.description(), issueNumber);
-
-                                                    var prUri = workflow.createPullRequest(
-                                                            issueBranchName,
-                                                            targetBranch,
-                                                            suggestion.title(),
-                                                            prBody,
-                                                            githubToken);
-
-                                                    logger.info("ISSUE job {} created PR: {}", jobId, prUri);
-                                                    if (console != null) {
-                                                        console.showNotification(IConsoleIO.NotificationRole.INFO, "Created Pull Request: " + prUri);
-                                                    }
-                                                } catch (Exception e) {
-                                                    // Surface the error to logs and headless console / events (best-effort)
-                                                    logger.warn("ISSUE job {}: failed to create PR: {}", jobId, e.getMessage(), e);
-                                                    if (console != null) {
-                                                        try {
-                                                            console.toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
-                                                        } catch (Throwable ignore) {
-                                                            // best-effort only
-                                                        }
-                                                    } else {
-                                                        try {
-                                                            cm.getIo().toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
-                                                        } catch (Throwable ignore) {
-                                                            // best-effort only
-                                                        }
-                                                    }
+                                                // 5. Commit and Create Pull Request (conditional)
+                                                // Only create a PR if:
+                                                //  - delivery policy enables PR creation (issue_delivery != "none")
+                                                //  - final gate verification passed (we reached here only when tests/lint passed)
+                                                if (issueDeliveryEnabled(spec)) {
                                                     try {
-                                                        store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Failed to create PR: " + e.getMessage()));
+                                                        var workflow = new GitWorkflow(cm);
+
+                                                        // Commit any remaining changes before creating the PR.
+                                                        // performAutoCommit returns Optional<CommitResult> in GitWorkflow.
+                                                        workflow.performAutoCommit("Resolves #" + issueNumber + ": " + details.title());
+
+                                                        String targetBranch = gitHubAuth.getDefaultBranch();
+                                                        var suggestion = workflow.suggestPullRequestDetails(
+                                                                issueBranchName, targetBranch, cm.getIo());
+
+                                                        String prBody = IssueService.buildPrDescription(
+                                                                suggestion.description(), issueNumber);
+
+                                                        var prUri = workflow.createPullRequest(
+                                                                issueBranchName,
+                                                                targetBranch,
+                                                                suggestion.title(),
+                                                                prBody,
+                                                                githubToken);
+
+                                                        logger.info("ISSUE job {} created PR: {}", jobId, prUri);
+                                                        if (console != null) {
+                                                            console.showNotification(IConsoleIO.NotificationRole.INFO, "Created Pull Request: " + prUri);
+                                                        }
+                                                    } catch (Exception e) {
+                                                        // Surface the error to logs and headless console / events (best-effort)
+                                                        logger.warn("ISSUE job {}: failed to create PR: {}", jobId, e.getMessage(), e);
+                                                        if (console != null) {
+                                                            try {
+                                                                console.toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
+                                                            } catch (Throwable ignore) {
+                                                                // best-effort only
+                                                            }
+                                                        } else {
+                                                            try {
+                                                                cm.getIo().toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
+                                                            } catch (Throwable ignore) {
+                                                                // best-effort only
+                                                            }
+                                                        }
+                                                        try {
+                                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Failed to create PR: " + e.getMessage()));
+                                                        } catch (Exception ignore) {
+                                                            // best-effort only
+                                                        }
+
+                                                        // Delivery was enabled but creation failed — fail the job to preserve contract.
+                                                        throw new IssueExecutionException("Failed to create PR: " + e.getMessage(), e);
+                                                    }
+                                                } else {
+                                                    // Delivery disabled by policy: inform console but continue cleanup.
+                                                    String msg = "PR creation skipped due to issue_delivery policy";
+                                                    logger.info("ISSUE job {}: {}", jobId, msg);
+                                                    try {
+                                                        if (console != null) {
+                                                            console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                                        } else {
+                                                            cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                                        }
+                                                        store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
                                                     } catch (Exception ignore) {
                                                         // best-effort only
                                                     }
-
-                                                    // Delivery was enabled but creation failed — fail the job to preserve contract.
-                                                    throw new IssueExecutionException("Failed to create PR: " + e.getMessage(), e);
-                                                }
-                                            } else {
-                                                // Delivery disabled by policy: inform console but continue cleanup.
-                                                String msg = "PR creation skipped due to issue_delivery policy";
-                                                logger.info("ISSUE job {}: {}", jobId, msg);
-                                                try {
-                                                    if (console != null) {
-                                                        console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                                                    } else {
-                                                        cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                                                    }
-                                                    store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
-                                                } catch (Exception ignore) {
-                                                    // best-effort only
                                                 }
                                             }
+                                        } finally {
+                                            boolean forceDelete = "always".equalsIgnoreCase(
+                                                    spec.tags().getOrDefault("issue_branch_cleanup", ""));
+                                            cleanupIssueBranch(
+                                                    jobId,
+                                                    gitRepo,
+                                                    originalBranch,
+                                                    issueBranchName,
+                                                    originalCommitId,
+                                                    forceDelete);
                                         }
-                                    } finally {
-                                        boolean forceDelete = "always".equalsIgnoreCase(
-                                                spec.tags().getOrDefault("issue_branch_cleanup", ""));
-                                        cleanupIssueBranch(
-                                                jobId,
-                                                gitRepo,
-                                                originalBranch,
-                                                issueBranchName,
-                                                originalCommitId,
-                                                forceDelete);
-                                    }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                 }
