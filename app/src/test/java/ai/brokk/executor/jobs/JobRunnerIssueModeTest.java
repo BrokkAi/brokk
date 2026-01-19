@@ -257,4 +257,62 @@ class JobRunnerIssueModeTest {
 
         assertEquals(0, fixCalls.get());
     }
+
+    @Test
+    void testSharedAttemptBudgetAcrossVerificationAndPrePrGate() {
+        /*
+         * Simulate a shared budget across per-task verification and pre-PR gate.
+         * We'll exercise the helpers directly to validate budget accounting.
+         */
+        var fixCalls = new AtomicInteger(0);
+        var io = new TestConsoleIO();
+
+        var sharedAttempts = new java.util.concurrent.atomic.AtomicInteger(3);
+
+        // Verification runner: first call fails, second call passes.
+        var verificationCalls = new AtomicInteger(0);
+        java.util.function.Supplier<String> verificationRunner = () -> {
+            int c = verificationCalls.incrementAndGet();
+            return c == 1 ? "verification failed once" : "";
+        };
+
+        java.util.function.Consumer<String> verificationFix = prompt -> fixCalls.incrementAndGet();
+
+        // Run verification with per-task cap of 2 (but sharing the 3-attempt budget)
+        var perTaskAttempts = new java.util.concurrent.atomic.AtomicInteger(Math.min(sharedAttempts.get(), 2));
+        assertDoesNotThrow(() -> JobRunner.runVerificationRetryLoop(
+                "job-shared-1",
+                store,
+                io,
+                perTaskAttempts,
+                verificationRunner,
+                verificationFix));
+
+        int consumedPerTask = 2 - perTaskAttempts.get();
+        sharedAttempts.addAndGet(-consumedPerTask);
+
+        assertEquals(1, fixCalls.get(), "One fix should have been invoked during per-task verification");
+        assertEquals(2, sharedAttempts.get(), "Two attempts should remain in shared budget");
+
+        // Now run pre-PR gate which will fail twice and exhaust remaining attempts
+        var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
+        var testCmdCalls = new AtomicInteger(0);
+
+        java.util.function.Function<String, String> commandRunner = cmd -> {
+            if (cmd.contains("testAll")) {
+                int attempt = testCmdCalls.incrementAndGet();
+                // Fail twice to exhaust remaining attempts
+                return attempt <= 2 ? "tests failed" : "";
+            }
+            return "";
+        };
+
+        java.util.function.Consumer<String> prePrFix = prompt -> fixCalls.incrementAndGet();
+
+        assertThrows(IssueExecutionException.class, () -> JobRunner.runPrePrGateRetryLoop(
+                "job-shared-2", store, io, details, sharedAttempts, commandRunner, prePrFix));
+
+        assertEquals(2, fixCalls.get(), "Total fixes across verification and pre-PR gate should equal 2");
+        assertEquals(0, sharedAttempts.get(), "Shared attempts should be exhausted");
+    }
 }
