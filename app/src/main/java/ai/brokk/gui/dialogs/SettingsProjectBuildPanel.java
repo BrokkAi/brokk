@@ -12,6 +12,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.util.*;
 import com.google.common.io.Files;
 import java.awt.*;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -811,22 +812,9 @@ public class SettingsProjectBuildPanel extends JPanel {
         if (selectedPrimaryLang == Languages.JAVA) {
             if (setJavaHomeCheckbox.isSelected()) {
                 String rawPath = jdkSelector.getSelectedJdkPath();
-                if (rawPath == null || rawPath.isBlank()) {
-                    JOptionPane.showMessageDialog(
-                            this, "Please select a valid JDK path.", "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+                if (!validateAndApplyJdkOverride(rawPath)) {
                     return false;
                 }
-
-                String normalizedPath = normalizeJdkPath(rawPath);
-                Path path = Path.of(normalizedPath);
-                String error = JdkSelector.validateJdkPath(path);
-                if (error != null) {
-                    JOptionPane.showMessageDialog(this, error, "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
-                    return false;
-                }
-
-                project.setJdk(normalizedPath);
-                logger.debug("Applied JDK Home: {}", normalizedPath);
             } else {
                 project.setJdk(null);
                 logger.debug("Removed JDK Home override");
@@ -861,6 +849,60 @@ public class SettingsProjectBuildPanel extends JPanel {
         return true;
     }
 
+    /**
+     * Validation result for JDK override.
+     * @param jdkToPersist path or sentinel to save if valid
+     * @param errorMessage error message if invalid, null if valid
+     */
+    record JdkOverrideValidation(@Nullable String jdkToPersist, @Nullable String errorMessage) {
+        boolean isValid() {
+            return errorMessage == null;
+        }
+    }
+
+    static JdkOverrideValidation validateJdkOverride(@Nullable String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            return new JdkOverrideValidation(null, "Please select a valid JDK path.");
+        }
+
+        if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(rawPath)) {
+            return new JdkOverrideValidation(EnvironmentJava.JAVA_HOME_SENTINEL, null);
+        }
+
+        String normalized = JdkSelector.normalizeJdkPath(rawPath);
+        if (normalized.isBlank()) {
+            return new JdkOverrideValidation(null, "Please select a valid JDK path.");
+        }
+
+        try {
+            Path path = Path.of(normalized);
+            String error = JdkSelector.validateJdkPath(path);
+            if (error != null) {
+                return new JdkOverrideValidation(null, error);
+            }
+            return new JdkOverrideValidation(normalized, null);
+        } catch (InvalidPathException e) {
+            return new JdkOverrideValidation(null, "The provided path is invalid: " + e.getMessage());
+        }
+    }
+
+    boolean validateAndApplyJdkOverride(@Nullable String rawPath) {
+        var result = validateJdkOverride(rawPath);
+        if (!result.isValid()) {
+            JOptionPane.showMessageDialog(this, result.errorMessage(), "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+
+        String toPersist = result.jdkToPersist();
+        project.setJdk(toPersist);
+        if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(toPersist)) {
+            logger.debug("Applied JDK Home sentinel: {}", toPersist);
+        } else {
+            logger.debug("Applied JDK Home: {}", toPersist);
+        }
+        return true;
+    }
+
     public void showBuildBanner() {
         bannerPanel.setVisible(true);
     }
@@ -888,7 +930,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (setJavaHomeCheckbox.isSelected()) {
                 String sel = jdkSelector.getSelectedJdkPath();
                 if (sel != null && !sel.isBlank()) {
-                    env.put("JAVA_HOME", normalizeJdkPath(sel));
+                    env.put("JAVA_HOME", JdkSelector.normalizeJdkPath(sel));
                 }
             } else {
                 // If checkbox is NOT selected, we explicitly pass the sentinel to prevent
@@ -1033,28 +1075,6 @@ public class SettingsProjectBuildPanel extends JPanel {
             }
         };
         worker.execute();
-    }
-
-    /**
-     * Normalizes a JDK path: canonicalizes environment path strings and
-     * resolves macOS "Contents/Home" if pointing to a bundle root.
-     */
-    static String normalizeJdkPath(String rawPath) {
-        String canonical = PathNormalizer.canonicalizeEnvPathValue(rawPath);
-        if (canonical.isEmpty()) return "";
-
-        try {
-            Path path = Path.of(canonical);
-            // On macOS, if the selected path is a bundle root, use Contents/Home instead
-            Path contentsHome = path.resolve("Contents").resolve("Home");
-            if (JdkSelector.validateJdkPath(contentsHome) == null) {
-                return PathNormalizer.canonicalizeEnvPathValue(contentsHome.toString());
-            }
-        } catch (Exception e) {
-            logger.debug("Error during JDK path normalization for {}: {}", rawPath, e.getMessage());
-        }
-
-        return canonical;
     }
 
     private void showBuildAgentCancelledNotification() {
