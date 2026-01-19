@@ -2357,7 +2357,7 @@ public class Chrome
     public int showConfirmDialog(
             @Nullable Component parent, String message, String title, int optionType, int messageType) {
         //noinspection MagicConstant
-        return JOptionPane.showConfirmDialog(parent, message, title, optionType, messageType);
+        return MaterialOptionPane.showConfirmDialog(parent, message, title, optionType, messageType);
     }
 
     @Override

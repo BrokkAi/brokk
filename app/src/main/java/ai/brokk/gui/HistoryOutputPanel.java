@@ -1484,8 +1484,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Presents a choice to capture output to Workspace or to Task List.
      */
     private void presentCaptureChoice() {
-        var options = new Object[] {"Workspace", "Task List", "Cancel"};
-        int choice = JOptionPane.showOptionDialog(
+        String[] options = {"Workspace", "Task List", "Cancel"};
+        int choice = MaterialOptionPane.showOptionDialog(
                 chrome.getFrame(),
                 "Where would you like to capture this output?",
                 "Capture Output",

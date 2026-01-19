@@ -9,6 +9,7 @@ import ai.brokk.git.GitRepoRemote.RemoteBranchRef;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DeferredUpdateHelper;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.mop.ThemeColors;
@@ -1079,7 +1080,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 boolean isMerged = getRepo().isBranchMerged(branchName);
                 SwingUtilities.invokeLater(() -> {
                     if (isMerged) {
-                        int result = chrome.showConfirmDialog(
+                        int result = MaterialOptionPane.showConfirmDialog(
                                 this,
                                 "Are you sure you want to delete branch '" + branchName + "'?",
                                 "Delete Branch",
@@ -1089,8 +1090,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
                             performBranchDeletion(branchName, false);
                         }
                     } else {
-                        Object[] options = {"Force Delete", "Cancel"};
-                        int result = JOptionPane.showOptionDialog(
+                        String[] options = {"Force Delete", "Cancel"};
+                        int result = MaterialOptionPane.showOptionDialog(
                                 this,
                                 "Branch '" + branchName + "' is not fully merged.\n"
                                         + "Changes on this branch will be lost if deleted.\n"

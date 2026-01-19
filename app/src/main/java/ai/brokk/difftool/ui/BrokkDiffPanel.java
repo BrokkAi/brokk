@@ -8,6 +8,7 @@ import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.PreviewManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.EditorFontSizeControl;
@@ -1189,14 +1190,16 @@ public class BrokkDiffPanel extends JPanel
         if (hasUnsavedChanges()) {
             var window = SwingUtilities.getWindowAncestor(this);
             var parentFrame = (window instanceof JFrame jframe) ? jframe : null;
-            var opt = contextManager
-                    .getIo()
-                    .showConfirmDialog(
-                            parentFrame,
-                            "There are unsaved changes. Save before closing?",
-                            "Unsaved Changes",
-                            JOptionPane.YES_NO_CANCEL_OPTION,
-                            JOptionPane.WARNING_MESSAGE);
+            String[] options = {"Save", "Don't Save", "Cancel"};
+            int opt = MaterialOptionPane.showOptionDialog(
+                    parentFrame,
+                    "There are unsaved changes. Save before closing?",
+                    "Unsaved Changes",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE,
+                    null,
+                    options,
+                    options[0]);
             if (opt == JOptionPane.CANCEL_OPTION || opt == JOptionPane.CLOSED_OPTION) {
                 return false; // Don't close
             }
@@ -1704,8 +1707,8 @@ public class BrokkDiffPanel extends JPanel
 
         // Check for unsaved changes before switching views
         if (hasUnsavedChanges()) {
-            Object[] options = {"Save All", "Discard", "Cancel"};
-            int choice = JOptionPane.showOptionDialog(
+            String[] options = {"Save All", "Discard", "Cancel"};
+            int choice = MaterialOptionPane.showOptionDialog(
                     this,
                     "You have unsaved changes. Save or discard before switching views?",
                     "Unsaved Changes",

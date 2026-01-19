@@ -13,6 +13,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.TableUtils;
 import ai.brokk.gui.components.GitHubAppInstallLabel;
@@ -871,14 +872,14 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         // 2. Check for uncommitted changes
         try {
             if (!getRepo().getModifiedFiles().isEmpty()) {
-                int option = JOptionPane.showOptionDialog(
+                int option = MaterialOptionPane.showOptionDialog(
                         chrome.getFrame(),
                         "You have uncommitted changes. These must be committed or stashed before performing a code review to ensure accuracy.",
                         "Uncommitted Changes",
                         JOptionPane.YES_NO_OPTION,
                         JOptionPane.WARNING_MESSAGE,
                         null,
-                        new Object[] {"Commit First", "Cancel"},
+                        new String[] {"Commit First", "Cancel"},
                         "Commit First");
 
                 if (option == JOptionPane.YES_OPTION) {
@@ -898,15 +899,17 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         try {
             if (!newestId.equals(getRepo().getCurrentCommitId())) {
                 String shortHash = getShortId(newestId);
-                int option = JOptionPane.showOptionDialog(
+                String okText = "Checkout " + shortHash;
+
+                int option = MaterialOptionPane.showOptionDialog(
                         chrome.getFrame(),
                         "To perform an accurate code review, the working tree must match the code being reviewed.",
                         "Checkout Required",
                         JOptionPane.YES_NO_OPTION,
                         JOptionPane.QUESTION_MESSAGE,
                         null,
-                        new Object[] {"Checkout " + shortHash, "Cancel"},
-                        "Checkout " + shortHash);
+                        new String[] {okText, "Cancel"},
+                        okText);
 
                 if (option == JOptionPane.YES_OPTION) {
                     contextManager.submitExclusiveAction(() -> {
@@ -1252,12 +1255,12 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void dropStashInternal(int stashIndex) {
-        int result = chrome.showConfirmDialog(
+        int result = MaterialOptionPane.showConfirmDialog(
                 this,
                 "Delete stash@{" + stashIndex + "}?",
                 "Confirm Drop",
                 JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE); // int preferred by style guide
+                JOptionPane.WARNING_MESSAGE);
         if (result != JOptionPane.YES_OPTION) return;
         performStashOp(stashIndex, "Dropping stash", getRepo()::dropStash, "Stash dropped successfully.", true);
     }

@@ -8,6 +8,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DeferredUpdateHelper;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.MaterialButton;
@@ -418,7 +419,8 @@ public class GitWorktreeTab extends JPanel {
                                 invalidPaths.stream().map(Path::toString).collect(Collectors.joining("\n- "));
                         String message = "The following worktree paths no longer exist on disk:\n\n- " + pathList
                                 + "\n\nWould you like to clean up this stale metadata? (git worktree prune)";
-                        int choice = chrome.showConfirmDialog(
+                        int choice = MaterialOptionPane.showConfirmDialog(
+                                (Component) chrome.getFrame(),
                                 message,
                                 "Prune Stale Worktrees?",
                                 JOptionPane.YES_NO_OPTION,
@@ -848,7 +850,7 @@ public class GitWorktreeTab extends JPanel {
                 .map(p -> p.getFileName().toString()) // More concise display
                 .collect(Collectors.joining("\n"));
 
-        int confirm = chrome.showConfirmDialog(
+        int confirm = MaterialOptionPane.showConfirmDialog(
                 this,
                 "Are you sure you want to remove the following worktree(s):\n" + pathListString
                         + "\n\nThis will delete the files from disk and attempt to close their Brokk window(s) if open.",
@@ -903,8 +905,8 @@ public class GitWorktreeTab extends JPanel {
 
                     final CompletableFuture<Integer> dialogResultFuture = new CompletableFuture<>();
                     SwingUtilities.invokeLater(() -> {
-                        Object[] options = {"Yes", "Yes to All", "No"};
-                        int result = JOptionPane.showOptionDialog(
+                        String[] options = {"Yes", "Yes to All", "No"};
+                        int result = MaterialOptionPane.showOptionDialog(
                                 GitWorktreeTab.this,
                                 "Removing worktree '" + worktreePath.getFileName() + "' requires force.\n"
                                         + ne.getMessage()

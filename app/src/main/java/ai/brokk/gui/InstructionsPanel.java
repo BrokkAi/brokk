@@ -1494,17 +1494,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         Please select vision-capable models in the settings to proceed with image-based tasks.</html>
                         """
                         .formatted(requiredModelsInfo);
-        Object[] options = {"Open Model Settings", "Cancel"};
-        int choice = JOptionPane.showOptionDialog(
+        String[] options = {"Open Model Settings", "Cancel"};
+        int choice = MaterialOptionPane.showOptionDialog(
                 chrome.getFrame(),
                 message,
                 "Model Vision Support Error",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.ERROR_MESSAGE,
-                null, // icon
+                null,
                 options,
-                options[0] // Default button (open settings)
-                );
+                options[0]);
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
             SwingUtilities.invokeLater(
@@ -1708,8 +1707,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
                     "Are you sure you want to code with no attached context? This is the right thing to do if you want to create new source files from scratch. Otherwise, run Search first or manually attach context.";
-            Object[] options = {"Code", "Search", "Cancel"};
-            int choice = JOptionPane.showOptionDialog(
+            String[] options = {"Code", "Search", "Cancel"};
+            int choice = MaterialOptionPane.showOptionDialog(
                     chrome.getFrame(),
                     message,
                     "No Context",
@@ -1828,8 +1827,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         try {
                             SwingUtilities.invokeAndWait(() -> {
                                 String message = "New tasks were created. What would you like to do?";
-                                Object[] options = {"Append to existing", "Replace with new"};
-                                choiceHolder[0] = JOptionPane.showOptionDialog(
+                                String[] options = {"Append to existing", "Replace with new"};
+                                choiceHolder[0] = MaterialOptionPane.showOptionDialog(
                                         SwingUtilities.getWindowAncestor(this),
                                         message,
                                         "New Tasks",
