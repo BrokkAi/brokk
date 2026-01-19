@@ -320,9 +320,6 @@ public class SqlAnalyzer implements IAnalyzer {
         return Optional.empty();
     }
 
-    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        return List.of();
-    }
 
     @Override
     public List<CodeUnit> getDirectChildren(CodeUnit cu) {

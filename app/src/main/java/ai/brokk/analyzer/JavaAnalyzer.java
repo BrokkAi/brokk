@@ -18,7 +18,7 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJava;
 
-public class JavaAnalyzer extends TreeSitterAnalyzer {
+public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
     private static final String LAMBDA_EXPRESSION = "lambda_expression";
@@ -338,6 +338,26 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return performGetDirectAncestors(cu);
+    }
+
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return performGetDirectDescendants(cu);
+    }
+
+    @Override
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         // Normalize generics/anon/location suffixes for both class and method lookups
         var normalized = normalizeFullName(fqName);
@@ -523,6 +543,26 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         }
 
         return Collections.unmodifiableSet(resolved);
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return performGetDirectAncestors(cu);
+    }
+
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return performGetDirectDescendants(cu);
     }
 
     @Override

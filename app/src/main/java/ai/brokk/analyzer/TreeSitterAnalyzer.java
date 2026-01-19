@@ -55,8 +55,7 @@ import org.treesitter.*;
  * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
  * how to map a capture to a {@link CodeUnit}.
  */
-public abstract class TreeSitterAnalyzer
-        implements IAnalyzer, ImportAnalysisProvider, TypeHierarchyProvider, TypeAliasProvider {
+public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider {
 
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
@@ -857,8 +856,7 @@ public abstract class TreeSitterAnalyzer
      * @param file the project file
      * @return an unmodifiable set of resolved CodeUnits from import statements
      */
-    @Override
-    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+    protected Set<CodeUnit> performImportedCodeUnitsOf(ProjectFile file) {
         // 1. Check lazy cache first
         Set<CodeUnit> cached = lazyImports.getImportedCodeUnits(file);
         if (cached != null) {
@@ -878,8 +876,7 @@ public abstract class TreeSitterAnalyzer
     /**
      * Returns the set of files that import the given file.
      */
-    @Override
-    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+    protected Set<ProjectFile> performReferencingFilesOf(ProjectFile file) {
         // 1. Check lazy cache first
         Set<ProjectFile> cached = lazyImports.getReferencingFiles(file);
         if (cached != null && !cached.isEmpty()) {
@@ -899,7 +896,7 @@ public abstract class TreeSitterAnalyzer
                     for (ProjectFile f : this.state.fileState().keySet()) {
                         // Calling importedCodeUnitsOf ensures forward imports are computed and cached,
                         // which also populates lazyImports.reverseCache.
-                        importedCodeUnitsOf(f);
+                        performImportedCodeUnitsOf(f);
                     }
                     lazyImports.isReversePopulated = true;
                 }
@@ -3355,8 +3352,7 @@ public abstract class TreeSitterAnalyzer
      * Returns the direct supertypes/basetypes of the given CodeUnit if it is a class-like entity. For non-class code
      * units, returns an empty list.
      */
-    @Override
-    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+    protected List<CodeUnit> performGetDirectAncestors(CodeUnit cu) {
         if (!cu.isClass()) {
             return List.of();
         }
@@ -3364,7 +3360,7 @@ public abstract class TreeSitterAnalyzer
         // Guard against recursive computation on the same thread.
         // This prevents infinite recursion and avoids IllegalStateException from ConcurrentHashMap.computeIfAbsent.
         if (lazyHierarchy.isComputing(cu)) {
-            log.trace("Recursive getDirectAncestors detected for {}", cu.fqName());
+            log.trace("Recursive performGetDirectAncestors detected for {}", cu.fqName());
             return List.of();
         }
 
@@ -3387,8 +3383,7 @@ public abstract class TreeSitterAnalyzer
     /**
      * Returns the direct subtypes/descendants for the given CodeUnit.
      */
-    @Override
-    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+    protected Set<CodeUnit> performGetDirectDescendants(CodeUnit cu) {
         if (!cu.isClass()) {
             return Set.of();
         }
@@ -3407,7 +3402,7 @@ public abstract class TreeSitterAnalyzer
 
         // 3. Guard against recursion/cycles
         if (lazyHierarchy.isComputing(cu)) {
-            log.trace("Recursive getDirectDescendants detected for {}", cu.fqName());
+            log.trace("Recursive performGetDirectDescendants detected for {}", cu.fqName());
             return Set.of();
         }
 
@@ -3415,20 +3410,10 @@ public abstract class TreeSitterAnalyzer
         return lazyHierarchy.computeSubtypesIfAbsent(cu, k -> {
             Set<CodeUnit> descendants = this.state.codeUnitState().keySet().stream()
                     .filter(CodeUnit::isClass)
-                    .filter(candidateClass -> getDirectAncestors(candidateClass).contains(k))
+                    .filter(candidateClass -> performGetDirectAncestors(candidateClass).contains(k))
                     .collect(Collectors.toUnmodifiableSet());
             return descendants;
         });
-    }
-
-    @Override
-    public List<CodeUnit> getAncestors(CodeUnit cu) {
-        return TypeHierarchyProvider.super.getAncestors(cu);
-    }
-
-    @Override
-    public List<CodeUnit> getDescendants(CodeUnit cu) {
-        return TypeHierarchyProvider.super.getDescendants(cu);
     }
 
     /* ---------- file filtering helpers ---------- */

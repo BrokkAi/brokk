@@ -94,9 +94,6 @@ public class DisabledAnalyzer implements IAnalyzer {
         return Set.of();
     }
 
-    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        return List.of();
-    }
 
     @Override
     public List<CodeUnit> getDirectChildren(CodeUnit cu) {

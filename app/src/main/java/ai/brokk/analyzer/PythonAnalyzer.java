@@ -23,7 +23,7 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterPython;
 
-public final class PythonAnalyzer extends TreeSitterAnalyzer {
+public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
     @Override
@@ -869,8 +869,48 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return performGetDirectAncestors(cu);
+    }
+
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return performGetDirectDescendants(cu);
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return performGetDirectAncestors(cu);
+    }
+
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return performGetDirectDescendants(cu);
+    }
+
+    @Override
     public List<CodeUnit> getAncestors(CodeUnit cu) {
-        List<CodeUnit> ancestors = super.getAncestors(cu);
+        List<CodeUnit> ancestors = TypeHierarchyProvider.super.getAncestors(cu);
         if (cu.packageName().startsWith("diamond")) {
             return ancestors.stream()
                     .filter(anc -> !"A".equals(anc.shortName()))
