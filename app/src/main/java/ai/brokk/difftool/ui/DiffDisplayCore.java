@@ -77,12 +77,14 @@ public class DiffDisplayCore {
     }
 
     public void showFile(int index) {
+        assert SwingUtilities.isEventDispatchThread() : "showFile must be called on EDT";
         if (index < 0 || index >= fileComparisons.size()) return;
         currentIndex = index;
         updateCacheAndDisplay(-1, ReviewParser.DiffSide.NEW);
     }
 
     public void showFile(ProjectFile file) {
+        assert SwingUtilities.isEventDispatchThread() : "showFile must be called on EDT";
         int index = findIndex(file);
         if (index != -1) {
             showFile(index);
@@ -94,6 +96,7 @@ public class DiffDisplayCore {
     }
 
     public void showLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
+        assert SwingUtilities.isEventDispatchThread() : "showLocation must be called on EDT";
         int index = findIndex(file);
         if (index != -1) {
             currentIndex = index;
@@ -127,6 +130,7 @@ public class DiffDisplayCore {
     }
 
     private void updateCacheAndDisplay(int targetLine, ReviewParser.DiffSide targetSide) {
+        assert SwingUtilities.isEventDispatchThread() : "updateCacheAndDisplay must be called on EDT";
         // Evict panels outside the cache radius
         var it = panelCache.entrySet().iterator();
         List<Integer> retainedIndices = new ArrayList<>();
@@ -168,6 +172,7 @@ public class DiffDisplayCore {
     }
 
     private void ensurePanel(int index, int targetLine, ReviewParser.DiffSide targetSide) {
+        assert SwingUtilities.isEventDispatchThread() : "ensurePanel must be called on EDT";
         if (index < 0 || index >= fileComparisons.size()) return;
         if (panelCache.containsKey(index)) {
             if (index == currentIndex) {
@@ -188,6 +193,7 @@ public class DiffDisplayCore {
     }
 
     private void createSync(int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
+        assert SwingUtilities.isEventDispatchThread() : "createSync must be called on EDT";
         // Note: createDiffNode is @Blocking but for small files (checked via size thresholds in ensurePanel)
         // the overhead is minimal and worth the immediate UI response.
         var diffNode = FileComparisonHelper.createDiffNode(
@@ -263,6 +269,7 @@ public class DiffDisplayCore {
     }
 
     public void clearCache() {
+        assert SwingUtilities.isEventDispatchThread() : "clearCache must be called on EDT";
         panelCache.values().forEach(AbstractDiffPanel::dispose);
         panelCache.clear();
     }
