@@ -278,8 +278,7 @@ public class SessionManager implements AutoCloseable {
                     logger.info("Marked session {} for deletion with tombstone.", sessionId);
                 } else {
                     // Even if local zip is gone, create tombstone to ensure remote deletion
-                    Files.writeString(
-                            tombstonePath, "deleted", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                    AtomicWrites.save(tombstonePath, "deleted");
                 }
             } catch (IOException e) {
                 logger.error("Error creating tombstone for session {}: {}", sessionId, e.getMessage());
@@ -840,8 +839,7 @@ public class SessionManager implements AutoCloseable {
         Files.createDirectories(foreignDir);
 
         Path destination = foreignDir.resolve(sessionId + ".zip");
-        // Files.write is atomic
-        Files.write(destination, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        AtomicWrites.save(destination, content);
 
         return destination;
     }

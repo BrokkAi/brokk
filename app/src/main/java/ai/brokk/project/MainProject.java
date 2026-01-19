@@ -1753,8 +1753,7 @@ public final class MainProject extends AbstractProject {
     private static void saveProjectsProperties(Properties props) {
         try {
             Files.createDirectories(PROJECTS_PROPERTIES_PATH.getParent());
-            AtomicWrites.save(
-                    PROJECTS_PROPERTIES_PATH, props, "Brokk projects: recently opened and currently open");
+            AtomicWrites.save(PROJECTS_PROPERTIES_PATH, props, "Brokk projects: recently opened and currently open");
         } catch (IOException e) {
             logger.error("Error saving projects properties: {}", e.getMessage());
         }
