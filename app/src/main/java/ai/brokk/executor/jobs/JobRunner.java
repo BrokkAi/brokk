@@ -812,104 +812,168 @@ public final class JobRunner {
 
                                         // 3. Branch management
                                         var gitRepo = (GitRepo) cm.getProject().getRepo();
+
+                                        // Capture original branch and commit id best-effort
                                         String originalBranch = gitRepo.getCurrentBranch();
+                                        @Nullable String originalCommitId = null;
+                                        try {
+                                            originalCommitId = gitRepo.getCurrentCommitId();
+                                        } catch (Exception e) {
+                                            logger.warn("Failed to capture current commit ID for job {}", jobId, e);
+                                        }
+
                                         String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
 
-                                        logger.info(
-                                                "ISSUE job {}: Creating branch {} from {}",
-                                                jobId,
-                                                issueBranchName,
-                                                originalBranch);
-                                        gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
+                                        // Run the ISSUE work inside a try/finally to guarantee cleanup, including
+                                        // branch creation/check-out.
+                                        try {
+                                            logger.info(
+                                                    "ISSUE job {}: Creating branch {} from {}",
+                                                    jobId,
+                                                    issueBranchName,
+                                                    originalBranch);
+                                            gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
+                                            String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
+                                                    .formatted(issueNumber, details.title(), details.body());
 
-                                        String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
-                                                .formatted(issueNumber, details.title(), details.body());
+                                            // 4. Lutz-style execution: Planning then Task Iteration
+                                            String taskDescription = "Issue #" + issueNumber + ": " + details.title();
+                                            try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
+                                                var context = cm.liveContext();
+                                                var searchAgent = new LutzAgent(
+                                                        context,
+                                                        issueTaskPrompt,
+                                                        issuePlannerModel,
+                                                        SearchPrompts.Objective.TASKS_ONLY,
+                                                        scope);
+                                                var taskListResult = searchAgent.execute();
+                                                scope.append(taskListResult);
 
-                                        // 4. Lutz-style execution: Planning then Task Iteration
-                                        String taskDescription = "Issue #" + issueNumber + ": " + details.title();
-                                        try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
-                                            var context = cm.liveContext();
-                                            var searchAgent = new LutzAgent(
-                                                    context,
-                                                    issueTaskPrompt,
-                                                    issuePlannerModel,
-                                                    SearchPrompts.Objective.TASKS_ONLY,
-                                                    scope);
-                                            var taskListResult = searchAgent.execute();
-                                            scope.append(taskListResult);
+                                                var generatedTasks =
+                                                        cm.getTaskList().tasks();
+                                                var incompleteTasks = generatedTasks.stream()
+                                                        .filter(t -> !t.done())
+                                                        .toList();
 
-                                            var generatedTasks =
-                                                    cm.getTaskList().tasks();
-                                            var incompleteTasks = generatedTasks.stream()
-                                                    .filter(t -> !t.done())
-                                                    .toList();
+                                                for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                    if (cancelled.get()) return;
 
-                                            for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                                                if (cancelled.get()) return;
+                                                    // Execute task with ArchitectAgent
+                                                    cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
-                                                // Execute task with ArchitectAgent
-                                                cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
-
-                                                // Per-task verification: ensure the workspace still verifies after this
-                                                // task. Run verification once; on failure, throw IssueExecutionException.
-                                                String verificationOut;
-                                                try {
-                                                    verificationOut = BuildAgent.runVerification(cm, buildDetailsOverride);
-                                                } catch (InterruptedException ie) {
-                                                    Thread.currentThread().interrupt();
-                                                    throw new IssueExecutionException(
-                                                            "Interrupted while running verification",
-                                                            ie);
-                                                }
-
-                                                if (verificationOut != null && !verificationOut.isBlank()) {
-                                                    String verDetails = "Verification failed after task: "
-                                                            + generatedTask.title()
-                                                            + "\n\n"
-                                                            + verificationOut;
-                                                    throw new IssueExecutionException(verDetails);
-                                                }
-                                            }
-
-                                            // After all tasks completed, run the end-of-run Pre-PR gate which runs full
-                                            // tests and lint once each. If either fails, throw IssueExecutionException.
-                                            String testCmd = buildDetailsOverride.testAllCommand();
-                                            String lintCmd = buildDetailsOverride.buildLintCommand();
-
-                                            if (testCmd != null && !testCmd.isBlank()) {
-                                                String testOut;
-                                                try {
-                                                    testOut = BuildAgent.runExplicitCommand(cm, testCmd, buildDetailsOverride);
-                                                } catch (InterruptedException ie) {
-                                                    Thread.currentThread().interrupt();
-                                                    throw new IssueExecutionException(
-                                                                "Interrupted while running final tests",
+                                                    // Per-task verification: ensure the workspace still verifies after this
+                                                    // task. Run verification once; on failure, throw IssueExecutionException.
+                                                    String verificationOut;
+                                                    try {
+                                                        verificationOut = BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                    } catch (InterruptedException ie) {
+                                                        Thread.currentThread().interrupt();
+                                                        throw new IssueExecutionException(
+                                                                "Interrupted while running verification",
                                                                 ie);
+                                                    }
+
+                                                    if (verificationOut != null && !verificationOut.isBlank()) {
+                                                        String taskLabel = generatedTask.text();
+                                                        String title = generatedTask.title();
+                                                        if (title != null && !title.isBlank()) {
+                                                            taskLabel = title;
+                                                        }
+                                                        String verDetails = "Verification failed after task: "
+                                                                + taskLabel
+                                                                + "\n\n"
+                                                                + verificationOut;
+                                                        throw new IssueExecutionException(verDetails);
+                                                    }
+                                                }
+
+                                                // After all tasks completed, run the end-of-run final gate which runs full
+                                                // tests and lint once each. If either fails, throw IssueExecutionException.
+                                                String testCmd = buildDetailsOverride.testAllCommand();
+                                                String lintCmd = buildDetailsOverride.buildLintCommand();
+
+                                                if (testCmd != null && !testCmd.isBlank()) {
+                                                    String testOut;
+                                                    try {
+                                                        testOut = BuildAgent.runExplicitCommand(cm, testCmd, buildDetailsOverride);
+                                                    } catch (InterruptedException ie) {
+                                                        Thread.currentThread().interrupt();
+                                                        throw new IssueExecutionException(
+                                                                        "Interrupted while running final tests",
+                                                                        ie);
                                                     }
                                                     if (testOut != null && !testOut.isBlank()) {
                                                         throw new IssueExecutionException("Final tests failed: " + testOut);
                                                     }
-                                                    }
+                                                }
 
-                                                    if (lintCmd != null && !lintCmd.isBlank()) {
+                                                if (lintCmd != null && !lintCmd.isBlank()) {
                                                     String lintOut;
                                                     try {
                                                         lintOut = BuildAgent.runExplicitCommand(cm, lintCmd, buildDetailsOverride);
                                                     } catch (InterruptedException ie) {
                                                         Thread.currentThread().interrupt();
                                                         throw new IssueExecutionException(
-                                                                "Interrupted while running final lint",
-                                                                ie);
+                                                                        "Interrupted while running final lint",
+                                                                        ie);
                                                     }
                                                     if (lintOut != null && !lintOut.isBlank()) {
                                                         throw new IssueExecutionException("Final lint failed: " + lintOut);
                                                     }
+                                                }
+
+                                                // 5. Commit and Create Pull Request (optional, respect issueDeliveryEnabled)
+                                                if (issueDeliveryEnabled(spec)) {
+                                                    try {
+                                                        var workflow = new GitWorkflow(cm);
+                                                        workflow.performAutoCommit("Resolves #" + issueNumber + ": " + details.title());
+
+                                                        String targetBranch = gitHubAuth.getDefaultBranch();
+                                                        var suggestion = workflow.suggestPullRequestDetails(
+                                                                issueBranchName, targetBranch, cm.getIo());
+
+                                                        String prBody = IssueService.buildPrDescription(
+                                                                suggestion.description(), issueNumber);
+
+                                                        var prUri = workflow.createPullRequest(
+                                                                issueBranchName,
+                                                                targetBranch,
+                                                                suggestion.title(),
+                                                                prBody,
+                                                                githubToken);
+
+                                                        logger.info("ISSUE job {} created PR: {}", jobId, prUri);
+                                                        if (console != null) {
+                                                            console.showNotification(IConsoleIO.NotificationRole.INFO, "Created Pull Request: " + prUri);
+                                                        }
+                                                    } catch (Exception e) {
+                                                        // Do not fail cleanup; surface the error
+                                                        logger.warn("ISSUE job {}: failed to create PR: {}", jobId, e.getMessage(), e);
+                                                        if (console != null) {
+                                                            try {
+                                                                console.toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
+                                                            } catch (Throwable ignore) {
+                                                                // best-effort only
+                                                            }
+                                                        }
                                                     }
-                                                    }
-                                                    }
-                                                    default -> throw new IllegalStateException("Unhandled job mode: " + mode);
-                                                    }
-                                                    completed.incrementAndGet();
+                                                }
+                                            }
+                                        } finally {
+                                            boolean forceDelete = "always".equalsIgnoreCase(
+                                                    spec.tags().getOrDefault("issue_branch_cleanup", ""));
+                                            cleanupIssueBranch(
+                                                    jobId,
+                                                    gitRepo,
+                                                    originalBranch,
+                                                    issueBranchName,
+                                                    originalCommitId,
+                                                    forceDelete);
+                                        }
+                                    }
+                                }
+
+                                completed.incrementAndGet();
 
                                 try {
                                     JobStatus s = store.loadStatus(jobId);
@@ -1281,6 +1345,91 @@ public final class JobRunner {
             return throwable.getClass().getSimpleName();
         }
         return throwable.getClass().getSimpleName() + ": " + message;
+    }
+
+    static void cleanupIssueBranch(
+            String jobId,
+            GitRepo gitRepo,
+            String originalBranch,
+            String issueBranchName,
+            @Nullable String originalCommitId,
+            boolean forceDelete) {
+
+        try {
+            String currentBranch = gitRepo.getCurrentBranch();
+            if (!Objects.equals(currentBranch, originalBranch)) {
+                try {
+                    gitRepo.checkout(originalBranch);
+                } catch (Exception checkoutEx) {
+                    try {
+                        boolean hasLocalChanges = !gitRepo.getModifiedFiles().isEmpty();
+                        if (hasLocalChanges) {
+                            try {
+                                gitRepo.createStash("Brokk ISSUE job " + jobId + " cleanup");
+                            } catch (Exception stashEx) {
+                                logger.warn("ISSUE job {}: Failed to create stash during cleanup", jobId, stashEx);
+                            }
+
+                            try {
+                                gitRepo.checkout(originalBranch);
+                            } catch (Exception retryEx) {
+                                logger.warn(
+                                        "ISSUE job {}: Failed to checkout original branch '{}' after stashing",
+                                        jobId,
+                                        originalBranch,
+                                        retryEx);
+                            }
+                        } else {
+                            logger.warn(
+                                    "ISSUE job {}: Failed to checkout original branch '{}'",
+                                    jobId,
+                                    originalBranch,
+                                    checkoutEx);
+                        }
+                    } catch (Exception innerEx) {
+                        logger.warn(
+                                "ISSUE job {}: Unexpected failure while attempting branch restoration to '{}'",
+                                jobId,
+                                originalBranch,
+                                innerEx);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("ISSUE job {}: Cleanup failed while restoring original branch", jobId, e);
+        }
+
+        boolean noUniqueCommits = false;
+        if (originalCommitId != null) {
+            try {
+                noUniqueCommits = gitRepo.countCommitsSince(originalCommitId) == 0;
+            } catch (Exception e) {
+                logger.warn(
+                        "ISSUE job {}: Failed to count commits since original commit {}",
+                        jobId,
+                        originalCommitId,
+                        e);
+            }
+        }
+
+        boolean merged = false;
+        try {
+            merged = gitRepo.isBranchMerged(issueBranchName);
+        } catch (Exception e) {
+            logger.warn("ISSUE job {}: Failed to determine whether branch '{}' is merged", jobId, issueBranchName, e);
+        }
+
+        if (forceDelete || merged || noUniqueCommits) {
+            try {
+                if (forceDelete) {
+                    gitRepo.forceDeleteBranch(issueBranchName);
+                } else {
+                    gitRepo.deleteBranch(issueBranchName);
+                }
+            } catch (Exception e) {
+                logger.warn("ISSUE job {}: Failed to delete issue branch '{}'", jobId, issueBranchName, e);
+            }
+        }
     }
 
     static void runVerificationRetryLoop(

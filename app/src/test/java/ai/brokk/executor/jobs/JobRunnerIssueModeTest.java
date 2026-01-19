@@ -345,4 +345,65 @@ class JobRunnerIssueModeTest {
         assertEquals(2, fixCalls.get(), "Total fixes across verification and pre-PR gate should equal 2");
         assertEquals(0, sharedAttempts.get(), "Shared attempts should be exhausted");
     }
+
+    @Test
+    void cleanupIssueBranch_returnsToOriginalBranch_andDeletesBranch_whenNoUniqueCommits() throws Exception {
+        String originalBranch = repo.getCurrentBranch();
+        String originalCommitId = repo.getCurrentCommitId();
+
+        String issueBranchName = "brokk/issue-cleanup-1";
+        repo.createAndCheckoutBranch(issueBranchName, originalBranch);
+        assertEquals(issueBranchName, repo.getCurrentBranch());
+
+        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
+                "job-cleanup-1", repo, originalBranch, issueBranchName, originalCommitId, false));
+
+        assertEquals(originalBranch, repo.getCurrentBranch());
+        assertFalse(repo.isLocalBranch(issueBranchName), "Issue branch should be deleted when it has no unique commits");
+    }
+
+    @Test
+    void cleanupIssueBranch_stashesAndReturnsToOriginalBranch_whenCheckoutBlockedByLocalChanges() throws Exception {
+        String originalBranch = repo.getCurrentBranch();
+        String originalCommitId = repo.getCurrentCommitId();
+        Path root = repo.getWorkTreeRoot();
+
+        String issueBranchName = "brokk/issue-cleanup-2";
+        repo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
+        // Create a unique commit on issue branch.
+        Files.writeString(root.resolve("README.md"), "issue change");
+        repo.getGit().add().addFilepattern("README.md").call();
+        repo.getGit().commit().setMessage("issue commit").setSign(false).call();
+
+        // Now create an uncommitted change that would be overwritten by checkout.
+        int stashesBefore = repo.listStashes().size();
+        Files.writeString(root.resolve("README.md"), "uncommitted change");
+
+        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
+                "job-cleanup-2", repo, originalBranch, issueBranchName, originalCommitId, false));
+
+        assertEquals(originalBranch, repo.getCurrentBranch());
+        assertTrue(repo.listStashes().size() > stashesBefore, "Cleanup should create a stash when checkout is blocked");
+    }
+
+    @Test
+    void cleanupIssueBranch_forceDelete_deletesBranchEvenWithUniqueCommits() throws Exception {
+        String originalBranch = repo.getCurrentBranch();
+        String originalCommitId = repo.getCurrentCommitId();
+        Path root = repo.getWorkTreeRoot();
+
+        String issueBranchName = "brokk/issue-cleanup-3";
+        repo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
+        Files.writeString(root.resolve("README.md"), "unique commit");
+        repo.getGit().add().addFilepattern("README.md").call();
+        repo.getGit().commit().setMessage("unique").setSign(false).call();
+
+        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
+                "job-cleanup-3", repo, originalBranch, issueBranchName, originalCommitId, true));
+
+        assertEquals(originalBranch, repo.getCurrentBranch());
+        assertFalse(repo.isLocalBranch(issueBranchName), "Force-delete cleanup should delete issue branch");
+    }
 }
