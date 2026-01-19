@@ -872,10 +872,7 @@ public final class JobRunner {
                                                     };
 
                                                     java.util.function.Consumer<String> fixTaskRunner = prompt -> {
-                                                        String taskLabel = Objects.requireNonNullElse(generatedTask.title(), generatedTask.text());
-                                                        if (taskLabel == null || taskLabel.isBlank()) {
-                                                            taskLabel = generatedTask.text();
-                                                        }
+                                                        String taskLabel = Objects.requireNonNullElse(generatedTask.text(), "(unnamed task)");
                                                         String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n"
                                                                 + prompt + "\n\nPlease make a single fix attempt to resolve this verification failure.";
                                                         var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
