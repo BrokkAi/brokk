@@ -128,7 +128,7 @@ public class BuildDetailsPathNormalizationTest {
         Files.createDirectories(propsFile.getParent());
         var props = new Properties();
         props.setProperty("buildDetailsJson", legacyJson);
-        AtomicWrites.atomicSaveProperties(propsFile, props, "legacy test");
+        AtomicWrites.save(propsFile, props, "legacy test");
 
         // Act: construct project and load canonicalized details
         var project = new MainProject(root);
@@ -214,7 +214,7 @@ public class BuildDetailsPathNormalizationTest {
 
         Properties projectProps = new Properties();
         projectProps.setProperty("buildDetailsJson", MAPPER.writeValueAsString(legacyDetails));
-        AtomicWrites.atomicSaveProperties(propsFile, projectProps, "migration test");
+        AtomicWrites.save(propsFile, projectProps, "migration test");
 
         // 2. Act: Load details via MainProject
         MainProject project = new MainProject(root);

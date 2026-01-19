@@ -141,7 +141,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     return;
                 }
             }
-            AtomicWrites.atomicSaveProperties(file, properties, comment);
+            AtomicWrites.save(file, properties, comment);
         } catch (IOException e) {
             logger.error("Error saving properties to {}: {}", file, e.getMessage());
         }

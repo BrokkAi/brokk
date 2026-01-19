@@ -329,7 +329,7 @@ public final class MainProject extends AbstractProject {
                     logger.info("brokkApiKey is being CHANGED in global properties");
                 }
             }
-            AtomicWrites.atomicSaveProperties(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
+            AtomicWrites.save(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
             globalPropertiesCache = (Properties) props.clone();
         } catch (IOException e) {
             logger.error("Error saving global properties: {}", e.getMessage());
@@ -780,7 +780,7 @@ public final class MainProject extends AbstractProject {
             if (Objects.equals(existingProps, projectProps)) {
                 return;
             }
-            AtomicWrites.atomicSaveProperties(propertiesFile, projectProps, "Brokk project configuration");
+            AtomicWrites.save(propertiesFile, projectProps, "Brokk project configuration");
         } catch (IOException e) {
             logger.error("Error saving properties to {}: {}", propertiesFile, e.getMessage());
         }
@@ -885,7 +885,7 @@ public final class MainProject extends AbstractProject {
 
         try {
             Files.createDirectories(targetPath.getParent());
-            AtomicWrites.atomicOverwrite(targetPath, styleGuide);
+            AtomicWrites.save(targetPath, styleGuide);
             logger.debug("Saved style guide to {}", targetPath);
         } catch (IOException e) {
             logger.error("Error saving style guide to {}: {}", targetPath, e.getMessage());
@@ -908,7 +908,7 @@ public final class MainProject extends AbstractProject {
     public void saveReviewGuide(String reviewGuide) {
         try {
             Files.createDirectories(reviewGuidePath.getParent());
-            AtomicWrites.atomicOverwrite(reviewGuidePath, reviewGuide);
+            AtomicWrites.save(reviewGuidePath, reviewGuide);
         } catch (IOException e) {
             logger.error("Error saving review guide: {}", e.getMessage());
         }
@@ -1753,7 +1753,7 @@ public final class MainProject extends AbstractProject {
     private static void saveProjectsProperties(Properties props) {
         try {
             Files.createDirectories(PROJECTS_PROPERTIES_PATH.getParent());
-            AtomicWrites.atomicSaveProperties(
+            AtomicWrites.save(
                     PROJECTS_PROPERTIES_PATH, props, "Brokk projects: recently opened and currently open");
         } catch (IOException e) {
             logger.error("Error saving projects properties: {}", e.getMessage());

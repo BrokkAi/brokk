@@ -435,7 +435,7 @@ public final class HistoryIo {
         final var finalEntryInfosBytes = entryInfosBytes;
         final var finalGroupInfoBytes = groupInfoBytes;
         final var finalResetEdgesBytes = resetEdgesBytes;
-        AtomicWrites.atomicSave(target, out -> {
+        AtomicWrites.save(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
                 zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
                 zos.write(fragmentsBytes);

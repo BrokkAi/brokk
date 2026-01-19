@@ -50,7 +50,7 @@ public class FileBasedTestRunsStore implements TestRunsStore {
                 Files.createDirectories(parent);
             }
             String json = Json.toJson(runs);
-            AtomicWrites.atomicOverwrite(file, json);
+            AtomicWrites.save(file, json);
         } catch (IOException e) {
             logger.error("Failed to write test runs to {}: {}", file, e.getMessage(), e);
         }
