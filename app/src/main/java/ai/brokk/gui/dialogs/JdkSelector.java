@@ -26,7 +26,6 @@ import org.jetbrains.annotations.VisibleForTesting;
  */
 public class JdkSelector extends JPanel {
     private static final Logger logger = LogManager.getLogger(JdkSelector.class);
-    private static final int ABBREVIATED_PATH_MAX_LENGTH = 35;
 
     private final JComboBox<JdkItem> combo = new JComboBox<>();
     private final JButton browseButton = new JButton("Browse...");
