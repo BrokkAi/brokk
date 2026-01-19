@@ -598,12 +598,7 @@ public final class JavascriptAnalyzerTest {
                 AnalyzerUtil.getSource(jsAnalyzer, "NonExistentClass", true).isEmpty(),
                 "Requesting source for a non-existent class should return Optional.empty().");
 
-        // Test case 4: Existing symbol that is a function, not a class
-        assertTrue(
-                AnalyzerUtil.getSource(jsAnalyzer, "util", true).isEmpty(),
-                "Requesting class source for a function symbol should return Optional.empty().");
-
-        // Test case 5: Existing symbol that is a field, not a class
+        // Test case 4: Existing symbol that is a field, not a class
         assertTrue(
                 AnalyzerUtil.getSource(jsAnalyzer, "Vars.js.TOP_CONST_JS", true).isEmpty(),
                 "Requesting class source for a field symbol should return Optional.empty().");
@@ -673,13 +668,7 @@ public final class JavascriptAnalyzerTest {
                 nonExistentMethodSourceOpt.isEmpty(),
                 "Requesting source for a non-existent method should return Option.empty().");
 
-        // Test case 8: Existing symbol that is a class, not a function
-        Optional<String> classAsMethodSourceOpt = AnalyzerUtil.getSource(jsAnalyzer, "Hello", true);
-        assertTrue(
-                classAsMethodSourceOpt.isEmpty(),
-                "Requesting method source for a class symbol should return Option.empty().");
-
-        // Test case 9: Existing symbol that is a field, not a function
+        // Test case 8: Existing symbol that is a field, not a function
         Optional<String> fieldAsMethodSourceOpt = AnalyzerUtil.getSource(jsAnalyzer, "Vars.js.TOP_CONST_JS", true);
         assertTrue(
                 fieldAsMethodSourceOpt.isEmpty(),

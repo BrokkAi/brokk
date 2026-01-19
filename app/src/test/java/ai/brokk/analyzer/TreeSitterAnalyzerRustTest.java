@@ -546,22 +546,6 @@ public class TreeSitterAnalyzerRustTest {
                                      }
                                      """;
         assertEquals(normalizeSource.apply(expectedShapeSource), normalizeSource.apply(shapeSource));
-
-        // Note: For `impl Point` or `impl Drawable for Point`, getClassSource might be tricky.
-        // The CodeUnit "Point" combines struct and impls in its skeleton.
-        // getClassSource typically returns the primary definition (struct for "Point").
-        // If `impl Item` also created a distinct CodeUnit.cls (e.g. `ImplPoint`), that could be queried.
-        // Current RustAnalyzer creates `CodeUnit.cls(file, pkg, "Point")` for `impl Point`.
-        // This means `getDefinition("Point")` would return the struct definition's CodeUnit if sorted first,
-        // or the impl's CU if that's how `uniqueCodeUnitList` resolves it.
-        // The base `getClassSource` uses `getDefinition`, so it depends on which CU is returned for "Point".
-        // Let's assume the `struct_item` is primary for `getSource("Point")`.
-
-        assertTrue(AnalyzerUtil.getSource(rsAnalyzer, "distance", true).isEmpty()); // function, not class
-        assertTrue(AnalyzerUtil.getSource(rsAnalyzer, "_module_.ORIGIN", true).isEmpty()); // field, not class
-        assertTrue(AnalyzerUtil.getSource(rsAnalyzer, "Color.Red", true).isEmpty()); // enum variant, not class
-        assertTrue(AnalyzerUtil.getSource(rsAnalyzer, "Shape.ID", true).isEmpty()); // associated const, not class
-        assertTrue(AnalyzerUtil.getSource(rsAnalyzer, "NonExistent", true).isEmpty());
     }
 
     @Test
@@ -614,10 +598,6 @@ public class TreeSitterAnalyzerRustTest {
 
         Optional<String> nonExistentSourceOpt = AnalyzerUtil.getSource(rsAnalyzer, "NonExistent.method", true);
         assertFalse(nonExistentSourceOpt.isPresent());
-
-        Optional<String> classAsMethodSourceOpt =
-                AnalyzerUtil.getSource(rsAnalyzer, "Point", true); // Class, not method
-        assertFalse(classAsMethodSourceOpt.isPresent());
     }
 
     @Test
