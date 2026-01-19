@@ -383,6 +383,10 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         try {
             String bridgeScript = loadJavaScriptResource("mop-webview-scripts/jcef-bridge.js");
             browser.executeJavaScript(bridgeScript, browser.getURL(), 0);
+
+            // Inject console interceptor to redirect console.* to jsLog (prevents JCEF stdout noise)
+            String consoleInterceptor = loadJavaScriptResource("mop-webview-scripts/jcef-console-interceptor.js");
+            browser.executeJavaScript(consoleInterceptor, browser.getURL(), 0);
         } catch (IOException e) {
             logger.error("Failed to load JCEF bridge script", e);
         }

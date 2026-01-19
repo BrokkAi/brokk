@@ -1,10 +1,7 @@
 (function() {
     if (window.javaBridge) {
-        console.log('javaBridge already exists, skipping injection');
         return;
     }
-
-    console.log('Injecting JCEF javaBridge');
 
     window.javaBridge = {
         onAck: function(epoch) {
@@ -92,8 +89,6 @@
             });
         }
     };
-
-    console.log('JCEF javaBridge injected successfully');
 
     // Signal to Java that the bridge is ready
     window.javaBridge.onBridgeReady();
