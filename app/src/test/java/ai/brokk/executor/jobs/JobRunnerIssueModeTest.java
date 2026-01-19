@@ -260,7 +260,9 @@ class JobRunnerIssueModeTest {
                         "job-final-gate-1", store, io, buildDetails, attemptsLeft, commandRunner, fixRunner));
 
         String msg = ex.getMessage();
-        assertTrue(msg.contains("Final gate failed after"), "Exception message should indicate final gate failure: " + msg);
+        assertTrue(
+                msg.contains("Final gate failed after"),
+                "Exception message should indicate final gate failure: " + msg);
 
         assertFalse(
                 msg.toLowerCase().contains("pre-pr") || msg.toLowerCase().contains("prepr"),
