@@ -130,15 +130,18 @@ public class JdkSelector extends JPanel {
         if ((prefix + path).length() <= maxLength) {
             return prefix + path;
         }
-        // Show last path components for long paths
+        // Abbreviate long paths: show first component + ... + last three components
         var pathObj = Path.of(path);
         var nameCount = pathObj.getNameCount();
-        if (nameCount <= 2) {
+        if (nameCount <= 4) {
             return prefix + path;
         }
-        // Show "Custom JDK: .../last/two/components"
-        var lastTwo = pathObj.subpath(nameCount - 2, nameCount);
-        return prefix + ".../" + lastTwo;
+        // Show "Custom JDK: /first/.../third-to-last/second-to-last/last"
+        var root = pathObj.getRoot();
+        var first = pathObj.getName(0);
+        var lastThree = pathObj.subpath(nameCount - 3, nameCount);
+        var rootStr = root != null ? root.toString() : "";
+        return prefix + rootStr + first + "/.../" + lastThree;
     }
 
     /** @return the selected JDK path or null if none selected. */
