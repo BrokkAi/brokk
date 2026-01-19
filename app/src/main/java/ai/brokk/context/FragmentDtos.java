@@ -229,7 +229,13 @@ public class FragmentDtos {
         }
     }
 
-    /** DTO for CallGraphFragment - contains method name, depth, and graph type (callee/caller). */
+    /**
+     * DTO for CallGraphFragment - contains method name, depth, and graph type (callee/caller).
+     * @deprecated Legacy support only. Use {@link UsageFragmentDto} for new code.
+     * This record is retained only for backward compatibility with saved contexts and is migrated
+     * to UsageFragment during deserialization.
+     */
+    @Deprecated
     public record CallGraphFragmentDto(String id, String methodName, int depth, boolean isCalleeGraph)
             implements VirtualFragmentDto { // id changed to String
         public CallGraphFragmentDto {

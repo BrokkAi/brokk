@@ -27,6 +27,13 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * Mapper for legacy V3 DTOs.
+ *
+ * <p>Note: References to {@link ai.brokk.context.FragmentDtos.CallGraphFragmentDto} are for migration only.
+ * CallGraphFragment is no longer used for new code and is converted to UsageFragment during deserialization.
+ */
+@SuppressWarnings("deprecation")
 public class V3_DtoMapper {
     private static final Logger logger = LogManager.getLogger(V3_DtoMapper.class);
 
@@ -379,8 +386,10 @@ public class V3_DtoMapper {
                         stDto.exception(),
                         reader.readContent(stDto.codeContentId()));
             }
-            case V3_FragmentDtos.CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.UsageFragment(callGraphDto.id(), mgr, callGraphDto.methodName(), true);
+            case V3_FragmentDtos.CallGraphFragmentDto callGraphDto -> {
+                // CallGraphFragment is deprecated and migrated to UsageFragment for backward compatibility
+                yield new ContextFragments.UsageFragment(callGraphDto.id(), mgr, callGraphDto.methodName(), true);
+            }
             case V3_FragmentDtos.CodeFragmentDto codeDto -> {
                 // Extract fully qualified name from the V3 CodeUnitDto and preserve the ID
                 String fqName = buildFullyQualifiedName(codeDto.unit());
