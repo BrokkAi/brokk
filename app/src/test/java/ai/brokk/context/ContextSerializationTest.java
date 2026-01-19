@@ -2199,24 +2199,21 @@ public class ContextSerializationTest {
         Map<String, ContextFragment> fragmentCache = new HashMap<>();
         var reader = new HistoryIo.ContentReader(Map.of());
 
-        // Reflective or direct call if accessible (it is private in DtoMapper but this is a unit test in the same package)
-        // Since we are in the same package (ai.brokk.context), we can access package-private or use DtoMapper's public entry points.
+        // Reflective or direct call if accessible (it is private in DtoMapper but this is a unit test in the same
+        // package)
+        // Since we are in the same package (ai.brokk.context), we can access package-private or use DtoMapper's public
+        // entry points.
         // DtoMapper._buildVirtualFragment is private, but DtoMapper.resolveAndBuildFragment is public.
-        
+
         virtualDtos.put(id, legacyDto);
         ContextFragment result = DtoMapper.resolveAndBuildFragment(
-                id,
-                referencedDtos,
-                virtualDtos,
-                taskDtos,
-                mockContextManager,
-                imageBytesMap,
-                fragmentCache,
-                reader);
+                id, referencedDtos, virtualDtos, taskDtos, mockContextManager, imageBytesMap, fragmentCache, reader);
 
         assertNotNull(result);
-        assertTrue(result instanceof ContextFragments.UsageFragment, "Legacy CallGraphFragmentDto should migrate to UsageFragment");
-        
+        assertTrue(
+                result instanceof ContextFragments.UsageFragment,
+                "Legacy CallGraphFragmentDto should migrate to UsageFragment");
+
         ContextFragments.UsageFragment usage = (ContextFragments.UsageFragment) result;
         assertEquals(methodName, usage.targetIdentifier());
         assertTrue(usage.includeTestFiles(), "Migrated UsageFragment should have includeTestFiles=true");
