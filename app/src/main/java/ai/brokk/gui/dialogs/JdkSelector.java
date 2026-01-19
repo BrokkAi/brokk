@@ -96,8 +96,23 @@ public class JdkSelector extends JPanel {
 
         boolean isSentinel = EnvironmentJava.JAVA_HOME_SENTINEL.equals(path);
         if (isSentinel) {
-            // Always create a dedicated item preserving the sentinel as the stored path
-            // so that "Apply" persists $JAVA_HOME, not the resolved concrete path
+            // Find existing sentinel item if it exists
+            JdkItem existingSentinel = null;
+            List<JdkItem> extrasToRemove = new ArrayList<>();
+            for (int i = 0; i < combo.getItemCount(); i++) {
+                var it = combo.getItemAt(i);
+                if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(it.path)) {
+                    if (existingSentinel == null) {
+                        existingSentinel = it;
+                    } else {
+                        extrasToRemove.add(it);
+                    }
+                }
+            }
+            for (JdkItem extra : extrasToRemove) {
+                combo.removeItem(extra);
+            }
+
             String javaHome = System.getenv("JAVA_HOME");
             String label;
             if (javaHome != null && !javaHome.isBlank()) {
@@ -105,7 +120,8 @@ public class JdkSelector extends JPanel {
                 String matchedDisplay = null;
                 for (int i = 0; i < combo.getItemCount(); i++) {
                     var it = combo.getItemAt(i);
-                    if (javaHome.equals(it.path)) {
+                    // Don't match against other sentinel items
+                    if (!EnvironmentJava.JAVA_HOME_SENTINEL.equals(it.path) && javaHome.equals(it.path)) {
                         matchedDisplay = it.display;
                         break;
                     }
@@ -116,9 +132,34 @@ public class JdkSelector extends JPanel {
             } else {
                 label = "System JAVA_HOME";
             }
-            var sentinelItem = new JdkItem(label, EnvironmentJava.JAVA_HOME_SENTINEL);
-            combo.addItem(sentinelItem);
-            combo.setSelectedItem(sentinelItem);
+
+            if (existingSentinel != null) {
+                // Update display if it changed (the JdkItem is immutable but we can replace it or just reuse if same)
+                if (!label.equals(existingSentinel.display)) {
+                    int idx = -1;
+                    for (int i = 0; i < combo.getItemCount(); i++) {
+                        if (combo.getItemAt(i) == existingSentinel) {
+                            idx = i;
+                            break;
+                        }
+                    }
+                    var newItem = new JdkItem(label, EnvironmentJava.JAVA_HOME_SENTINEL);
+                    if (idx >= 0) {
+                        combo.removeItemAt(idx);
+                        combo.insertItemAt(newItem, idx);
+                        combo.setSelectedIndex(idx);
+                    } else {
+                        combo.addItem(newItem);
+                        combo.setSelectedItem(newItem);
+                    }
+                } else {
+                    combo.setSelectedItem(existingSentinel);
+                }
+            } else {
+                var sentinelItem = new JdkItem(label, EnvironmentJava.JAVA_HOME_SENTINEL);
+                combo.addItem(sentinelItem);
+                combo.setSelectedItem(sentinelItem);
+            }
             return;
         }
 
@@ -139,6 +180,29 @@ public class JdkSelector extends JPanel {
 
     private static String createDisplayName(String path) {
         return "Custom JDK: " + FileUtil.abbreviatePath(path);
+    }
+
+    void setDiscoveredJdksForTesting(List<String> jdkPaths) {
+        var items = jdkPaths.stream()
+                .map(p -> new JdkItem("Discovered JDK: " + FileUtil.abbreviatePath(p), p))
+                .toList();
+        combo.setModel(new DefaultComboBoxModel<>(items.toArray(JdkItem[]::new)));
+    }
+
+    List<String> getItemPathsForTesting() {
+        var paths = new ArrayList<String>();
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            paths.add(combo.getItemAt(i).path);
+        }
+        return paths;
+    }
+
+    List<String> getItemDisplaysForTesting() {
+        var displays = new ArrayList<String>();
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            displays.add(combo.getItemAt(i).display);
+        }
+        return displays;
     }
 
     /** @return the selected JDK path or null if none selected. */
