@@ -4,13 +4,11 @@ import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Type;
 import java.util.HashSet;
 import java.util.Set;
-import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
 /**
  * Utility methods for traversing and querying the Java type hierarchy using Javac symbols.
  */
-@NullMarked
 public final class TypeHierarchyUtils {
 
     private TypeHierarchyUtils() {
