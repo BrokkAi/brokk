@@ -869,7 +869,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             return new JdkOverrideValidation(EnvironmentJava.JAVA_HOME_SENTINEL, null);
         }
 
-        String normalized = normalizeJdkPath(rawPath);
+        String normalized = JdkSelector.normalizeJdkPath(rawPath);
         if (normalized.isBlank()) {
             return new JdkOverrideValidation(null, "Please select a valid JDK path.");
         }
@@ -930,7 +930,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (setJavaHomeCheckbox.isSelected()) {
                 String sel = jdkSelector.getSelectedJdkPath();
                 if (sel != null && !sel.isBlank()) {
-                    env.put("JAVA_HOME", normalizeJdkPath(sel));
+                    env.put("JAVA_HOME", JdkSelector.normalizeJdkPath(sel));
                 }
             } else {
                 // If checkbox is NOT selected, we explicitly pass the sentinel to prevent
@@ -1075,28 +1075,6 @@ public class SettingsProjectBuildPanel extends JPanel {
             }
         };
         worker.execute();
-    }
-
-    /**
-     * Normalizes a JDK path: canonicalizes environment path strings and
-     * resolves macOS "Contents/Home" if pointing to a bundle root.
-     */
-    static String normalizeJdkPath(String rawPath) {
-        String canonical = PathNormalizer.canonicalizeEnvPathValue(rawPath);
-        if (canonical.isBlank()) return "";
-
-        try {
-            Path path = Path.of(canonical);
-            // On macOS, if the selected path is a bundle root, use Contents/Home instead
-            Path contentsHome = path.resolve("Contents").resolve("Home");
-            if (JdkSelector.validateJdkPath(contentsHome) == null) {
-                return PathNormalizer.canonicalizeEnvPathValue(contentsHome.toString());
-            }
-        } catch (Exception e) {
-            logger.debug("Error during JDK path normalization for {}: {}", rawPath, e.getMessage());
-        }
-
-        return canonical;
     }
 
     private void showBuildAgentCancelledNotification() {

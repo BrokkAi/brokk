@@ -257,8 +257,8 @@ class JdkSelectorTest {
     @Test
     void testNormalizeJdkPathEmptyInput() {
         // Simulating the logic from SettingsProjectBuildPanel.normalizeJdkPath
-        assertEquals("", SettingsProjectBuildPanel.normalizeJdkPath(""));
-        assertEquals("", SettingsProjectBuildPanel.normalizeJdkPath("   "));
+        assertEquals("", JdkSelector.normalizeJdkPath(""));
+        assertEquals("", JdkSelector.normalizeJdkPath("   "));
     }
 
     @Test

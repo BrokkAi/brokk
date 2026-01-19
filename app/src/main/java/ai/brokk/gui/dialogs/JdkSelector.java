@@ -3,10 +3,10 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.FileUtil;
+import ai.brokk.util.PathNormalizer;
 import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import java.awt.*;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -102,17 +102,22 @@ public class JdkSelector extends JPanel {
             return;
         }
 
+        String normalized = normalizeJdkPath(path);
+        if (normalized.isBlank()) {
+            return;
+        }
+
         // Non-sentinel: try to match against existing items (discovered or custom)
         for (int i = 0; i < combo.getItemCount(); i++) {
             var it = combo.getItemAt(i);
-            if (path.equals(it.path) && !EnvironmentJava.JAVA_HOME_SENTINEL.equals(it.path)) {
+            if (normalized.equals(it.path) && !EnvironmentJava.JAVA_HOME_SENTINEL.equals(it.path)) {
                 combo.setSelectedIndex(i);
                 return;
             }
         }
 
         // Custom entry for non-sentinel path
-        var custom = new JdkItem(createDisplayName(path), path);
+        var custom = new JdkItem(createDisplayName(normalized), normalized);
         combo.addItem(custom);
         combo.setSelectedItem(custom);
     }
@@ -330,12 +335,8 @@ public class JdkSelector extends JPanel {
             var path = d.getPath() != null && !d.getPath().isBlank() ? d.getPath() : d.getLocation();
             if (path == null || path.isBlank()) continue;
 
-            // Normalize to canonical path for consistency if possible
-            try {
-                path = new File(path).getCanonicalPath();
-            } catch (Exception ignored) {
-                // Fallback to original path
-            }
+            path = normalizeJdkPath(path);
+            if (path.isBlank()) continue;
 
             // Only include valid JDKs (not JREs)
             if (!isValidJdk(path)) {
@@ -348,6 +349,28 @@ public class JdkSelector extends JPanel {
         }
         items.sort(Comparator.comparing(a -> a.display));
         return items;
+    }
+
+    /**
+     * Normalizes a JDK path: canonicalizes environment path strings and resolves macOS "Contents/Home" if pointing to a
+     * bundle root.
+     */
+    public static String normalizeJdkPath(String rawPath) {
+        String canonical = PathNormalizer.canonicalizeEnvPathValue(rawPath);
+        if (canonical.isBlank()) return "";
+
+        try {
+            Path path = Path.of(canonical);
+            // On macOS, if the selected path is a bundle root, use Contents/Home instead
+            Path contentsHome = path.resolve("Contents").resolve("Home");
+            if (validateJdkPath(contentsHome) == null) {
+                return PathNormalizer.canonicalizeEnvPathValue(contentsHome.toString());
+            }
+        } catch (Exception e) {
+            logger.debug("Error during JDK path normalization for {}: {}", rawPath, e.getMessage());
+        }
+
+        return canonical;
     }
 
     private static class JdkItemRenderer extends DefaultListCellRenderer {
