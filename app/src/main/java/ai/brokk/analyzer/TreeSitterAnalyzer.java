@@ -1296,8 +1296,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SourceCodeProvide
     }
 
     @Override
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        var sources = getSources(codeUnit, includeComments);
+        if (sources.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(String.join("\n\n", sources));
+    }
+
+    @Override
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        if (codeUnit.isFunction()) {
+            return getMethodSources(codeUnit, includeComments);
+        }
+        if (codeUnit.isClass()) {
+            return getClassSource(codeUnit, includeComments).map(Set::of).orElse(Set.of());
+        }
+        return Set.of();
+    }
+
     @Deprecated
-    @SuppressWarnings("deprecation")
     public Optional<String> getClassSource(CodeUnit cu, boolean includeComments) {
         if (!cu.isClass()) {
             return Optional.empty();
@@ -1323,9 +1341,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SourceCodeProvide
         return Optional.of(extractedSource);
     }
 
-    @Override
     @Deprecated
-    @SuppressWarnings("deprecation")
     public Set<String> getMethodSources(CodeUnit cu, boolean includeComments) {
         if (!cu.isFunction()) {
             return Collections.emptySet();
@@ -1371,21 +1387,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SourceCodeProvide
         return Collections.unmodifiableSequencedSet(methodSources);
     }
 
-    @Override
     @Deprecated
-    @SuppressWarnings("deprecation")
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
-        if (codeUnit.isFunction()) {
-            Set<String> sources = getMethodSources(codeUnit, includeComments);
-            if (sources.isEmpty()) {
-                return Optional.empty();
-            }
-            return Optional.of(String.join("\n\n", sources));
-        } else if (codeUnit.isClass()) {
-            return getClassSource(codeUnit, includeComments);
-        } else {
-            return Optional.empty(); // Fields and other types not supported by default
-        }
+        return getSource(codeUnit, includeComments);
     }
 
     @Override

@@ -133,30 +133,33 @@ public class MultiAnalyzer implements IAnalyzer, SourceCodeProvider, TypeAliasPr
     }
 
     @Override
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        return delegateFor(codeUnit)
+                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
+                .flatMap(scp -> scp.getSource(codeUnit, includeComments));
+    }
+
+    @Override
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        return delegateFor(codeUnit)
+                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
+                .map(scp -> scp.getSources(codeUnit, includeComments))
+                .orElse(Set.of());
+    }
+
     @Deprecated
-    @SuppressWarnings("deprecation")
     public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
-        return delegateFor(method)
-                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
-                .map(scp -> scp.getSources(method, includeComments))
-                .orElse(Collections.emptySet());
+        return getSources(method, includeComments);
     }
 
-    @Override
     @Deprecated
-    @SuppressWarnings("deprecation")
     public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
-        return delegateFor(classUnit)
-                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
-                .flatMap(scp -> scp.getSource(classUnit, includeComments));
+        return getSource(classUnit, includeComments);
     }
 
-    @Override
     @Deprecated
-    @SuppressWarnings("deprecation")
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
-        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class)
-                .flatMap(scp -> scp.getSource(codeUnit, includeComments)));
+        return getSource(codeUnit, includeComments);
     }
 
     @Override

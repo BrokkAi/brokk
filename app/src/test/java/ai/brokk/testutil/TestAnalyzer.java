@@ -181,20 +181,17 @@ public class TestAnalyzer implements IAnalyzer {
                     return getSource(codeUnit, includeComments).map(Set::of).orElse(Set.of());
                 }
 
-                @Override
-                @SuppressWarnings("deprecation")
+                @Deprecated
                 public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
                     return getSources(method, includeComments);
                 }
 
-                @Override
-                @SuppressWarnings("deprecation")
+                @Deprecated
                 public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
                     return getSource(classUnit, includeComments);
                 }
 
-                @Override
-                @SuppressWarnings("deprecation")
+                @Deprecated
                 public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
                     return getSource(codeUnit, includeComments);
                 }
