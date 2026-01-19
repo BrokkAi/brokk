@@ -101,4 +101,26 @@ public final class FileUtil {
         }
         return idx;
     }
+
+    /**
+     * Abbreviates a path for display. If the path has more than 4 components,
+     * shows first + "..." + last three components (e.g., "/Users/.../jdk-21/Contents/Home").
+     * Paths with 4 or fewer components or under maxLength are returned unchanged.
+     */
+    public static String abbreviatePath(String path) {
+        int maxLength = 35;
+        if (path.length() <= maxLength) {
+            return path;
+        }
+        var pathObj = Path.of(path);
+        int nameCount = pathObj.getNameCount();
+        if (nameCount <= 4) {
+            return path;
+        }
+        var root = pathObj.getRoot();
+        var first = pathObj.getName(0);
+        var lastThree = pathObj.subpath(nameCount - 3, nameCount);
+        var rootStr = root != null ? root.toString() : "";
+        return rootStr + first + "/.../" + lastThree;
+    }
 }

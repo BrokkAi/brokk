@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.util.EnvironmentJava;
+import ai.brokk.util.FileUtil;
 import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import java.awt.*;
@@ -111,7 +112,7 @@ public class JdkSelector extends JPanel {
                 }
                 label = matchedDisplay != null
                         ? "System JAVA_HOME (" + matchedDisplay + ")"
-                        : "System JAVA_HOME (" + abbreviatePath(javaHome) + ")";
+                        : "System JAVA_HOME (" + FileUtil.abbreviatePath(javaHome) + ")";
             } else {
                 label = "System JAVA_HOME";
             }
@@ -137,26 +138,7 @@ public class JdkSelector extends JPanel {
     }
 
     private static String createDisplayName(String path) {
-        return "Custom JDK: " + abbreviatePath(path);
-    }
-
-    private static String abbreviatePath(String path) {
-        var maxLength = 35;
-        if (path.length() <= maxLength) {
-            return path;
-        }
-        // Abbreviate long paths: show first component + ... + last three components
-        var pathObj = Path.of(path);
-        var nameCount = pathObj.getNameCount();
-        if (nameCount <= 4) {
-            return path;
-        }
-        // Show "/first/.../third-to-last/second-to-last/last"
-        var root = pathObj.getRoot();
-        var first = pathObj.getName(0);
-        var lastThree = pathObj.subpath(nameCount - 3, nameCount);
-        var rootStr = root != null ? root.toString() : "";
-        return rootStr + first + "/.../" + lastThree;
+        return "Custom JDK: " + FileUtil.abbreviatePath(path);
     }
 
     /** @return the selected JDK path or null if none selected. */
