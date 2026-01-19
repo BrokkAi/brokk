@@ -35,17 +35,17 @@ public class JbrCefProvider implements CefAppProvider {
         // Must be running in jDeploy
         String launcherPath = System.getProperty("jdeploy.launcher.path");
         if (launcherPath == null || launcherPath.isEmpty()) {
-            logger.debug("jdeploy.launcher.path not set, JBR provider not available");
+            logger.trace("jdeploy.launcher.path not set, JBR provider not available");
             return false;
         }
 
         // Must have JBR JCEF resources available (platform-specific check)
         if (!hasJcefResources()) {
-            logger.debug("JBR JCEF resources not found, JBR provider not available");
+            logger.trace("JBR JCEF resources not found, JBR provider not available");
             return false;
         }
 
-        logger.info("JBR CEF provider is available");
+        logger.trace("JBR CEF provider is available");
         return true;
     }
 
@@ -119,6 +119,7 @@ public class JbrCefProvider implements CefAppProvider {
      *   <li>App bundle directly: {@code /path/to/App.app}</li>
      * </ul>
      */
+    @Nullable
     private static Path findMacOsFrameworksDir() {
         String launcherPath = System.getProperty("jdeploy.launcher.path");
         if (launcherPath == null || launcherPath.isEmpty()) {

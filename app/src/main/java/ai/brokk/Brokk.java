@@ -16,6 +16,7 @@ import ai.brokk.gui.dialogs.AboutDialog;
 import ai.brokk.gui.dialogs.BrokkKeyDialog;
 import ai.brokk.gui.dialogs.OpenProjectDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.gui.mop.webview.cef.CefAppProviderFactory;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeBorderManager;
 import ai.brokk.project.AbstractProject;
@@ -78,6 +79,7 @@ public class Brokk {
 
         logger.info("OS: {}", Environment.getOsDescription());
         logger.info("JRE: {}", Environment.getJreDescription());
+        logger.info("CEF: {}", CefAppProviderFactory.getProviderName());
         logger.info("Starting Brokk semantic code assistant...");
         logger.info("");
     }

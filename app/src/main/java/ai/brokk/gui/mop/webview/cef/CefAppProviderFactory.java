@@ -24,6 +24,26 @@ public final class CefAppProviderFactory {
     }
 
     /**
+     * Returns the name of the CEF provider that will be used.
+     * Useful for logging/banner display before actual provider initialization.
+     *
+     * @return "JBR" for production jDeploy builds, "Maven" for development, or "none" if unavailable
+     */
+    public static String getProviderName() {
+        if (new JbrCefProvider().isAvailable()) {
+            return "JBR";
+        }
+        try {
+            if (new MavenCefProvider().isAvailable()) {
+                return "Maven";
+            }
+        } catch (NoClassDefFoundError e) {
+            // MavenCefProvider dependencies not available
+        }
+        return "none";
+    }
+
+    /**
      * Returns the appropriate CEF provider for the current environment.
      *
      * @return a CEF provider that is available in this environment

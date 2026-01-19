@@ -8,6 +8,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.webview.IWebViewHost;
 import ai.brokk.gui.mop.webview.JCEFWebViewHost;
+import ai.brokk.gui.mop.webview.cef.CefAppProviderFactory;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
@@ -77,8 +78,12 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         String javaVendor = System.getProperty("java.vendor");
         boolean isJBR = javaVendor != null && javaVendor.contains("JetBrains");
 
-        logger.info("Initializing JCEF-based MarkdownOutputPanel ({} {}, vendor: {})",
-                    isJBR ? "JBR" : "JDK", javaVersion, javaVendor);
+        String cefProvider = CefAppProviderFactory.getProviderName();
+        logger.info(
+                "Initializing JCEF-based MarkdownOutputPanel ({} {}, CEF provider: {})",
+                isJBR ? "JBR" : "JDK",
+                javaVersion,
+                cefProvider);
 
         // Set background to match theme to avoid white flash while JCEF loads
         String themeName = MainProject.getTheme();

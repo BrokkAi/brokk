@@ -46,16 +46,16 @@ public class MavenCefProvider implements CefAppProvider {
         // Don't use jcefmaven if the JVM has bundled JCEF (e.g., JBR)
         // Using both would cause native library conflicts and segfaults
         if (hasJvmBundledJcef()) {
-            logger.info("JVM has bundled JCEF, Maven provider unavailable to avoid conflicts");
+            logger.trace("JVM has bundled JCEF, Maven provider unavailable to avoid conflicts");
             return false;
         }
 
         try {
             Class.forName("me.friwi.jcefmaven.CefAppBuilder");
-            logger.info("Maven CEF provider is available");
+            logger.trace("Maven CEF provider is available");
             return true;
         } catch (ClassNotFoundException e) {
-            logger.debug("jcefmaven not available (classes stripped or not on classpath)");
+            logger.trace("jcefmaven not available (classes stripped or not on classpath)");
             return false;
         }
     }
