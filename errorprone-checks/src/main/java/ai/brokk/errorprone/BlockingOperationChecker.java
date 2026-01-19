@@ -34,6 +34,7 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
     private static final String BLOCKING_ANN_FQCN = "org.jetbrains.annotations.Blocking";
     private static final String SWING_UTILS_FQCN = "javax.swing.SwingUtilities";
     private static final String EVENT_QUEUE_FQCN = "java.awt.EventQueue";
+    private static final String SUBMIT_BACKGROUND_TASK_METHOD = "submitBackgroundTask";
 
     private static boolean hasDirectAnnotation(Symbol sym, String fqcn) {
         for (var a : sym.getAnnotationMirrors()) {
@@ -56,16 +57,45 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
             return Description.NO_MATCH;
         }
 
+        // Do not warn if we are already inside a background task submission
+        if (isWithinSubmitBackgroundTaskArgument(state)) {
+            return Description.NO_MATCH;
+        }
+
         // Only warn when the @Blocking call occurs on the EDT contexts we care about
         if (!(isWithinInvokeLaterArgument(state) || isWithinTrueBranchOfEdtCheck(state))) {
             return Description.NO_MATCH;
         }
 
         String message = String.format(
-                "Calling potentially blocking %s(); prefer the corresponding computed*() non-blocking method.",
+                "Calling potentially blocking %s() on the EDT; move to a background thread using "
+                        + "contextManager.submitBackgroundTask() or use the corresponding computed*() non-blocking method.",
                 sym.getSimpleName());
 
         return buildDescription(tree).setMessage(message).build();
+    }
+
+    private static boolean isWithinSubmitBackgroundTaskArgument(VisitorState state) {
+        // The node being analyzed (e.g., the @Blocking method invocation)
+        Tree target = state.getPath().getLeaf();
+
+        for (TreePath path = state.getPath(); path != null; path = path.getParentPath()) {
+            Tree node = path.getLeaf();
+            if (node instanceof MethodInvocationTree mit && isSubmitBackgroundTask(mit)) {
+                // Check whether the target node is within any of the method arguments
+                for (Tree arg : mit.getArguments()) {
+                    if (containsTree(arg, target)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isSubmitBackgroundTask(MethodInvocationTree mit) {
+        MethodSymbol ms = ASTHelpers.getSymbol(mit);
+        return ms != null && ms.getSimpleName().contentEquals(SUBMIT_BACKGROUND_TASK_METHOD);
     }
 
     private static boolean isWithinInvokeLaterArgument(VisitorState state) {
