@@ -864,16 +864,19 @@ public final class JobRunner {
                                                 // Execute task with ArchitectAgent
                                                 cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
-                                                // Per-task verification: ensure the workspace still verifies after this task.
+                                                // Per-task verification: ensure the workspace still verifies after this
+                                                // task.
                                                 int maxPerTaskAttempts = Objects.requireNonNullElse(
                                                         buildDetailsOverride.maxBuildAttempts(),
                                                         DEFAULT_MAX_BUILD_ATTEMPTS);
 
-                                                // Use the sharedAttempts but cap per verification to the configured per-task max.
+                                                // Use the sharedAttempts but cap per verification to the configured
+                                                // per-task max.
                                                 var perTaskAttempts = new java.util.concurrent.atomic.AtomicInteger(
                                                         Math.min(sharedAttempts.get(), maxPerTaskAttempts));
 
-                                                // Remember initial per-task attempts so we can compute exact consumption.
+                                                // Remember initial per-task attempts so we can compute exact
+                                                // consumption.
                                                 int initialPerTaskAttempts = perTaskAttempts.get();
 
                                                 // Run verification attempts for this task. The verificationRunner
@@ -885,10 +888,13 @@ public final class JobRunner {
                                                         perTaskAttempts,
                                                         () -> {
                                                             try {
-                                                                return BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                                return BuildAgent.runVerification(
+                                                                        cm, buildDetailsOverride);
                                                             } catch (InterruptedException ie) {
-                                                                Thread.currentThread().interrupt();
-                                                                return "Interrupted while running verification: " + ie.getMessage();
+                                                                Thread.currentThread()
+                                                                        .interrupt();
+                                                                return "Interrupted while running verification: "
+                                                                        + ie.getMessage();
                                                             }
                                                         },
                                                         prompt -> {
@@ -898,15 +904,18 @@ public final class JobRunner {
                                                                         issuePlannerModel,
                                                                         issueCodeModel);
                                                             } catch (InterruptedException ie) {
-                                                                Thread.currentThread().interrupt();
+                                                                Thread.currentThread()
+                                                                        .interrupt();
                                                                 throw new IssueExecutionException(
                                                                         "Interrupted while attempting to fix verification failure",
                                                                         ie);
                                                             }
                                                         });
 
-                                                // After the per-task verification loop completes, compute exactly how many
-                                                // attempts were consumed and subtract that exact amount from the sharedAttempts
+                                                // After the per-task verification loop completes, compute exactly how
+                                                // many
+                                                // attempts were consumed and subtract that exact amount from the
+                                                // sharedAttempts
                                                 // budget (clamping so sharedAttempts never becomes negative).
                                                 int consumedPerTask = initialPerTaskAttempts - perTaskAttempts.get();
                                                 if (consumedPerTask > 0) {
@@ -917,8 +926,10 @@ public final class JobRunner {
                                                 }
                                             }
 
-                                            // After all tasks completed, run the end-of-run Pre-PR gate which runs full tests and lint.
-                                            // Use the same sharedAttempts budget so pre-PR gate only gets the remaining attempts.
+                                            // After all tasks completed, run the end-of-run Pre-PR gate which runs full
+                                            // tests and lint.
+                                            // Use the same sharedAttempts budget so pre-PR gate only gets the remaining
+                                            // attempts.
                                             runPrePrGateRetryLoop(
                                                     jobId,
                                                     store,
@@ -1335,7 +1346,8 @@ public final class JobRunner {
             java.util.function.Supplier<String> verificationRunner,
             java.util.function.Consumer<String> fixTaskRunner) {
         // Backwards-compatible entry point: delegate to AtomicInteger-based implementation.
-        java.util.concurrent.atomic.AtomicInteger attemptsLeft = new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
+        java.util.concurrent.atomic.AtomicInteger attemptsLeft =
+                new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
         runVerificationRetryLoop(jobId, store, io, attemptsLeft, verificationRunner, fixTaskRunner);
     }
 
@@ -1363,7 +1375,11 @@ public final class JobRunner {
             try {
                 store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
             } catch (IOException ioe) {
-                logger.warn("Failed to append verification start notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
+                logger.warn(
+                        "Failed to append verification start notification event for job {}: {}",
+                        jobId,
+                        ioe.getMessage(),
+                        ioe);
             }
 
             String verificationOut;
@@ -1376,7 +1392,8 @@ public final class JobRunner {
 
             boolean passed = verificationOut == null || verificationOut.isBlank();
 
-            String resultMsg = "Verification attempt %d/%d results: %s".formatted(attemptNumber, maxAttempts, passed ? "PASS" : "FAIL");
+            String resultMsg = "Verification attempt %d/%d results: %s"
+                    .formatted(attemptNumber, maxAttempts, passed ? "PASS" : "FAIL");
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
             } catch (Throwable ignore) {
@@ -1385,7 +1402,11 @@ public final class JobRunner {
             try {
                 store.appendEvent(jobId, JobEvent.of("NOTIFICATION", resultMsg));
             } catch (IOException ioe) {
-                logger.warn("Failed to append verification results notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
+                logger.warn(
+                        "Failed to append verification results notification event for job {}: {}",
+                        jobId,
+                        ioe.getMessage(),
+                        ioe);
             }
 
             if (passed) {
@@ -1398,7 +1419,8 @@ public final class JobRunner {
                 String details = "Verification failed after " + maxAttempts + " attempt(s):\n\n" + verificationOut;
                 throw new IssueExecutionException(details);
             } else {
-                String prompt = "Verification failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\nOutput:\n" + verificationOut
+                String prompt = "Verification failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\nOutput:\n"
+                        + verificationOut
                         + "\n\nPlease fix the issue so that verification will pass on the next attempt.";
                 fixTaskRunner.accept(prompt);
             }
@@ -1417,7 +1439,8 @@ public final class JobRunner {
             Function<String, String> commandRunner,
             Consumer<String> fixTaskRunner) {
         // Backwards-compatible entry point: delegate to AtomicInteger-based implementation.
-        java.util.concurrent.atomic.AtomicInteger attemptsLeft = new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
+        java.util.concurrent.atomic.AtomicInteger attemptsLeft =
+                new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
         runPrePrGateRetryLoop(jobId, store, io, buildDetailsOverride, attemptsLeft, commandRunner, fixTaskRunner);
     }
 
@@ -1515,8 +1538,8 @@ public final class JobRunner {
 
             String fixPrompt = fixParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", fixParts);
 
-            String fullFixPrompt = "Pre-PR gate failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\n" + fixPrompt
-                    + "\n\nPlease fix the issues so that BOTH full tests and full lint pass.";
+            String fullFixPrompt = "Pre-PR gate failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\n"
+                    + fixPrompt + "\n\nPlease fix the issues so that BOTH full tests and full lint pass.";
 
             fixTaskRunner.accept(fullFixPrompt);
             attemptNumber++;

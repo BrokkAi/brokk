@@ -281,12 +281,7 @@ class JobRunnerIssueModeTest {
         // Run verification with per-task cap of 2 (but sharing the 3-attempt budget)
         var perTaskAttempts = new java.util.concurrent.atomic.AtomicInteger(Math.min(sharedAttempts.get(), 2));
         assertDoesNotThrow(() -> JobRunner.runVerificationRetryLoop(
-                "job-shared-1",
-                store,
-                io,
-                perTaskAttempts,
-                verificationRunner,
-                verificationFix));
+                "job-shared-1", store, io, perTaskAttempts, verificationRunner, verificationFix));
 
         int consumedPerTask = 2 - perTaskAttempts.get();
         sharedAttempts.addAndGet(-consumedPerTask);
@@ -309,8 +304,10 @@ class JobRunnerIssueModeTest {
 
         java.util.function.Consumer<String> prePrFix = prompt -> fixCalls.incrementAndGet();
 
-        assertThrows(IssueExecutionException.class, () -> JobRunner.runPrePrGateRetryLoop(
-                "job-shared-2", store, io, details, sharedAttempts, commandRunner, prePrFix));
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runPrePrGateRetryLoop(
+                        "job-shared-2", store, io, details, sharedAttempts, commandRunner, prePrFix));
 
         assertEquals(2, fixCalls.get(), "Total fixes across verification and pre-PR gate should equal 2");
         assertEquals(0, sharedAttempts.get(), "Shared attempts should be exhausted");
