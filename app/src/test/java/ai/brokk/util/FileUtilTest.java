@@ -159,8 +159,10 @@ public class FileUtilTest {
 
         String rootStr = pathObj.getRoot() != null ? pathObj.getRoot().toString() : "";
         String first = pathObj.getName(0).toString();
-        String expected = rootStr + first + sep + "..." + sep + pathObj.getName(nameCount - 3) + sep
+        String abbreviated = rootStr + first + sep + "..." + sep + pathObj.getName(nameCount - 3) + sep
                 + pathObj.getName(nameCount - 2) + sep + pathObj.getName(nameCount - 1);
+        // Since abbreviated form still exceeds maxLength (35), final truncation is applied
+        String expected = abbreviated.substring(0, 32) + "...";
 
         assertEquals(expected, FileUtil.abbreviatePath(longPath));
     }

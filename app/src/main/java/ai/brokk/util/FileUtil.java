@@ -142,6 +142,10 @@ public final class FileUtil {
             lastParts.add(pathObj.getName(i).toString());
         }
 
-        return prefix + sep + String.join(sep, lastParts);
+        var result = prefix + sep + String.join(sep, lastParts);
+        if (result.length() > maxLength && maxLength > 3) {
+            return result.substring(0, maxLength - 3) + "...";
+        }
+        return result;
     }
 }
