@@ -1307,16 +1307,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SourceCodeProvide
     @Override
     public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
         if (codeUnit.isFunction()) {
-            return getMethodSources(codeUnit, includeComments);
+            return getSourcesForFunction(codeUnit, includeComments);
         }
         if (codeUnit.isClass()) {
-            return getClassSource(codeUnit, includeComments).map(Set::of).orElse(Set.of());
+            return getSourceForClass(codeUnit, includeComments).map(Set::of).orElse(Set.of());
         }
         return Set.of();
     }
 
-    @Deprecated
-    public Optional<String> getClassSource(CodeUnit cu, boolean includeComments) {
+    private Optional<String> getSourceForClass(CodeUnit cu, boolean includeComments) {
         if (!cu.isClass()) {
             return Optional.empty();
         }
@@ -1341,8 +1340,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SourceCodeProvide
         return Optional.of(extractedSource);
     }
 
-    @Deprecated
-    public Set<String> getMethodSources(CodeUnit cu, boolean includeComments) {
+    private Set<String> getSourcesForFunction(CodeUnit cu, boolean includeComments) {
         if (!cu.isFunction()) {
             return Collections.emptySet();
         }
@@ -1385,11 +1383,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SourceCodeProvide
             log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, cu.fqName());
         }
         return Collections.unmodifiableSequencedSet(methodSources);
-    }
-
-    @Deprecated
-    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
-        return getSource(codeUnit, includeComments);
     }
 
     @Override

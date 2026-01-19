@@ -81,7 +81,7 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(maybeLambda.isPresent(), "Expected to find lambda CodeUnit for Interface.DEFAULT");
         final var lambdaCu = maybeLambda.get();
 
-        final var srcOpt = analyzer.getSourceForCodeUnit(lambdaCu, false);
+        final var srcOpt = analyzer.getSource(lambdaCu, false);
         assertTrue(srcOpt.isPresent(), "Should be able to fetch source for lambda");
         final var src = srcOpt.get();
 
@@ -103,7 +103,7 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(maybeLambda.isPresent(), "Expected to find lambda CodeUnit inside getSomething");
         final var lambdaCu = maybeLambda.get();
 
-        final var srcOpt = analyzer.getSourceForCodeUnit(lambdaCu, false);
+        final var srcOpt = analyzer.getSource(lambdaCu, false);
         assertTrue(srcOpt.isPresent(), "Should be able to fetch source for lambda");
         final var src = srcOpt.get();
 
