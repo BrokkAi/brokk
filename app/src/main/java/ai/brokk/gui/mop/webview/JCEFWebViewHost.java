@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.DependencyException;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.mop.ChunkMeta;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.mop.webview.cef.CefAppProvider;
 import ai.brokk.gui.mop.webview.cef.CefAppProviderFactory;
@@ -57,7 +58,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     // Minimal command interface for buffering
     private sealed interface HostCommand {
-        record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
+        record Append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta)
                 implements HostCommand {}
 
         record Clear() implements HostCommand {}
@@ -407,7 +408,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         for (var cmd : pendingCommands) {
             switch (cmd) {
                 case HostCommand.Append a ->
-                    bridge.sendAppend(browser, a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
+                    bridge.sendAppend(browser, a.text(), a.msgType(), a.streaming(), a.chunkMeta());
                 case HostCommand.Clear ignored -> bridge.sendClear(browser);
                 case HostCommand.StaticDocument sd -> bridge.sendStaticDocument(browser, sd.markdown());
                 case HostCommand.Theme t -> bridge.sendTheme(browser, t.themeName(), t.isDevMode(), t.wrapMode());
@@ -429,11 +430,11 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
     // Public API methods (minimal for PoC)
 
     @Override
-    public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
+    public void append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta) {
         if (bridgeReady && browser != null && bridge != null) {
-            bridge.sendAppend(browser, text, isNew, msgType, streaming, reasoning);
+            bridge.sendAppend(browser, text, msgType, streaming, chunkMeta);
         } else {
-            pendingCommands.add(new HostCommand.Append(text, isNew, msgType, streaming, reasoning));
+            pendingCommands.add(new HostCommand.Append(text, msgType, streaming, chunkMeta));
         }
     }
 

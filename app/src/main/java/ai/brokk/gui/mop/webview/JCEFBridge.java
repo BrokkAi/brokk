@@ -6,6 +6,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.menu.ContextMenuBuilder;
+import ai.brokk.gui.mop.ChunkMeta;
 import ai.brokk.gui.mop.FilePathLookupService;
 import ai.brokk.gui.mop.SymbolLookupService;
 import ai.brokk.project.MainProject;
@@ -440,14 +441,9 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
      * Send an append event to the frontend.
      */
     public void sendAppend(
-            CefBrowser browser,
-            String text,
-            boolean isNew,
-            ChatMessageType msgType,
-            boolean streaming,
-            boolean reasoning) {
+            CefBrowser browser, String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta) {
         int e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming, reasoning);
+        var event = new BrokkEvent.Chunk(text, msgType, e, streaming, chunkMeta);
         sendEvent(browser, event);
     }
 
@@ -500,8 +496,11 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
             var msgs = taskFragment.messages();
             for (var message : msgs) {
                 var text = Messages.getText(message);
-                messages.add(
-                        new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
+                messages.add(new BrokkEvent.HistoryTask.Message(
+                        text,
+                        message.type(),
+                        Messages.isReasoningMessage(message),
+                        false));
             }
         }
 

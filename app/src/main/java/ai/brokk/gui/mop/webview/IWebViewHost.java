@@ -3,6 +3,7 @@ package ai.brokk.gui.mop.webview;
 import ai.brokk.ContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.mop.ChunkMeta;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
 import java.util.concurrent.CompletableFuture;
@@ -29,7 +30,7 @@ public interface IWebViewHost {
     /**
      * Append text to the current message or start a new message.
      */
-    void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning);
+    void append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta);
 
     /**
      * Clear all messages.
