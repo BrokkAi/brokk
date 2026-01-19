@@ -390,6 +390,10 @@ class SessionSynchronizer {
         int iteration = 0;
 
         do {
+            if (Thread.interrupted()) {
+                throw new InterruptedException();
+            }
+
             iteration++;
             if (iteration > 10) {
                 logger.warn("Sync loop iteration limit reached, stopping.");

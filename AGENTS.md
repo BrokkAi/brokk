@@ -67,8 +67,9 @@ with try/catch is unnecessary and futile; don't do that.
    you should wire that up as well.
    There are convenience methods for newVirtualThreadExecutor and newFixedThreadExecutor in ai.brokk.concurrent.ExecutorsUtil
    that you should use unless you need to roll a custom ThreadFactory.
-2. Use LoggingFuture.supplyAsync, .allOf, .anyOf instead of CompletableFuture static methods; the API is the same.
-   LoggingFuture also has a supplyCallableAsync method when that is a better fit.
+2. Use LoggingFuture.supplyAsync, runAsync, .allOf, .anyOf instead of CompletableFuture static methods; the API is the same.
+   LoggingFuture also has a supplyCallableAsync method when that is a better fit, and supplyVirtual/runVirtual/supplyCallableVirtual
+   methods that are backed by virtual threads.
 3. Avoid SwingWorker in favor of virtual threads using ExecutorsUtil.newVirtualThreadExecutor, or LoggingFuture.supplyAsync.
 4. ContextManager.submitBackgroundTask is for tasks that run long enough to be noticeable by the user. For shorter
    tasks use LoggingFuture.supplyAsync if it is just one, otherwise consider using LoggingExecutorService.newVirtualThreadExecutor.

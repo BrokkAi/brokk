@@ -31,6 +31,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import com.google.common.base.Ascii;
+import com.google.common.base.Splitter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -43,9 +44,11 @@ import java.util.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -66,6 +69,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
     private static final int DEFAULT_ROW_HEIGHT = 48;
+
+    private static final Pattern LINE_BREAK_PATTERN = Pattern.compile("\\R");
+    private static final Pattern COMMA_PATTERN = Pattern.compile(",");
 
     // PR Table Column Indices
     private static final int PR_COL_NUMBER = 0;
@@ -1785,22 +1791,22 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
 
         GHPullRequest selectedPrObject = displayedPrs.get(selectedRow);
-        final int prNumber = selectedPrObject.getNumber();
 
         Optional<String> existingLocalBranchOpt = existsLocalPrBranch(selectedPrObject);
 
         if (existingLocalBranchOpt.isPresent()) {
-            updateExistingLocalPrBranch(prNumber, existingLocalBranchOpt.get());
+            updateExistingLocalPrBranch(selectedPrObject, existingLocalBranchOpt.get());
         } else {
             checkoutPrAsNewBranch(selectedPrObject);
         }
     }
 
     /**
-     * Updates an existing local branch for the given PR number. Checks out the branch and pulls changes from its
+     * Updates an existing local branch for the given PR. Checks out the branch and pulls changes from its
      * upstream.
      */
-    private void updateExistingLocalPrBranch(int prNumber, String localBranchName) {
+    private void updateExistingLocalPrBranch(GHPullRequest pr, String localBranchName) {
+        final int prNumber = pr.getNumber();
         logger.info("Updating existing local branch {} for PR #{}", localBranchName, prNumber);
         contextManager.submitExclusiveAction(() -> {
             try {
@@ -1817,6 +1823,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         IConsoleIO.NotificationRole.INFO,
                         "Updated local branch " + localBranchName + " for PR #" + prNumber);
                 logger.info("Successfully updated local branch {} for PR #{}", localBranchName, prNumber);
+                downloadSessionsFromPrDescription(pr);
             } catch (Exception e) {
                 chrome.toolError("Error updating local branch " + localBranchName + ": " + e.getMessage());
             }
@@ -1905,6 +1912,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         IConsoleIO.NotificationRole.INFO,
                         "Checked out PR #" + prNumber + " as local branch " + localBranchName);
                 logger.info("Successfully checked out PR #{}", prNumber);
+                downloadSessionsFromPrDescription(pr);
                 // Update button states on EDT
                 SwingUtilities.invokeLater(() -> {
                     // Re-trigger selection listener to update button states correctly
@@ -1925,6 +1933,73 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 chrome.toolError("Error checking out PR: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * Parses session IDs from a PR description.
+     * Looks for a line starting with "brokk-session-ids:" and parses the remaining content
+     * as a comma-delimited list of UUIDs.
+     *
+     * @param prBody the PR description/body text
+     * @return list of parsed UUIDs, empty if none found or parsing fails
+     */
+    private List<UUID> parseSessionIdsFromPrBody(@Nullable String prBody) {
+        if (prBody == null || prBody.isBlank()) {
+            return List.of();
+        }
+
+        List<UUID> sessionIds = new ArrayList<>();
+        for (String line : Splitter.on(LINE_BREAK_PATTERN).split(prBody)) {
+            String trimmedLine = line.trim();
+            if (trimmedLine.toLowerCase(Locale.ROOT).startsWith("brokk-session-ids:")) {
+                String idsString =
+                        trimmedLine.substring("brokk-session-ids:".length()).trim();
+                for (String idPart : Splitter.on(COMMA_PATTERN).split(idsString)) {
+                    String trimmedId = idPart.trim();
+                    if (!trimmedId.isEmpty()) {
+                        try {
+                            sessionIds.add(UUID.fromString(trimmedId));
+                        } catch (IllegalArgumentException e) {
+                            logger.warn("Invalid UUID in PR session-ids: {}", trimmedId);
+                        }
+                    }
+                }
+                break; // Only process first matching line
+            }
+        }
+        return sessionIds;
+    }
+
+    /**
+     * Downloads sessions referenced in the PR description in the background.
+     * Uses a virtual thread executor to download sessions concurrently.
+     *
+     * @param pr the pull request to extract session IDs from
+     */
+    private void downloadSessionsFromPrDescription(GHPullRequest pr) {
+        String prBody;
+        try {
+            prBody = pr.getBody();
+        } catch (Exception e) {
+            logger.warn("Could not get PR body for session download: {}", e.getMessage());
+            return;
+        }
+
+        List<UUID> sessionIds = parseSessionIdsFromPrBody(prBody);
+        if (sessionIds.isEmpty()) {
+            return;
+        }
+
+        logger.info("Found {} session ID(s) in PR #{} description, downloading...", sessionIds.size(), pr.getNumber());
+
+        var sessionManager = contextManager.getProject().getSessionManager();
+
+        for (UUID sessionId : sessionIds) {
+            sessionManager
+                    .downloadForeignAsync(sessionId)
+                    .thenAccept(path ->
+                            logger.debug("Successfully downloaded session {} from PR #{}", sessionId, pr.getNumber()));
+        }
     }
 
     private void openSelectedPrInBrowser() {

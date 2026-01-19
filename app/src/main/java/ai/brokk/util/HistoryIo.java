@@ -18,7 +18,6 @@ import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
 import java.io.BufferedReader;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.InvalidObjectException;
@@ -107,10 +106,6 @@ public final class HistoryIo {
     }
 
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
-        if (!Files.exists(zip)) {
-            throw new FileNotFoundException(zip.toString());
-        }
-
         boolean isV3 = false;
         boolean isV4 = false;
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {

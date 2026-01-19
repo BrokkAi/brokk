@@ -2,6 +2,8 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
+import ai.brokk.SessionManager;
+import ai.brokk.agents.ReviewScope;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -24,9 +26,11 @@ import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
@@ -65,12 +69,18 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     // Review tab components
     private JTabbedPane middleTabbedPane;
     private JPanel reviewTabPlaceholder;
+    private JPanel sessionsTabPanel;
+    private JTable sessionsTable;
+    private javax.swing.table.DefaultTableModel sessionsTableModel;
+    private JCheckBox selectAllSessionsCheckbox;
 
     @Nullable
     private JComponent aggregatedChangesPanel;
 
     @Nullable
     private String mergeBaseCommit = null;
+
+    private final CompletableFuture<Void> sessionSyncFuture;
 
     private volatile boolean sourceBranchNeedsPush = false;
     private volatile int unpushedCommitCount = 0;
@@ -93,7 +103,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         this.workflowService = new GitWorkflow(contextManager);
         this.preselectedSourceBranch = preselectedSourceBranch;
 
-        initializeDialog();
+        setSize(1000, 1000);
+        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        this.sessionSyncFuture = this.contextManager.syncSessionsAsync();
         buildLayout();
         setLocationRelativeTo(chrome.getFrame()); // Center after layout is built
     }
@@ -103,11 +115,6 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
         this(owner, chrome, contextManager, null); // delegate
-    }
-
-    private void initializeDialog() {
-        setSize(1000, 1000);
-        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
     }
 
     @Override
@@ -151,8 +158,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         reviewTabPlaceholder.add(reviewPlaceholderLabel, BorderLayout.CENTER);
 
         middleTabbedPane = new JTabbedPane();
-        middleTabbedPane.addTab("Commits", null, commitBrowserPanel, "Commits included in this pull request");
         middleTabbedPane.addTab("Review", null, reviewTabPlaceholder, "Aggregated diff summary");
+        middleTabbedPane.addTab("Commits", null, commitBrowserPanel, "Commits included in this pull request");
+
+        // Sessions tab
+        sessionsTabPanel = createSessionsTabPanel();
+        middleTabbedPane.addTab("Sessions", null, sessionsTabPanel, "Overlapping Brokk sessions");
 
         // --- bottom: buttons ------------------------------------------------------------------
         var buttonPanel = createButtonPanel();
@@ -356,6 +367,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         this.flowUpdater.run();
         updateCreatePrButtonState();
         updateReviewTab(newFiles);
+        updateSessionsTab(newCommits);
     }
 
     private void refreshCommitList() {
@@ -765,6 +777,98 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
+    private JPanel createSessionsTabPanel() {
+        var panel = new JPanel(new BorderLayout());
+        sessionsTableModel = new javax.swing.table.DefaultTableModel(new Object[] {"", "Session Name", "Tasks"}, 0) {
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return columnIndex == 0 ? Boolean.class : String.class;
+            }
+
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column == 0;
+            }
+        };
+
+        sessionsTable = new JTable(sessionsTableModel);
+        sessionsTable.getColumnModel().getColumn(0).setMaxWidth(30);
+        sessionsTable.setRowHeight(24);
+
+        sessionsTableModel.addTableModelListener(e -> {
+            int selectedCount = 0;
+            for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+                if (Boolean.TRUE.equals(sessionsTableModel.getValueAt(i, 0))) {
+                    selectedCount++;
+                }
+            }
+            updateSessionsTabTitle(selectedCount);
+        });
+
+        selectAllSessionsCheckbox = new JCheckBox("Select/Deselect All", true);
+        selectAllSessionsCheckbox.addActionListener(e -> {
+            boolean selected = selectAllSessionsCheckbox.isSelected();
+            for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+                sessionsTableModel.setValueAt(selected, i, 0);
+            }
+        });
+
+        var headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        headerPanel.add(selectAllSessionsCheckbox);
+
+        panel.add(headerPanel, BorderLayout.NORTH);
+        panel.add(new JScrollPane(sessionsTable), BorderLayout.CENTER);
+        return panel;
+    }
+
+    private final Map<Integer, UUID> rowToSessionId = new HashMap<>();
+
+    private void updateSessionsTab(List<CommitInfo> commits) {
+        if (commits.isEmpty()) {
+            SwingUtilities.invokeLater(() -> {
+                sessionsTableModel.setRowCount(0);
+                rowToSessionId.clear();
+                updateSessionsTabTitle(0);
+            });
+            return;
+        }
+
+        contextManager.submitBackgroundTask("Finding overlapping sessions", () -> {
+            List<UUID> sessionIds = ReviewScope.findOverlappingSessions(contextManager, commits);
+            var sessionInfos = new ArrayList<SessionManager.SessionInfo>();
+            var taskCounts = new HashMap<UUID, Integer>();
+
+            var sm = contextManager.getProject().getSessionManager();
+            var allSessions = sm.listSessions().stream()
+                    .filter(s -> sessionIds.contains(s.id()))
+                    .toList();
+
+            for (var info : allSessions) {
+                sessionInfos.add(info);
+                taskCounts.put(info.id(), sm.countAiResponses(info.id()));
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                sessionsTableModel.setRowCount(0);
+                rowToSessionId.clear();
+                for (int i = 0; i < sessionInfos.size(); i++) {
+                    var info = sessionInfos.get(i);
+                    sessionsTableModel.addRow(new Object[] {true, info.name(), taskCounts.getOrDefault(info.id(), 0)});
+                    rowToSessionId.put(i, info.id());
+                }
+                updateSessionsTabTitle(sessionInfos.size());
+            });
+            return null;
+        });
+    }
+
+    private void updateSessionsTabTitle(int count) {
+        int idx = middleTabbedPane.indexOfComponent(sessionsTabPanel);
+        if (idx < 0) return;
+        String title = count == 1 ? "1 Session" : count + " Sessions";
+        middleTabbedPane.setTitleAt(idx, title);
+    }
+
     private void createPullRequest() {
         if (!isCreatePrReady()) {
             // This should ideally not happen if button state is managed correctly,
@@ -796,12 +900,37 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
         createPrButton.setLoading(true, "Creating PR…");
 
+        // Capture session IDs on EDT
+        List<UUID> selectedSessionUuids = new ArrayList<>();
+        for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+            if (Boolean.TRUE.equals(sessionsTableModel.getValueAt(i, 0))) {
+                UUID id = rowToSessionId.get(i);
+                if (id != null) selectedSessionUuids.add(id);
+            }
+        }
+
         contextManager.submitExclusiveAction(() -> {
             try {
+                // Wait for background session sync to complete before proceeding
+                try {
+                    sessionSyncFuture.get(30, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    logger.warn("Timed out waiting for session sync, proceeding anyway");
+                } catch (InterruptedException | ExecutionException e) {
+                    logger.warn("Session sync failed, proceeding anyway: {}", e.getMessage());
+                }
+
                 // Gather details on the EDT before going to background if they come from Swing components
                 final String title = titleField.getText().trim();
-                final String body = descriptionArea.getText().trim();
-                // Removed duplicate declarations of title and body
+                String body = descriptionArea.getText().trim();
+
+                if (!selectedSessionUuids.isEmpty()) {
+                    String ids = selectedSessionUuids.stream()
+                            .map(UUID::toString)
+                            .collect(java.util.stream.Collectors.joining(","));
+                    body += "\n\nbrokk-session-ids:" + ids;
+                }
+
                 final String sourceBranch = sourceBranchComboBox.getSelectedItem();
                 final String targetBranch = targetBranchComboBox.getSelectedItem();
 
@@ -811,6 +940,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 }
 
                 var prUrl = workflowService.createPullRequest(sourceBranch, targetBranch, title, body);
+
+                // Make sessions public
+                var sm = contextManager.getProject().getSessionManager();
+                for (UUID sessionId : selectedSessionUuids) {
+                    sm.makePublicAsync(sessionId);
+                }
 
                 // Success: Open in browser and dispose dialog
                 if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
