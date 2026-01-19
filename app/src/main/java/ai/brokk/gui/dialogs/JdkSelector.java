@@ -1,6 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.concurrent.LoggingFuture;
+import ai.brokk.util.EnvironmentJava;
 import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import java.awt.*;
@@ -91,19 +92,33 @@ public class JdkSelector extends JPanel {
         if (path == null || path.isBlank()) {
             return;
         }
+
+        // Handle sentinel: resolve to actual JAVA_HOME and try to match
+        String effectivePath = path;
+        boolean isSentinel = EnvironmentJava.JAVA_HOME_SENTINEL.equals(path);
+        if (isSentinel) {
+            String javaHome = System.getenv("JAVA_HOME");
+            if (javaHome != null && !javaHome.isBlank()) {
+                effectivePath = javaHome;
+            }
+        }
+
+        // Try to match against discovered JDKs
         int matchedIdx = -1;
         for (int i = 0; i < combo.getItemCount(); i++) {
             var it = combo.getItemAt(i);
-            if (path.equals(it.path)) {
+            if (effectivePath.equals(it.path)) {
                 matchedIdx = i;
                 break;
             }
         }
+
         if (matchedIdx >= 0) {
             combo.setSelectedIndex(matchedIdx);
         } else {
-            var displayName = createDisplayName(path);
-            var custom = new JdkItem(displayName, path);
+            // Custom entry - use friendly label for sentinel
+            String label = isSentinel ? "System JAVA_HOME" : createDisplayName(path);
+            var custom = new JdkItem(label, path);
             combo.addItem(custom);
             combo.setSelectedItem(custom);
         }
