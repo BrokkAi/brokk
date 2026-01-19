@@ -39,10 +39,8 @@ public class ScrollSynchronizer {
 
     private @Nullable AdjustmentListener verticalAdjustmentListener;
 
-    // State management and throttling utilities
+    // State management
     private final ScrollSyncState syncState;
-    private final ScrollFrameThrottler frameThrottler;
-    private final AdaptiveThrottlingStrategy adaptiveStrategy;
 
     // Performance monitoring
     private final ScrollPerformanceMonitor performanceMonitor;
@@ -62,8 +60,6 @@ public class ScrollSynchronizer {
 
         // Initialize state management utilities
         this.syncState = new ScrollSyncState();
-        this.frameThrottler = new ScrollFrameThrottler(PerformanceConstants.SCROLL_FRAME_RATE_MS);
-        this.adaptiveStrategy = new AdaptiveThrottlingStrategy();
         this.performanceMonitor = new ScrollPerformanceMonitor();
         this.lineMapper = new LineMapper();
 
@@ -98,8 +94,6 @@ public class ScrollSynchronizer {
 
         // Initialize state management utilities
         this.syncState = new ScrollSyncState();
-        this.frameThrottler = new ScrollFrameThrottler(PerformanceConstants.SCROLL_FRAME_RATE_MS);
-        this.adaptiveStrategy = new AdaptiveThrottlingStrategy();
         this.performanceMonitor = new ScrollPerformanceMonitor();
         this.lineMapper = new LineMapper();
 
@@ -148,18 +142,8 @@ public class ScrollSynchronizer {
     private AdjustmentListener getVerticalAdjustmentListener() {
         if (verticalAdjustmentListener == null) {
             verticalAdjustmentListener = new AdjustmentListener() {
-                private long lastScrollTime = 0;
-                private static final long SCROLL_THROTTLE_MS = 16; // 60 FPS max
-
                 @Override
                 public void adjustmentValueChanged(AdjustmentEvent e) {
-                    // Performance optimization: throttle scroll events to prevent excessive processing
-                    long currentTime = System.currentTimeMillis();
-                    if (currentTime - lastScrollTime < SCROLL_THROTTLE_MS) {
-                        return; // Skip this event to reduce processing load
-                    }
-                    lastScrollTime = currentTime;
-
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     var leftScrolled = (e.getSource() == leftV);
 
@@ -173,7 +157,7 @@ public class ScrollSynchronizer {
                         return;
                     }
 
-                    // Only process on value adjusting to reduce noise
+                    // Skip events while adjusting and only process the final non-adjusting event to reduce noise
                     if (e.getValueIsAdjusting()) {
                         return;
                     }
@@ -181,8 +165,7 @@ public class ScrollSynchronizer {
                     // Track user scrolling to prevent conflicts
                     syncState.recordUserScroll();
 
-                    // Use configured throttling mode for optimal performance and user experience
-                    scheduleScrollSync(() -> syncScroll(leftScrolled));
+                    syncScroll(leftScrolled);
 
                     // Reset the scrolling state so subsequent events are processed
                     syncState.clearUserScrolling();
@@ -234,9 +217,6 @@ public class ScrollSynchronizer {
             return;
         }
 
-        // Initialize adaptive strategy if this is the first time we see this patch
-        initializeAdaptiveStrategyIfNeeded(patch);
-
         var fp1 = leftScrolled ? filePanelLeft : filePanelRight;
         var fp2 = leftScrolled ? filePanelRight : filePanelLeft;
 
@@ -249,11 +229,6 @@ public class ScrollSynchronizer {
         // Log performance metrics
         long mappingDuration = System.currentTimeMillis() - startTime;
         performanceMonitor.recordScrollEvent(mappingDuration, patch.getDeltas().size(), line, mappedLine);
-
-        // Record adaptive strategy metrics
-        if (PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING) {
-            adaptiveStrategy.recordScrollEvent(mappingDuration);
-        }
 
         if (mappingDuration > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
             performanceLogger.warn(
@@ -537,94 +512,6 @@ public class ScrollSynchronizer {
     }
 
     /**
-     * Schedule scroll synchronization using the configured throttling mode. Supports immediate execution, traditional
-     * debouncing, frame-based throttling, or adaptive throttling.
-     */
-    private void scheduleScrollSync(Runnable syncAction) {
-        // Validate configuration to prevent conflicts
-        PerformanceConstants.validateScrollThrottlingConfig();
-
-        if (PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING) {
-            // Adaptive throttling determines the best mode automatically
-            var currentMode = adaptiveStrategy.getCurrentMode();
-            if (currentMode == AdaptiveThrottlingStrategy.ThrottlingMode.FRAME_BASED) {
-                frameThrottler.submit(syncAction);
-            } else {
-                // Immediate execution for simple files
-                syncAction.run();
-            }
-        } else if (PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING) {
-            frameThrottler.submit(syncAction);
-        } else {
-            // Immediate execution (no throttling)
-            syncAction.run();
-        }
-
-        // Trigger any side effects that might be needed for UI updates
-        // Note: Full metrics are recorded in performScroll() with actual values
-        performanceMonitor.recordScrollEvent(0, 0, 0, 0);
-    }
-
-    /**
-     * Update throttling configuration dynamically. Called when the debug panel changes throttling settings to apply
-     * them immediately.
-     */
-    public void updateThrottlingConfiguration() {
-        // Validate configuration
-        var changed = PerformanceConstants.validateScrollThrottlingConfig();
-        if (changed) {
-            logger.info("Throttling configuration auto-corrected to prevent conflicts");
-        }
-
-        // Update frame throttler rate if changed
-        frameThrottler.setFrameRate(PerformanceConstants.SCROLL_FRAME_RATE_MS);
-
-        logger.info("Scroll throttling configuration updated: {}", PerformanceConstants.getCurrentScrollMode());
-    }
-
-    /** Get throttling performance metrics for the debug panel. */
-    public ThrottlingMetrics getThrottlingMetrics() {
-        return new ThrottlingMetrics(
-                frameThrottler.getTotalEvents(),
-                frameThrottler.getTotalExecutions(),
-                frameThrottler.getThrottlingEfficiency(),
-                frameThrottler.isFrameActive());
-    }
-
-    /**
-     * Initialize the adaptive throttling strategy with file complexity metrics. This is called when a patch is first
-     * encountered to set up optimal throttling.
-     */
-    private void initializeAdaptiveStrategyIfNeeded(Patch<String> patch) {
-        if (!PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING) {
-            return;
-        }
-
-        // Calculate file complexity metrics
-        int totalLines = Math.max(
-                filePanelLeft.getBufferDocument() != null
-                        ? filePanelLeft.getBufferDocument().getNumberOfLines()
-                        : 0,
-                filePanelRight.getBufferDocument() != null
-                        ? filePanelRight.getBufferDocument().getNumberOfLines()
-                        : 0);
-        int totalDeltas = patch.getDeltas().size();
-
-        // Initialize the strategy with these metrics
-        adaptiveStrategy.initialize(totalLines, totalDeltas);
-    }
-
-    /** Get adaptive throttling metrics for the debug panel. */
-    public AdaptiveThrottlingStrategy.AdaptiveMetrics getAdaptiveMetrics() {
-        return adaptiveStrategy.getMetrics();
-    }
-
-    /** Get the adaptive throttling strategy (for testing and debugging). */
-    public AdaptiveThrottlingStrategy getAdaptiveStrategy() {
-        return adaptiveStrategy;
-    }
-
-    /**
      * Temporarily disable scroll synchronization during document operations. This prevents interference when applying
      * diff deltas that modify document content.
      *
@@ -650,13 +537,7 @@ public class ScrollSynchronizer {
         return syncState.isProgrammaticScroll();
     }
 
-    /** Record for throttling performance metrics. */
-    public record ThrottlingMetrics(long totalEvents, long totalExecutions, double efficiency, boolean frameActive) {}
-
     public void dispose() {
-        // Dispose throttling utilities to stop any pending timers
-        frameThrottler.dispose();
-
         // Stop reusable timers
         programmaticScrollResetTimer.stop();
         navigationResetTimer.stop();

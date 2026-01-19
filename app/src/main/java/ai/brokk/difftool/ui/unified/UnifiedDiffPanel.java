@@ -40,6 +40,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rtextarea.RTextScrollPane;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -462,6 +463,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         return List.of();
     }
 
+    @Blocking
     @Override
     public BufferDiffPanel.SaveResult writeChangedDocuments() {
         // TODO: Implement for editing support
