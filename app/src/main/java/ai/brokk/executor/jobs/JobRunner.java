@@ -1013,10 +1013,16 @@ public final class JobRunner {
                                                 } // else continue to PR creation
                                             }
 
-                                            // 5. Commit and Create Pull Request (optional, respect issueDeliveryEnabled)
+                                            // 5. Commit and Create Pull Request (conditional)
+                                            // Only create a PR if:
+                                            //  - delivery policy enables PR creation (issue_delivery != "none")
+                                            //  - final gate verification passed (we reached here only when tests/lint passed)
                                             if (issueDeliveryEnabled(spec)) {
                                                 try {
                                                     var workflow = new GitWorkflow(cm);
+
+                                                    // Commit any remaining changes before creating the PR.
+                                                    // performAutoCommit returns Optional<CommitResult> in GitWorkflow.
                                                     workflow.performAutoCommit("Resolves #" + issueNumber + ": " + details.title());
 
                                                     String targetBranch = gitHubAuth.getDefaultBranch();
@@ -1047,6 +1053,20 @@ public final class JobRunner {
                                                             // best-effort only
                                                         }
                                                     }
+                                                }
+                                            } else {
+                                                // Delivery disabled by policy: inform console but continue cleanup.
+                                                String msg = "PR creation skipped due to issue_delivery policy";
+                                                logger.info("ISSUE job {}: {}", jobId, msg);
+                                                try {
+                                                    if (console != null) {
+                                                        console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                                    } else {
+                                                        cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                                    }
+                                                    store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
+                                                } catch (Exception ignore) {
+                                                    // best-effort only
                                                 }
                                             }
                                         }
