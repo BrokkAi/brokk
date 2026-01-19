@@ -2,10 +2,12 @@ package ai.brokk.util;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -112,15 +114,34 @@ public final class FileUtil {
         if (path.length() <= maxLength) {
             return path;
         }
-        var pathObj = Path.of(path);
+
+        Path pathObj;
+        try {
+            pathObj = Path.of(path);
+        } catch (InvalidPathException e) {
+            // Not a valid path on this OS; return original (possibly truncated if extremely long)
+            return path.length() > maxLength ? path.substring(0, maxLength - 3) + "..." : path;
+        }
+
         int nameCount = pathObj.getNameCount();
         if (nameCount <= 4) {
             return path;
         }
+
+        String sep = pathObj.getFileSystem().getSeparator();
         var root = pathObj.getRoot();
-        var first = pathObj.getName(0);
-        var lastThree = pathObj.subpath(nameCount - 3, nameCount);
-        var rootStr = root != null ? root.toString() : "";
-        return rootStr + first + "/.../" + lastThree;
+        String rootStr = root != null ? root.toString() : "";
+
+        // Build the middle part: root + first name + "..."
+        String first = pathObj.getName(0).toString();
+        String prefix = rootStr + first + sep + "...";
+
+        // Collect the last three components
+        List<String> lastParts = new ArrayList<>();
+        for (int i = nameCount - 3; i < nameCount; i++) {
+            lastParts.add(pathObj.getName(i).toString());
+        }
+
+        return prefix + sep + String.join(sep, lastParts);
     }
 }
