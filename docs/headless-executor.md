@@ -393,7 +393,8 @@ When you submit an ISSUE job, the system follows these steps:
 4. **Execution & Verification Loop**: For each generated task:
     - **Implementation**: ArchitectAgent implements the task using `plannerModel` and `codeModel`.
     - **Build Verification**: Runs the project's build/lint command once per task.
-    - **Self-Correction**: If the build fails during task verification, the job will stop and report the failure (headless executor default behavior is to not auto-retry per-task in headless runs).
+    - **Self-Correction (single fix attempt)**: If verification fails, the executor performs exactly one fix attempt and then re-runs verification once.
+    - **Failure behavior**: If verification still fails after the single fix attempt, the job stops and reports failure (there is no per-task multi-retry loop in headless runs).
 5. **Final Gate & Delivery**: After all tasks verify, the executor runs final checks (full tests + lint) and then—by default—creates a commit and opens a Pull Request on GitHub. PR creation can be disabled via the `issue_delivery` tag (see below).
 6. **Cleanup**: The executor attempts to restore the original branch and remove temporary issue branches when appropriate (best-effort).
 
