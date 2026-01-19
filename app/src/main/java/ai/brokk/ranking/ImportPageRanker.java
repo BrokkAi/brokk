@@ -260,7 +260,9 @@ public final class ImportPageRanker {
             return cached;
         }
 
-        Set<CodeUnit> importedUnits = analyzer.importedCodeUnitsOf(file);
+        Set<CodeUnit> importedUnits = analyzer.as(ai.brokk.analyzer.ImportAnalysisProvider.class)
+                .map(p -> p.importedCodeUnitsOf(file))
+                .orElse(Set.of());
         Set<ProjectFile> resolved;
 
         if (!importedUnits.isEmpty()) {
@@ -306,7 +308,9 @@ public final class ImportPageRanker {
             return cached;
         }
 
-        Set<ProjectFile> resolved = analyzer.referencingFilesOf(file);
+        Set<ProjectFile> resolved = analyzer.as(ai.brokk.analyzer.ImportAnalysisProvider.class)
+                .map(p -> p.referencingFilesOf(file))
+                .orElse(Set.of());
         cache.put(file, resolved);
         return resolved;
     }

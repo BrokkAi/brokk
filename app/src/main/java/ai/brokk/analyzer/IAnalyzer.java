@@ -151,6 +151,7 @@ public interface IAnalyzer {
      */
     List<CodeUnit> getDirectChildren(CodeUnit cu);
 
+
     /**
      * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
      * method that may produce false positives/negatives.
@@ -165,23 +166,6 @@ public interface IAnalyzer {
      * @return the import snippets for the given file where other code units may be referred to by.
      */
     List<String> importStatementsOf(ProjectFile file);
-
-    /**
-     * Retrieves the resolved import CodeUnits for a given file.
-     *
-     * @param file the project file
-     * @return an unmodifiable set of resolved CodeUnits from import statements
-     */
-    default Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return Set.of();
-    }
-
-    /**
-     * Returns the set of files that import the given file.
-     */
-    default Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return Set.of();
-    }
 
     /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
@@ -202,20 +186,6 @@ public interface IAnalyzer {
         public boolean isContainedWithin(Range other) {
             return startByte >= other.startByte && endByte <= other.endByte;
         }
-    }
-
-    /**
-     * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
-     * Implementations should return only the immediate ancestors.
-     */
-    List<CodeUnit> getDirectAncestors(CodeUnit cu);
-
-    /**
-     * Returns the direct subtypes/descendants (non-transitive) for the given CodeUnit.
-     * Implementations should return only the immediate descendants.
-     */
-    default Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
-        return Set.of();
     }
 
     // Things most implementations won't have to override
@@ -402,97 +372,6 @@ public interface IAnalyzer {
         return symbols;
     }
 
-    /**
-     * Returns the transitive set of supertypes/basetypes for the given CodeUnit.
-     * This is computed via a fixed-point iterative traversal using getDirectAncestors:
-     * - Direct ancestors are listed first, followed by their ancestors in discovery order (BFS).
-     * - Duplicates are removed by fqName.
-     * - Cycles are handled gracefully via a visited set.
-     * <p>
-     * Implementations should override {@link #getDirectAncestors(CodeUnit)} to provide language-specific direct
-     * ancestor resolution. This method composes those results into a transitive closure.
-     */
-    default List<CodeUnit> getAncestors(CodeUnit cu) {
-        // Seed with direct ancestors
-        List<CodeUnit> direct = getDirectAncestors(cu);
-        if (direct.isEmpty()) {
-            return List.of();
-        }
-
-        // Fixed-point traversal: BFS over direct ancestors
-        var result = new ArrayList<CodeUnit>(direct.size());
-        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
-        var queue = new ArrayDeque<CodeUnit>(direct.size());
-
-        for (var d : direct) {
-            if (visited.add(d.fqName())) {
-                result.add(d);
-                queue.add(d);
-            }
-        }
-
-        while (!queue.isEmpty()) {
-            var current = queue.removeFirst();
-            List<CodeUnit> parents = getDirectAncestors(current);
-            if (parents.isEmpty()) continue;
-
-            for (var p : parents) {
-                String key = p.fqName();
-                if (visited.add(key)) {
-                    result.add(p);
-                    queue.addLast(p);
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * Returns the transitive set of subtypes/descendants for the given CodeUnit.
-     * This is computed via a fixed-point iterative traversal using getDirectDescendants:
-     * - Direct descendants are listed first, followed by their descendants in discovery order (BFS).
-     * - Duplicates are removed by fqName.
-     * - Cycles are handled gracefully via a visited set.
-     * <p>
-     * Implementations should override {@link #getDirectDescendants(CodeUnit)} to provide language-specific direct
-     * descendant resolution. This method composes those results into a transitive closure.
-     */
-    default List<CodeUnit> getDescendants(CodeUnit cu) {
-        // Seed with direct descendants
-        Set<CodeUnit> direct = getDirectDescendants(cu);
-        if (direct.isEmpty()) {
-            return List.of();
-        }
-
-        // Fixed-point traversal: BFS over direct descendants
-        var result = new ArrayList<CodeUnit>(direct.size());
-        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
-        var queue = new ArrayDeque<CodeUnit>(direct.size());
-
-        for (var d : direct) {
-            if (visited.add(d.fqName())) {
-                result.add(d);
-                queue.add(d);
-            }
-        }
-
-        while (!queue.isEmpty()) {
-            var current = queue.removeFirst();
-            Set<CodeUnit> children = getDirectDescendants(current);
-            if (children.isEmpty()) continue;
-
-            for (var child : children) {
-                String key = child.fqName();
-                if (visited.add(key)) {
-                    result.add(child);
-                    queue.addLast(child);
-                }
-            }
-        }
-
-        return result;
-    }
 
     /**
      * Returns an analyzer that targets the given language if one is available. For single-analyzers, it will be the

@@ -1,5 +1,7 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.IProject;
@@ -55,7 +57,8 @@ import org.treesitter.*;
  * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
  * how to map a capture to a {@link CodeUnit}.
  */
-public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider {
+public abstract class TreeSitterAnalyzer implements IAnalyzer, ImportAnalysisProvider, TypeHierarchyProvider, TypeAliasProvider {
+
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
@@ -3417,6 +3420,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     .collect(Collectors.toUnmodifiableSet());
             return descendants;
         });
+    }
+
+    @Override
+    public List<CodeUnit> getAncestors(CodeUnit cu) {
+        return TypeHierarchyProvider.super.getAncestors(cu);
+    }
+
+    @Override
+    public List<CodeUnit> getDescendants(CodeUnit cu) {
+        return TypeHierarchyProvider.super.getDescendants(cu);
     }
 
     /* ---------- file filtering helpers ---------- */
