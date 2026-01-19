@@ -239,15 +239,19 @@ public class Brokk {
                                     if ((he.getChangeFlags() & HierarchyEvent.PARENT_CHANGED) != 0) {
                                         if (popupMenu.getParent() != null) {
                                             String currentTheme = MainProject.getTheme();
-                                            popupMenu.putClientProperty(THEME_CLIENT_PROPERTY, currentTheme);
-                                            SwingUtilities.updateComponentTreeUI(popupMenu);
+                                            if (!Objects.equals(
+                                                    currentTheme, popupMenu.getClientProperty(THEME_CLIENT_PROPERTY))) {
+                                                popupMenu.putClientProperty(THEME_CLIENT_PROPERTY, currentTheme);
+                                                SwingUtilities.updateComponentTreeUI(popupMenu);
+                                                System.out.println("hierarchy added");
+                                            }
                                         }
                                     }
                                     if ((he.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
                                         if (popupMenu.isShowing()) {
                                             String currentTheme = MainProject.getTheme();
-                                            Object storedTheme = popupMenu.getClientProperty(THEME_CLIENT_PROPERTY);
-                                            if (!Objects.equals(currentTheme, storedTheme)) {
+                                            if (!Objects.equals(
+                                                    currentTheme, popupMenu.getClientProperty(THEME_CLIENT_PROPERTY))) {
                                                 popupMenu.putClientProperty(THEME_CLIENT_PROPERTY, currentTheme);
                                                 SwingUtilities.updateComponentTreeUI(popupMenu);
                                             }
