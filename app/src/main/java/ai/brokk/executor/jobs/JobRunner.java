@@ -813,14 +813,8 @@ public final class JobRunner {
                                         // 3. Branch management
                                         var gitRepo = (GitRepo) cm.getProject().getRepo();
 
-                                        // Capture original branch and commit id best-effort
+                                        // Capture original branch best-effort
                                         String originalBranch = gitRepo.getCurrentBranch();
-                                        @Nullable String originalCommitId = null;
-                                        try {
-                                            originalCommitId = gitRepo.getCurrentCommitId();
-                                        } catch (Exception e) {
-                                            logger.warn("Failed to capture current commit ID for job {}", jobId, e);
-                                        }
 
                                         String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
 
@@ -1063,13 +1057,7 @@ public final class JobRunner {
                                             boolean forceDelete = "always"
                                                     .equalsIgnoreCase(
                                                             spec.tags().getOrDefault("issue_branch_cleanup", ""));
-                                            cleanupIssueBranch(
-                                                    jobId,
-                                                    gitRepo,
-                                                    originalBranch,
-                                                    issueBranchName,
-                                                    originalCommitId,
-                                                    forceDelete);
+                                            cleanupIssueBranch(jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
@@ -1454,7 +1442,6 @@ public final class JobRunner {
             GitRepo gitRepo,
             String originalBranch,
             String issueBranchName,
-            @Nullable String originalCommitId,
             boolean forceDelete) {
 
         // Cleanup semantics (linear and auditable):

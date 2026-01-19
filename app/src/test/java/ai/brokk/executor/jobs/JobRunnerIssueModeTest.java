@@ -301,14 +301,13 @@ class JobRunnerIssueModeTest {
     @Test
     void cleanupIssueBranch_restoresOriginalBranch_andDeletesIssueBranch() throws Exception {
         String originalBranch = repo.getCurrentBranch();
-        String originalCommitId = repo.getCurrentCommitId();
 
         String issueBranchName = "brokk/issue-cleanup-1";
         repo.createAndCheckoutBranch(issueBranchName, originalBranch);
         assertEquals(issueBranchName, repo.getCurrentBranch());
 
-        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
-                "job-cleanup-1", repo, originalBranch, issueBranchName, originalCommitId, false));
+        assertDoesNotThrow(
+                () -> JobRunner.cleanupIssueBranch("job-cleanup-1", repo, originalBranch, issueBranchName, false));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertFalse(repo.isLocalBranch(issueBranchName), "Issue branch should be deleted after cleanup");
@@ -317,7 +316,6 @@ class JobRunnerIssueModeTest {
     @Test
     void cleanupIssueBranch_forceDeleteFallback_deletesBranch() throws Exception {
         String originalBranch = repo.getCurrentBranch();
-        String originalCommitId = repo.getCurrentCommitId();
         Path root = repo.getWorkTreeRoot();
 
         String issueBranchName = "brokk/issue-cleanup-3";
@@ -327,8 +325,8 @@ class JobRunnerIssueModeTest {
         repo.getGit().add().addFilepattern("README.md").call();
         repo.getGit().commit().setMessage("unique").setSign(false).call();
 
-        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
-                "job-cleanup-3", repo, originalBranch, issueBranchName, originalCommitId, true));
+        assertDoesNotThrow(
+                () -> JobRunner.cleanupIssueBranch("job-cleanup-3", repo, originalBranch, issueBranchName, true));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertFalse(
@@ -338,14 +336,13 @@ class JobRunnerIssueModeTest {
     @Test
     void cleanupIssueBranch_returnsToOriginalBranch_andDeletesBranch_whenNoUniqueCommits() throws Exception {
         String originalBranch = repo.getCurrentBranch();
-        String originalCommitId = repo.getCurrentCommitId();
 
         String issueBranchName = "brokk/issue-cleanup-1";
         repo.createAndCheckoutBranch(issueBranchName, originalBranch);
         assertEquals(issueBranchName, repo.getCurrentBranch());
 
-        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
-                "job-cleanup-1", repo, originalBranch, issueBranchName, originalCommitId, false));
+        assertDoesNotThrow(
+                () -> JobRunner.cleanupIssueBranch("job-cleanup-1", repo, originalBranch, issueBranchName, false));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertFalse(
@@ -355,7 +352,6 @@ class JobRunnerIssueModeTest {
     @Test
     void cleanupIssueBranch_stashesAndReturnsToOriginalBranch_whenCheckoutBlockedByLocalChanges() throws Exception {
         String originalBranch = repo.getCurrentBranch();
-        String originalCommitId = repo.getCurrentCommitId();
         Path root = repo.getWorkTreeRoot();
 
         String issueBranchName = "brokk/issue-cleanup-2";
@@ -370,8 +366,8 @@ class JobRunnerIssueModeTest {
         int stashesBefore = repo.listStashes().size();
         Files.writeString(root.resolve("README.md"), "uncommitted change");
 
-        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
-                "job-cleanup-2", repo, originalBranch, issueBranchName, originalCommitId, false));
+        assertDoesNotThrow(
+                () -> JobRunner.cleanupIssueBranch("job-cleanup-2", repo, originalBranch, issueBranchName, false));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertTrue(repo.listStashes().size() > stashesBefore, "Cleanup should create a stash when checkout is blocked");
@@ -380,7 +376,6 @@ class JobRunnerIssueModeTest {
     @Test
     void cleanupIssueBranch_forceDelete_deletesBranchEvenWithUniqueCommits() throws Exception {
         String originalBranch = repo.getCurrentBranch();
-        String originalCommitId = repo.getCurrentCommitId();
         Path root = repo.getWorkTreeRoot();
 
         String issueBranchName = "brokk/issue-cleanup-3";
@@ -390,8 +385,8 @@ class JobRunnerIssueModeTest {
         repo.getGit().add().addFilepattern("README.md").call();
         repo.getGit().commit().setMessage("unique").setSign(false).call();
 
-        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
-                "job-cleanup-3", repo, originalBranch, issueBranchName, originalCommitId, true));
+        assertDoesNotThrow(
+                () -> JobRunner.cleanupIssueBranch("job-cleanup-3", repo, originalBranch, issueBranchName, true));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertFalse(repo.isLocalBranch(issueBranchName), "Force-delete cleanup should delete issue branch");
@@ -402,7 +397,6 @@ class JobRunnerIssueModeTest {
         // Setup: create a branch and make it unmerged so normal delete may fail (JGit throws when branch not fully
         // merged).
         String originalBranch = repo.getCurrentBranch();
-        String originalCommitId = repo.getCurrentCommitId();
         Path root = repo.getWorkTreeRoot();
 
         String issueBranchName = "brokk/issue-cleanup-force-flag-1";
@@ -423,8 +417,7 @@ class JobRunnerIssueModeTest {
 
         // Call cleanup with forceDelete=false. If deleteBranch throws, cleanup should NOT force-delete and branch
         // should remain.
-        JobRunner.cleanupIssueBranch(
-                "job-cleanup-force-flag-1", repo, originalBranch, issueBranchName, originalCommitId, false);
+        JobRunner.cleanupIssueBranch("job-cleanup-force-flag-1", repo, originalBranch, issueBranchName, false);
 
         // The branch should still exist (delete should not have been force-applied).
         assertTrue(
@@ -436,7 +429,6 @@ class JobRunnerIssueModeTest {
     void cleanupIssueBranch_respectsForceDeleteFlag_trueRemovesBranchWhenNormalDeleteFails() throws Exception {
         // Setup: create a branch and make it unmerged so normal delete may fail.
         String originalBranch = repo.getCurrentBranch();
-        String originalCommitId = repo.getCurrentCommitId();
         Path root = repo.getWorkTreeRoot();
 
         String issueBranchName = "brokk/issue-cleanup-force-flag-2";
@@ -456,8 +448,7 @@ class JobRunnerIssueModeTest {
         assertEquals(originalBranch, repo.getCurrentBranch());
 
         // Call cleanup with forceDelete=true; branch should be removed even if normal delete would have failed.
-        JobRunner.cleanupIssueBranch(
-                "job-cleanup-force-flag-2", repo, originalBranch, issueBranchName, originalCommitId, true);
+        JobRunner.cleanupIssueBranch("job-cleanup-force-flag-2", repo, originalBranch, issueBranchName, true);
 
         assertFalse(
                 repo.isLocalBranch(issueBranchName),
