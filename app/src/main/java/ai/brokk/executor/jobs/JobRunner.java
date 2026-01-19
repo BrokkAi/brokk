@@ -843,21 +843,6 @@ public final class JobRunner {
                                                     .filter(t -> !t.done())
                                                     .toList();
 
-                                            // Create or reuse shared attempts budget for the whole ISSUE run.
-                                            // If sharedAttempts already exists in the surrounding scope, reuse it;
-                                            // otherwise initialize it from spec.effectiveMaxIssueFixAttempts().
-                                            // (We hoist sharedAttempts into this scope by detecting existing variable
-                                            // name from earlier edits; if not present, create it here.)
-                                            var sharedAttemptsFieldName = "sharedAttempts";
-                                            java.util.concurrent.atomic.AtomicInteger sharedAttempts = null;
-                                            try {
-                                                // try to reuse an existing variable if present (no-op in compiled code,
-                                                // this just keeps intent clear). We'll initialize sharedAttempts here.
-                                            } catch (Throwable ignored) {
-                                            }
-                                            sharedAttempts = new java.util.concurrent.atomic.AtomicInteger(
-                                                    spec.effectiveMaxIssueFixAttempts());
-
                                             for (TaskList.TaskItem generatedTask : incompleteTasks) {
                                                 if (cancelled.get()) return;
 
@@ -865,101 +850,60 @@ public final class JobRunner {
                                                 cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
                                                 // Per-task verification: ensure the workspace still verifies after this
-                                                // task.
-                                                int maxPerTaskAttempts = Objects.requireNonNullElse(
-                                                        buildDetailsOverride.maxBuildAttempts(),
-                                                        DEFAULT_MAX_BUILD_ATTEMPTS);
+                                                // task. Run verification once; on failure, throw IssueExecutionException.
+                                                String verificationOut;
+                                                try {
+                                                    verificationOut = BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                } catch (InterruptedException ie) {
+                                                    Thread.currentThread().interrupt();
+                                                    throw new IssueExecutionException(
+                                                            "Interrupted while running verification",
+                                                            ie);
+                                                }
 
-                                                // Use the sharedAttempts but cap per verification to the configured
-                                                // per-task max.
-                                                var perTaskAttempts = new java.util.concurrent.atomic.AtomicInteger(
-                                                        Math.min(sharedAttempts.get(), maxPerTaskAttempts));
-
-                                                // Remember initial per-task attempts so we can compute exact
-                                                // consumption.
-                                                int initialPerTaskAttempts = perTaskAttempts.get();
-
-                                                // Run verification attempts for this task. The verificationRunner
-                                                // returns non-blank output on failure; blank on success.
-                                                runVerificationRetryLoop(
-                                                        jobId,
-                                                        store,
-                                                        cm.getIo(),
-                                                        perTaskAttempts,
-                                                        () -> {
-                                                            try {
-                                                                return BuildAgent.runVerification(
-                                                                        cm, buildDetailsOverride);
-                                                            } catch (InterruptedException ie) {
-                                                                Thread.currentThread()
-                                                                        .interrupt();
-                                                                return "Interrupted while running verification: "
-                                                                        + ie.getMessage();
-                                                            }
-                                                        },
-                                                        prompt -> {
-                                                            try {
-                                                                cm.executeTask(
-                                                                        TaskList.TaskItem.createFixTask(prompt),
-                                                                        issuePlannerModel,
-                                                                        issueCodeModel);
-                                                            } catch (InterruptedException ie) {
-                                                                Thread.currentThread()
-                                                                        .interrupt();
-                                                                throw new IssueExecutionException(
-                                                                        "Interrupted while attempting to fix verification failure",
-                                                                        ie);
-                                                            }
-                                                        });
-
-                                                // After the per-task verification loop completes, compute exactly how
-                                                // many
-                                                // attempts were consumed and subtract that exact amount from the
-                                                // sharedAttempts
-                                                // budget (clamping so sharedAttempts never becomes negative).
-                                                int consumedPerTask = initialPerTaskAttempts - perTaskAttempts.get();
-                                                if (consumedPerTask > 0) {
-                                                    int remaining = sharedAttempts.get();
-                                                    int toConsume = Math.min(consumedPerTask, remaining);
-                                                    // Subtract the consumed amount from the shared budget.
-                                                    sharedAttempts.addAndGet(-toConsume);
+                                                if (verificationOut != null && !verificationOut.isBlank()) {
+                                                    String verDetails = "Verification failed after task: "
+                                                            + generatedTask.title()
+                                                            + "\n\n"
+                                                            + verificationOut;
+                                                    throw new IssueExecutionException(verDetails);
                                                 }
                                             }
 
                                             // After all tasks completed, run the end-of-run Pre-PR gate which runs full
-                                            // tests and lint.
-                                            // Use the same sharedAttempts budget so pre-PR gate only gets the remaining
-                                            // attempts.
-                                            runPrePrGateRetryLoop(
-                                                    jobId,
-                                                    store,
-                                                    cm.getIo(),
-                                                    buildDetailsOverride,
-                                                    sharedAttempts,
-                                                    cmd -> {
-                                                        try {
-                                                            return BuildAgent.runExplicitCommand(
-                                                                    cm, cmd, buildDetailsOverride);
-                                                        } catch (InterruptedException e) {
-                                                            Thread.currentThread()
-                                                                    .interrupt();
-                                                            return "Interrupted while running command: " + cmd;
-                                                        }
-                                                    },
-                                                    prompt -> {
-                                                        try {
-                                                            cm.executeTask(
-                                                                    TaskList.TaskItem.createFixTask(prompt),
-                                                                    issuePlannerModel,
-                                                                    issueCodeModel);
-                                                        } catch (InterruptedException e) {
-                                                            Thread.currentThread()
-                                                                    .interrupt();
-                                                            throw new IssueExecutionException(
-                                                                    "Interrupted while attempting to fix build failure",
-                                                                    e);
-                                                        }
-                                                    });
+                                            // tests and lint once each. If either fails, throw IssueExecutionException.
+                                            String testCmd = buildDetailsOverride.testAllCommand();
+                                            String lintCmd = buildDetailsOverride.buildLintCommand();
+
+                                            if (testCmd != null && !testCmd.isBlank()) {
+                                                String testOut;
+                                                try {
+                                                    testOut = BuildAgent.runExplicitCommand(cm, testCmd, buildDetailsOverride);
+                                                } catch (InterruptedException ie) {
+                                                    Thread.currentThread().interrupt();
+                                                    throw new IssueExecutionException(
+                                                            "Interrupted while running pre-PR tests",
+                                                            ie);
+                                                }
+                                                if (testOut != null && !testOut.isBlank()) {
+                                                    throw new IssueExecutionException("Pre-PR tests failed: " + testOut);
+                                                }
+                                            }
+
+                                            if (lintCmd != null && !lintCmd.isBlank()) {
+                                                String lintOut;
+                                                try {
+                                                    lintOut = BuildAgent.runExplicitCommand(cm, lintCmd, buildDetailsOverride);
+                                                } catch (InterruptedException ie) {
+                                                    Thread.currentThread().interrupt();
+                                                    throw new IssueExecutionException(
+                                                            "Interrupted while running pre-PR lint",
+                                                            ie);
+                                                }
+                                                if (lintOut != null && !lintOut.isBlank()) {
+                                                    throw new IssueExecutionException("Pre-PR lint failed: " + lintOut);
+                                                }
+                                            }
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
