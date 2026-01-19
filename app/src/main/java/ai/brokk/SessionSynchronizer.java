@@ -206,16 +206,16 @@ class SessionSynchronizer {
                         case UPLOAD -> handleUpload(action, callbacks, remoteProject, openContextManagers, result);
                         case NO_OP -> {}
                     }
-                } catch (ExecutionException executionException) {
-                    Throwable cause = executionException.getCause();
-                    Exception ex = (cause instanceof Exception e) ? e : new Exception(cause);
-                    actionFailedForSession(action, ex, result, id);
-                    if (checkUploadRateLimit(action, ex)) {
-                        break;
-                    }
-                } catch (IOException e) {
-                    actionFailedForSession(action, e, result, id);
-                    if (checkUploadRateLimit(action, e)) {
+                } catch (ExecutionException | IOException exception) {
+                    Exception finalEx = (exception instanceof ExecutionException ee)
+                            ? (ee.getCause() instanceof Exception ex ? ex : new Exception(ee.getCause()))
+                            : exception;
+
+                    result.failed.put(id, finalEx);
+                    logger.warn("Action {} failed for session {}: {}", action.type(), id, finalEx.getMessage());
+
+                    if (isUploadRateLimit(action, finalEx)) {
+                        logger.warn("Daily upload limit reached. Pausing remaining uploads for this sync cycle.");
                         break;
                     }
                 }
@@ -223,19 +223,10 @@ class SessionSynchronizer {
             return result;
         }
 
-        private boolean checkUploadRateLimit(SyncAction action, Exception e) {
-            var result = action.type() == ActionType.UPLOAD
+        private boolean isUploadRateLimit(SyncAction action, Exception e) {
+            return action.type() == ActionType.UPLOAD
                     && e instanceof ServiceHttpException se
                     && se.getStatusCode() == 429;
-            if (result) {
-                logger.warn("Daily upload limit reached. Pausing remaining uploads for this sync cycle.");
-            }
-            return result;
-        }
-
-        private void actionFailedForSession(SyncAction action, Exception e, SyncResult result, UUID id) {
-            result.failed.put(id, e);
-            logger.warn("Action {} failed for session {}: {}", action.type(), id, e.getMessage());
         }
 
         private void handleDeleteRemote(SyncAction action, SyncCallbacks callbacks, SyncResult result)
