@@ -10,6 +10,7 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ForkJoinPool;
@@ -223,13 +224,7 @@ public class JdkSelector extends JPanel {
             return false;
         }
 
-        try {
-            Path path = Path.of(jdkPath);
-            return isValidJdkPath(path);
-        } catch (Exception e) {
-            logger.debug("Invalid path format for JDK validation: {}", jdkPath, e);
-            return false;
-        }
+        return isValidJdkPath(Path.of(jdkPath));
     }
 
     /**
@@ -325,39 +320,34 @@ public class JdkSelector extends JPanel {
     }
 
     private static List<JdkItem> discoverInstalledJdks() {
-        try {
-            var finder = new Finder();
-            var distros = finder.getDistributions();
-            var items = new ArrayList<JdkItem>();
-            for (Distro d : distros) {
-                var name = d.getName();
-                var ver = d.getVersion();
-                var arch = d.getArchitecture();
-                var path = d.getPath() != null && !d.getPath().isBlank() ? d.getPath() : d.getLocation();
-                if (path == null || path.isBlank()) continue;
+        var finder = new Finder();
+        var distros = finder.getDistributions();
+        var items = new ArrayList<JdkItem>();
+        for (Distro d : distros) {
+            var name = d.getName();
+            var ver = d.getVersion();
+            var arch = d.getArchitecture();
+            var path = d.getPath() != null && !d.getPath().isBlank() ? d.getPath() : d.getLocation();
+            if (path == null || path.isBlank()) continue;
 
-                // Normalize to canonical path for consistency if possible
-                try {
-                    path = new File(path).getCanonicalPath();
-                } catch (Exception ignored) {
-                    // Fallback to original path
-                }
-
-                // Only include valid JDKs (not JREs)
-                if (!isValidJdk(path)) {
-                    logger.debug("Skipping JRE installation at: {}", path);
-                    continue;
-                }
-
-                var label = String.format("%s %s (%s)", name, ver, arch);
-                items.add(new JdkItem(label, path));
+            // Normalize to canonical path for consistency if possible
+            try {
+                path = new File(path).getCanonicalPath();
+            } catch (Exception ignored) {
+                // Fallback to original path
             }
-            items.sort((a, b) -> a.display.compareTo(b.display));
-            return items;
-        } catch (Throwable t) {
-            logger.warn("Failed to discover installed JDKs", t);
-            return List.of();
+
+            // Only include valid JDKs (not JREs)
+            if (!isValidJdk(path)) {
+                logger.debug("Skipping JRE installation at: {}", path);
+                continue;
+            }
+
+            var label = String.format("%s %s (%s)", name, ver, arch);
+            items.add(new JdkItem(label, path));
         }
+        items.sort(Comparator.comparing(a -> a.display));
+        return items;
     }
 
     private static class JdkItemRenderer extends DefaultListCellRenderer {
