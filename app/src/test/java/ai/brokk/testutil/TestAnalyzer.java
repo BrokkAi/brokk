@@ -181,7 +181,6 @@ public class TestAnalyzer implements IAnalyzer {
                     String source = sources.get(codeUnit);
                     return source != null ? Set.of(source) : Set.of();
                 }
-
             });
         }
         return Optional.empty();

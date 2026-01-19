@@ -147,8 +147,6 @@ public class MultiAnalyzer implements IAnalyzer, SourceCodeProvider, TypeAliasPr
                 .orElse(Set.of());
     }
 
-
-
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         return delegateFor(file).map(analyzer -> analyzer.getSkeletons(file)).orElse(Collections.emptyMap());

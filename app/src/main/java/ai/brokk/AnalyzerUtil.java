@@ -149,8 +149,7 @@ public class AnalyzerUtil {
     public static Set<String> getMethodSources(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
                 .findFirst()
-                .flatMap(cu ->
-                        analyzer.as(SourceCodeProvider.class).map(scp -> scp.getSources(cu, includeComments)))
+                .flatMap(cu -> analyzer.as(SourceCodeProvider.class).map(scp -> scp.getSources(cu, includeComments)))
                 .orElse(Collections.emptySet());
     }
 
@@ -158,10 +157,8 @@ public class AnalyzerUtil {
      * Get source code for a code unit by fully qualified name.
      */
     public static Optional<String> getMethodSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
-        return analyzer.getDefinitions(fqName).stream()
-                .findFirst()
-                .flatMap(cu ->
-                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getSource(cu, includeComments)));
+        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(cu -> analyzer.as(SourceCodeProvider.class)
+                .flatMap(scp -> scp.getSource(cu, includeComments)));
     }
 
     /**

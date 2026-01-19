@@ -156,7 +156,6 @@ public class MultiAnalyzerTest {
         assertFalse(skeleton.isPresent(), "Should return empty for unknown extension");
     }
 
-
     @Test
     public void testUnknownExtension_NoException() {
         // Test multiple methods to ensure they all handle missing delegates gracefully
