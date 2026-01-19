@@ -415,4 +415,55 @@ class JobRunnerIssueModeTest {
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertFalse(repo.isLocalBranch(issueBranchName), "Force-delete cleanup should delete issue branch");
     }
+
+    @Test
+    void cleanupIssueBranch_respectsForceDeleteFlag_falseLeavesBranchWhenNormalDeleteFails() throws Exception {
+        // Setup: create a branch and make it unmerged so normal delete may fail (JGit throws when branch not fully merged).
+        String originalBranch = repo.getCurrentBranch();
+        String originalCommitId = repo.getCurrentCommitId();
+        Path root = repo.getWorkTreeRoot();
+
+        String issueBranchName = "brokk/issue-cleanup-force-flag-1";
+        repo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
+        // Create a unique commit on issue branch so it is not fully merged into originalBranch.
+        Files.writeString(root.resolve("README.md"), "unique commit for force-flag test");
+        repo.getGit().add().addFilepattern("README.md").call();
+        repo.getGit().commit().setMessage("unique-for-force-flag").setSign(false).call();
+
+        // Return to original branch so cleanup will attempt to delete issue branch
+        repo.checkout(originalBranch);
+        assertEquals(originalBranch, repo.getCurrentBranch());
+
+        // Call cleanup with forceDelete=false. If deleteBranch throws, cleanup should NOT force-delete and branch should remain.
+        JobRunner.cleanupIssueBranch("job-cleanup-force-flag-1", repo, originalBranch, issueBranchName, originalCommitId, false);
+
+        // The branch should still exist (delete should not have been force-applied).
+        assertTrue(repo.isLocalBranch(issueBranchName), "Issue branch must remain when forceDelete=false and normal delete fails");
+    }
+
+    @Test
+    void cleanupIssueBranch_respectsForceDeleteFlag_trueRemovesBranchWhenNormalDeleteFails() throws Exception {
+        // Setup: create a branch and make it unmerged so normal delete may fail.
+        String originalBranch = repo.getCurrentBranch();
+        String originalCommitId = repo.getCurrentCommitId();
+        Path root = repo.getWorkTreeRoot();
+
+        String issueBranchName = "brokk/issue-cleanup-force-flag-2";
+        repo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
+        // Create a unique commit on issue branch so it is not fully merged into originalBranch.
+        Files.writeString(root.resolve("README.md"), "unique commit for force-flag test 2");
+        repo.getGit().add().addFilepattern("README.md").call();
+        repo.getGit().commit().setMessage("unique-for-force-flag-2").setSign(false).call();
+
+        // Return to original branch so cleanup will attempt to delete issue branch
+        repo.checkout(originalBranch);
+        assertEquals(originalBranch, repo.getCurrentBranch());
+
+        // Call cleanup with forceDelete=true; branch should be removed even if normal delete would have failed.
+        JobRunner.cleanupIssueBranch("job-cleanup-force-flag-2", repo, originalBranch, issueBranchName, originalCommitId, true);
+
+        assertFalse(repo.isLocalBranch(issueBranchName), "Issue branch must be removed when forceDelete=true and normal delete fails");
+    }
 }
