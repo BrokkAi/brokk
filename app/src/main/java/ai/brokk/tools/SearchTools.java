@@ -414,8 +414,10 @@ public class SearchTools {
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
                     List<String> methodNames) {
-        assert getAnalyzer().as(SourceCodeProvider.class).isPresent()
+        var scpOpt = getAnalyzer().as(SourceCodeProvider.class);
+        assert scpOpt.isPresent()
                 : "Cannot get method sources: Current Code Intelligence does not have necessary capabilities.";
+        var scp = scpOpt.get();
         // Sanitize methodNames: remove potential `(params)` suffix from LLM.
         methodNames = stripParams(methodNames);
         if (methodNames.isEmpty()) {
@@ -433,13 +435,12 @@ public class SearchTools {
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
-                    var fragment = new ContextFragments.CodeFragment(contextManager, cu);
-                    var text = fragment.text().join();
-                    if (!text.isEmpty()) {
+                    Set<String> sources = scp.getSources(cu, true);
+                    if (!sources.isEmpty()) {
                         if (!result.isEmpty()) {
                             result.append("\n\n");
                         }
-                        result.append(text);
+                        result.append(String.join("\n\n", sources));
                     }
                 }
             }

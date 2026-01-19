@@ -147,20 +147,24 @@ public class MultiAnalyzer implements IAnalyzer, SourceCodeProvider, TypeAliasPr
                 .orElse(Set.of());
     }
 
+    @Override
     @Deprecated
     public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
         return getSources(method, includeComments);
     }
 
+    @Override
     @Deprecated
     public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
         return getSource(classUnit, includeComments);
     }
 
+    @Override
     @Deprecated
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
         return getSource(codeUnit, includeComments);
     }
+
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {

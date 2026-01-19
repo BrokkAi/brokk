@@ -849,7 +849,11 @@ public class EditBlock {
             var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
             throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
         } else {
-            Set<String> sources = AnalyzerUtil.getMethodSources(analyzer, fqName, true);
+            Set<String> sources = analyzer.getDefinitions(fqName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst()
+                    .flatMap(cu -> analyzer.as(SourceCodeProvider.class).map(provider -> provider.getSources(cu, true)))
+                    .orElse(Set.of());
             if (sources.isEmpty()) {
                 var suggestions = analyzer.searchDefinitions(shortName).stream()
                         .map(CodeUnit::fqName)

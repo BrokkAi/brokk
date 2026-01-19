@@ -144,11 +144,10 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Get all source code versions for a method (handles overloads) by fully qualified name.
+     * Get all source code versions for a code unit (handles overloads for methods) by fully qualified name.
      */
     public static Set<String> getMethodSources(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
-                .filter(CodeUnit::isFunction)
                 .findFirst()
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).map(scp -> scp.getSources(cu, includeComments)))
@@ -156,12 +155,10 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Get source code for a method by fully qualified name. If multiple versions exist (overloads), they are
-     * concatenated.
+     * Get source code for a code unit by fully qualified name.
      */
     public static Optional<String> getMethodSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
-                .filter(CodeUnit::isFunction)
                 .findFirst()
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getSource(cu, includeComments)));
@@ -171,11 +168,7 @@ public class AnalyzerUtil {
      * Get source code for a class by fully qualified name.
      */
     public static Optional<String> getClassSource(IAnalyzer analyzer, String fqcn, boolean includeComments) {
-        return analyzer.getDefinitions(fqcn).stream()
-                .filter(CodeUnit::isClass)
-                .findFirst()
-                .flatMap(cu ->
-                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getSource(cu, includeComments)));
+        return getMethodSource(analyzer, fqcn, includeComments);
     }
 
     /**
