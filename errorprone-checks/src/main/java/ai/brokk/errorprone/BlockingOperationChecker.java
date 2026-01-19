@@ -35,6 +35,7 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
     private static final String SWING_UTILS_FQCN = "javax.swing.SwingUtilities";
     private static final String EVENT_QUEUE_FQCN = "java.awt.EventQueue";
     private static final String CONTEXT_MANAGER_FQCN = "ai.brokk.IContextManager";
+    private static final String LOGGING_FUTURE_FQCN = "ai.brokk.concurrent.LoggingFuture";
     private static final String SUBMIT_BACKGROUND_TASK_METHOD = "submitBackgroundTask";
 
     private static boolean hasDirectAnnotation(Symbol sym, String fqcn) {
@@ -59,7 +60,7 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
         }
 
         // Do not warn if we are already inside a background task submission
-        if (isWithinSubmitBackgroundTaskArgument(state)) {
+        if (isWithinSubmitBackgroundTaskArgument(state) || isWithinLoggingFutureArgument(state)) {
             return Description.NO_MATCH;
         }
 
@@ -92,6 +93,44 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
             }
         }
         return false;
+    }
+
+    private static boolean isWithinLoggingFutureArgument(VisitorState state) {
+        // The node being analyzed (e.g., the @Blocking method invocation)
+        Tree target = state.getPath().getLeaf();
+
+        for (TreePath path = state.getPath(); path != null; path = path.getParentPath()) {
+            Tree node = path.getLeaf();
+            if (node instanceof MethodInvocationTree mit && isLoggingFutureStaticMethod(mit)) {
+                // Check whether the target node is within any of the method arguments
+                for (Tree arg : mit.getArguments()) {
+                    if (containsTree(arg, target)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isLoggingFutureStaticMethod(MethodInvocationTree mit) {
+        MethodSymbol ms = ASTHelpers.getSymbol(mit);
+        if (ms == null || !ms.isStatic()) {
+            return false;
+        }
+
+        String name = ms.getSimpleName().toString();
+        boolean matchesMethod = name.equals("supplyAsync")
+                || name.equals("supplyCallableAsync")
+                || name.equals("allOf")
+                || name.equals("anyOf");
+
+        if (!matchesMethod) {
+            return false;
+        }
+
+        return ms.owner instanceof Symbol.ClassSymbol cs
+                && cs.getQualifiedName().contentEquals(LOGGING_FUTURE_FQCN);
     }
 
     private static boolean isSubmitBackgroundTask(MethodInvocationTree mit) {
