@@ -267,15 +267,14 @@ public class V3_DtoMapper {
                 case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
                         "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
                     var methodName = meta.get("methodName");
-                    var depthStr = meta.get("depth");
-                    var isCalleeGraphStr = meta.get("isCalleeGraph");
-                    if (methodName == null || depthStr == null || isCalleeGraphStr == null) {
-                        throw new IllegalArgumentException(
-                                "Missing 'methodName', 'depth' or 'isCalleeGraph' for CallGraphFragment");
+                    if (methodName == null) {
+                        throw new IllegalArgumentException("Missing 'methodName' for CallGraphFragment");
                     }
-                    int depth = Integer.parseInt(depthStr);
-                    boolean isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                    return new ContextFragments.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    // Migrate to UsageFragment
+                    return new ContextFragments.UsageFragment(ffd.id(), mgr, methodName, true, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {
@@ -381,12 +380,8 @@ public class V3_DtoMapper {
                         reader.readContent(stDto.codeContentId()));
             }
             case V3_FragmentDtos.CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.CallGraphFragment(
-                        callGraphDto.id(),
-                        mgr,
-                        callGraphDto.methodName(),
-                        callGraphDto.depth(),
-                        callGraphDto.isCalleeGraph());
+                new ContextFragments.UsageFragment(
+                        callGraphDto.id(), mgr, callGraphDto.methodName(), true);
             case V3_FragmentDtos.CodeFragmentDto codeDto -> {
                 // Extract fully qualified name from the V3 CodeUnitDto and preserve the ID
                 String fqName = buildFullyQualifiedName(codeDto.unit());

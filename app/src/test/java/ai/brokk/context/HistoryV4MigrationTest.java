@@ -222,12 +222,9 @@ class HistoryV4MigrationTest {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var cgf = findFragment(ctx, ContextFragments.CallGraphFragment.class, f -> true);
-            assertNotNull(cgf);
-            assertTrue(cgf.description().join().contains("Callees of"));
-            assertEquals("com.example.MyClass.doStuff", cgf.getMethodName());
-            assertEquals(3, cgf.getDepth());
-            assertTrue(cgf.isCalleeGraph());
+            var uf = findFragment(ctx, ContextFragments.UsageFragment.class, f -> true);
+            assertNotNull(uf);
+            assertEquals("com.example.MyClass.doStuff", uf.targetIdentifier());
         } else if ("v3-history-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
