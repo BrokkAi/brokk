@@ -3,7 +3,6 @@ package ai.brokk.gui.util;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.SourceCodeProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,38 +35,28 @@ public class SourceCaptureUtil {
      * Checks if source capture is available for the given CodeUnit based on analyzer capabilities.
      *
      * @param codeUnit The CodeUnit to check
-     * @param hasSourceCapability Whether the analyzer has source code capability
      * @param analyzer The analyzer instance (used for language-specific source detection)
      * @return true if source capture is available and supported
      */
-    public static boolean isSourceCaptureAvailable(CodeUnit codeUnit, boolean hasSourceCapability, IAnalyzer analyzer) {
-        if (!hasSourceCapability) {
+    public static boolean isSourceCaptureAvailable(CodeUnit codeUnit, IAnalyzer analyzer) {
+        try {
+            return analyzer.getSource(codeUnit, true).isPresent();
+        } catch (Exception e) {
+            logger.warn("Unable to obtain source code for {}", codeUnit.fqName(), e);
             return false;
         }
-
-        return analyzer.as(SourceCodeProvider.class)
-                .map(provider -> {
-                    try {
-                        return provider.getSource(codeUnit, true).isPresent();
-                    } catch (Exception e) {
-                        logger.warn("Unable to obtain source code for {}", codeUnit.fqName(), e);
-                        return false;
-                    }
-                })
-                .orElse(false);
     }
 
     /**
      * Checks if source capture is available for the given CodeUnit based on analyzer capabilities.
      *
      * @param codeUnit The CodeUnit to check
-     * @param hasSourceCapability Whether the analyzer has source code capability
      * @return true if source capture is available and supported
-     * @deprecated Use {@link #isSourceCaptureAvailable(CodeUnit, boolean, IAnalyzer)} for TypeScript type alias support
+     * @deprecated Use {@link #isSourceCaptureAvailable(CodeUnit, IAnalyzer)} for TypeScript type alias support
      */
     @Deprecated
-    public static boolean isSourceCaptureAvailable(CodeUnit codeUnit, boolean hasSourceCapability) {
-        return (codeUnit.isFunction() || codeUnit.isClass()) && hasSourceCapability;
+    public static boolean isSourceCaptureAvailable(CodeUnit codeUnit) {
+        return (codeUnit.isFunction() || codeUnit.isClass());
     }
 
     /**

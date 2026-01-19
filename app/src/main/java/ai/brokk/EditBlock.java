@@ -798,11 +798,6 @@ public class EditBlock {
 
         var kind = markerMatcher.group(1);
         var fqName = markerMatcher.group(2).trim();
-        var scpOpt = analyzer.as(SourceCodeProvider.class);
-        if (scpOpt.isEmpty()) {
-            throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
-        }
-        var scp = scpOpt.get();
 
         // Check if the file extension is allowed by configuration and supported by the analyzer
         var fileExt = target.extension().toLowerCase(Locale.ROOT);
@@ -830,7 +825,7 @@ public class EditBlock {
                     .findFirst();
             if (def.isPresent()) {
                 var cu = def.get();
-                var src = scp.getSource(cu, true);
+                var src = analyzer.getSource(cu, true);
                 if (src.isEmpty()) {
                     throw new NoMatchException("No class source found for '" + fqName + "'.");
                 }
@@ -852,7 +847,7 @@ public class EditBlock {
             Set<String> sources = analyzer.getDefinitions(fqName).stream()
                     .filter(CodeUnit::isFunction)
                     .findFirst()
-                    .flatMap(cu -> analyzer.as(SourceCodeProvider.class).map(provider -> provider.getSources(cu, true)))
+                    .map(cu -> analyzer.getSources(cu, true))
                     .orElse(Set.of());
             if (sources.isEmpty()) {
                 var suggestions = analyzer.searchDefinitions(shortName).stream()

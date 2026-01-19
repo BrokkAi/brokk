@@ -137,6 +137,17 @@ public class TestAnalyzer implements IAnalyzer {
     }
 
     @Override
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        return Optional.ofNullable(sources.get(codeUnit));
+    }
+
+    @Override
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        String source = sources.get(codeUnit);
+        return source != null ? Set.of(source) : Set.of();
+    }
+
+    @Override
     public Optional<String> getSkeleton(CodeUnit cu) {
         return Optional.ofNullable(skeletons.get(cu));
     }
@@ -161,29 +172,6 @@ public class TestAnalyzer implements IAnalyzer {
 
     public void setDirectAncestors(CodeUnit cu, List<CodeUnit> ancestors) {
         this.ancestorsMap.put(cu, ancestors);
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
-        if (capability.isInstance(this)) {
-            return Optional.of((T) this);
-        }
-        if (capability == SourceCodeProvider.class) {
-            return Optional.of((T) new SourceCodeProvider() {
-                @Override
-                public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
-                    return Optional.ofNullable(sources.get(codeUnit));
-                }
-
-                @Override
-                public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
-                    String source = sources.get(codeUnit);
-                    return source != null ? Set.of(source) : Set.of();
-                }
-            });
-        }
-        return Optional.empty();
     }
 
     @Override

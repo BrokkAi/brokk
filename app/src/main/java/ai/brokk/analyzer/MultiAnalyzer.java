@@ -8,7 +8,7 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MultiAnalyzer implements IAnalyzer, SourceCodeProvider, TypeAliasProvider {
+public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider {
     private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
     private final Map<Language, IAnalyzer> delegates;
 
@@ -134,16 +134,13 @@ public class MultiAnalyzer implements IAnalyzer, SourceCodeProvider, TypeAliasPr
 
     @Override
     public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
-        return delegateFor(codeUnit)
-                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
-                .flatMap(scp -> scp.getSource(codeUnit, includeComments));
+        return delegateFor(codeUnit).flatMap(analyzer -> analyzer.getSource(codeUnit, includeComments));
     }
 
     @Override
     public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
         return delegateFor(codeUnit)
-                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
-                .map(scp -> scp.getSources(codeUnit, includeComments))
+                .map(analyzer -> analyzer.getSources(codeUnit, includeComments))
                 .orElse(Set.of());
     }
 

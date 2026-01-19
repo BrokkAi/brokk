@@ -136,7 +136,7 @@ public class EditBlockSyntaxTest {
         var ctx = createContext(Set.of(file));
 
         // Capture original snippet to learn relative indentation delta
-        var originalSnippetOpt = assertDoesNotThrow(() -> AnalyzerUtil.getMethodSource(analyzer, "A.method1", true));
+        var originalSnippetOpt = assertDoesNotThrow(() -> AnalyzerUtil.getSource(analyzer, "A.method1", true));
         assertTrue(originalSnippetOpt.isPresent(), "Analyzer should locate A.method1");
         var originalSnippet = originalSnippetOpt.get();
 
@@ -191,7 +191,7 @@ public class EditBlockSyntaxTest {
 
         // Capture original snippet of the nested inner-inner method to learn relative indentation delta
         var originalSnippetOpt =
-                assertDoesNotThrow(() -> AnalyzerUtil.getMethodSource(analyzer, "A.AInner.AInnerInner.method7", true));
+                assertDoesNotThrow(() -> AnalyzerUtil.getSource(analyzer, "A.AInner.AInnerInner.method7", true));
         assertTrue(originalSnippetOpt.isPresent(), "Analyzer should locate A.AInner.AInnerInner.method7");
         var originalSnippet = originalSnippetOpt.get();
 
@@ -258,7 +258,7 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer can find the target method
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var methodOpt = assertDoesNotThrow(() -> AnalyzerUtil.getMethodSource(analyzer, "A.method4", true));
+        var methodOpt = assertDoesNotThrow(() -> AnalyzerUtil.getSource(analyzer, "A.method4", true));
         assertTrue(methodOpt.isPresent(), "Analyzer should locate A.method4");
 
         String response =
@@ -504,7 +504,7 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer can find the nested target class
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var clsOpt = assertDoesNotThrow(() -> AnalyzerUtil.getClassSource(analyzer, "A.AInner", true));
+        var clsOpt = assertDoesNotThrow(() -> AnalyzerUtil.getSource(analyzer, "A.AInner", true));
         assertTrue(clsOpt.isPresent(), "Analyzer should locate class A.AInner");
 
         String response =
@@ -543,7 +543,7 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer can find the doubly nested target class
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var clsOpt = AnalyzerUtil.getClassSource(analyzer, "A.AInner.AInnerInner", true);
+        var clsOpt = AnalyzerUtil.getSource(analyzer, "A.AInner.AInnerInner", true);
         assertTrue(clsOpt.isPresent(), "Analyzer should locate class A.AInner.AInnerInner");
 
         String response =
@@ -579,7 +579,7 @@ public class EditBlockSyntaxTest {
 
         // Capture original snippet to learn relative indentation delta
         var originalSnippetOpt =
-                assertDoesNotThrow(() -> AnalyzerUtil.getClassSource(analyzer, "A.AInner.AInnerInner", true));
+                assertDoesNotThrow(() -> AnalyzerUtil.getSource(analyzer, "A.AInner.AInnerInner", true));
         assertTrue(originalSnippetOpt.isPresent(), "Analyzer should locate A.AInner.AInnerInner");
         var originalSnippet = originalSnippetOpt.get();
 
@@ -726,8 +726,7 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer reports the class is not found
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var missingClassOpt =
-                assertDoesNotThrow(() -> AnalyzerUtil.getClassSource(analyzer, "A.NonExistentClass", true));
+        var missingClassOpt = assertDoesNotThrow(() -> AnalyzerUtil.getSource(analyzer, "A.NonExistentClass", true));
         assertTrue(missingClassOpt.isEmpty(), "Analyzer should report missing class A.NonExistentClass");
 
         String response =
@@ -859,8 +858,8 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer can find both target methods in E
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var sMethod = assertDoesNotThrow(() -> AnalyzerUtil.getMethodSource(analyzer, "E.sMethod", true));
-        var iMethod = assertDoesNotThrow(() -> AnalyzerUtil.getMethodSource(analyzer, "E.iMethod", true));
+        var sMethod = assertDoesNotThrow(() -> AnalyzerUtil.getSource(analyzer, "E.sMethod", true));
+        var iMethod = assertDoesNotThrow(() -> AnalyzerUtil.getSource(analyzer, "E.iMethod", true));
         assertTrue(sMethod.isPresent(), "Analyzer should locate E.sMethod");
         assertTrue(iMethod.isPresent(), "Analyzer should locate E.iMethod");
 

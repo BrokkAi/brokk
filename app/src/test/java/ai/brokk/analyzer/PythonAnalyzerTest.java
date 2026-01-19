@@ -175,7 +175,7 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class with preceding comment (fqName = pkg.module.ClassName)
-        Optional<String> classSourceOpt = AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", true);
+        Optional<String> classSourceOpt = AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass", true);
         assertTrue(classSourceOpt.isPresent(), "documented.DocumentedClass should be found");
 
         String normalizedSource = normalize.apply(classSourceOpt.get());
@@ -188,7 +188,7 @@ public final class PythonAnalyzerTest {
 
         // Test nested class with comments (fqName = pkg.module.Outer$Inner)
         Optional<String> innerClassSourceOpt =
-                AnalyzerUtil.getClassSource(analyzer, "documented.OuterClass$InnerClass", true);
+                AnalyzerUtil.getSource(analyzer, "documented.OuterClass$InnerClass", true);
         assertTrue(innerClassSourceOpt.isPresent(), "documented.OuterClass$InnerClass should be found");
 
         String normalizedInnerSource = normalize.apply(innerClassSourceOpt.get());
@@ -209,8 +209,7 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test standalone function with docstring (uses . for function scope)
-        Optional<String> functionSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.standalone_function", true);
+        Optional<String> functionSource = AnalyzerUtil.getSource(analyzer, "documented.standalone_function", true);
         assertTrue(functionSource.isPresent(), "standalone_function should be found");
 
         String normalizedFunctionSource = normalize.apply(functionSource.get());
@@ -220,8 +219,7 @@ public final class PythonAnalyzerTest {
         assertTrue(normalizedFunctionSource.contains("\"\"\""), "Function source should include docstring");
 
         // Test method with preceding comment (use $ for class boundary, . for method)
-        Optional<String> methodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", true);
+        Optional<String> methodSource = AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.get_value", true);
         assertTrue(methodSource.isPresent(), "get_value method should be found");
 
         String normalizedMethodSource = normalize.apply(methodSource.get());
@@ -236,7 +234,7 @@ public final class PythonAnalyzerTest {
 
         // Test static method with comment (use $ for class boundary, . for method)
         Optional<String> staticMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.utility_method", true);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.utility_method", true);
         assertTrue(staticMethodSource.isPresent(), "utility_method should be found");
 
         String normalizedStaticSource = normalize.apply(staticMethodSource.get());
@@ -251,7 +249,7 @@ public final class PythonAnalyzerTest {
 
         // Test class method with comment (use $ for class boundary, . for method)
         Optional<String> classMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.create_default", true);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.create_default", true);
         assertTrue(classMethodSource.isPresent(), "create_default should be found");
 
         String normalizedClassMethodSource = normalize.apply(classMethodSource.get());
@@ -270,7 +268,7 @@ public final class PythonAnalyzerTest {
     void testPythonCommentExpansionEdgeCases() {
         // Test constructor with comment (use $ for class boundary, . for method)
         Optional<String> constructorSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.__init__", true);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.__init__", true);
         assertTrue(constructorSource.isPresent(), "__init__ method should be found");
 
         Function<String, String> normalize =
@@ -287,7 +285,7 @@ public final class PythonAnalyzerTest {
 
         // Test nested class method (use $ for class boundaries, . for method)
         Optional<String> innerMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.OuterClass$InnerClass.inner_method", true);
+                AnalyzerUtil.getSource(analyzer, "documented.OuterClass$InnerClass.inner_method", true);
         assertTrue(innerMethodSource.isPresent(), "inner_method should be found");
 
         String normalizedInnerMethodSource = normalize.apply(innerMethodSource.get());
@@ -307,10 +305,9 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class source with and without comments (use $ for class boundary)
-        Optional<String> classSourceWithComments =
-                AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", true);
+        Optional<String> classSourceWithComments = AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass", true);
         Optional<String> classSourceWithoutComments =
-                AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", false);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass", false);
 
         assertTrue(classSourceWithComments.isPresent(), "Class source with comments should be present");
         assertTrue(classSourceWithoutComments.isPresent(), "Class source without comments should be present");
@@ -338,9 +335,9 @@ public final class PythonAnalyzerTest {
 
         // Test method source with and without comments (use $ for class boundary, . for method)
         Optional<String> methodSourceWithComments =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", true);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.get_value", true);
         Optional<String> methodSourceWithoutComments =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", false);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.get_value", false);
 
         assertTrue(methodSourceWithComments.isPresent(), "Method source with comments should be present");
         assertTrue(methodSourceWithoutComments.isPresent(), "Method source without comments should be present");

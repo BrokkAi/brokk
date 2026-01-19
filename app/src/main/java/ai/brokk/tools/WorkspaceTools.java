@@ -140,8 +140,6 @@ public class WorkspaceTools {
             @P(
                             "List of fully qualified class names (e.g., ['com.example.MyClass', 'org.another.Util']). Must not be empty.")
                     List<String> classNames) {
-        assert getAnalyzer() instanceof SourceCodeProvider
-                : "Cannot add class sources: Code Intelligence is not available.";
         if (classNames.isEmpty()) {
             return "Class names list cannot be empty.";
         }
@@ -360,8 +358,6 @@ public class WorkspaceTools {
             @P(
                             "List of fully qualified method names (e.g., ['com.example.ClassA.method1', 'org.another.ClassB.processData']) to retrieve sources for. Must not be empty.")
                     List<String> methodNames) {
-        assert getAnalyzer() instanceof SourceCodeProvider
-                : "Cannot add method sources: Code Intelligence is not available.";
         if (methodNames.isEmpty()) {
             return "Cannot add method sources: method names list is empty";
         }

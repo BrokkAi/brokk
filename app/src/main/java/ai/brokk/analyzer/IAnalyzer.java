@@ -573,4 +573,23 @@ public interface IAnalyzer {
         }
         return skeletons;
     }
+
+    /**
+     * Gets the source code for a given CodeUnit.
+     *
+     * @param codeUnit the code unit to get source for
+     * @param includeComments whether to include preceding comments in the source
+     * @return source code if found, empty otherwise
+     */
+    Optional<String> getSource(CodeUnit codeUnit, boolean includeComments);
+
+    /**
+     * Gets all source code versions for a given CodeUnit. For methods, this includes overloads.
+     * For classes, this typically returns a singleton set.
+     *
+     * @param codeUnit the code unit to get sources for
+     * @param includeComments whether to include preceding comments in the source
+     * @return set of source code snippets, empty set if none found
+     */
+    Set<String> getSources(CodeUnit codeUnit, boolean includeComments);
 }

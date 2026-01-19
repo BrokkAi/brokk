@@ -5,7 +5,6 @@ import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import java.nio.file.Path;
@@ -24,21 +23,15 @@ public class AnalyzerUtil {
     public static List<CodeWithSource> processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
         List<CodeWithSource> results = new ArrayList<>();
 
-        var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
-        if (maybeSourceCodeProvider.isEmpty()) {
-            logger.warn("Analyzer ({}) does not provide source code, skipping", analyzer.getClass());
-        }
-        maybeSourceCodeProvider.ifPresent(sourceCodeProvider -> {
-            var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
-            for (var cu : methodUses) {
-                var source = sourceCodeProvider.getSource(cu, true);
-                if (source.isPresent()) {
-                    results.add(new CodeWithSource(source.get(), cu));
-                } else {
-                    logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
-                }
+        var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
+        for (var cu : methodUses) {
+            var source = analyzer.getSource(cu, true);
+            if (source.isPresent()) {
+                results.add(new CodeWithSource(source.get(), cu));
+            } else {
+                logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
             }
-        });
+        }
 
         var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
         for (var cu : typeUses) {
@@ -144,28 +137,12 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Get all source code versions for a code unit (handles overloads for methods) by fully qualified name.
-     */
-    public static Set<String> getMethodSources(IAnalyzer analyzer, String fqName, boolean includeComments) {
-        return analyzer.getDefinitions(fqName).stream()
-                .findFirst()
-                .flatMap(cu -> analyzer.as(SourceCodeProvider.class).map(scp -> scp.getSources(cu, includeComments)))
-                .orElse(Collections.emptySet());
-    }
-
-    /**
      * Get source code for a code unit by fully qualified name.
      */
-    public static Optional<String> getMethodSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
-        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(cu -> analyzer.as(SourceCodeProvider.class)
-                .flatMap(scp -> scp.getSource(cu, includeComments)));
-    }
-
-    /**
-     * Get source code for a class by fully qualified name.
-     */
-    public static Optional<String> getClassSource(IAnalyzer analyzer, String fqcn, boolean includeComments) {
-        return getMethodSource(analyzer, fqcn, includeComments);
+    public static Optional<String> getSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
+        return analyzer.getDefinitions(fqName).stream()
+                .findAny()
+                .flatMap(cu -> analyzer.getSource(cu, includeComments));
     }
 
     /**
@@ -411,21 +388,18 @@ public class AnalyzerUtil {
     /**
      * Builds a fragment for a usage selection.
      *
-     * <p>If the input resolves to a method and {@code summarize} is true, returns a
-     * {@link ContextFragments.CallGraphFragment} showing callees at depth 1. Otherwise returns a
-     * {@link ContextFragments.UsageFragment}. If no symbol can be resolved, a {@link ContextFragments.UsageFragment}
-     * is still created using the raw input.
+     * <p>Returns a {@link ContextFragments.UsageFragment}. If no symbol can be resolved, a
+     * {@link ContextFragments.UsageFragment} is still created using the raw input.
      *
      * @param analyzer the analyzer used to resolve the target symbol; if null, returns empty
      * @param cm the context manager used to construct fragments
      * @param input a symbol identifier (short or fully qualified); blank yields empty
      * @param includeTestFiles whether to include tests when building the {@link ContextFragments.UsageFragment}
-     * @param summarize whether to return a {@link ContextFragments.CallGraphFragment} for a method target
-     * @return an Optional containing {@link ContextFragments.CallGraphFragment} (for summarize+method) or
-     *         {@link ContextFragments.UsageFragment}; empty if analyzer is null or input is blank
+     * @return an Optional containing {@link ContextFragments.UsageFragment}; empty if analyzer is null or input is
+     * blank
      */
     public static Optional<ContextFragment> selectUsageFragment(
-            IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles, boolean summarize) {
+            IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles) {
         if (input.trim().isEmpty()) return Optional.empty();
 
         Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()

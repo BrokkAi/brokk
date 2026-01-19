@@ -62,7 +62,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void extractMethodSource() {
-        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "A.method2", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "A.method2", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         final String expected =
@@ -82,7 +82,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void extractMethodSourceNested() {
-        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "A.AInner.AInnerInner.method7", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "A.AInner.AInnerInner.method7", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
 
@@ -98,7 +98,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void extractMethodSourceConstructor() {
-        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "B.B", true); // TODO: Should we handle <init>?
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "B.B", true); // TODO: Should we handle <init>?
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
 
@@ -114,7 +114,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceTest() {
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "A", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "A", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         // Verify the source contains class definition and methods
@@ -125,7 +125,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceNestedTest() {
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "A.AInner", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "A.AInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         // Verify the source contains inner class definition
@@ -144,7 +144,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceTwiceNestedTest() {
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "A.AInner.AInnerInner", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "A.AInner.AInnerInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         // Verify the source contains inner class definition
@@ -161,13 +161,13 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceNotFoundTest() {
-        var opt = AnalyzerUtil.getClassSource(analyzer, "A.NonExistent", true);
+        var opt = AnalyzerUtil.getSource(analyzer, "A.NonExistent", true);
         assertTrue(opt.isEmpty());
     }
 
     @Test
     public void getClassSourceNonexistentTest() {
-        var opt = AnalyzerUtil.getClassSource(analyzer, "NonExistentClass", true);
+        var opt = AnalyzerUtil.getSource(analyzer, "NonExistentClass", true);
         assertTrue(opt.isEmpty());
     }
 
@@ -476,7 +476,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void debugAnnotatedClassSourceTest() {
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
         final var source = sourceOpt.get();
 
@@ -490,7 +490,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceWithJavadocsTest() {
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
         final var source = sourceOpt.get();
         System.out.println(source);
@@ -521,7 +521,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceWithAnnotationsTest() {
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
         final var source = sourceOpt.get();
 
@@ -553,7 +553,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceWithInnerClassJavadocsTest() {
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass.InnerHelper", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass.InnerHelper", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass.InnerHelper");
         final var source = sourceOpt.get();
 
@@ -574,7 +574,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getMethodSourceWithJavadocsTest() {
-        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "AnnotatedClass.toString", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass.toString", true);
         assertTrue(sourceOpt.isPresent(), "Should find toString method");
         final var source = sourceOpt.get();
 
@@ -595,7 +595,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getMethodSourceWithGenericJavadocsTest() {
-        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "AnnotatedClass.processValue", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass.processValue", true);
         assertTrue(sourceOpt.isPresent(), "Should find processValue method");
         final var source = sourceOpt.get();
 
@@ -618,7 +618,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceCustomAnnotationTest() {
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "CustomAnnotation", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "CustomAnnotation", true);
         assertTrue(sourceOpt.isPresent(), "Should find CustomAnnotation");
         final var source = sourceOpt.get();
 
@@ -649,18 +649,17 @@ public class JavaAnalyzerTest {
 
         // Class lookup with generics on the type
         assertTrue(
-                AnalyzerUtil.getClassSource(analyzer, "A<String>", false).isPresent(),
+                AnalyzerUtil.getSource(analyzer, "A<String>", false).isPresent(),
                 "Class lookup with generics should normalize");
 
         // Method lookup with generics on the containing class
         assertTrue(
-                AnalyzerUtil.getMethodSource(analyzer, "A<Integer>.method1", false)
-                        .isPresent(),
+                AnalyzerUtil.getSource(analyzer, "A<Integer>.method1", false).isPresent(),
                 "Method lookup with class generics should normalize");
 
         // Nested classes with generics on each segment
         assertTrue(
-                AnalyzerUtil.getMethodSource(
+                AnalyzerUtil.getSource(
                                 analyzer, "A.AInner<List<String>>.AInnerInner<Map<Integer, String>>.method7", false)
                         .isPresent(),
                 "Nested class method with generics should normalize");
@@ -670,12 +669,12 @@ public class JavaAnalyzerTest {
     public void testNormalizationHandlesAnonymousAndLocationSuffix() {
         // Location suffix without anon
         assertTrue(
-                AnalyzerUtil.getMethodSource(analyzer, "A.method1:16", false).isPresent(),
+                AnalyzerUtil.getSource(analyzer, "A.method1:16", false).isPresent(),
                 "Location suffix alone should normalize for method source lookup");
 
         // Anonymous with just digits
         assertTrue(
-                AnalyzerUtil.getMethodSource(analyzer, "A.method6$1", false).isPresent(),
+                AnalyzerUtil.getSource(analyzer, "A.method6$1", false).isPresent(),
                 "Anonymous digit suffix should normalize for method source lookup");
     }
 
@@ -683,12 +682,11 @@ public class JavaAnalyzerTest {
     public void testDefinitionAndSourcesWithNormalizedConstructorNames() {
         // Based on log example: Type.Type for constructor (and possibly with generics on the type)
         assertTrue(
-                AnalyzerUtil.getMethodSource(analyzer, "B<B>.B", true).isPresent(),
+                AnalyzerUtil.getSource(analyzer, "B<B>.B", true).isPresent(),
                 "Constructor lookup with generics on the type should normalize and resolve");
 
         // Also ensure plain constructor lookup works (control)
-        assertTrue(
-                AnalyzerUtil.getMethodSource(analyzer, "B.B", true).isPresent(), "Constructor lookup should resolve");
+        assertTrue(AnalyzerUtil.getSource(analyzer, "B.B", true).isPresent(), "Constructor lookup should resolve");
     }
 
     @Test
@@ -835,12 +833,12 @@ public class JavaAnalyzerTest {
 
     /**
      * Regression test for Issue #2121: Verify that Javadoc comments preceding a class
-     * declaration preserve correct indentation when using getClassSource(.., true).
+     * declaration preserve correct indentation when using getSource(.., true).
      */
     @Test
     public void testClassJavadocIndentationIsPreserved() {
         // AnnotatedClass has Javadoc comments above the class declaration
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "AnnotatedClass source should be available");
 
         String source = sourceOpt.get();
@@ -883,7 +881,7 @@ public class JavaAnalyzerTest {
     @Test
     public void testMethodJavadocIndentationIsPreserved() {
         // AnnotatedClass.toString has Javadoc comments above the method declaration
-        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "AnnotatedClass.toString", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass.toString", true);
         assertTrue(sourceOpt.isPresent(), "Method source should be available");
 
         String source = sourceOpt.get();
@@ -919,7 +917,7 @@ public class JavaAnalyzerTest {
     @Test
     public void testJavadocMultilineIndentationIsConsistent() {
         // AnnotatedClass.processValue has multiline Javadoc with complex documentation
-        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "AnnotatedClass.processValue", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass.processValue", true);
         assertTrue(sourceOpt.isPresent(), "Method source should be available");
 
         String source = sourceOpt.get();
@@ -970,7 +968,7 @@ public class JavaAnalyzerTest {
     @Test
     public void testSourceIndentationNotTrimmed() {
         // Test with inner class which has natural indentation
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass.InnerHelper", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "AnnotatedClass.InnerHelper", true);
         assertTrue(sourceOpt.isPresent(), "Inner class source should be available");
 
         String source = sourceOpt.get();
@@ -1078,7 +1076,7 @@ public class JavaAnalyzerTest {
         var testAnalyzer = new JavaAnalyzer(project);
 
         // methodAfterInlineJavadoc has Javadoc on same line as `private int other = 1;`
-        var sourceOpt = AnalyzerUtil.getMethodSource(testAnalyzer, "InlineComment.methodAfterInlineJavadoc", true);
+        var sourceOpt = AnalyzerUtil.getSource(testAnalyzer, "InlineComment.methodAfterInlineJavadoc", true);
         assertTrue(sourceOpt.isPresent(), "Method source should be available");
 
         String source = sourceOpt.get();

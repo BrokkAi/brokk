@@ -123,4 +123,14 @@ public class DisabledAnalyzer implements IAnalyzer {
     public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
         return Optional.empty();
     }
+
+    @Override
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        return Set.of();
+    }
 }

@@ -6,11 +6,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class SqlAnalyzer implements IAnalyzer, SourceCodeProvider {
+public class SqlAnalyzer implements IAnalyzer {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
 
     private final IProject project;
@@ -344,9 +343,7 @@ public class SqlAnalyzer implements IAnalyzer, SourceCodeProvider {
 
     @Override
     public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
-        return getSource(codeUnit, includeComments)
-                .map(Set::of)
-                .orElse(Collections.emptySet());
+        return getSource(codeUnit, includeComments).map(Set::of).orElse(Collections.emptySet());
     }
 
     @Override

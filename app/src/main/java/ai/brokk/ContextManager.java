@@ -13,7 +13,6 @@ import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
@@ -1209,9 +1208,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public void sourceCodeForCodeUnit(IAnalyzer analyzer, CodeUnit codeUnit) {
-        String sourceCode = analyzer.as(SourceCodeProvider.class)
-                .flatMap(provider -> provider.getSource(codeUnit, true))
-                .orElse(null);
+        String sourceCode = analyzer.getSource(codeUnit, true).orElse(null);
 
         if (sourceCode != null) {
             var fragment = new ContextFragments.StringFragment(
@@ -1264,26 +1261,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var content = new StringBuilder();
         IAnalyzer localAnalyzer = getAnalyzerUninterrupted();
 
-        localAnalyzer.as(SourceCodeProvider.class).ifPresent(sourceCodeProvider -> {
-            for (var element : stacktrace.getFrames()) {
-                var methodFullName = element.getClassName() + "." + element.getMethodName();
-                localAnalyzer.getDefinitions(methodFullName).stream()
-                        .findFirst()
-                        .filter(CodeUnit::isFunction)
-                        .ifPresent(methodCu -> {
-                            var methodSource = sourceCodeProvider.getSource(methodCu, true);
-                            if (methodSource.isPresent()) {
-                                String className = CodeUnit.toClassname(methodFullName);
-                                localAnalyzer.getDefinitions(className).stream()
-                                        .findFirst()
-                                        .filter(CodeUnit::isClass)
-                                        .ifPresent(sources::add);
-                                content.append(methodFullName).append(":\n");
-                                content.append(methodSource.get()).append("\n\n");
-                            }
-                        });
-            }
-        });
+        for (var element : stacktrace.getFrames()) {
+            var methodFullName = element.getClassName() + "." + element.getMethodName();
+            localAnalyzer.getDefinitions(methodFullName).stream()
+                    .findFirst()
+                    .filter(CodeUnit::isFunction)
+                    .ifPresent(methodCu -> {
+                        var methodSource = localAnalyzer.getSource(methodCu, true);
+                        if (methodSource.isPresent()) {
+                            String className = CodeUnit.toClassname(methodFullName);
+                            localAnalyzer.getDefinitions(className).stream()
+                                    .findFirst()
+                                    .filter(CodeUnit::isClass)
+                                    .ifPresent(sources::add);
+                            content.append(methodFullName).append(":\n");
+                            content.append(methodSource.get()).append("\n\n");
+                        }
+                    });
+        }
 
         if (content.isEmpty()) {
             logger.debug("No relevant methods found in stacktrace -- adding as text");

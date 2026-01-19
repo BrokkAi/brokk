@@ -12,7 +12,6 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
@@ -1414,28 +1413,22 @@ public class ContextFragments {
 
             String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            var scpOpt = analyzer.as(SourceCodeProvider.class);
             boolean hasSourceCode = false;
-            if (scpOpt.isEmpty()) {
-                text = "Code Intelligence cannot extract source for: " + fqName;
-            } else {
-                var scp = scpOpt.get();
-                if (unit.isFunction()) {
-                    var codeOpt = scp.getSource(unit, true);
-                    if (codeOpt.isPresent()) {
-                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                        hasSourceCode = true;
-                    } else {
-                        text = "No source found for method: " + fqName;
-                    }
+            if (unit.isFunction()) {
+                var codeOpt = analyzer.getSource(unit, true);
+                if (codeOpt.isPresent()) {
+                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                    hasSourceCode = true;
                 } else {
-                    var codeOpt = scp.getSource(unit, true);
-                    if (codeOpt.isPresent()) {
-                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                        hasSourceCode = true;
-                    } else {
-                        text = "No source found for class: " + fqName;
-                    }
+                    text = "No source found for method: " + fqName;
+                }
+            } else {
+                var codeOpt = analyzer.getSource(unit, true);
+                if (codeOpt.isPresent()) {
+                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                    hasSourceCode = true;
+                } else {
+                    text = "No source found for class: " + fqName;
                 }
             }
 
