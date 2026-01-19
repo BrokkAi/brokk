@@ -30,6 +30,7 @@ public class JdkSelector extends JPanel {
     public JdkSelector() {
         super(new BorderLayout(5, 0));
         combo.setPrototypeDisplayValue(new JdkItem("OpenJDK 21 (x64)", "/opt/jdk-21"));
+        combo.setRenderer(new JdkItemRenderer());
         add(combo, BorderLayout.CENTER);
         add(browseButton, BorderLayout.EAST);
 
@@ -101,10 +102,28 @@ public class JdkSelector extends JPanel {
         if (matchedIdx >= 0) {
             combo.setSelectedIndex(matchedIdx);
         } else {
-            var custom = new JdkItem("Custom JDK: " + path, path);
+            var displayName = createDisplayName(path);
+            var custom = new JdkItem(displayName, path);
             combo.addItem(custom);
             combo.setSelectedItem(custom);
         }
+    }
+
+    private static String createDisplayName(String path) {
+        var maxLength = 50;
+        var prefix = "Custom JDK: ";
+        if ((prefix + path).length() <= maxLength) {
+            return prefix + path;
+        }
+        // Show last path components for long paths
+        var pathObj = Path.of(path);
+        var nameCount = pathObj.getNameCount();
+        if (nameCount <= 2) {
+            return prefix + path;
+        }
+        // Show "Custom JDK: .../last/two/components"
+        var lastTwo = pathObj.subpath(nameCount - 2, nameCount);
+        return prefix + ".../" + lastTwo;
     }
 
     /** @return the selected JDK path or null if none selected. */
@@ -259,6 +278,19 @@ public class JdkSelector extends JPanel {
         } catch (Throwable t) {
             logger.warn("Failed to discover installed JDKs", t);
             return List.of();
+        }
+    }
+
+    private static class JdkItemRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value,
+                                                      int index, boolean isSelected, boolean cellHasFocus) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof JdkItem item) {
+                setText(item.display);
+                setToolTipText(item.path);
+            }
+            return this;
         }
     }
 
