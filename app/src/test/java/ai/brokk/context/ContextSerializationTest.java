@@ -3,6 +3,7 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
+import ai.brokk.context.FragmentDtos.CallGraphFragmentDto;
 import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -809,33 +810,27 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testRoundTripCallGraphFragment() throws Exception {
-        var fragment =
-                new ContextFragments.CallGraphFragment(mockContextManager, "com.example.MyClass.doStuff", 3, true);
+    void testCallGraphFragmentMigratesToUsageFragment() throws Exception {
+        // Create a legacy DTO
+        var legacyDto = new CallGraphFragmentDto("old-id", "com.example.MyClass.doStuff", 3, true);
 
-        var context = new Context(mockContextManager).addFragments(fragment);
-        ContextHistory originalHistory = new ContextHistory(context);
+        // Deserialize using DtoMapper logic
+        var contentReader = new HistoryIo.ContentReader(Map.of());
+        var fragment = (ContextFragments.UsageFragment) DtoMapper.resolveAndBuildFragment(
+                legacyDto.id(),
+                Map.of(),
+                Map.of(legacyDto.id(), legacyDto),
+                Map.of(),
+                mockContextManager,
+                null,
+                new HashMap<>(),
+                contentReader);
 
-        Path zipFile = tempDir.resolve("test_callgraph_history.zip");
-        HistoryIo.writeZip(originalHistory, zipFile);
-        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
-
-        assertContextsEqual(
-                originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
-        Context loadedCtx = loadedHistory.getHistory().get(0);
-        var loadedRawFragment = loadedCtx
-                .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.CALL_GRAPH)
-                .findFirst()
-                .orElseThrow();
-
-        if (loadedRawFragment instanceof ContextFragments.CallGraphFragment loadedFragment) {
-            assertEquals("com.example.MyClass.doStuff", loadedFragment.getMethodName());
-            assertEquals(3, loadedFragment.getDepth());
-            assertTrue(loadedFragment.isCalleeGraph());
-        } else {
-            fail("Expected CallGraphFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
-        }
+        // Verify migration
+        assertNotNull(fragment);
+        assertEquals("com.example.MyClass.doStuff", fragment.targetIdentifier());
+        assertTrue(fragment.includeTestFiles(), "CallGraph migration should default includeTestFiles to true");
+        assertEquals(ContextFragment.FragmentType.USAGE, fragment.getType());
     }
 
     @Test
