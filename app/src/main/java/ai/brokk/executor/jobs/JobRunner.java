@@ -850,6 +850,21 @@ public final class JobRunner {
                                                 cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
                                                 // 4. Verification loop: run build and retry on failure
+                                                //
+                                                // Purpose:
+                                                //   This per-task loop enforces an incremental verification guarantee:
+                                                //   after each individual task is executed, the repository should still
+                                                //   build and the configured incremental checks should pass. It is NOT
+                                                //   intended to run the full test-suite + full lint for PR gating; that
+                                                //   behaviour lives in the end-of-run "pre-PR gate" retry loop below.
+                                                //
+                                                // Counter documented:
+                                                //   maxBuildAttempts (derived from BuildDetails.maxBuildAttempts or
+                                                //   DEFAULT_MAX_BUILD_ATTEMPTS) bounds how many times we will attempt to
+                                                //   repair the repository to a locally verifiable (incremental) state
+                                                //   immediately after a single task. Each failed attempt produces a
+                                                //   small "fix" task for the architect/code agent to apply and then we
+                                                //   re-run verification until success or attempts are exhausted.
                                                 int buildAttempts = 0;
                                                 int maxBuildAttempts = Objects.requireNonNullElse(
                                                         buildDetailsOverride.maxBuildAttempts(),
@@ -864,12 +879,14 @@ public final class JobRunner {
                                                     if (buildError.isBlank()) {
                                                         verified = true;
                                                         logger.info(
-                                                                "ISSUE job {} task '{}' verified successfully",
+                                                                "ISSUE job {} task '{}' verified successfully (per-task attempt {}/{})",
                                                                 jobId,
-                                                                generatedTask.text());
+                                                                generatedTask.text(),
+                                                                buildAttempts,
+                                                                maxBuildAttempts);
                                                     } else {
                                                         logger.warn(
-                                                                "ISSUE job {} task '{}' build failed (attempt {}/{}): {}",
+                                                                "ISSUE job {} task '{}' build failed (per-task attempt {}/{}): {}",
                                                                 jobId,
                                                                 generatedTask.text(),
                                                                 buildAttempts,
@@ -894,7 +911,7 @@ public final class JobRunner {
                                                         }
                                                     }
                                                 }
-                                            }
+                                                }
 
                                             runFixRetryLoop(
                                                     jobId,
