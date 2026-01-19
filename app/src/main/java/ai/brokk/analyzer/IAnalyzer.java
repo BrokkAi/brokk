@@ -151,7 +151,6 @@ public interface IAnalyzer {
      */
     List<CodeUnit> getDirectChildren(CodeUnit cu);
 
-
     /**
      * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
      * method that may produce false positives/negatives.
@@ -371,7 +370,6 @@ public interface IAnalyzer {
         }
         return symbols;
     }
-
 
     /**
      * Returns an analyzer that targets the given language if one is available. For single-analyzers, it will be the

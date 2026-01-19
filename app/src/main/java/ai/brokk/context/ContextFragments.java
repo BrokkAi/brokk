@@ -82,7 +82,8 @@ public class ContextFragments {
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         return units.stream()
                 .filter(CodeUnit::isClass)
-                .flatMap(cu -> analyzer.as(ai.brokk.analyzer.TypeHierarchyProvider.class)
+                .flatMap(cu -> analyzer
+                        .as(ai.brokk.analyzer.TypeHierarchyProvider.class)
                         .map(p -> p.getAncestors(cu))
                         .orElse(List.of())
                         .stream())
