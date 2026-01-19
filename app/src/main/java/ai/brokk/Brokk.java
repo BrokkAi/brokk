@@ -243,7 +243,6 @@ public class Brokk {
                                                     currentTheme, popupMenu.getClientProperty(THEME_CLIENT_PROPERTY))) {
                                                 popupMenu.putClientProperty(THEME_CLIENT_PROPERTY, currentTheme);
                                                 SwingUtilities.updateComponentTreeUI(popupMenu);
-                                                System.out.println("hierarchy added");
                                             }
                                         }
                                     }
