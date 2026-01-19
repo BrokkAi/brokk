@@ -18,6 +18,7 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Reusable JDK selector component that wraps a JComboBox with a Browse... button. - Discovers installed JDKs
@@ -25,6 +26,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class JdkSelector extends JPanel {
     private static final Logger logger = LogManager.getLogger(JdkSelector.class);
+    private static final int ABBREVIATED_PATH_MAX_LENGTH = 35;
 
     private final JComboBox<JdkItem> combo = new JComboBox<>();
     private final JButton browseButton = new JButton("Browse...");
@@ -95,72 +97,8 @@ public class JdkSelector extends JPanel {
             return;
         }
 
-        boolean isSentinel = EnvironmentJava.JAVA_HOME_SENTINEL.equals(path);
-        if (isSentinel) {
-            // Find existing sentinel item if it exists
-            JdkItem existingSentinel = null;
-            List<JdkItem> extrasToRemove = new ArrayList<>();
-            for (int i = 0; i < combo.getItemCount(); i++) {
-                var it = combo.getItemAt(i);
-                if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(it.path)) {
-                    if (existingSentinel == null) {
-                        existingSentinel = it;
-                    } else {
-                        extrasToRemove.add(it);
-                    }
-                }
-            }
-            for (JdkItem extra : extrasToRemove) {
-                combo.removeItem(extra);
-            }
-
-            String javaHome = System.getenv("JAVA_HOME");
-            String label;
-            if (javaHome != null && !javaHome.isBlank()) {
-                // Try to find matching discovered JDK for a friendlier display
-                String matchedDisplay = null;
-                for (int i = 0; i < combo.getItemCount(); i++) {
-                    var it = combo.getItemAt(i);
-                    // Don't match against other sentinel items
-                    if (!EnvironmentJava.JAVA_HOME_SENTINEL.equals(it.path) && javaHome.equals(it.path)) {
-                        matchedDisplay = it.display;
-                        break;
-                    }
-                }
-                label = matchedDisplay != null
-                        ? "System JAVA_HOME (" + matchedDisplay + ")"
-                        : "System JAVA_HOME (" + FileUtil.abbreviatePath(javaHome) + ")";
-            } else {
-                label = "System JAVA_HOME";
-            }
-
-            if (existingSentinel != null) {
-                // Update display if it changed (the JdkItem is immutable but we can replace it or just reuse if same)
-                if (!label.equals(existingSentinel.display)) {
-                    int idx = -1;
-                    for (int i = 0; i < combo.getItemCount(); i++) {
-                        if (combo.getItemAt(i) == existingSentinel) {
-                            idx = i;
-                            break;
-                        }
-                    }
-                    var newItem = new JdkItem(label, EnvironmentJava.JAVA_HOME_SENTINEL);
-                    if (idx >= 0) {
-                        combo.removeItemAt(idx);
-                        combo.insertItemAt(newItem, idx);
-                        combo.setSelectedIndex(idx);
-                    } else {
-                        combo.addItem(newItem);
-                        combo.setSelectedItem(newItem);
-                    }
-                } else {
-                    combo.setSelectedItem(existingSentinel);
-                }
-            } else {
-                var sentinelItem = new JdkItem(label, EnvironmentJava.JAVA_HOME_SENTINEL);
-                combo.addItem(sentinelItem);
-                combo.setSelectedItem(sentinelItem);
-            }
+        if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(path)) {
+            selectOrCreateSentinel();
             return;
         }
 
@@ -179,10 +117,70 @@ public class JdkSelector extends JPanel {
         combo.setSelectedItem(custom);
     }
 
+    private void selectOrCreateSentinel() {
+        String label = computeSentinelLabel();
+        JdkItem existingSentinel = null;
+
+        // Clean up duplicates and find existing to preserve position if possible
+        for (int i = combo.getItemCount() - 1; i >= 0; i--) {
+            var it = combo.getItemAt(i);
+            if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(it.path)) {
+                if (existingSentinel == null) {
+                    existingSentinel = it;
+                } else {
+                    combo.removeItemAt(i);
+                }
+            }
+        }
+
+        if (existingSentinel != null && label.equals(existingSentinel.display)) {
+            combo.setSelectedItem(existingSentinel);
+            return;
+        }
+
+        var newItem = new JdkItem(label, EnvironmentJava.JAVA_HOME_SENTINEL);
+        if (existingSentinel != null) {
+            int idx = -1;
+            for (int i = 0; i < combo.getItemCount(); i++) {
+                if (combo.getItemAt(i) == existingSentinel) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx >= 0) {
+                combo.removeItemAt(idx);
+                combo.insertItemAt(newItem, idx);
+                combo.setSelectedIndex(idx);
+                return;
+            }
+        }
+
+        combo.addItem(newItem);
+        combo.setSelectedItem(newItem);
+    }
+
+    private String computeSentinelLabel() {
+        String javaHome = System.getenv("JAVA_HOME");
+        if (javaHome == null || javaHome.isBlank()) {
+            return "System JAVA_HOME";
+        }
+
+        // Try to find matching discovered JDK for a friendlier display
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            var it = combo.getItemAt(i);
+            if (!EnvironmentJava.JAVA_HOME_SENTINEL.equals(it.path) && javaHome.equals(it.path)) {
+                return "System JAVA_HOME (" + it.display + ")";
+            }
+        }
+
+        return "System JAVA_HOME (" + FileUtil.abbreviatePath(javaHome) + ")";
+    }
+
     private static String createDisplayName(String path) {
         return "Custom JDK: " + FileUtil.abbreviatePath(path);
     }
 
+    @VisibleForTesting
     void setDiscoveredJdksForTesting(List<String> jdkPaths) {
         var items = jdkPaths.stream()
                 .map(p -> new JdkItem("Discovered JDK: " + FileUtil.abbreviatePath(p), p))
@@ -190,6 +188,7 @@ public class JdkSelector extends JPanel {
         combo.setModel(new DefaultComboBoxModel<>(items.toArray(JdkItem[]::new)));
     }
 
+    @VisibleForTesting
     List<String> getItemPathsForTesting() {
         var paths = new ArrayList<String>();
         for (int i = 0; i < combo.getItemCount(); i++) {
@@ -198,6 +197,7 @@ public class JdkSelector extends JPanel {
         return paths;
     }
 
+    @VisibleForTesting
     List<String> getItemDisplaysForTesting() {
         var displays = new ArrayList<String>();
         for (int i = 0; i < combo.getItemCount(); i++) {
