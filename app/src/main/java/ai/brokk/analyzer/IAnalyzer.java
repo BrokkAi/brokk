@@ -575,7 +575,7 @@ public interface IAnalyzer {
     }
 
     /**
-     * Gets the source code for a given CodeUnit.
+     * Gets the source code for a given CodeUnit. Currently only supports classes and methods.
      *
      * @param codeUnit the code unit to get source for
      * @param includeComments whether to include preceding comments in the source

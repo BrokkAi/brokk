@@ -137,7 +137,7 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Get source code for a code unit by fully qualified name.
+     * Get source code for a code unit by fully qualified name. Currently, only methods and classes are supported.
      */
     public static Optional<String> getSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
