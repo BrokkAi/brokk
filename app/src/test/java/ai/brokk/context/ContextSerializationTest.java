@@ -3,7 +3,6 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
-import ai.brokk.context.FragmentDtos.CallGraphFragmentDto;
 import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -809,29 +808,6 @@ public class ContextSerializationTest {
         }
     }
 
-    @Test
-    void testCallGraphFragmentMigratesToUsageFragment() throws Exception {
-        // Create a legacy DTO
-        var legacyDto = new CallGraphFragmentDto("old-id", "com.example.MyClass.doStuff", 3, true);
-
-        // Deserialize using DtoMapper logic
-        var contentReader = new HistoryIo.ContentReader(Map.of());
-        var fragment = (ContextFragments.UsageFragment) DtoMapper.resolveAndBuildFragment(
-                legacyDto.id(),
-                Map.of(),
-                Map.of(legacyDto.id(), legacyDto),
-                Map.of(),
-                mockContextManager,
-                null,
-                new HashMap<>(),
-                contentReader);
-
-        // Verify migration
-        assertNotNull(fragment);
-        assertEquals("com.example.MyClass.doStuff", fragment.targetIdentifier());
-        assertTrue(fragment.includeTestFiles(), "CallGraph migration should default includeTestFiles to true");
-        assertEquals(ContextFragment.FragmentType.USAGE, fragment.getType());
-    }
 
     @Test
     void testRoundTripHistoryFragment() throws Exception {

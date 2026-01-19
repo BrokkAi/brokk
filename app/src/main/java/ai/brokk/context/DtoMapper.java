@@ -477,8 +477,6 @@ public class DtoMapper {
                 yield new StacktraceFragmentDto(
                         stf.id(), sourcesDto, originalContentId, stf.getException(), codeContentId);
             }
-            case ContextFragments.CallGraphFragment cgf ->
-                new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
             case ContextFragments.CodeFragment cf -> {
                 String snapshotId = null;
                 String snapshot = cf.text().tryGet().orElse(null);

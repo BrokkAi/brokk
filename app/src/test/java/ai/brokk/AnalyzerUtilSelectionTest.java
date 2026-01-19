@@ -158,12 +158,11 @@ public class AnalyzerUtilSelectionTest {
         Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "com.acme.Foo.bar", true, true);
         assertTrue(frag.isPresent(), "Expected a fragment for usage selection on exact method");
         assertTrue(
-                frag.get() instanceof ContextFragments.CallGraphFragment,
-                "Summarize=true for a method should return a CallGraphFragment");
-        ContextFragments.CallGraphFragment cg = (ContextFragments.CallGraphFragment) frag.get();
-        assertEquals("com.acme.Foo.bar", cg.getMethodName(), "Method name should match input");
-        assertEquals(1, cg.getDepth(), "Depth should be 1");
-        assertFalse(cg.isCalleeGraph(), "Expected caller graph (isCalleeGraph=false)");
+                frag.get() instanceof ContextFragments.UsageFragment,
+                "Summarize=true for a method should return a UsageFragment");
+        ContextFragments.UsageFragment uf = (ContextFragments.UsageFragment) frag.get();
+        assertEquals("com.acme.Foo.bar", uf.targetIdentifier(), "Target identifier should match input");
+        assertTrue(uf.includeTestFiles(), "includeTestFiles should be true");
     }
 
     @Test

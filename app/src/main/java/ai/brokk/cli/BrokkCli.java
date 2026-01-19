@@ -488,11 +488,11 @@ public final class BrokkCli implements Callable<Integer> {
             context = context.addFragments(fragment);
         }
         for (var entry : addCallers.entrySet()) {
-            var fragment = new ContextFragments.CallGraphFragment(cm, entry.getKey(), entry.getValue(), false);
+            var fragment = new ContextFragments.UsageFragment(cm, entry.getKey());
             context = context.addFragments(fragment);
         }
         for (var entry : addCallees.entrySet()) {
-            var fragment = new ContextFragments.CallGraphFragment(cm, entry.getKey(), entry.getValue(), true);
+            var fragment = new ContextFragments.UsageFragment(cm, entry.getKey());
             context = context.addFragments(fragment);
         }
 

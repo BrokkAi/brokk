@@ -445,8 +445,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 && !project.getRemoteProjectName().isBlank();
 
         // Load saved context history or create a new one
-        var contextTask =
-                submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
+        CompletableFuture<Void> contextTask =
+                submitBackgroundTask("Loading saved context", () -> {
+                    initializeCurrentSessionAndHistory(false);
+                });
 
         // Ensure build details are loaded/generated asynchronously
         // (style and review guides are handled by ensureGuidesAsync() called earlier)
@@ -1239,11 +1241,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     IConsoleIO.NotificationRole.INFO, "No callers found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragments.CallGraphFragment(this, methodName, depth, false);
+        var fragment = new ContextFragments.UsageFragment(this, methodName);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
-                "Add call graph for callers of " + methodName + " with depth " + depth);
+                "Add usages for callers of " + methodName);
     }
 
     /** callees for method */
@@ -1253,11 +1255,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     IConsoleIO.NotificationRole.INFO, "No callees found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragments.CallGraphFragment(this, methodName, depth, true);
+        var fragment = new ContextFragments.UsageFragment(this, methodName);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
-                "Add call graph for methods called by " + methodName + " with depth " + depth);
+                "Add usages for methods called by " + methodName);
     }
 
     /** parse stacktrace */

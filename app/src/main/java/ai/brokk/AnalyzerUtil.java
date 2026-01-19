@@ -447,11 +447,6 @@ public class AnalyzerUtil {
                         .findFirst()
                         .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
 
-        if (summarize && any.isPresent() && any.get().isFunction()) {
-            var methodFqn = any.get().fqName();
-            return Optional.of(new ContextFragments.CallGraphFragment(cm, methodFqn, 1, false));
-        }
-
         var target = any.map(CodeUnit::fqName).orElse(input);
         return Optional.of(new ContextFragments.UsageFragment(cm, target, includeTestFiles));
     }
