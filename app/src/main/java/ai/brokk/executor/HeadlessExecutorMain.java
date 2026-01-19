@@ -1527,7 +1527,7 @@ public final class HeadlessExecutorMain {
 
             for (var projectFile : addedFiles) {
                 var fragId = liveContext
-                        .fileFragments()
+                        .allFragments()
                         .filter(f -> f instanceof ContextFragments.PathFragment)
                         .map(f -> (ContextFragments.PathFragment) f)
                         .filter(p -> {
@@ -1835,7 +1835,7 @@ public final class HeadlessExecutorMain {
 
             for (var className : validClassNames) {
                 var fragId = liveContext
-                        .virtualFragments()
+                        .allFragments()
                         .filter(f -> f instanceof ContextFragments.SummaryFragment)
                         .map(f -> (ContextFragments.SummaryFragment) f)
                         .filter(s -> s.getTargetIdentifier().contains(className))

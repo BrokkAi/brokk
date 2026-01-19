@@ -159,8 +159,14 @@ public class DtoMapper {
                 })
                 .toList();
 
-        var editableIds = ctx.fileFragments().map(ContextFragment::id).toList();
-        var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
+        var editableIds = ctx.allFragments()
+                .filter(f -> f.getType().isPath())
+                .map(ContextFragment::id)
+                .toList();
+        var virtualIds = ctx.allFragments()
+                .filter(f -> !f.getType().isPath())
+                .map(ContextFragment::id)
+                .toList();
         var readonlyIds =
                 ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
         var pinnedIds = ctx.allFragments()

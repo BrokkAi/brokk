@@ -903,7 +903,11 @@ class CodeAgentTest {
         assertEquals("goodbye", file.read().orElseThrow().strip(), "Edit should have been applied to disk");
 
         // Assert: codeAgent's internal context should have refreshed fragments with updated content
-        var fragments = codeAgent.context.fileFragments().toList();
+        var fragments = codeAgent
+                .context
+                .allFragments()
+                .filter(f -> f.getType().isPath())
+                .toList();
 
         assertFalse(fragments.isEmpty(), "Context should contain a fragment for the modified file");
 

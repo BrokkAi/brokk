@@ -361,7 +361,8 @@ public class ContextHistoryTest {
         assertNotNull(updated);
 
         // Find the refreshed fragment for the same file
-        var refreshedFrag = updated.fileFragments()
+        var refreshedFrag = updated.allFragments()
+                .filter(f -> f.getType().isPath())
                 .filter(f -> f.files().join().contains(pf))
                 .findFirst()
                 .orElseThrow();
