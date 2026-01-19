@@ -882,33 +882,33 @@ public final class JobRunner {
                                                 } catch (InterruptedException ie) {
                                                     Thread.currentThread().interrupt();
                                                     throw new IssueExecutionException(
-                                                            "Interrupted while running pre-PR tests",
-                                                            ie);
-                                                }
-                                                if (testOut != null && !testOut.isBlank()) {
-                                                    throw new IssueExecutionException("Pre-PR tests failed: " + testOut);
-                                                }
-                                            }
+                                                                "Interrupted while running final tests",
+                                                                ie);
+                                                    }
+                                                    if (testOut != null && !testOut.isBlank()) {
+                                                        throw new IssueExecutionException("Final tests failed: " + testOut);
+                                                    }
+                                                    }
 
-                                            if (lintCmd != null && !lintCmd.isBlank()) {
-                                                String lintOut;
-                                                try {
-                                                    lintOut = BuildAgent.runExplicitCommand(cm, lintCmd, buildDetailsOverride);
-                                                } catch (InterruptedException ie) {
-                                                    Thread.currentThread().interrupt();
-                                                    throw new IssueExecutionException(
-                                                            "Interrupted while running pre-PR lint",
-                                                            ie);
-                                                }
-                                                if (lintOut != null && !lintOut.isBlank()) {
-                                                    throw new IssueExecutionException("Pre-PR lint failed: " + lintOut);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    default -> throw new IllegalStateException("Unhandled job mode: " + mode);
-                                }
-                                completed.incrementAndGet();
+                                                    if (lintCmd != null && !lintCmd.isBlank()) {
+                                                    String lintOut;
+                                                    try {
+                                                        lintOut = BuildAgent.runExplicitCommand(cm, lintCmd, buildDetailsOverride);
+                                                    } catch (InterruptedException ie) {
+                                                        Thread.currentThread().interrupt();
+                                                        throw new IssueExecutionException(
+                                                                "Interrupted while running final lint",
+                                                                ie);
+                                                    }
+                                                    if (lintOut != null && !lintOut.isBlank()) {
+                                                        throw new IssueExecutionException("Final lint failed: " + lintOut);
+                                                    }
+                                                    }
+                                                    }
+                                                    }
+                                                    default -> throw new IllegalStateException("Unhandled job mode: " + mode);
+                                                    }
+                                                    completed.incrementAndGet();
 
                                 try {
                                     JobStatus s = store.loadStatus(jobId);
