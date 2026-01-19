@@ -10,7 +10,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class SqlAnalyzer implements IAnalyzer {
+public class SqlAnalyzer implements IAnalyzer, SourceCodeProvider {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
 
     private final IProject project;
@@ -252,17 +252,20 @@ public class SqlAnalyzer implements IAnalyzer {
             return this;
         }
 
-        // Filter to only SQL files
-        var analyzableSet = project.getAnalyzableFiles(Languages.SQL);
-        var relevantFiles =
-                changedFiles.stream().filter(analyzableSet::contains).collect(Collectors.toSet());
+        // If any of the changed files are SQL files, we trigger a full re-analysis.
+        boolean hasRelevantChanges = changedFiles.stream()
+                .anyMatch(pf -> Languages.SQL.getExtensions().contains(pf.extension()));
 
-        if (relevantFiles.isEmpty()) {
+        if (!hasRelevantChanges) {
             return this;
         }
 
-        // Create a new analyzer with the same configuration
-        return new SqlAnalyzer(project);
+        // Create a new analyzer which will re-scan the project files.
+        SqlAnalyzer next = new SqlAnalyzer(project);
+        if (new HashSet<>(next.getAllDeclarations()).equals(new HashSet<>(this.allDeclarationsList))) {
+            return this;
+        }
+        return next;
     }
 
     @Override
@@ -332,5 +335,25 @@ public class SqlAnalyzer implements IAnalyzer {
     @Override
     public boolean containsTests(ProjectFile file) {
         return false;
+    }
+
+    @Override
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        return getSkeleton(codeUnit);
+    }
+
+    @Override
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        return getSource(codeUnit, includeComments)
+                .map(Set::of)
+                .orElse(Collections.emptySet());
+    }
+
+    @Override
+    public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+        if (capability.isInstance(this)) {
+            return Optional.of(capability.cast(this));
+        }
+        return IAnalyzer.super.as(capability);
     }
 }

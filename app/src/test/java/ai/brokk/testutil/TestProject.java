@@ -190,7 +190,7 @@ public class TestProject implements IProject {
     @Override
     public Set<ProjectFile> getAllFiles() {
         try (Stream<Path> stream = Files.walk(root)) {
-            return stream.filter(Files::isRegularFile)
+            return stream.filter(p -> Files.isRegularFile(p))
                     .map(p -> new ProjectFile(root, root.relativize(p)))
                     .collect(Collectors.toSet());
         } catch (IOException e) {
