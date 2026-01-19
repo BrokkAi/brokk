@@ -163,10 +163,10 @@ public class JdkSelector extends JPanel {
             return;
         }
 
-        // Non-sentinel: try to match against discovered JDKs
+        // Non-sentinel: try to match against existing items (discovered or custom)
         for (int i = 0; i < combo.getItemCount(); i++) {
             var it = combo.getItemAt(i);
-            if (path.equals(it.path)) {
+            if (path.equals(it.path) && !EnvironmentJava.JAVA_HOME_SENTINEL.equals(it.path)) {
                 combo.setSelectedIndex(i);
                 return;
             }

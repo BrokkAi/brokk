@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
@@ -208,5 +209,28 @@ class JdkSelectorTest {
         String error = JdkSelector.validateJdkPath(file);
         assertNotNull(error);
         assertTrue(error.contains("is not a directory"));
+    }
+
+    @Test
+    void testSetSelectedJdkPathIdempotency() {
+        JdkSelector selector = new JdkSelector();
+        String discoveredPath = "/path/to/discovered/jdk";
+        String customPath = "/path/to/custom/jdk";
+
+        selector.setDiscoveredJdksForTesting(List.of(discoveredPath));
+
+        // First call: adds custom item
+        selector.setSelectedJdkPath(customPath);
+        List<String> pathsAfterFirst = selector.getItemPathsForTesting();
+        assertTrue(pathsAfterFirst.contains(customPath));
+        int initialCount = pathsAfterFirst.size();
+
+        // Second call: should select existing instead of adding
+        selector.setSelectedJdkPath(customPath);
+        List<String> pathsAfterSecond = selector.getItemPathsForTesting();
+        assertEquals(initialCount, pathsAfterSecond.size(), "Should not have added duplicate path");
+
+        long customCount = pathsAfterSecond.stream().filter(p -> p.equals(customPath)).count();
+        assertEquals(1, customCount, "Custom path should appear exactly once");
     }
 }
