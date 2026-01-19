@@ -166,7 +166,7 @@ public class SearchTools {
             """
                     Search for symbols (class/function/field/module definitions) using static analysis.
                     ONLY returns symbol definitions (declarations).
-                    DO NOT use for usages/call sites/instantiation/access patterns — use getUsages or searchSubstrings.
+                    DO NOT use for usages/call sites/instantiation/access patterns — use getUsages/addSymbolUsagesToWorkspace or searchSubstrings.
                     Output is grouped by file, then by symbol kind within each file.
 
                     - kinds: CLASS, FUNCTION, FIELD, MODULE
