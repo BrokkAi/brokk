@@ -1447,80 +1447,108 @@ public final class JobRunner {
             @Nullable String originalCommitId,
             boolean forceDelete) {
 
+        // Simplified cleanup semantics:
+        // 1) Try to switch back to originalBranch (best-effort).
+        // 2) Always attempt to delete the created issue branch (best-effort).
         try {
-            String currentBranch = gitRepo.getCurrentBranch();
+            String currentBranch = null;
+            try {
+                currentBranch = gitRepo.getCurrentBranch();
+            } catch (Exception e) {
+                logger.warn("ISSUE job {}: Unable to determine current branch during cleanup", jobId, e);
+            }
+
             if (!Objects.equals(currentBranch, originalBranch)) {
                 try {
                     gitRepo.checkout(originalBranch);
                 } catch (Exception checkoutEx) {
-                    try {
-                        boolean hasLocalChanges = !gitRepo.getModifiedFiles().isEmpty();
-                        if (hasLocalChanges) {
-                            try {
-                                gitRepo.createStash("Brokk ISSUE job " + jobId + " cleanup");
-                            } catch (Exception stashEx) {
-                                logger.warn("ISSUE job {}: Failed to create stash during cleanup", jobId, stashEx);
-                            }
+                    // Best-effort: log and continue. Do not attempt complex heuristics (stash/retry).
+                    logger.warn(
+                            "ISSUE job {}: Failed to checkout original branch '{}' during cleanup: {}",
+                            jobId,
+                            originalBranch,
+                            checkoutEx.getMessage(),
+                            checkoutEx);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("ISSUE job {}: Unexpected error while attempting to restore original branch '{}'", jobId, e);
+        }
 
-                            try {
-                                gitRepo.checkout(originalBranch);
-                            } catch (Exception retryEx) {
-                                logger.warn(
-                                        "ISSUE job {}: Failed to checkout original branch '{}' after stashing",
-                                        jobId,
-                                        originalBranch,
-                                        retryEx);
-                            }
-                        } else {
-                            logger.warn(
-                                    "ISSUE job {}: Failed to checkout original branch '{}'",
-                                    jobId,
-                                    originalBranch,
-                                    checkoutEx);
+        // Always attempt to delete the created issue branch. Simpler contract:
+        // 1) Try to checkout the original branch (best-effort). If checkout fails due to local changes,
+        //    create a stash (best-effort) and retry checkout once.
+        // 2) After attempting to be back on original branch, attempt to delete the issue branch.
+        //    If normal delete fails, fall back to force delete. All operations are best-effort and logged.
+        try {
+            String currentBranch = null;
+            try {
+                currentBranch = gitRepo.getCurrentBranch();
+            } catch (Exception e) {
+                logger.warn("ISSUE job {}: Unable to determine current branch during cleanup", jobId, e);
+            }
+
+            if (!Objects.equals(currentBranch, originalBranch)) {
+                try {
+                    gitRepo.checkout(originalBranch);
+                } catch (Exception checkoutEx) {
+                    // If checkout fails due to working tree changes, try to stash and retry once.
+                    logger.warn(
+                            "ISSUE job {}: Failed to checkout original branch '{}' during cleanup: {}",
+                            jobId,
+                            originalBranch,
+                            checkoutEx.getMessage(),
+                            checkoutEx);
+                    try {
+                        // Best-effort stash to allow checkout to succeed
+                        var stash = gitRepo.createStash("brokk-autostash-for-cleanup");
+                        if (stash != null) {
+                            logger.debug("ISSUE job {}: Created stash {} to allow checkout", jobId, stash.getName());
                         }
-                    } catch (Exception innerEx) {
+                    } catch (Exception stashEx) {
+                        logger.warn("ISSUE job {}: Failed to create stash during cleanup: {}", jobId, stashEx.getMessage(), stashEx);
+                    }
+
+                    try {
+                        gitRepo.checkout(originalBranch);
+                    } catch (Exception retryEx) {
                         logger.warn(
-                                "ISSUE job {}: Unexpected failure while attempting branch restoration to '{}'",
+                                "ISSUE job {}: Retry checkout to '{}' failed during cleanup: {}",
                                 jobId,
                                 originalBranch,
-                                innerEx);
+                                retryEx.getMessage(),
+                                retryEx);
                     }
                 }
             }
         } catch (Exception e) {
-            logger.warn("ISSUE job {}: Cleanup failed while restoring original branch", jobId, e);
+            logger.warn("ISSUE job {}: Unexpected error while attempting to restore original branch '{}'", jobId, e);
         }
 
-        boolean noUniqueCommits = false;
-        if (originalCommitId != null) {
-            try {
-                noUniqueCommits = gitRepo.countCommitsSince(originalCommitId) == 0;
-            } catch (Exception e) {
-                logger.warn(
-                        "ISSUE job {}: Failed to count commits since original commit {}",
-                        jobId,
-                        originalCommitId,
-                        e);
-            }
-        }
-
-        boolean merged = false;
+        // Now attempt to delete the created issue branch. Use forceDelete flag to decide whether to force.
         try {
-            merged = gitRepo.isBranchMerged(issueBranchName);
-        } catch (Exception e) {
-            logger.warn("ISSUE job {}: Failed to determine whether branch '{}' is merged", jobId, issueBranchName, e);
-        }
-
-        if (forceDelete || merged || noUniqueCommits) {
             try {
-                if (forceDelete) {
+                gitRepo.deleteBranch(issueBranchName);
+            } catch (Exception delEx) {
+                logger.warn(
+                        "ISSUE job {}: Normal delete failed for branch '{}', attempting force delete: {}",
+                        jobId,
+                        issueBranchName,
+                        delEx.getMessage(),
+                        delEx);
+                try {
                     gitRepo.forceDeleteBranch(issueBranchName);
-                } else {
-                    gitRepo.deleteBranch(issueBranchName);
+                } catch (Exception forceEx) {
+                    logger.warn(
+                            "ISSUE job {}: Failed to force-delete branch '{}' during cleanup: {}",
+                            jobId,
+                            issueBranchName,
+                            forceEx.getMessage(),
+                            forceEx);
                 }
-            } catch (Exception e) {
-                logger.warn("ISSUE job {}: Failed to delete issue branch '{}'", jobId, issueBranchName, e);
             }
+        } catch (Exception e) {
+            logger.warn("ISSUE job {}: Failed to delete issue branch '{}' during cleanup", jobId, issueBranchName, e);
         }
     }
 
