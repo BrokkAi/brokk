@@ -8,8 +8,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.analyzer.CallGraphProvider;
-import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
@@ -1510,29 +1508,10 @@ public class ContextFragments {
                     .filter(CodeUnit::isFunction)
                     .findFirst();
 
-            String text;
-            Set<CodeUnit> sources = Set.of();
-            if (methodCodeUnit.isPresent()) {
-                sources = Set.of(methodCodeUnit.get());
-                var cpgOpt = analyzer.as(CallGraphProvider.class);
-                if (cpgOpt.isPresent()) {
-                    var cpg = cpgOpt.get();
-                    Map<String, List<CallSite>> graphData = isCalleeGraph
-                            ? cpg.getCallgraphFrom(methodCodeUnit.get(), depth)
-                            : cpg.getCallgraphTo(methodCodeUnit.get(), depth);
+            String text = "Call graphs are now deprecated, use the \"Usages\" fragment instead";
 
-                    text = graphData.isEmpty()
-                            ? "No call graph available for " + methodName
-                            : AnalyzerUtil.formatCallGraph(graphData, methodName, !isCalleeGraph);
-                } else {
-                    text = "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
-                }
-            } else {
-                text = "Method not found: " + methodName;
-            }
-
+            var sources = Set.of(methodCodeUnit.get());
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-
             boolean valid = analyzer.getDefinitions(methodName).stream().anyMatch(CodeUnit::isFunction);
             return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
         }

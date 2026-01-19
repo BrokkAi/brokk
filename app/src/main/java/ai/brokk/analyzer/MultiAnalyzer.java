@@ -8,7 +8,7 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MultiAnalyzer implements IAnalyzer, CallGraphProvider, SourceCodeProvider, TypeAliasProvider {
+public class MultiAnalyzer implements IAnalyzer, SourceCodeProvider, TypeAliasProvider {
     private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
     private final Map<Language, IAnalyzer> delegates;
 
@@ -108,22 +108,6 @@ public class MultiAnalyzer implements IAnalyzer, CallGraphProvider, SourceCodePr
     @Override
     public IProject getProject() {
         return findFirst(analyzer -> Optional.of(analyzer.getProject())).orElseThrow();
-    }
-
-    @Override
-    public Map<String, List<CallSite>> getCallgraphTo(CodeUnit method, int depth) {
-        return delegateFor(method)
-                .flatMap(delegate -> delegate.as(CallGraphProvider.class))
-                .map(cgp -> cgp.getCallgraphTo(method, depth))
-                .orElse(Collections.emptyMap());
-    }
-
-    @Override
-    public Map<String, List<CallSite>> getCallgraphFrom(CodeUnit method, int depth) {
-        return delegateFor(method)
-                .flatMap(delegate -> delegate.as(CallGraphProvider.class))
-                .map(cgp -> cgp.getCallgraphFrom(method, depth))
-                .orElse(Collections.emptyMap());
     }
 
     @Override

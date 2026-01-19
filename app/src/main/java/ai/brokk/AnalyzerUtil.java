@@ -179,28 +179,6 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Get call graph showing what calls the given method.
-     */
-    public static Map<String, List<CallSite>> getCallgraphTo(IAnalyzer analyzer, String methodName, int depth) {
-        return analyzer.getDefinitions(methodName).stream()
-                .filter(CodeUnit::isFunction)
-                .findFirst()
-                .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphTo(cu, depth)))
-                .orElse(Collections.emptyMap());
-    }
-
-    /**
-     * Get call graph showing what the given method calls.
-     */
-    public static Map<String, List<CallSite>> getCallgraphFrom(IAnalyzer analyzer, String methodName, int depth) {
-        return analyzer.getDefinitions(methodName).stream()
-                .filter(CodeUnit::isFunction)
-                .findFirst()
-                .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphFrom(cu, depth)))
-                .orElse(Collections.emptyMap());
-    }
-
-    /**
      * Get members (methods, fields, nested classes) of a class by fully qualified name.
      */
     public static List<CodeUnit> getMembersInClass(IAnalyzer analyzer, String fqClass) {
