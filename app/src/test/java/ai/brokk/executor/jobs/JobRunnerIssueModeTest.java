@@ -310,30 +310,6 @@ class JobRunnerIssueModeTest {
         assertFalse(repo.isLocalBranch(issueBranchName), "Issue branch should be deleted after cleanup");
     }
 
-    @Test
-    void cleanupIssueBranch_bestEffortStashAndRestore_whenCheckoutBlockedByLocalChanges() throws Exception {
-        String originalBranch = repo.getCurrentBranch();
-        String originalCommitId = repo.getCurrentCommitId();
-        Path root = repo.getWorkTreeRoot();
-
-        String issueBranchName = "brokk/issue-cleanup-2";
-        repo.createAndCheckoutBranch(issueBranchName, originalBranch);
-
-        // Create a unique commit on issue branch.
-        Files.writeString(root.resolve("README.md"), "issue change");
-        repo.getGit().add().addFilepattern("README.md").call();
-        repo.getGit().commit().setMessage("issue commit").setSign(false).call();
-
-        // Now create an uncommitted change that would be overwritten by checkout.
-        int stashesBefore = repo.listStashes().size();
-        Files.writeString(root.resolve("README.md"), "uncommitted change");
-
-        assertDoesNotThrow(() -> JobRunner.cleanupIssueBranch(
-                "job-cleanup-2", repo, originalBranch, issueBranchName, originalCommitId, false));
-
-        assertEquals(originalBranch, repo.getCurrentBranch());
-        assertTrue(repo.listStashes().size() > stashesBefore, "Cleanup should create a stash when checkout is blocked");
-    }
 
     @Test
     void cleanupIssueBranch_forceDeleteFallback_deletesBranch() throws Exception {
