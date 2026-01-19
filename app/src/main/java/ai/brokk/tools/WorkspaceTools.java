@@ -279,7 +279,7 @@ public class WorkspaceTools {
     @Tool(
             """
                   Finds usages of a specific symbol (class, method, field) and adds the full source of the calling methods to the Workspace. Only call when you have identified specific symbols.
-                  Use this FIRST for questions like “how is X used/accessed/obtained/wired”.
+                  Use this for questions like “how is X used/accessed/obtained/wired”.
                   If you don’t know the FQN, call searchSymbols once to get it.
                   """)
     public String addSymbolUsagesToWorkspace(

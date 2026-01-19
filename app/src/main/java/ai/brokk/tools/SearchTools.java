@@ -250,7 +250,7 @@ public class SearchTools {
     @Tool(
             """
                     Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
-                    Use this FIRST for questions like “how is X used/accessed/obtained/wired”.
+                    Use this for questions like “how is X used/accessed/obtained/wired”.
                     If you don’t know the FQN, call searchSymbols once to get it.
                     """)
     public String getUsages(
