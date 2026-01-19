@@ -971,6 +971,7 @@ public final class JobRunner {
                                                     forceDelete);
                                         }
                                     }
+                                    default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                 }
 
                                 completed.incrementAndGet();
