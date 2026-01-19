@@ -27,9 +27,9 @@ import java.util.Map;
 @BugPattern(
         name = "BrokkBlockingOperation",
         summary = "Potentially blocking operation on ContextFragment; prefer the computed non-blocking alternative",
-        explanation =
-                "This call may perform analyzer work or I/O. Prefer using the corresponding computed*() "
-                        + "non-blocking method (e.g., computedFiles(), computedSources(), computedText(), computedDescription(), computedSyntaxStyle()).",
+        explanation = "This call may perform analyzer work or I/O. Prefer using the corresponding computed*() "
+                + "non-blocking method or LoggingFuture call for short-lived tasks. For tasks long enough to be "
+                + "noticeable by a user, consider using ContextManager.submitBackgroundTask.",
         severity = BugPattern.SeverityLevel.WARNING)
 public final class BlockingOperationChecker extends BugChecker implements BugChecker.MethodInvocationTreeMatcher {
 
