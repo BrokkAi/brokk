@@ -1,8 +1,14 @@
 package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -116,6 +122,105 @@ public class FileUtilTest {
         assertArrayEquals(
                 new int[] {0, 1, 2}, FileUtil.computeLineStarts(onlyCr), "Two CRs should produce 3 line starts");
         assertEquals(3, onlyCr.split("\\R", -1).length, "Two CRs should yield 3 lines via split()");
+    }
+
+    @Test
+    public void abbreviatePath_shortPathsAndFewComponents_returnsUnchanged() {
+        // Case A: short string under maxLength (35)
+        String shortPath = "a/b/c/d/e/f/g";
+        assertEquals(shortPath, FileUtil.abbreviatePath(shortPath));
+
+        // Case B: longer than 35 chars but <= 4 components
+        // Build path: /very-long-component-name-1/very-long-component-name-2/very-long-component-name-3
+        String sep = File.separator;
+        String longComponent = "very-long-component-name-that-is-quite-long";
+        String pathWithFewComponents = longComponent + sep + longComponent + sep + longComponent;
+        assertTrue(pathWithFewComponents.length() > 35);
+        assertTrue(Path.of(pathWithFewComponents).getNameCount() <= 4);
+        assertEquals(pathWithFewComponents, FileUtil.abbreviatePath(pathWithFewComponents));
+    }
+
+    @Test
+    public void abbreviatePath_longPath_abbreviatesAsIntended() {
+        String sep = File.separator;
+        // Build path with > 4 components and > 35 length
+        // e.g. /comp1/comp2/comp3/comp4/comp5
+        String p1 = "first-component";
+        String p2 = "second-component";
+        String p3 = "third-component";
+        String p4 = "fourth-component";
+        String p5 = "fifth-component";
+        String longPath = String.join(sep, p1, p2, p3, p4, p5);
+
+        assertTrue(longPath.length() > 35);
+        Path pathObj = Path.of(longPath);
+        int nameCount = pathObj.getNameCount();
+        assertTrue(nameCount > 4);
+
+        String rootStr = pathObj.getRoot() != null ? pathObj.getRoot().toString() : "";
+        String first = pathObj.getName(0).toString();
+        String expected = rootStr + first + sep + "..." + sep + pathObj.getName(nameCount - 3) + sep
+                + pathObj.getName(nameCount - 2) + sep + pathObj.getName(nameCount - 1);
+
+        assertEquals(expected, FileUtil.abbreviatePath(longPath));
+    }
+
+    @Test
+    public void abbreviatePath_invalidInput_returnsSafeFallback() {
+        // Input containing NUL byte causes Path.of to throw InvalidPathException
+        String invalidShort = "invalid\0path";
+        assertDoesNotThrow(() -> {
+            String result = FileUtil.abbreviatePath(invalidShort);
+            assertNotNull(result);
+            assertEquals(invalidShort, result);
+        });
+
+        String invalidLong = "extremely-long-invalid-path-with-null-byte-at-the-end-to-test-truncation\0";
+        assertTrue(invalidLong.length() > 35);
+        assertDoesNotThrow(() -> {
+            String result = FileUtil.abbreviatePath(invalidLong);
+            assertNotNull(result);
+            assertEquals(35, result.length());
+            assertTrue(result.endsWith("..."));
+        });
+    }
+
+    @Test
+    public void abbreviatePath_platformSpecificSeparators() {
+        String sep = File.separator;
+        boolean isWindows = File.separatorChar == '\\';
+
+        String p1 = "Users";
+        String p2 = "alice";
+        String p3 = "projects";
+        String p4 = "brokk";
+        String p5 = "src";
+        String p6 = "main";
+        String pathStr = String.join(sep, p1, p2, p3, p4, p5, p6);
+        if (isWindows) {
+            pathStr = "C:\\" + pathStr;
+        } else {
+            pathStr = "/" + pathStr;
+        }
+
+        String result = FileUtil.abbreviatePath(pathStr);
+
+        if (isWindows) {
+            assertTrue(result.contains("\\"));
+            assertFalse(result.contains("/"));
+        } else {
+            assertTrue(result.contains("/"));
+            assertFalse(result.contains("\\"));
+        }
+
+        Path pathObj = Path.of(pathStr);
+        String rootStr = pathObj.getRoot().toString();
+        String first = pathObj.getName(0).toString();
+        int nc = pathObj.getNameCount();
+        String expected = rootStr + first + sep + "..." + sep + pathObj.getName(nc - 3) + sep + pathObj.getName(nc - 2)
+                + sep + pathObj.getName(nc - 1);
+
+        assertEquals(expected, result);
     }
 
     /**
