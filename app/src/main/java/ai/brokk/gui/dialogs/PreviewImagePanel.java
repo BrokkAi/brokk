@@ -1,6 +1,8 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.BrokkFile;
+import ai.brokk.gui.Chrome;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -10,7 +12,7 @@ import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 public class PreviewImagePanel extends JPanel {
-    private final ai.brokk.gui.Chrome chrome;
+    private final Chrome chrome;
 
     @Nullable
     private final BrokkFile file;
@@ -18,7 +20,7 @@ public class PreviewImagePanel extends JPanel {
     @Nullable
     private BufferedImage image;
 
-    public PreviewImagePanel(ai.brokk.gui.Chrome chrome, @Nullable BrokkFile file) {
+    public PreviewImagePanel(Chrome chrome, @Nullable BrokkFile file) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.file = file;
@@ -83,8 +85,7 @@ public class PreviewImagePanel extends JPanel {
             // Check if file still exists
             if (!Files.exists(file.absPath())) {
                 SwingUtilities.invokeLater(() -> {
-                    chrome.showNotification(
-                            ai.brokk.IConsoleIO.NotificationRole.INFO, "Image file has been deleted: " + file);
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Image file has been deleted: " + file);
                 });
                 return;
             }

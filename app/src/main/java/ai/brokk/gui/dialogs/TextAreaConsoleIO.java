@@ -1,6 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -57,20 +58,20 @@ public class TextAreaConsoleIO implements IConsoleIO {
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         // Handle transition from reasoning -> content by clearing any interim reasoning tokens first.
         if (clearOnReasoningTransition) {
-            if (!isReasoning && lastWasReasoning && !hasStartedContent) {
+            if (!meta.isReasoning() && lastWasReasoning && !hasStartedContent) {
                 SwingUtilities.invokeLater(() -> textArea.setText(""));
                 hasStartedContent = true;
-            } else if (isReasoning && !lastWasReasoning && hasStartedContent) {
+            } else if (meta.isReasoning() && !lastWasReasoning && hasStartedContent) {
                 // Illegal transition back to reasoning once non-reasoning content has started.
                 throw new IllegalStateException("Stream switched from non-reasoning to reasoning");
             }
         }
 
         if (token.isEmpty()) {
-            lastWasReasoning = isReasoning;
+            lastWasReasoning = meta.isReasoning();
             return;
         }
 
@@ -91,7 +92,7 @@ public class TextAreaConsoleIO implements IConsoleIO {
             textArea.setCaretPosition(textArea.getText().length());
         });
 
-        lastWasReasoning = isReasoning;
+        lastWasReasoning = meta.isReasoning();
     }
 
     public void onComplete() {

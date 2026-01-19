@@ -37,6 +37,8 @@ public final class CaptureNames {
 
     // Namespace/organization captures
     public static final String NAMESPACE_DEFINITION = "namespace.definition";
+    public static final String MODULE_DEFINITION = "module.definition";
+    public static final String PACKAGE_DEFINITION = "package.definition";
 
     // Variable/constant captures
     public static final String VARIABLE_DEFINITION = "variable.definition";

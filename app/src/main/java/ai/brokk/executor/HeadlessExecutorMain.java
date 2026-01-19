@@ -15,6 +15,7 @@ import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -25,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -33,6 +35,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
@@ -42,10 +46,20 @@ import org.jetbrains.annotations.Nullable;
 
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     // Valid argument keys that the application accepts
     private static final Set<String> VALID_ARGS =
             Set.of("exec-id", "listen-addr", "auth-token", "workspace-dir", "brokk-api-key", "proxy-setting", "help");
+
+    private static final ai.brokk.AbstractService.ReasoningLevel[] REASONING_LEVEL_VALUES =
+            ai.brokk.AbstractService.ReasoningLevel.values();
+
+    private static final Set<String> ALLOWED_REASONING_LEVELS =
+            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.toUnmodifiableSet());
+
+    private static final String ALLOWED_REASONING_LEVELS_LIST =
+            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.joining(", "));
 
     private final UUID execId;
     private final SimpleHttpServer server;
@@ -54,6 +68,8 @@ public final class HeadlessExecutorMain {
     private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
     private final JobRunner jobRunner;
+    private final Thread initThread;
+    private final CompletableFuture<Void> headlessInit = new CompletableFuture<>();
     // Indicates whether a session has been loaded (either uploaded or created) at least once.
     // Used to gate /health/ready until the first session is available.
     private volatile boolean sessionLoaded = false;
@@ -202,18 +218,20 @@ public final class HeadlessExecutorMain {
         this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
-        var initThread = new Thread(
+        this.initThread = new Thread(
                 () -> {
                     try {
                         this.contextManager.createHeadless();
+                        headlessInit.complete(null);
                         logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {
+                        headlessInit.completeExceptionally(e);
                         logger.warn("ContextManager headless initialization failed", e);
                     }
                 },
                 "ContextManager-Init");
-        initThread.setDaemon(true);
-        initThread.start();
+        this.initThread.setDaemon(true);
+        this.initThread.start();
 
         // Initialize JobRunner
         this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
@@ -281,6 +299,40 @@ public final class HeadlessExecutorMain {
         var response = Map.of("execId", this.execId.toString(), "version", BuildInfo.version, "protocolVersion", 1);
 
         SimpleHttpServer.sendJsonResponse(exchange, response);
+    }
+
+    /**
+     * Await headless ContextManager initialization (with timeout) or respond with an error.
+     *
+     * @param exchange the HTTP exchange for sending an error response
+     * @param jobId the job identifier (used for logging and reservation cleanup)
+     * @return true if initialization completed successfully; false if an error response was sent
+     */
+    private boolean awaitHeadlessInitOrRespond(HttpExchange exchange, String jobId) throws IOException {
+        try {
+            headlessInit.get(30, TimeUnit.SECONDS);
+            return true;
+        } catch (TimeoutException e) {
+            logger.warn("Headless initialization timed out; rejecting job {}", jobId);
+            jobReservation.releaseIfOwner(jobId);
+            var error = ErrorPayload.of("NOT_READY", "Executor is still initializing");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
+            return false;
+        } catch (ExecutionException e) {
+            logger.warn("Headless initialization failed; rejecting job {}", jobId, e.getCause());
+            jobReservation.releaseIfOwner(jobId);
+            var error = ErrorPayload.internalError(
+                    "Executor initialization failed", Objects.requireNonNullElse(e.getCause(), e));
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while awaiting headless initialization; rejecting job {}", jobId);
+            jobReservation.releaseIfOwner(jobId);
+            var error = ErrorPayload.of("NOT_READY", "Executor is still initializing");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
+            return false;
+        }
     }
 
     /**
@@ -357,6 +409,14 @@ public final class HeadlessExecutorMain {
     }
 
     public void stop(int delaySeconds) {
+        // Interrupt and wait for init thread to prevent resource leak
+        initThread.interrupt();
+        try {
+            initThread.join(5000); // Wait up to 5 seconds
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
         try {
             this.contextManager.close();
         } catch (Exception e) {
@@ -555,6 +615,18 @@ public final class HeadlessExecutorMain {
         // POST /v1/jobs - create job
         if (path.equals("/v1/jobs") && method.equals("POST")) {
             handlePostJobs(exchange);
+            return;
+        }
+
+        // POST /v1/jobs/issue - convenience endpoint for issue resolution
+        if (path.equals("/v1/jobs/issue") && method.equals("POST")) {
+            handlePostIssueJob(exchange);
+            return;
+        }
+
+        // POST /v1/jobs/pr-review - convenience endpoint for PR review
+        if (path.equals("/v1/jobs/pr-review") && method.equals("POST")) {
+            handlePostPrReviewJob(exchange);
             return;
         }
 
@@ -813,11 +885,11 @@ public final class HeadlessExecutorMain {
 
         // Switch ContextManager to this session with timeout to avoid indefinite blocking
         try {
-            contextManager.switchSessionAsync(sessionId).get(3, TimeUnit.SECONDS);
+            contextManager.switchSessionAsync(sessionId).get(30, TimeUnit.SECONDS);
             logger.info(
                     "Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
         } catch (TimeoutException e) {
-            logger.warn("Timed out switching to session {}; continuing asynchronously", sessionId);
+            throw new IOException("Timed out switching to session " + sessionId + " after 30 seconds", e);
         }
 
         System.out.println("Session imported: " + sessionId);
@@ -839,8 +911,7 @@ public final class HeadlessExecutorMain {
         try {
             var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
-                var error = ErrorPayload.validationError("Idempotency-Key header is required");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                sendValidationError(exchange, "Idempotency-Key header is required");
                 return;
             }
             var sessionIdStr = exchange.getRequestHeaders().getFirst("X-Session-Id");
@@ -849,8 +920,7 @@ public final class HeadlessExecutorMain {
                 try {
                     sessionId = UUID.fromString(sessionIdStr);
                 } catch (IllegalArgumentException e) {
-                    var error = ErrorPayload.validationError("Invalid Session-Id format: must be a valid UUID");
-                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                    sendValidationError(exchange, "Invalid Session-Id format: must be a valid UUID");
                     return;
                 }
             }
@@ -859,16 +929,14 @@ public final class HeadlessExecutorMain {
             // Parse JobSpec payload from request body
             var jobSpecRequest = SimpleHttpServer.parseJsonRequest(exchange, JobSpecRequest.class);
             if (jobSpecRequest == null) {
-                var error = ErrorPayload.validationError("Invalid JobSpec in request body");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                sendValidationError(exchange, "Invalid JobSpec in request body");
                 return;
             }
 
             var plannerModel = Objects.requireNonNullElse(jobSpecRequest.plannerModel(), "")
                     .strip();
             if (plannerModel.isBlank()) {
-                var error = ErrorPayload.validationError("plannerModel is required");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                sendValidationError(exchange, "plannerModel is required");
                 return;
             }
 
@@ -884,6 +952,53 @@ public final class HeadlessExecutorMain {
 
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
             boolean preScanFlag = Objects.requireNonNullElse(jobSpecRequest.preScan(), false);
+
+            @Nullable String reasoningLevel = null;
+            var reasoningLevelRaw = jobSpecRequest.reasoningLevel();
+            if (reasoningLevelRaw != null && !reasoningLevelRaw.isBlank()) {
+                var normalized = reasoningLevelRaw.strip().toUpperCase(Locale.ROOT);
+
+                if (!ALLOWED_REASONING_LEVELS.contains(normalized)) {
+                    sendValidationError(exchange, "reasoningLevel must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
+                    return;
+                }
+
+                reasoningLevel = normalized;
+            }
+
+            @Nullable String reasoningLevelCode = null;
+            var reasoningLevelCodeRaw = jobSpecRequest.reasoningLevelCode();
+            if (reasoningLevelCodeRaw != null && !reasoningLevelCodeRaw.isBlank()) {
+                var normalized = reasoningLevelCodeRaw.strip().toUpperCase(Locale.ROOT);
+
+                if (!ALLOWED_REASONING_LEVELS.contains(normalized)) {
+                    sendValidationError(
+                            exchange, "reasoningLevelCode must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
+                    return;
+                }
+
+                reasoningLevelCode = normalized;
+            }
+
+            @Nullable Double temperature = null;
+            var tempRaw = jobSpecRequest.temperature();
+            if (tempRaw != null) {
+                if (tempRaw.isNaN() || tempRaw < 0.0 || tempRaw > 2.0) {
+                    sendValidationError(exchange, "temperature must be between 0.0 and 2.0");
+                    return;
+                }
+                temperature = tempRaw;
+            }
+
+            @Nullable Double temperatureCode = null;
+            var tempCodeRaw = jobSpecRequest.temperatureCode();
+            if (tempCodeRaw != null) {
+                if (tempCodeRaw.isNaN() || tempCodeRaw < 0.0 || tempCodeRaw > 2.0) {
+                    sendValidationError(exchange, "temperatureCode must be between 0.0 and 2.0");
+                    return;
+                }
+                temperatureCode = tempCodeRaw;
+            }
 
             // Optional job-scoped context text: accept from either top-level contextText or nested context.text
             var requestedJobContextTexts = new ArrayList<String>();
@@ -947,7 +1062,8 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.scanModel(),
                     jobSpecRequest.codeModel(),
                     preScanFlag,
-                    safeTags);
+                    safeTags,
+                    new JobSpec.ModelOverrides(reasoningLevel, reasoningLevelCode, temperature, temperatureCode));
 
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
@@ -988,6 +1104,11 @@ public final class HeadlessExecutorMain {
                         jobId,
                         idempotencyKey,
                         contextManager.getCurrentSessionId());
+
+                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
+                    return;
+                }
+
                 try {
                     // Add any validated job-scoped context text fragments before starting execution
                     var contextTextFragmentIds = new ArrayList<String>();
@@ -1126,6 +1247,133 @@ public final class HeadlessExecutorMain {
         } catch (Exception e) {
             logger.error("Error handling POST /v1/jobs/{jobId}/cancel", e);
             var error = ErrorPayload.internalError("Failed to cancel job", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * POST /v1/jobs/pr-review - Convenience endpoint for PR review jobs.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Headers:</b>
+     * <ul>
+     *   <li>Idempotency-Key (required): Unique key for idempotent job creation</li>
+     * </ul>
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "owner": "repo-owner",
+     *   "repo": "repo-name",
+     *   "prNumber": 123,
+     *   "githubToken": "ghp_...",
+     *   "plannerModel": "gpt-4"
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (201 Created / 200 OK):</b>
+     * <pre>
+     * {
+     *   "jobId": "uuid",
+     *   "state": "queued"
+     * }
+     * </pre>
+     */
+    void handlePostPrReviewJob(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+            if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                sendValidationError(exchange, "Idempotency-Key header is required");
+                return;
+            }
+
+            var request = parseJsonOr400(exchange, PrReviewJobRequest.class, "/v1/jobs/pr-review");
+            if (request == null) {
+                return;
+            }
+
+            // Validate required fields
+            if (request.owner() == null || request.owner().isBlank()) {
+                sendValidationError(exchange, "owner is required");
+                return;
+            }
+            if (request.repo() == null || request.repo().isBlank()) {
+                sendValidationError(exchange, "repo is required");
+                return;
+            }
+            if (request.prNumber() <= 0) {
+                sendValidationError(exchange, "prNumber must be a positive integer");
+                return;
+            }
+            if (request.githubToken() == null || request.githubToken().isBlank()) {
+                sendValidationError(exchange, "githubToken is required");
+                return;
+            }
+            if (request.plannerModel() == null || request.plannerModel().isBlank()) {
+                sendValidationError(exchange, "plannerModel is required");
+                return;
+            }
+
+            var jobSpec = JobSpec.ofPrReview(
+                    request.plannerModel(), request.githubToken(), request.owner(), request.repo(), request.prNumber());
+
+            var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+            var jobId = createResult.jobId();
+            var isNewJob = createResult.isNewJob();
+
+            logger.info(
+                    "PR Review job {}: isNewJob={}, jobId={}, owner={}, repo={}, pr={}",
+                    idempotencyKey,
+                    isNewJob,
+                    jobId,
+                    request.owner(),
+                    request.repo(),
+                    request.prNumber());
+
+            var status = jobStore.loadStatus(jobId);
+            var state = status != null ? status.state() : "queued";
+
+            var response = new HashMap<String, Object>();
+            response.put("jobId", jobId);
+            response.put("state", state);
+
+            if (isNewJob) {
+                if (!tryReserveJobSlot(jobId)) {
+                    logger.info(
+                            "PR Review job reservation failed; another job in progress: {}, requested jobId={}",
+                            jobReservation.current(),
+                            jobId);
+                    var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                    SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
+                    return;
+                }
+
+                try {
+                    executeJobAsync(jobId, jobSpec, List.of());
+                } catch (Exception ex) {
+                    jobReservation.releaseIfOwner(jobId);
+                    logger.error("Failed to start PR review job {}", jobId, ex);
+                    var error = ErrorPayload.internalError("Failed to start job execution", ex);
+                    SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                    return;
+                }
+
+                SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            } else {
+                SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+            }
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/jobs/pr-review", e);
+            var error = ErrorPayload.internalError("Failed to create PR review job", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }
@@ -1318,6 +1566,13 @@ public final class HeadlessExecutorMain {
 
     private record CreateSessionRequest(String name) {}
 
+    private record PrReviewJobRequest(
+            @Nullable String owner,
+            @Nullable String repo,
+            int prNumber,
+            @Nullable String githubToken,
+            @Nullable String plannerModel) {}
+
     private record JobSpecRequest(
             String sessionId,
             String taskInput,
@@ -1329,7 +1584,11 @@ public final class HeadlessExecutorMain {
             @Nullable Boolean preScan,
             @Nullable Map<String, String> tags,
             @Nullable List<String> contextText,
-            @Nullable ContextPayload context) {}
+            @Nullable ContextPayload context,
+            @Nullable String reasoningLevel,
+            @Nullable String reasoningLevelCode,
+            @Nullable Double temperature,
+            @Nullable Double temperatureCode) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 
@@ -1354,6 +1613,127 @@ public final class HeadlessExecutorMain {
     private record AddContextTextRequest(String text) {}
 
     private record AddContextTextResponse(String id, int chars) {}
+
+    private record IssueJobRequest(
+            @Nullable String owner,
+            @Nullable String repo,
+            int issueNumber,
+            @Nullable String githubToken,
+            @Nullable String plannerModel,
+            @Nullable String codeModel,
+            @Nullable Map<String, Object> buildSettings,
+            @Nullable Integer maxIssueFixAttempts) {}
+
+    /**
+     * POST /v1/jobs/issue - Convenience endpoint for starting an ISSUE mode job.
+     */
+    void handlePostIssueJob(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+            if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                sendValidationError(exchange, "Idempotency-Key header is required");
+                return;
+            }
+
+            var request = parseJsonOr400(exchange, IssueJobRequest.class, "/v1/jobs/issue");
+            if (request == null) {
+                return;
+            }
+
+            // Validation
+            if (request.owner() == null || request.owner().isBlank()) {
+                sendValidationError(exchange, "owner is required");
+                return;
+            }
+            if (request.repo() == null || request.repo().isBlank()) {
+                sendValidationError(exchange, "repo is required");
+                return;
+            }
+            if (request.issueNumber() <= 0) {
+                sendValidationError(exchange, "valid issueNumber is required");
+                return;
+            }
+            if (request.githubToken() == null || request.githubToken().isBlank()) {
+                sendValidationError(exchange, "githubToken is required");
+                return;
+            }
+            if (request.plannerModel() == null || request.plannerModel().isBlank()) {
+                sendValidationError(exchange, "plannerModel is required");
+                return;
+            }
+
+            int maxAttempts;
+            if (request.maxIssueFixAttempts() == null) {
+                maxAttempts = JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS;
+            } else {
+                maxAttempts = request.maxIssueFixAttempts();
+                if (maxAttempts <= 0) {
+                    sendValidationError(exchange, "maxIssueFixAttempts must be a positive integer");
+                    return;
+                }
+            }
+
+            String buildSettingsJson = "";
+            if (request.buildSettings() != null) {
+                buildSettingsJson = OBJECT_MAPPER.writeValueAsString(request.buildSettings());
+            }
+
+            var jobSpec = JobSpec.ofIssue(
+                    Objects.requireNonNull(request.plannerModel()),
+                    request.codeModel() != null ? request.codeModel().strip() : null,
+                    Objects.requireNonNull(request.githubToken()),
+                    Objects.requireNonNull(request.owner()),
+                    Objects.requireNonNull(request.repo()),
+                    request.issueNumber(),
+                    buildSettingsJson,
+                    maxAttempts);
+
+            // Create or get job
+            var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+            var jobId = createResult.jobId();
+            var isNewJob = createResult.isNewJob();
+
+            var status = jobStore.loadStatus(jobId);
+            var state = status != null ? status.state() : "queued";
+
+            var response = new HashMap<String, Object>();
+            response.put("jobId", jobId);
+            response.put("state", state);
+
+            if (isNewJob) {
+                if (!tryReserveJobSlot(jobId)) {
+                    var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                    SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
+                    return;
+                }
+
+                try {
+                    executeJobAsync(jobId, jobSpec, List.of());
+                } catch (Exception ex) {
+                    jobReservation.releaseIfOwner(jobId);
+                    logger.error("Failed to start issue job {}", jobId, ex);
+                    var error = ErrorPayload.internalError("Failed to start job execution", ex);
+                    SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                    return;
+                }
+                SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            } else {
+                SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+            }
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/jobs/issue", e);
+            var error = ErrorPayload.internalError("Failed to create issue job", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 
     /**
      * POST /v1/context/classes - Add class summaries to the current session context.
@@ -1758,6 +2138,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    PUT  /v1/sessions                 - import/load a session from zip");
             System.out.println("    GET  /v1/sessions/{sessionId}     - download a session zip");
             System.out.println("    POST /v1/jobs                     - create and start a job");
+            System.out.println("    POST /v1/jobs/pr-review           - create a PR review job");
             System.out.println("    GET  /v1/jobs/{jobId}             - get job status");
             System.out.println("    GET  /v1/jobs/{jobId}/events      - stream job execution events");
             System.out.println("    POST /v1/jobs/{jobId}/cancel      - cancel job execution");

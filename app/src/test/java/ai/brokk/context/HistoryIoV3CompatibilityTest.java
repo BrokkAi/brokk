@@ -53,7 +53,7 @@ class HistoryIoV3CompatibilityTest {
 
         Context top = history.liveContext();
         // Let fragments materialize
-        top.awaitContextsAreComputed(Duration.ofSeconds(10));
+        top.awaitContentsAreComputed(Duration.ofSeconds(10));
 
         var projectPathFragment = findFragment(top, ContextFragments.ProjectPathFragment.class, f -> f.description()
                 .join()
@@ -161,7 +161,7 @@ class HistoryIoV3CompatibilityTest {
 
         Context live = history.liveContext();
         // Let fragments materialize
-        live.awaitContextsAreComputed(Duration.ofSeconds(10));
+        live.awaitContentsAreComputed(Duration.ofSeconds(10));
 
         var ppf = findFragment(live, ContextFragments.ProjectPathFragment.class, f -> true);
         assertNotNull(ppf, "ProjectPathFragment should be present");

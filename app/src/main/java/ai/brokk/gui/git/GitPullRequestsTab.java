@@ -19,6 +19,8 @@ import ai.brokk.gui.components.GitHubTokenMissingPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
+import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.GitRepoIdUtil;
@@ -60,7 +62,7 @@ import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHUser;
 
-public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
+public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
     private static final int DEFAULT_ROW_HEIGHT = 48;
@@ -524,7 +526,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     }
 
     @Override
-    public void applyTheme(ai.brokk.gui.theme.GuiTheme guiTheme) {
+    public void applyTheme(GuiTheme guiTheme) {
         // Refresh the entire component tree to apply theme changes
         SwingUtilities.updateComponentTreeUI(this);
     }
@@ -547,7 +549,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private void setupPrTableContextMenu() {
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(contextMenu);
 
         viewPrDiffMenuItem = new JMenuItem("View Diff");
         viewPrDiffMenuItem.addActionListener(e -> viewFullPrDiff());
@@ -607,7 +608,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private void setupPrCommitsTableContextMenu() {
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(contextMenu);
 
         capturePrCommitDiffMenuItem = new JMenuItem("Capture Diff");
         capturePrCommitDiffMenuItem.addActionListener(e -> {
@@ -1475,12 +1475,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             String mergeBase = repo.getMergeBase(headSha, baseSha);
 
                             if (mergeBase != null) {
-                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, mergeBase).stream()
+                                changedFiles = repo.listFilesChangedBetweenCommits(mergeBase, headSha).stream()
                                         .map(mf -> mf.file().toString())
                                         .collect(Collectors.toList());
                             } else {
                                 // Fallback to direct diff if merge base calculation fails
-                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha).stream()
+                                changedFiles = repo.listFilesChangedBetweenCommits(baseSha, headSha).stream()
                                         .map(mf -> mf.file().toString())
                                         .collect(Collectors.toList());
                             }
@@ -1489,7 +1489,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                     "Error calculating changed files for PR #{}, using fallback diff: {}",
                                     prNumber,
                                     e.getMessage());
-                            changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha).stream()
+                            changedFiles = repo.listFilesChangedBetweenCommits(baseSha, headSha).stream()
                                     .map(mf -> mf.file().toString())
                                     .collect(Collectors.toList());
                         }
@@ -1584,7 +1584,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             prBaseFetchRef);
                 }
 
-                List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+                List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prBaseSha, prHeadSha);
 
                 if (modifiedFiles.isEmpty()) {
                     chrome.systemNotify(
@@ -1808,7 +1808,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 repo.remote().pull();
 
                 SwingUtilities.invokeLater(() -> {
-                    chrome.refreshGitAndFetch(localBranchName);
+                    chrome.refreshGitAsync(localBranchName);
                     gitLogTab.selectCurrentBranch();
                 });
                 chrome.showNotification(
@@ -1887,7 +1887,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 getRepo().checkoutRemoteBranch(remoteBranchRef, localBranchName);
 
                 SwingUtilities.invokeLater(() -> {
-                    chrome.refreshGitAndFetch(localBranchName);
+                    chrome.refreshGitAsync(localBranchName);
                     // Switch to the Log tab
                     JTabbedPane mainGitPanelTabs = (JTabbedPane) GitPullRequestsTab.this.getParent();
                     for (int i = 0; i < mainGitPanelTabs.getTabCount(); i++) {

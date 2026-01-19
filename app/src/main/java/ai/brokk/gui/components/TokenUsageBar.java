@@ -285,7 +285,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
         this.hoveredFragmentIds =
-                Set.copyOf(targets.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet()));
+                Set.copyOf(targets.stream().map(ContextFragment::id).collect(Collectors.toSet()));
         repaint();
     }
 
@@ -560,6 +560,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 if (currentCtx == null) return;
                 List<ContextFragment> toDrop = currentCtx.getAllFragmentsInDisplayOrder().stream()
                         .filter(f -> !hovered.contains(f))
+                        .filter(f -> !currentCtx.isPinned(f))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                         .toList();
                 if (!toDrop.isEmpty()) {
@@ -586,7 +587,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             menu.add(pasteMenuItem);
         }
 
-        chrome.getThemeManager().registerPopupMenu(menu);
         menu.show(this, e.getX(), e.getY());
     }
 

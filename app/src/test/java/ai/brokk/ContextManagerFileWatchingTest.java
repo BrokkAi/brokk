@@ -107,7 +107,7 @@ class ContextManagerFileWatchingTest {
         public void toolError(String msg, String title) {}
 
         @Override
-        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
+        public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {}
 
         void reset() {
             gitRepoUpdateCount.set(0);

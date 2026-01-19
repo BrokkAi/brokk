@@ -8,12 +8,14 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.ChipColorUtils.ChipKind;
 import ai.brokk.gui.components.MaterialChip;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ProjectGuideResolver;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Graphics;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -129,11 +131,6 @@ public class WorkspaceChip extends JPanel {
     }
 
     private void handlePopup(MouseEvent e) {
-        if (isPanelReadOnly()) {
-            chrome.systemNotify(WorkspaceItemsChipPanel.READ_ONLY_TIP, "Workspace", JOptionPane.INFORMATION_MESSAGE);
-            e.consume();
-            return;
-        }
         JPopupMenu menu = createContextMenu();
         if (menu != null) {
             SwingUtilities.invokeLater(() -> menu.show(materialChip, e.getX(), e.getY()));
@@ -190,7 +187,7 @@ public class WorkspaceChip extends JPanel {
     }
 
     @Override
-    public void paint(java.awt.Graphics g) {
+    public void paint(Graphics g) {
         float desiredAlpha = 1.0f;
         if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
             if (parentPanel.isReadOnlyMode()) {
@@ -236,9 +233,9 @@ public class WorkspaceChip extends JPanel {
         ContextFragment fragment = getPrimaryFragment();
         if (fragment instanceof ContextFragments.StringFragment sf) {
             if (SpecialTextType.TASK_LIST.description().equals(sf.description().renderNowOrNull())) {
-                bg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_TASKLIST_BACKGROUND);
-                fg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_TASKLIST_FOREGROUND);
-                border = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_TASKLIST_BORDER);
+                bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
+                fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
+                border = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BORDER);
             }
         }
 
@@ -273,11 +270,11 @@ public class WorkspaceChip extends JPanel {
         return ctx != null && ctx.isMarkedReadonly(fragment);
     }
 
-    private boolean isPanelReadOnly() {
+    protected boolean isPanelReadOnly() {
         return readOnlySupplier.get();
     }
 
-    private boolean isOnLatestContext() {
+    protected boolean isOnLatestContext() {
         return Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
     }
 
@@ -343,7 +340,7 @@ public class WorkspaceChip extends JPanel {
 
     protected void safeAddSeparator(JPopupMenu menu) {
         int count = menu.getComponentCount();
-        if (count > 0 && !(menu.getComponent(count - 1) instanceof javax.swing.JSeparator)) {
+        if (count > 0 && !(menu.getComponent(count - 1) instanceof JSeparator)) {
             menu.addSeparator();
         }
     }
@@ -362,12 +359,20 @@ public class WorkspaceChip extends JPanel {
         ContextFragment fragment = getPrimaryFragment();
         JPopupMenu menu = new JPopupMenu();
 
+        // Add "Copy to Current Context" when viewing historical context (not on latest, or panel is read-only)
+        if (!isOnLatestContext() || isPanelReadOnly()) {
+            JMenuItem copyToCurrentItem = new JMenuItem("Copy to Current Context");
+            copyToCurrentItem.addActionListener(e -> {
+                contextManager.copyFragmentsToCurrentContextAsync(List.of(getPrimaryFragment()));
+            });
+            menu.add(copyToCurrentItem);
+            return menu;
+        }
+
         if (GlobalUiSettings.isAdvancedMode()) {
-            boolean onLatest = isOnLatestContext();
             var ctx = contextManager.selectedContext();
             boolean isPinned = ctx != null && ctx.isPinned(fragment);
             JMenuItem togglePin = new JMenuItem(isPinned ? "Unpin" : "Pin", Icons.PUSH_PIN);
-            togglePin.setEnabled(onLatest && !isPanelReadOnly());
             togglePin.addActionListener(e -> {
                 if (!ensureMutatingAllowed()) return;
                 contextManager.pushContext(curr -> curr.withPinned(fragment, !curr.isPinned(fragment)));
@@ -377,7 +382,6 @@ public class WorkspaceChip extends JPanel {
             if (fragment.getType().isEditable()) {
                 String labelText = isFragmentReadOnly(fragment) ? "Unset Read-Only" : "Set Read-Only";
                 JMenuItem toggleRo = new JMenuItem(labelText, Icons.EDIT_OFF);
-                toggleRo.setEnabled(onLatest && !isPanelReadOnly());
                 toggleRo.addActionListener(e -> {
                     if (!ensureMutatingAllowed()) return;
                     contextManager.pushContext(curr -> curr.setReadonly(fragment, !curr.isMarkedReadonly(fragment)));
@@ -409,6 +413,7 @@ public class WorkspaceChip extends JPanel {
                 ? List.of()
                 : selected.getAllFragmentsInDisplayOrder().stream()
                         .filter(f -> !fragments.contains(f))
+                        .filter(f -> !selected.isPinned(f))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                         .toList();
 
@@ -420,7 +425,6 @@ public class WorkspaceChip extends JPanel {
 
         safeAddSeparator(menu);
         menu.add(dropOther);
-        chrome.getThemeManager().registerPopupMenu(menu);
         return menu;
     }
 
@@ -542,9 +546,7 @@ public class WorkspaceChip extends JPanel {
             }
 
             if (validityState == ValidityState.MIXED) {
-                materialChip.setSplitPainting(
-                        true,
-                        ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_BACKGROUND));
+                materialChip.setSplitPainting(true, ThemeColors.getColor(ThemeColors.CHIP_INVALID_BACKGROUND));
             } else {
                 materialChip.setSplitPainting(false, null);
             }
@@ -553,9 +555,9 @@ public class WorkspaceChip extends JPanel {
         @Override
         public void applyTheme() {
             if (validityState == ValidityState.ALL_INVALID && !summaryFragments.isEmpty()) {
-                Color bg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_BACKGROUND);
-                Color fg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_FOREGROUND);
-                Color border = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_BORDER);
+                Color bg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BACKGROUND);
+                Color fg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_FOREGROUND);
+                Color border = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BORDER);
                 materialChip.setChipColors(bg, fg, border);
             } else {
                 super.applyTheme();
@@ -667,6 +669,17 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected JPopupMenu createContextMenu() {
             JPopupMenu menu = new JPopupMenu();
+
+            // Add "Copy to Current Context" when viewing historical context (not on latest, or panel is read-only)
+            if (!isOnLatestContext() || isPanelReadOnly()) {
+                JMenuItem copyToCurrentItem = new JMenuItem("Copy to Current Context");
+                copyToCurrentItem.addActionListener(e -> {
+                    contextManager.copyFragmentsToCurrentContextAsync(summaryFragments);
+                });
+                menu.add(copyToCurrentItem);
+                return menu;
+            }
+
             var scenario = new ContextActionsHandler.MultiFragment(summaryFragments);
             var actions = scenario.getActions(chrome.getContextActionsHandler());
 
@@ -710,7 +723,6 @@ public class WorkspaceChip extends JPanel {
                 menu.add(item);
             });
 
-            chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
         }
     }
@@ -755,9 +767,9 @@ public class WorkspaceChip extends JPanel {
 
         @Override
         public void applyTheme() {
-            Color bg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.NOTIF_INFO_BG);
-            Color fg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.NOTIF_INFO_FG);
-            Color border = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.NOTIF_INFO_BORDER);
+            Color bg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BG);
+            Color fg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_FG);
+            Color border = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BORDER);
             materialChip.setChipColors(bg, fg, border);
         }
 
@@ -799,7 +811,6 @@ public class WorkspaceChip extends JPanel {
                 }
                 menu.add(action);
             }
-            chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
         }
 

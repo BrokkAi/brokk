@@ -18,36 +18,34 @@ public final class UnifiedDiffHighlighter {
     private UnifiedDiffHighlighter() {} // Utility class
 
     /**
-     * Apply diff highlights to unified diff content in the text area. Parses the unified diff text line by line and
-     * applies appropriate highlights.
+     * Apply diff highlights to unified diff content using document LineType (preferred).
      *
      * @param textArea The RSyntaxTextArea containing unified diff content
      * @param highlighter The JMHighlighter to apply highlights with
+     * @param document The UnifiedDiffDocument providing line type information
      * @param isDarkTheme Whether to use dark theme colors
      */
-    public static void applyHighlights(RSyntaxTextArea textArea, JMHighlighter highlighter, boolean isDarkTheme) {
+    public static void applyHighlights(
+            RSyntaxTextArea textArea, JMHighlighter highlighter, UnifiedDiffDocument document, boolean isDarkTheme) {
         try {
-            String content = textArea.getText();
-            if (content == null || content.isEmpty()) {
+            var filteredLines = document.getFilteredLines();
+            if (filteredLines.isEmpty()) {
                 return;
             }
 
-            String[] lines = content.split("\n", -1); // Include empty trailing strings
-
             int currentOffset = 0;
-            for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-                String line = lines[lineIndex];
-                int lineLength = line.length();
+            for (int lineIndex = 0; lineIndex < filteredLines.size(); lineIndex++) {
+                var diffLine = filteredLines.get(lineIndex);
+                String content = diffLine.getContent();
 
-                // Calculate line bounds for highlighting
                 int lineStart = currentOffset;
-                int lineEnd = currentOffset + lineLength;
+                int lineEnd = currentOffset + content.length();
 
-                // Apply highlight based on line prefix
-                applyLineHighlight(highlighter, line, lineStart, lineEnd, isDarkTheme);
+                // Apply highlight based on LineType
+                applyLineHighlightByType(highlighter, diffLine.getType(), lineStart, lineEnd, isDarkTheme);
 
-                // Move to next line (add 1 for newline character, except for last line)
-                currentOffset = lineEnd + (lineIndex < lines.length - 1 ? 1 : 0);
+                // Move to next line
+                currentOffset = lineEnd + (content.endsWith("\n") ? 0 : 1);
             }
 
         } catch (Exception e) {
@@ -56,60 +54,38 @@ public final class UnifiedDiffHighlighter {
     }
 
     /**
-     * Apply highlight to a single line based on its prefix.
-     *
-     * @param highlighter The JMHighlighter to use
-     * @param line The line content
-     * @param lineStart Start offset in the document
-     * @param lineEnd End offset in the document
-     * @param isDarkTheme Whether to use dark theme colors
+     * Apply highlight to a line based on its LineType.
      */
-    private static void applyLineHighlight(
-            JMHighlighter highlighter, String line, int lineStart, int lineEnd, boolean isDarkTheme) {
+    private static void applyLineHighlightByType(
+            JMHighlighter highlighter,
+            UnifiedDiffDocument.LineType lineType,
+            int lineStart,
+            int lineEnd,
+            boolean isDarkTheme) {
 
-        if (line.isEmpty()) {
-            return; // Skip empty lines
-        }
-
-        char prefix = line.charAt(0);
         JMHighlightPainter painter = null;
 
-        switch (prefix) {
-            case '+' -> {
-                // Addition line - highlight in green with full line width
+        switch (lineType) {
+            case ADDITION -> {
                 var addedColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_ADDED);
                 painter = new JMHighlightPainter.JMHighlightFullLinePainter(addedColor);
-                logger.trace("Highlighting addition line: {}", line.substring(0, Math.min(50, line.length())));
             }
-            case '-' -> {
-                // Deletion line - highlight in red with full line width
+            case DELETION -> {
                 var deletedColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_DELETED);
                 painter = new JMHighlightPainter.JMHighlightFullLinePainter(deletedColor);
-                logger.trace("Highlighting deletion line: {}", line.substring(0, Math.min(50, line.length())));
             }
-            case '@' -> {
-                // Hunk header - highlight with different color/style with full line width
-                if (line.startsWith("@@")) {
-                    var headerColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_CHANGED);
-                    painter = new JMHighlightPainter.JMHighlightFullLinePainter(headerColor);
-                    logger.trace("Highlighting hunk header: {}", line);
-                }
+            case HEADER -> {
+                var separatorColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_SEPARATOR);
+                painter = new JMHighlightPainter.JMHighlightWavyLinePainter(separatorColor);
             }
-            case ' ' -> {
-                // Context line - no highlighting needed, handled by syntax highlighting
-                logger.trace("Context line (no diff highlight): {}", line.substring(0, Math.min(50, line.length())));
-            }
-            default -> {
-                // Unknown prefix - no highlighting
-                logger.trace("Unknown line prefix '{}', no highlighting", prefix);
+            case CONTEXT, OMITTED_LINES -> {
+                // No highlighting needed
             }
         }
 
-        // Apply the highlight if we determined one is needed
         if (painter != null) {
             try {
                 highlighter.addHighlight(JMHighlighter.LAYER0, lineStart, lineEnd, painter);
-                logger.trace("Added highlight from {} to {}", lineStart, lineEnd);
             } catch (BadLocationException e) {
                 logger.warn("Failed to add highlight at offset {} to {}: {}", lineStart, lineEnd, e.getMessage());
             }
@@ -143,9 +119,8 @@ public final class UnifiedDiffHighlighter {
         char prefix = line.charAt(0);
         return switch (prefix) {
             case '+', '-' -> true; // Addition/deletion lines
-            case '@' -> line.startsWith("@@"); // Hunk headers
             case ' ' -> false; // Context lines don't need diff highlighting
-            default -> false; // Unknown prefixes
+            default -> false; // Unknown prefixes (HEADER lines detected via LineType)
         };
     }
 }

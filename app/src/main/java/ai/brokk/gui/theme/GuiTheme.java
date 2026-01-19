@@ -10,10 +10,12 @@ import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.*;
 import java.io.IOException;
+import java.net.URI;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -38,15 +40,14 @@ public class GuiTheme {
     public static final String THEME_DARK_PLUS = "dark-plus";
     public static final String THEME_LIGHT_PLUS = "light-plus";
 
+    public static final String THEME_CLIENT_PROPERTY = "brokk.theme";
+
     private final JFrame frame;
 
     @Nullable
     private JComponent mainOutputComponent;
 
     private final Chrome chrome;
-
-    // Track registered popup menus that need theme updates
-    private final List<JPopupMenu> popupMenus = new ArrayList<>();
 
     /**
      * Creates a new theme manager
@@ -174,11 +175,6 @@ public class GuiTheme {
             ThemeTitleBarManager.updateTitleBarStyling(frame);
         });
 
-        // Update registered popup menus
-        for (JPopupMenu menu : popupMenus) {
-            SwingUtilities.updateComponentTreeUI(menu);
-        }
-
         // Make sure scroll panes update properly
         if (mainOutputComponent != null) {
             mainOutputComponent.revalidate();
@@ -212,11 +208,6 @@ public class GuiTheme {
                 if (w instanceof JDialog d && d.isDisplayable()) {
                     recurse.accept(d.getContentPane());
                 }
-            }
-
-            // Apply to tracked popup menus as well
-            for (JPopupMenu menu : popupMenus) {
-                recurse.accept(menu);
             }
         });
     }
@@ -431,20 +422,6 @@ public class GuiTheme {
     }
 
     /**
-     * Registers a popup menu to receive theme updates
-     *
-     * @param menu The popup menu to register
-     */
-    public void registerPopupMenu(JPopupMenu menu) {
-        if (!popupMenus.contains(menu)) {
-            popupMenus.add(menu);
-
-            // Apply current theme immediately if already initialized
-            SwingUtilities.invokeLater(() -> SwingUtilities.updateComponentTreeUI(menu));
-        }
-    }
-
-    /**
      * Applies the current RSyntaxTextArea theme to the supplied component.
      *
      * @param textArea The text area to apply theme to
@@ -494,7 +471,7 @@ public class GuiTheme {
      */
     public void updateComponentTreeUIPreservingFonts(Container container) {
         // Collect font sizes from FontSizeAware components before update
-        java.util.Map<Component, Float> fontMap = new java.util.HashMap<>();
+        Map<Component, Float> fontMap = new HashMap<>();
         collectExplicitFonts(container, fontMap);
 
         // Update UI
@@ -507,7 +484,7 @@ public class GuiTheme {
     /**
      * Recursively collects explicit font sizes from FontSizeAware components.
      */
-    private void collectExplicitFonts(Container container, java.util.Map<Component, Float> fontMap) {
+    private void collectExplicitFonts(Container container, Map<Component, Float> fontMap) {
         for (Component comp : container.getComponents()) {
             if (comp instanceof FontSizeAware fsAware && fsAware.hasExplicitFontSize()) {
                 float fontSize = fsAware.getExplicitFontSize();
@@ -522,7 +499,7 @@ public class GuiTheme {
     /**
      * Restores explicit font sizes to components.
      */
-    private void restoreExplicitFonts(java.util.Map<Component, Float> fontMap) {
+    private void restoreExplicitFonts(Map<Component, Float> fontMap) {
         fontMap.forEach((comp, fontSize) -> {
             if (comp instanceof RSyntaxTextArea textArea) {
                 Font currentFont = textArea.getFont();
@@ -652,7 +629,7 @@ public class GuiTheme {
 
                     // Decode URL encoding (e.g., %20 -> space) to handle paths with spaces
                     // Use URI to properly decode file paths (handles %20, etc. correctly)
-                    var jarFile = new java.net.URI(jarFileUrl).getPath();
+                    var jarFile = new URI(jarFileUrl).getPath();
 
                     try (var jar = new JarFile(jarFile)) {
                         var entries = jar.entries();

@@ -7,6 +7,7 @@ import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
@@ -64,6 +65,8 @@ import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class Chrome
@@ -519,6 +522,7 @@ public class Chrome
     }
 
     @Override
+    @Blocking
     public void updateGitRepo() {
         assert !SwingUtilities.isEventDispatchThread() : "Long running git refresh running on the EDT";
         logger.trace("updateGitRepo invoked");
@@ -968,12 +972,11 @@ public class Chrome
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         if (SwingUtilities.isEventDispatchThread()) {
-            rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning);
+            rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta);
         } else {
-            SwingUtilities.invokeLater(
-                    () -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning));
+            SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta));
         }
     }
 
@@ -1047,11 +1050,11 @@ public class Chrome
     private void registerAllListeners() {
         // 1. Context and File Listeners
         contextManager.addContextListener(this);
-        contextManager.addFileChangeListener(changedFiles -> {
+        contextManager.addFileChangeListener(batch -> {
             // Refresh preview windows when tracked files change
             Set<ProjectFile> openPreviewFiles =
                     new HashSet<>(previewManager.getProjectFileToPreviewWindow().keySet());
-            openPreviewFiles.retainAll(changedFiles);
+            openPreviewFiles.retainAll(batch.getFiles());
             if (!openPreviewFiles.isEmpty()) {
                 refreshPreviewsForFiles(openPreviewFiles);
             }
@@ -2354,7 +2357,7 @@ public class Chrome
     public int showConfirmDialog(
             @Nullable Component parent, String message, String title, int optionType, int messageType) {
         //noinspection MagicConstant
-        return JOptionPane.showConfirmDialog(parent, message, title, optionType, messageType);
+        return MaterialOptionPane.showConfirmDialog(parent, message, title, optionType, messageType);
     }
 
     @Override
@@ -2473,8 +2476,21 @@ public class Chrome
      * Refreshes all Git-related UI components after a branch change or significant repo update.
      * This coordinates updates across the repo state, branch labels, and the review/changes panel.
      * Also fetches from the upstream default branch if available.
+     *
+     * <p>Safe to call from any thread; automatically dispatches to a background task if called on the EDT.
      */
-    public void refreshGitAndFetch(@Nullable String branchName) {
+    public void refreshGitAsync(@Nullable String branchName) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            contextManager.submitBackgroundTask("Refreshing Git", () -> {
+                refreshGit(branchName);
+                return null;
+            });
+        } else {
+            refreshGit(branchName);
+        }
+    }
+
+    private void refreshGit(@Nullable String branchName) {
         try {
             var repo = getProject().getRepo();
             if (repo instanceof GitRepo gitRepo) {
@@ -2484,14 +2500,11 @@ public class Chrome
                     gitRepo.remote().fetchBranch(remoteName, defaultBranch);
                 }
             }
-        } catch (Exception e) {
+        } catch (GitAPIException e) {
             logger.debug("Failed to fetch upstream default branch", e);
         }
 
-        updateGitRepo();
         refreshBranchUi(branchName);
-
-        getRightPanel().requestReviewUpdate();
     }
 
     /**

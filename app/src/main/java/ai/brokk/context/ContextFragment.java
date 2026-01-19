@@ -8,7 +8,7 @@ import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.util.*;
+import ai.brokk.concurrent.ComputedValue;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
@@ -116,6 +116,7 @@ public interface ContextFragment {
      * <p>
      * This method is called during {@link Context#addFragments(Collection)} to expand a fragment with related context.
      */
+    @Blocking
     default Set<ContextFragment> supportingFragments() {
         return Set.of();
     }

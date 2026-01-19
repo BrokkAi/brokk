@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
@@ -96,7 +97,7 @@ class HeadlessHttpConsoleTest {
 
     @Test
     void testLlmOutput_MapsToLlmTokenEvent() throws Exception {
-        console.llmOutput("test token", ChatMessageType.AI, true, false);
+        console.llmOutput("test token", ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
@@ -256,8 +257,8 @@ class HeadlessHttpConsoleTest {
 
     @Test
     void testTranscript_ResetsOnPrepareOutputForNextStream() throws Exception {
-        console.llmOutput("Hello", ChatMessageType.AI, true, false);
-        console.llmOutput(" world", ChatMessageType.AI, false, false);
+        console.llmOutput("Hello", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        console.llmOutput(" world", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
         awaitEvents(2, 1_000);
 
@@ -289,8 +290,8 @@ class HeadlessHttpConsoleTest {
 
     @Test
     void testTranscript_ResetsOnSetLlmAndHistoryOutput() throws Exception {
-        console.llmOutput("Hello", ChatMessageType.AI, true, false);
-        console.llmOutput(" world", ChatMessageType.AI, false, false);
+        console.llmOutput("Hello", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        console.llmOutput(" world", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
         awaitEvents(2, 1_000);
 
@@ -556,7 +557,7 @@ class HeadlessHttpConsoleTest {
 
     @Test
     void testMultipleEvents_MaintainsOrder() throws Exception {
-        console.llmOutput("token1", ChatMessageType.AI, true, false);
+        console.llmOutput("token1", ChatMessageType.AI, LlmOutputMeta.newMessage());
         console.toolError("error1", "Error");
         console.showNotification(IConsoleIO.NotificationRole.INFO, "notification1");
 
@@ -577,8 +578,8 @@ class HeadlessHttpConsoleTest {
 
     @Test
     void testGetLastSeq_ReturnsLatestSequence() throws Exception {
-        console.llmOutput("token1", ChatMessageType.AI, true, false);
-        console.llmOutput("token2", ChatMessageType.AI, false, false);
+        console.llmOutput("token1", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        console.llmOutput("token2", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
         awaitEvents(2, 1_000);
 
@@ -608,7 +609,8 @@ class HeadlessHttpConsoleTest {
     void testConcurrentEvents_MaintainsOrder() throws Exception {
         // Submit multiple events rapidly
         for (int i = 0; i < 10; i++) {
-            console.llmOutput("token" + i, ChatMessageType.AI, i == 0, false);
+            console.llmOutput(
+                    "token" + i, ChatMessageType.AI, i == 0 ? LlmOutputMeta.newMessage() : LlmOutputMeta.DEFAULT);
         }
 
         var events = awaitEvents(10, 10_000);
@@ -649,8 +651,8 @@ class HeadlessHttpConsoleTest {
     @Test
     void testShutdownWaitsForPendingEvents() throws Exception {
         // Submit events and immediately shutdown
-        console.llmOutput("token1", ChatMessageType.AI, true, false);
-        console.llmOutput("token2", ChatMessageType.AI, false, false);
+        console.llmOutput("token1", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        console.llmOutput("token2", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
         // Shutdown should wait for events to be written
         // No-op: events are written synchronously, so nothing to await.
@@ -662,8 +664,8 @@ class HeadlessHttpConsoleTest {
 
     @Test
     void testGetLlmRawMessages_RetainsTranscript() {
-        console.llmOutput("Hello", ChatMessageType.AI, true, false);
-        console.llmOutput(" world", ChatMessageType.AI, false, false);
+        console.llmOutput("Hello", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        console.llmOutput(" world", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
         var messages = console.getLlmRawMessages();
         assertEquals(1, messages.size());
@@ -676,8 +678,8 @@ class HeadlessHttpConsoleTest {
 
     @Test
     void testGetLlmRawMessages_ReturnsUnmodifiableSnapshot() {
-        console.llmOutput("Hello", ChatMessageType.AI, true, false);
-        console.llmOutput(" world", ChatMessageType.AI, false, false);
+        console.llmOutput("Hello", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        console.llmOutput(" world", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
         var snapshot = console.getLlmRawMessages();
 

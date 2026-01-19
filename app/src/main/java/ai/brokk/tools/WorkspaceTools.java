@@ -1,15 +1,14 @@
 package ai.brokk.tools;
 
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
-import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.LlmOutputMeta;
+import ai.brokk.analyzer.*;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.AbstractProject;
-import ai.brokk.util.ComputedValue;
+import ai.brokk.project.IProject;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -56,12 +55,13 @@ public class WorkspaceTools {
     }
 
     /**
-     * Represents a fragment removal request with its ID and explanation.
+     * Represents a fragment removal request with its ID and structured drop metadata.
      * Used by {@link #dropWorkspaceFragments(List)} to structure the input.
      */
     public record FragmentRemoval(
             @Description("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
-            @Description("Why this fragment is being discarded") String explanation) {}
+            @Description(KEY_FACTS_DESCRIPTION) String keyFacts,
+            @Description(DROP_REASON_DESCRIPTION) String dropReason) {}
 
     /** Updates the working Context for this WorkspaceTools instance. */
     public void setContext(Context newContext) {
@@ -186,8 +186,9 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            value =
-                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map. Do not drop file fragments that you still need to read, or need to edit as part of your current task, unless the edits are localized to a single function.")
+            value = "Remove specified fragments (files, text snippets, task history, analysis results) "
+                    + "from the Workspace and record structured breadcrumbs (keyFacts + dropReason) in DISCARDED_CONTEXT. "
+                    + "Do not drop file fragments that you still need to read or edit.")
     public String dropWorkspaceFragments(
             @P("List of fragments to remove from the Workspace. Must not be empty. Pinned fragments are ineligible.")
                     List<FragmentRemoval> fragments) {
@@ -195,18 +196,16 @@ public class WorkspaceTools {
             return "Fragments list cannot be empty.";
         }
 
-        // Convert list to map for internal processing (preserves existing logic)
-        Map<String, String> idToExplanation = fragments.stream()
-                .collect(Collectors.toMap(
-                        FragmentRemoval::fragmentId,
-                        FragmentRemoval::explanation,
-                        (a, b) -> a)); // handle duplicates by keeping first
+        // Build map from fragmentId -> FragmentRemoval for lookup
+        Map<String, FragmentRemoval> idToRemoval =
+                fragments.stream().collect(Collectors.toMap(FragmentRemoval::fragmentId, fr -> fr, (a, b) -> a));
 
         // Operate on actual stored fragments only
         var allFragments = context.allFragments().toList();
-        var byId = allFragments.stream().collect(Collectors.toMap(ContextFragment::id, f -> f));
+        Map<String, ContextFragment> byId =
+                allFragments.stream().collect(Collectors.toMap(ContextFragment::id, f -> f));
 
-        var idsToDropSet = new HashSet<>(idToExplanation.keySet());
+        var idsToDropSet = new HashSet<>(idToRemoval.keySet());
 
         // Separate found vs unknown IDs
         var foundFragments =
@@ -224,8 +223,12 @@ public class WorkspaceTools {
         var existingDiscardedMap = context.getDiscardedFragmentsNote();
         Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
         for (var f : toDrop) {
-            var explanation = idToExplanation.getOrDefault(f.id(), "");
-            mergedDiscarded.put(f.description().join(), explanation);
+            var removal = idToRemoval.get(f.id());
+            var entry = "Key facts: %s. Reason: %s"
+                    .formatted(
+                            removal != null ? removal.keyFacts() : "No relevant facts",
+                            removal != null ? removal.dropReason() : "unspecified");
+            mergedDiscarded.put(f.description().join(), entry);
         }
 
         // Serialize updated JSON
@@ -375,9 +378,10 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this ONLY to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
+            "Append a Markdown-formatted note to Task Notes in the Workspace. Use for factual excerpts and cross-fragment synthesis when keeping full text is unnecessary. Describe what IS, not what SHOULD BE — no action items for the Code Agent.")
     public String appendNote(
-            @P("Markdown content to append to Task Notes. NOT for speculating about implementation!") String markdown) {
+            @P("Markdown content to append. Factual observations only — no action items for the Code Agent.")
+                    String markdown) {
         if (markdown.isBlank()) {
             return "Ignoring empty Note";
         }
@@ -401,6 +405,56 @@ public class WorkspaceTools {
     }
 
     /**
+     * Tools that require an analyzer with SkeletonProvider/SourceCodeProvider capabilities.
+     * These should only be offered when the project has at least one analyzed language.
+     * This includes both workspace tools and search tools that depend on the analyzer.
+     */
+    private static final Set<String> ANALYZER_REQUIRED_TOOLS = Set.of(
+            // Workspace tools
+            "addClassesToWorkspace",
+            "addClassSummariesToWorkspace",
+            "addMethodsToWorkspace",
+            "addSymbolUsagesToWorkspace",
+            "addFileSummariesToWorkspace",
+            // Search tools
+            "searchSymbols",
+            "getSymbolLocations",
+            "getUsages",
+            "skimDirectory");
+
+    /**
+     * Filters a list of tool names to remove analyzer-required tools when the project
+     * has no analyzed languages.
+     *
+     * @param tools the list of tool names to filter
+     * @param project the project to check for analyzer availability
+     * @return a new list with analyzer-required tools removed if no analyzer is available
+     */
+    public static List<String> filterByAnalyzerAvailability(List<String> tools, IProject project) {
+        boolean hasAnalyzedLanguage = !project.getAnalyzerLanguages().equals(Set.of(Languages.NONE));
+        if (hasAnalyzedLanguage) {
+            return tools;
+        }
+        return tools.stream().filter(t -> !ANALYZER_REQUIRED_TOOLS.contains(t)).toList();
+    }
+
+    /**
+     * Canonical descriptions for drop explanation fields (keyFacts + dropReason).
+     * Used in FragmentRemoval @Description annotations and in prompt guidance text.
+     * Keep these synchronized - the annotations use the constants directly.
+     */
+    public static final String KEY_FACTS_DESCRIPTION =
+            "Key facts to retain: file paths, class/method names, constraints, notable behavior. "
+                    + "Use 'No relevant facts' if nothing worth preserving. "
+                    + "Describe what IS, not what SHOULD BE. No action items for the Code Agent.";
+
+    /** Description for the dropReason field in FragmentRemoval. */
+    public static final String DROP_REASON_DESCRIPTION = "One short sentence: why is it safe to drop this fragment?";
+
+    public static final String DROP_EXPLANATION_GUIDANCE =
+            "keyFacts: " + KEY_FACTS_DESCRIPTION + "\n" + "dropReason: " + DROP_REASON_DESCRIPTION;
+
+    /**
      * Shared guidance text for task-list tools (createOrReplaceTaskList).
      * Used in @Tool parameter descriptions to keep guidance synchronized.
      */
@@ -415,7 +469,6 @@ public class WorkspaceTools {
               if automation is not a good fit, you may omit tests rather than prescribe manual steps. Tests should
               be completed as part of each task, not bolted on separately at the end.
             - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
-            - Output: starts with a strong verb, names concrete artifact(s) (class/method/file, config, test). Use Markdown formatting for readability, especially `inline code` (for file, directory, function, class names and other symbols).
             - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
             - Incremental additions: when adding a task to an existing list, copy all existing incomplete tasks verbatim (preserving their exact wording and order) and insert the new task at the appropriate position based on dependencies.
 
@@ -425,6 +478,7 @@ public class WorkspaceTools {
             - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
 
             Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
+            `tasks` is a List<String> - if you have N tasks, output N list elements.
             """;
 
     @Tool(
@@ -432,7 +486,7 @@ public class WorkspaceTools {
                     "Replace the entire task list with the provided tasks. Completed tasks from the previous list are implicitly dropped. Use this when you want to create a fresh task list or significantly revise the scope.")
     public String createOrReplaceTaskList(
             @P(
-                            "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown.")
+                            "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown. Include touch points for files, classes, and tests.")
                     String explanation,
             @P(TASK_LIST_GUIDANCE) List<String> tasks) {
         logger.debug("createOrReplaceTaskList selected with {} tasks", tasks.size());
@@ -450,14 +504,14 @@ public class WorkspaceTools {
         var formattedTaskList = "# Task List\n" + lines + "\n";
 
         var io = cm.getIo();
-        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
+        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         int count = tasks.size();
         String suffix = (count == 1) ? "" : "s";
         String message =
                 "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
                         .formatted(count, suffix);
-        io.llmOutput(message, ChatMessageType.AI, true, false);
+        io.llmOutput(message, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         return formattedTaskList;
     }

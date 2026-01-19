@@ -1,5 +1,6 @@
 package ai.brokk.agents;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -120,5 +121,16 @@ public class ContextAgentTest {
         assertFalse(out.containsKey(anon));
         assertTrue(out.values().stream().noneMatch(s -> s.contains("$anon$")));
         assertEquals(1, out.size());
+    }
+
+    @Test
+    void goalContainingPercent_doesNotCrashPromptBuilding() throws InterruptedException {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        StreamingChatModel model = cm.getService().quickestModel();
+
+        assertDoesNotThrow(() -> new ContextAgent(cm, model, "100% sure: use %s and %d literally"));
     }
 }

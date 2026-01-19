@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
@@ -550,7 +551,7 @@ public class PreviewManager {
 
     private void showOutputPreview(ContextFragments.OutputFragment of, String initialTitle) {
         var combinedMessages = new ArrayList<ChatMessage>();
-        for (ai.brokk.TaskEntry entry : of.entries()) {
+        for (TaskEntry entry : of.entries()) {
             if (entry.isCompressed()) {
                 combinedMessages.add(Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
             } else {

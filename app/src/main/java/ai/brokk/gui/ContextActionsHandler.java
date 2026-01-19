@@ -298,7 +298,7 @@ public class ContextActionsHandler {
         SHOW_CONTENTS("Show Contents"),
         VIEW_HISTORY("View History"),
         COMPRESS_HISTORY("Compress History"),
-        EDIT_FILE("Edit File"),
+        EDIT_FILE("Attach File"),
         SUMMARIZE_FILE("Summarize File"),
         EDIT_ALL_REFS("Edit all References"),
         SUMMARIZE_ALL_REFS("Summarize all References"),
@@ -443,15 +443,13 @@ public class ContextActionsHandler {
 
     public static class PopupBuilder {
         private final JPopupMenu popup;
-        private final Chrome chrome;
 
-        private PopupBuilder(Chrome chrome) {
+        private PopupBuilder() {
             this.popup = new JPopupMenu();
-            this.chrome = chrome;
         }
 
-        public static PopupBuilder create(Chrome chrome) {
-            return new PopupBuilder(chrome);
+        public static PopupBuilder create() {
+            return new PopupBuilder();
         }
 
         public PopupBuilder add(List<Action> actions) {
@@ -471,7 +469,6 @@ public class ContextActionsHandler {
         }
 
         public void show(Component invoker, int x, int y) {
-            chrome.getThemeManager().registerPopupMenu(popup);
             popup.show(invoker, x, y);
         }
     }

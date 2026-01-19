@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.executor.jobs.PrReviewService.PrDetails;
+import ai.brokk.executor.jobs.PrReviewService.Severity;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
 import java.nio.charset.StandardCharsets;
@@ -250,11 +251,13 @@ class PrReviewServiceTest {
                     {
                       "path": "src/main/java/Example.java",
                       "line": 42,
+                      "severity": "HIGH",
                       "bodyMarkdown": "Potential null pointer issue here."
                     },
                     {
                       "path": "src/test/java/ExampleTest.java",
                       "line": 10,
+                      "severity": "MEDIUM",
                       "bodyMarkdown": "Missing test case for edge condition."
                     }
                   ]
@@ -270,11 +273,13 @@ class PrReviewServiceTest {
         assertEquals("src/main/java/Example.java", comment1.path());
         assertEquals(42, comment1.line());
         assertEquals("Potential null pointer issue here.", comment1.bodyMarkdown());
+        assertEquals(Severity.HIGH, comment1.severity());
 
         var comment2 = response.comments().get(1);
         assertEquals("src/test/java/ExampleTest.java", comment2.path());
         assertEquals(10, comment2.line());
         assertEquals("Missing test case for edge condition.", comment2.bodyMarkdown());
+        assertEquals(Severity.MEDIUM, comment2.severity());
     }
 
     @Test
@@ -343,6 +348,7 @@ class PrReviewServiceTest {
                     {
                       "path": "src/Foo.java",
                       "line": 5,
+                      "severity": "LOW",
                       "bodyMarkdown": "Consider using Optional here."
                     }
                   ]
@@ -358,6 +364,7 @@ class PrReviewServiceTest {
         assertEquals(1, response.comments().size());
         assertEquals("src/Foo.java", response.comments().get(0).path());
         assertEquals(5, response.comments().get(0).line());
+        assertEquals(Severity.LOW, response.comments().get(0).severity());
     }
 
     @Test
@@ -383,8 +390,137 @@ class PrReviewServiceTest {
     }
 
     @Test
+    void testParsePrReviewResponse_SeverityMissingDefaultsToLow() {
+        String json =
+                """
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\nSummary here.",
+                  "comments": [
+                    {
+                      "path": "src/Foo.java",
+                      "line": 10,
+                      "bodyMarkdown": "Some issue."
+                    }
+                  ]
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+
+        assertEquals("## Brokk PR Review\n\nSummary here.", response.summaryMarkdown());
+        assertEquals(1, response.comments().size());
+        assertEquals(Severity.LOW, response.comments().get(0).severity());
+    }
+
+    @Test
+    void testParsePrReviewResponse_UnknownSeverityDefaultsToLow() {
+        String json =
+                """
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\nSummary here.",
+                  "comments": [
+                    {
+                      "path": "src/Foo.java",
+                      "line": 10,
+                      "severity": "SEVERE",
+                      "bodyMarkdown": "Some issue."
+                    }
+                  ]
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+
+        assertEquals("## Brokk PR Review\n\nSummary here.", response.summaryMarkdown());
+        assertEquals(1, response.comments().size());
+        assertEquals(Severity.LOW, response.comments().get(0).severity());
+    }
+
+    @Test
+    void testFilterInlineComments_AppliesThresholdSortAndCap() {
+        var comments = List.of(
+                new PrReviewService.InlineComment("a", 1, "low", Severity.LOW),
+                new PrReviewService.InlineComment("b", 2, "medium", Severity.MEDIUM),
+                new PrReviewService.InlineComment("c", 3, "high", Severity.HIGH),
+                new PrReviewService.InlineComment("d", 4, "critical", Severity.CRITICAL),
+                new PrReviewService.InlineComment("e", 5, "high2", Severity.HIGH));
+
+        var filtered = PrReviewService.filterInlineComments(comments, Severity.HIGH, 2);
+
+        assertEquals(2, filtered.size());
+        assertEquals(Severity.CRITICAL, filtered.get(0).severity());
+        assertEquals(Severity.HIGH, filtered.get(1).severity());
+    }
+
+    @Test
+    void testFilterInlineComments_DeduplicatesBeforeCap() {
+        var duplicateHigh1 = new PrReviewService.InlineComment("a", 1, "dup", Severity.HIGH);
+        var duplicateHigh2 = new PrReviewService.InlineComment("a", 1, "dup", Severity.HIGH);
+        var distinctCritical = new PrReviewService.InlineComment("b", 2, "distinct critical", Severity.CRITICAL);
+
+        var comments = List.of(duplicateHigh1, duplicateHigh2, distinctCritical);
+
+        var filtered = PrReviewService.filterInlineComments(comments, Severity.HIGH, 2);
+
+        assertEquals(2, filtered.size());
+        assertEquals(Severity.CRITICAL, filtered.get(0).severity());
+        assertEquals("b", filtered.get(0).path());
+        assertEquals(2, filtered.get(0).line());
+        assertEquals("distinct critical", filtered.get(0).bodyMarkdown());
+
+        assertEquals(Severity.HIGH, filtered.get(1).severity());
+        assertEquals("a", filtered.get(1).path());
+        assertEquals(1, filtered.get(1).line());
+        assertEquals("dup", filtered.get(1).bodyMarkdown());
+    }
+
+    @Test
+    void testFilterInlineComments_DeduplicatesMixedSeverities_PicksMoreSevereAndOrders() {
+        var duplicateHigh = new PrReviewService.InlineComment("a", 1, "dup", Severity.HIGH);
+        var duplicateCritical = new PrReviewService.InlineComment("a", 1, "dup", Severity.CRITICAL);
+        var otherHigh = new PrReviewService.InlineComment("b", 2, "other high", Severity.HIGH);
+
+        var comments = List.of(duplicateHigh, duplicateCritical, otherHigh);
+
+        var filtered = PrReviewService.filterInlineComments(comments, Severity.HIGH, 10);
+
+        assertEquals(2, filtered.size());
+
+        assertEquals("a", filtered.get(0).path());
+        assertEquals(1, filtered.get(0).line());
+        assertEquals("dup", filtered.get(0).bodyMarkdown());
+        assertEquals(Severity.CRITICAL, filtered.get(0).severity());
+
+        assertEquals("b", filtered.get(1).path());
+        assertEquals(2, filtered.get(1).line());
+        assertEquals("other high", filtered.get(1).bodyMarkdown());
+        assertEquals(Severity.HIGH, filtered.get(1).severity());
+    }
+
+    @Test
+    void testSeverityRanking_IsStableAndMatchesSemantics() {
+        assertTrue(Severity.CRITICAL.isAtLeast(Severity.HIGH));
+        assertTrue(Severity.CRITICAL.isAtLeast(Severity.MEDIUM));
+        assertTrue(Severity.CRITICAL.isAtLeast(Severity.LOW));
+
+        assertTrue(Severity.HIGH.isAtLeast(Severity.HIGH));
+        assertTrue(Severity.HIGH.isAtLeast(Severity.MEDIUM));
+        assertTrue(Severity.HIGH.isAtLeast(Severity.LOW));
+        assertTrue(Severity.MEDIUM.isAtLeast(Severity.LOW));
+
+        assertTrue(Severity.LOW.isAtLeast(Severity.LOW));
+        assertTrue(!Severity.LOW.isAtLeast(Severity.MEDIUM));
+        assertTrue(!Severity.MEDIUM.isAtLeast(Severity.HIGH));
+        assertTrue(!Severity.HIGH.isAtLeast(Severity.CRITICAL));
+
+        assertTrue(Severity.CRITICAL.rank() < Severity.HIGH.rank());
+        assertTrue(Severity.HIGH.rank() < Severity.MEDIUM.rank());
+        assertTrue(Severity.MEDIUM.rank() < Severity.LOW.rank());
+    }
+
+    @Test
     void testPrReviewResponse_RecordImmutability() {
-        var comment = new PrReviewService.InlineComment("src/Foo.java", 10, "Issue here");
+        var comment = new PrReviewService.InlineComment("src/Foo.java", 10, "Issue here", Severity.HIGH);
         var response = new PrReviewService.PrReviewResponse("## Summary", List.of(comment));
 
         assertEquals(1, response.comments().size());

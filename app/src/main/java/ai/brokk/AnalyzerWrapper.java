@@ -8,8 +8,8 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.project.IProject;
-import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import java.io.IOException;
@@ -36,9 +36,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     private final AnalyzerListener listener; // can be null if no one is listening
 
     private final Path root;
-
-    @Nullable
-    private final Path gitRepoRoot;
 
     private final IProject project;
     private final AbstractWatchService watchService;
@@ -68,7 +65,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             IProject project, AnalyzerListener analyzerListener, @NotNull AbstractWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
-        this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = analyzerListener;
 
         // Use provided watch service or create stub for headless mode
@@ -153,32 +149,11 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             }
         }
 
-        // AnalyzerWrapper now focuses only on analyzer-relevant changes.
-        // Git metadata and tracked file change notifications are handled by ContextManager's listener.
-
         logger.trace(
-                "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}, gitMetaDir={}",
+                "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}",
                 batch.getFiles().size(),
                 batch.isOverflowed(),
                 batch.isUntrackedGitignoreChanged());
-
-        // 1) Handle untracked gitignore file changes by invalidating project cache
-        if (batch.isUntrackedGitignoreChanged()) {
-            logger.debug("Untracked gitignore files changed, invalidating project file cache");
-            project.invalidateAllFiles();
-        }
-
-        // 2) Possibly refresh Git
-        if (gitRepoRoot != null) {
-            Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-            boolean gitMetaTouched =
-                    batch.getFiles().stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
-            if (batch.isOverflowed() || gitMetaTouched) {
-                logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
-                listener.onRepoChange();
-                listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
-            }
-        }
 
         // 1) Handle overflow - trigger full analyzer rebuild
         if (batch.isOverflowed()) {
@@ -193,7 +168,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             return; // No need to process individual files after full rebuild
         }
 
-        // 2) Filter for analyzer-relevant files
+        // 2) Filter for analyzer-relevant files.
         var trackedFiles = project.getRepo().getTrackedFiles();
         var projectLanguages = requireNonNull(currentAnalyzer).languages();
 

@@ -7,6 +7,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.ContextFragments.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
@@ -409,8 +410,13 @@ public class Context {
         assert fragments.contains(fragment) : "%s is not part of %s".formatted(fragment, fragments);
 
         var newPinned = new HashSet<>(this.pinnedFragments);
+        var newFragments = new ArrayList<>(this.fragments);
+
         if (pinned) {
             newPinned.add(fragment);
+            // Move to front: remove from current position and add at index 0
+            newFragments.remove(fragment);
+            newFragments.add(0, fragment);
         } else {
             newPinned.remove(fragment);
         }
@@ -418,7 +424,7 @@ public class Context {
         return new Context(
                 newContextId(),
                 contextManager,
-                fragments,
+                newFragments,
                 taskHistory,
                 parsedOutput,
                 this.markedReadonlyFragments,
@@ -1101,7 +1107,7 @@ public class Context {
      * not timeout-per-fragment.
      */
     @Blocking
-    public void awaitContextsAreComputed(Duration timeout) throws InterruptedException {
+    public void awaitContentsAreComputed(Duration timeout) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         for (var fragment : this.allFragments().toList()) {
             if (fragment instanceof ContextFragment.ComputedFragment cf) {

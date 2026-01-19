@@ -22,10 +22,11 @@ public class UnifiedDiffGenerator {
      *
      * @param diffNode The JMDiffNode containing processed diff information
      * @param contextMode Context mode to use
+     * @param showHunkSeparators Whether to include visual separators between hunks
      * @return Generated UnifiedDiffDocument
      */
     public static UnifiedDiffDocument generateFromDiffNode(
-            JMDiffNode diffNode, UnifiedDiffDocument.ContextMode contextMode) {
+            JMDiffNode diffNode, UnifiedDiffDocument.ContextMode contextMode, boolean showHunkSeparators) {
 
         try {
             // Get the pre-processed patch from the diff node
@@ -62,9 +63,10 @@ public class UnifiedDiffGenerator {
 
             List<UnifiedDiffDocument.DiffLine> diffLines;
             if (contextMode == UnifiedDiffDocument.ContextMode.FULL_CONTEXT) {
-                diffLines = generateFullContextFromPatch(leftLines, rightLines, patch);
+                diffLines = generateFullContextFromPatch(leftLines, rightLines, patch, showHunkSeparators);
             } else {
-                diffLines = generateStandardContextFromPatch(leftLines, rightLines, patch, leftTitle, rightTitle);
+                diffLines = generateStandardContextFromPatch(
+                        leftLines, rightLines, patch, leftTitle, rightTitle, showHunkSeparators);
             }
 
             return new UnifiedDiffDocument(diffLines, contextMode);
@@ -97,10 +99,13 @@ public class UnifiedDiffGenerator {
             var patch = DiffUtils.diff(leftLines, rightLines);
 
             List<UnifiedDiffDocument.DiffLine> diffLines;
+            // Backward-compatible method - default to showing hunk separators
+            boolean showHunkSeparators = true;
             if (contextMode == UnifiedDiffDocument.ContextMode.FULL_CONTEXT) {
-                diffLines = generateFullContextDiff(leftLines, rightLines, patch);
+                diffLines = generateFullContextDiff(leftLines, rightLines, patch, showHunkSeparators);
             } else {
-                diffLines = generateStandardContextDiff(leftLines, rightLines, patch, leftSource, rightSource);
+                diffLines = generateStandardContextDiff(
+                        leftLines, rightLines, patch, leftSource, rightSource, showHunkSeparators);
             }
 
             return new UnifiedDiffDocument(diffLines, contextMode);
@@ -117,7 +122,8 @@ public class UnifiedDiffGenerator {
             @SuppressWarnings("unused") List<String> rightLines,
             Patch<String> patch,
             BufferSource leftSource,
-            BufferSource rightSource) {
+            BufferSource rightSource,
+            boolean showHunkSeparators) {
 
         // Use UnifiedDiffUtils to generate standard unified diff
         var unifiedLines = UnifiedDiffUtils.generateUnifiedDiff(
@@ -180,8 +186,10 @@ public class UnifiedDiffGenerator {
                 lastLeftEnd = newLeftStart + hunkLeftCount;
                 lastRightEnd = newRightStart + hunkRightCount;
 
-                diffLines.add(
-                        new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, line, -1, -1, false));
+                if (showHunkSeparators) {
+                    diffLines.add(
+                            new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, " ", -1, -1, false));
+                }
             } else if (line.startsWith("+")) {
                 // Addition - increment right line number
                 diffLines.add(new UnifiedDiffDocument.DiffLine(
@@ -212,7 +220,8 @@ public class UnifiedDiffGenerator {
             @SuppressWarnings("unused") List<String> rightLines, // rightLines not needed - patch contains target lines
             Patch<String> patch,
             String leftTitle,
-            String rightTitle) {
+            String rightTitle,
+            boolean showHunkSeparators) {
 
         // Use UnifiedDiffUtils to generate standard unified diff from the existing patch
         var unifiedLines =
@@ -275,8 +284,10 @@ public class UnifiedDiffGenerator {
                 lastLeftEnd = newLeftStart + hunkLeftCount;
                 lastRightEnd = newRightStart + hunkRightCount;
 
-                diffLines.add(
-                        new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, line, -1, -1, false));
+                if (showHunkSeparators) {
+                    diffLines.add(
+                            new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, " ", -1, -1, false));
+                }
             } else if (line.startsWith("+")) {
                 // Addition - increment right line number
                 diffLines.add(new UnifiedDiffDocument.DiffLine(
@@ -303,7 +314,7 @@ public class UnifiedDiffGenerator {
 
     /** Generate full context diff using pre-processed patch from JMDiffNode. */
     private static List<UnifiedDiffDocument.DiffLine> generateFullContextFromPatch(
-            List<String> leftLines, List<String> rightLines, Patch<String> patch) {
+            List<String> leftLines, List<String> rightLines, Patch<String> patch, boolean showHunkSeparators) {
 
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         var deltas = patch.getDeltas();
@@ -348,15 +359,11 @@ public class UnifiedDiffGenerator {
                 }
             }
 
-            // Add hunk header before delta
-            var hunkHeader = String.format(
-                    "@@ -%d,%d +%d,%d @@",
-                    delta.getSource().getPosition() + 1,
-                    delta.getSource().size(),
-                    delta.getTarget().getPosition() + 1,
-                    delta.getTarget().size());
-            diffLines.add(
-                    new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, hunkHeader, -1, -1, false));
+            // Add hunk header before delta (special marker - wavy line painter provides visual separation)
+            if (showHunkSeparators) {
+                diffLines.add(
+                        new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, " ", -1, -1, false));
+            }
 
             // Add deleted lines
             for (var deletedLine : delta.getSource().getLines()) {
@@ -391,7 +398,7 @@ public class UnifiedDiffGenerator {
 
     /** Generate full context diff showing all lines between changes. */
     private static List<UnifiedDiffDocument.DiffLine> generateFullContextDiff(
-            List<String> leftLines, List<String> rightLines, Patch<String> patch) {
+            List<String> leftLines, List<String> rightLines, Patch<String> patch, boolean showHunkSeparators) {
 
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         var deltas = patch.getDeltas();
@@ -436,15 +443,11 @@ public class UnifiedDiffGenerator {
                 }
             }
 
-            // Add hunk header before delta
-            var hunkHeader = String.format(
-                    "@@ -%d,%d +%d,%d @@",
-                    delta.getSource().getPosition() + 1,
-                    delta.getSource().size(),
-                    delta.getTarget().getPosition() + 1,
-                    delta.getTarget().size());
-            diffLines.add(
-                    new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, hunkHeader, -1, -1, false));
+            // Add hunk header before delta (special marker - wavy line painter provides visual separation)
+            if (showHunkSeparators) {
+                diffLines.add(
+                        new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, " ", -1, -1, false));
+            }
 
             // Add deleted lines
             for (var deletedLine : delta.getSource().getLines()) {
@@ -617,14 +620,8 @@ public class UnifiedDiffGenerator {
         var deltas = patch.getDeltas();
 
         for (var delta : deltas) {
-            // Add hunk header
-            var hunkHeader = String.format(
-                    "@@ -%d,%d +%d,%d @@",
-                    delta.getSource().getPosition() + 1,
-                    delta.getSource().size(),
-                    delta.getTarget().getPosition() + 1,
-                    delta.getTarget().size());
-            textBuilder.append(hunkHeader).append('\n');
+            // Add special marker hunk header (wavy line painter provides visual separation)
+            textBuilder.append(" ").append('\n');
 
             // Add context lines before the change (3 lines)
             int contextStart = Math.max(0, delta.getSource().getPosition() - STANDARD_CONTEXT_LINES);
@@ -686,14 +683,8 @@ public class UnifiedDiffGenerator {
                 }
             }
 
-            // Add hunk header
-            var hunkHeader = String.format(
-                    "@@ -%d,%d +%d,%d @@",
-                    delta.getSource().getPosition() + 1,
-                    delta.getSource().size(),
-                    delta.getTarget().getPosition() + 1,
-                    delta.getTarget().size());
-            textBuilder.append(hunkHeader);
+            // Add minimal hunk header (wavy line painter provides visual separation)
+            textBuilder.append("@@");
             textBuilder.append('\n');
 
             // Add deleted lines - NORMALIZE THESE (they come from patch and may have line endings)

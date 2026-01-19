@@ -8,8 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.git.GitRepoData.FileDiff;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -963,39 +962,39 @@ class ReviewParserTest {
 
     @Test
     void testMatchExcerptInFile() {
-        var left = new BufferSource.StringSource("line1\nline2\nline3", "OLD", "test.java");
-        var right = new BufferSource.StringSource("line1\nline2-new\nline3", "NEW", "test.java");
-        var info = new FileComparisonInfo(null, left, right);
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        ProjectFile file = new ProjectFile(root, "test.java");
+        var diff = new FileDiff(file, file, "line1\nline2\nline3", "line1\nline2-new\nline3");
 
         // Match in NEW
         var excerptNew = new ReviewParser.RawExcerpt("test.java", 2, "line2-new");
-        ReviewParser.ExcerptMatch matchNew = ReviewParser.matchExcerptInFile(excerptNew, info);
+        ReviewParser.ExcerptMatch matchNew = ReviewParser.matchExcerptInFile(excerptNew, diff);
         assertNotNull(matchNew);
         assertEquals(2, matchNew.line());
         assertEquals(ReviewParser.DiffSide.NEW, matchNew.side());
 
         // Match in OLD (not in new)
         var excerptOld = new ReviewParser.RawExcerpt("test.java", 2, "line2");
-        ReviewParser.ExcerptMatch matchOld = ReviewParser.matchExcerptInFile(excerptOld, info);
+        ReviewParser.ExcerptMatch matchOld = ReviewParser.matchExcerptInFile(excerptOld, diff);
         assertNotNull(matchOld);
         assertEquals(2, matchOld.line());
         assertEquals(ReviewParser.DiffSide.OLD, matchOld.side());
 
         // Whitespace insensitive
         var excerptWS = new ReviewParser.RawExcerpt("test.java", 1, "  line1  ");
-        ReviewParser.ExcerptMatch matchWS = ReviewParser.matchExcerptInFile(excerptWS, info);
+        ReviewParser.ExcerptMatch matchWS = ReviewParser.matchExcerptInFile(excerptWS, diff);
         assertNotNull(matchWS);
         assertEquals(1, matchWS.line());
 
         // No match
         var excerptNone = new ReviewParser.RawExcerpt("test.java", 1, "garbage");
-        assertNull(ReviewParser.matchExcerptInFile(excerptNone, info));
+        assertNull(ReviewParser.matchExcerptInFile(excerptNone, diff));
 
         // Multi-line match
-        var multiLeft = new BufferSource.StringSource("a\nb\nc\nd\ne", "OLD", "multi.java");
-        var multiInfo = new FileComparisonInfo(null, multiLeft, multiLeft);
+        ProjectFile multiFile = new ProjectFile(root, "multi.java");
+        var multiDiff = new FileDiff(multiFile, multiFile, "a\nb\nc\nd\ne", "a\nb\nc\nd\ne");
         var multiExcerpt = new ReviewParser.RawExcerpt("multi.java", 3, "b\nc\nd");
-        ReviewParser.ExcerptMatch multiMatch = ReviewParser.matchExcerptInFile(multiExcerpt, multiInfo);
+        ReviewParser.ExcerptMatch multiMatch = ReviewParser.matchExcerptInFile(multiExcerpt, multiDiff);
         assertNotNull(multiMatch);
         assertEquals(2, multiMatch.line()); // Starts at line 2
         assertEquals("b\nc\nd", multiMatch.matchedText());
@@ -1003,21 +1002,56 @@ class ReviewParserTest {
 
     @Test
     void testMatchExcerptInFile_emptyAndFull() {
-        var emptySource = new BufferSource.StringSource("", "NEW", "empty.java");
-        var info = new FileComparisonInfo(null, emptySource, emptySource);
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        ProjectFile file = new ProjectFile(root, "empty.java");
+        var diff = new FileDiff(file, file, "", "");
         var excerpt = new ReviewParser.RawExcerpt("empty.java", 1, "content");
 
-        assertNull(ReviewParser.matchExcerptInFile(excerpt, info));
+        assertNull(ReviewParser.matchExcerptInFile(excerpt, diff));
 
         // Excerpt spans entire file
         var content = "line1\nline2";
-        var source = new BufferSource.StringSource(content, "NEW", "full.java");
-        var fullInfo = new FileComparisonInfo(null, source, source);
+        ProjectFile fullFile = new ProjectFile(root, "full.java");
+        var fullDiff = new FileDiff(fullFile, fullFile, content, content);
         var fullExcerpt = new ReviewParser.RawExcerpt("full.java", 1, content);
 
-        ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fullExcerpt, fullInfo);
+        ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fullExcerpt, fullDiff);
         assertNotNull(match);
         assertEquals(1, match.line());
+    }
+
+    @Test
+    void testTagExcerpts() {
+        String input =
+                """
+                Some text.
+                At `File.java` line 10:
+                ```
+                code
+                ```
+                More text.
+                At `Other.java` line 20:
+                ```
+                code2
+                ```
+                """;
+        String tagged = ReviewParser.instance.tagExcerpts(input);
+        String expected =
+                """
+                Some text.
+                [Excerpt 0]
+                At `File.java` line 10:
+                ```
+                code
+                ```
+                More text.
+                [Excerpt 1]
+                At `Other.java` line 20:
+                ```
+                code2
+                ```
+                """;
+        assertEquals(expected.trim(), tagged.trim());
     }
 
     @Test

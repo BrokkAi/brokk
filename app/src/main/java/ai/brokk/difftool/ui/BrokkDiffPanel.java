@@ -6,18 +6,16 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.node.JMDiffNode;
-import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.PreviewManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.EditorFontSizeControl;
-import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
-import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
@@ -47,7 +45,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.*;
-import javax.swing.JToggleButton;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import org.apache.logging.log4j.LogManager;
@@ -56,7 +53,11 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class BrokkDiffPanel extends JPanel
-        implements ThemeAware, EditorFontSizeControl, FontSizeAware, DiffProjectFileNavigationTarget {
+        implements ThemeAware,
+                EditorFontSizeControl,
+                FontSizeAware,
+                DiffProjectFileNavigationTarget,
+                DiffToolbarCallbacks {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
@@ -64,12 +65,6 @@ public class BrokkDiffPanel extends JPanel
     private final FileTreePanel fileTreePanel;
     private boolean started;
     private final JLabel loadingLabel = createLoadingLabel();
-    private final JToggleButton viewModeToggle = new JToggleButton("Unified View");
-
-    // Tools menu items
-    private final JCheckBoxMenuItem menuShowBlame = new JCheckBoxMenuItem("Show Git Blame");
-    private final JCheckBoxMenuItem menuShowAllLines = new JCheckBoxMenuItem("Show All Lines");
-    private final JCheckBoxMenuItem menuShowBlankLineDiffs = new JCheckBoxMenuItem("Show Empty Line Diffs");
 
     // Settings loaded from GlobalUiSettings on start()
     private boolean globalShowAllLinesInUnified;
@@ -77,7 +72,9 @@ public class BrokkDiffPanel extends JPanel
 
     // Toolbar for UI controls
     @Nullable
-    private JToolBar toolBar;
+    private DiffToolbarPanel toolBar;
+
+    private final Set<ToolbarFeature> toolbarFeatures;
 
     // Refactored state management
     private final DiffDisplayCore core;
@@ -88,6 +85,7 @@ public class BrokkDiffPanel extends JPanel
         this.contextManager = builder.contextManager;
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
         this.forceFileTree = builder.forceFileTree;
+        this.toolbarFeatures = builder.toolbarFeatures;
 
         // Initialize core logic
         this.core = new DiffDisplayCore(
@@ -157,49 +155,6 @@ public class BrokkDiffPanel extends JPanel
             public void ancestorRemoved(AncestorEvent event) {}
         });
 
-        // Set up menu items
-        menuShowBlankLineDiffs.addActionListener(e -> {
-            boolean show = menuShowBlankLineDiffs.isSelected();
-            GlobalUiSettings.saveDiffShowBlankLines(show);
-            JMDiffNode.setIgnoreBlankLineDiffs(!show);
-            refreshAllDiffPanels();
-        });
-
-        menuShowAllLines.addActionListener(e -> {
-            boolean showAll = menuShowAllLines.isSelected();
-            globalShowAllLinesInUnified = showAll;
-            GlobalUiSettings.saveDiffShowAllLines(showAll);
-            var targetMode = showAll
-                    ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
-                    : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
-
-            // Apply to the current panel if it's a unified panel
-            if (currentDiffPanel instanceof UnifiedDiffPanel unifiedPanel) {
-                unifiedPanel.setContextMode(targetMode);
-            }
-        });
-
-        menuShowBlame.addActionListener(e -> {
-            var panel = getCurrentContentPanel();
-            boolean show = menuShowBlame.isSelected();
-
-            GlobalUiSettings.saveDiffShowBlame(show);
-
-            if (panel instanceof AbstractDiffPanel adp) {
-                adp.setShowGutterBlame(show);
-                updateBlameForPanel(adp, show);
-            }
-        });
-
-        // Set up view mode toggle with icons
-        viewModeToggle.setIcon(Icons.VIEW_UNIFIED); // Show unified icon when in side-by-side mode
-        viewModeToggle.setSelectedIcon(Icons.VIEW_SIDE_BY_SIDE); // Show side-by-side icon when in unified mode
-        viewModeToggle.setText(null); // Remove text, use icon only
-        viewModeToggle.setToolTipText("Toggle Unified View");
-        viewModeToggle.addActionListener(e -> {
-            switchViewMode(viewModeToggle.isSelected());
-        });
-
         revalidate();
     }
 
@@ -215,6 +170,7 @@ public class BrokkDiffPanel extends JPanel
         private boolean isMultipleCommitsContext = false;
         private int initialFileIndex = 0;
         private boolean forceFileTree = false;
+        private Set<ToolbarFeature> toolbarFeatures = ToolbarFeature.all();
 
         @Nullable
         private String rootTitle;
@@ -275,6 +231,11 @@ public class BrokkDiffPanel extends JPanel
             return this;
         }
 
+        public Builder setToolbarFeatures(Set<ToolbarFeature> toolbarFeatures) {
+            this.toolbarFeatures = toolbarFeatures;
+            return this;
+        }
+
         public BrokkDiffPanel build() {
             assert !fileComparisons.isEmpty() : "At least one file comparison must be added";
             return new BrokkDiffPanel(this, theme);
@@ -295,15 +256,8 @@ public class BrokkDiffPanel extends JPanel
         this.globalShowAllLinesInUnified = GlobalUiSettings.isDiffShowAllLines();
         this.isUnifiedView = GlobalUiSettings.isDiffUnifiedView();
 
-        // Update menu/toggle states to match loaded settings
-        menuShowBlankLineDiffs.setSelected(GlobalUiSettings.isDiffShowBlankLines());
+        // Initialize global diff settings
         JMDiffNode.setIgnoreBlankLineDiffs(!GlobalUiSettings.isDiffShowBlankLines());
-        menuShowAllLines.setSelected(globalShowAllLinesInUnified);
-        viewModeToggle.setSelected(isUnifiedView);
-
-        boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
-        menuShowBlame.setSelected(GlobalUiSettings.isDiffShowBlame() && isGitRepo);
-        menuShowBlame.setEnabled(isGitRepo);
 
         getTabbedPane().setFocusable(false);
         setLayout(new BorderLayout());
@@ -369,20 +323,14 @@ public class BrokkDiffPanel extends JPanel
         });
     }
 
-    public JButton getBtnUndo() {
-        return btnUndo;
+    /**
+     * @return the undo button if the toolbar has been initialized.
+     * Note: The toolbar is initialized when the panel is first added to the UI.
+     */
+    @Nullable
+    public JButton getUndoButton() {
+        return toolBar != null ? toolBar.getUndoButton() : null;
     }
-
-    private final MaterialButton btnUndo = new MaterialButton(); // Initialize to prevent NullAway issues
-    private final MaterialButton btnRedo = new MaterialButton();
-    private final MaterialButton btnSaveAll = new MaterialButton();
-    private final MaterialButton captureDiffButton = new MaterialButton();
-    private final MaterialButton captureAllDiffsButton = new MaterialButton();
-
-    // Font size adjustment buttons
-    private @Nullable MaterialButton btnDecreaseFont;
-    private @Nullable MaterialButton btnResetFont;
-    private @Nullable MaterialButton btnIncreaseFont;
 
     // Font size state - implements EditorFontSizeControl
     private int currentFontIndex = -1; // -1 = uninitialized
@@ -396,12 +344,6 @@ public class BrokkDiffPanel extends JPanel
     public void setCurrentFontIndex(int index) {
         this.currentFontIndex = index;
     }
-
-    private final MaterialButton btnNext = new MaterialButton();
-    private final MaterialButton btnPrevious = new MaterialButton();
-    private final MaterialButton btnPreviousFile = new MaterialButton();
-    private final MaterialButton btnNextFile = new MaterialButton();
-    private final MaterialButton btnTools = new MaterialButton();
 
     // Blame service (null if not a git repo)
     private final @Nullable BlameService blameService;
@@ -427,6 +369,7 @@ public class BrokkDiffPanel extends JPanel
         return currentDiffPanel instanceof BufferDiffPanel ? (BufferDiffPanel) currentDiffPanel : null;
     }
 
+    @Override
     public void nextFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
@@ -447,6 +390,7 @@ public class BrokkDiffPanel extends JPanel
         }
     }
 
+    @Override
     public void previousFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
@@ -475,9 +419,6 @@ public class BrokkDiffPanel extends JPanel
     private void updateNavigationButtons() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         updateUndoRedoButtons();
-
-        btnPreviousFile.setEnabled(canNavigateToPreviousFile());
-        btnNextFile.setEnabled(canNavigateToNextFile());
     }
 
     /**
@@ -487,24 +428,9 @@ public class BrokkDiffPanel extends JPanel
     private void updateToolbarForViewMode() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        if (toolBar == null) {
-            logger.warn("Toolbar not initialized, cannot update controls");
-            return;
+        if (toolBar != null) {
+            toolBar.updateToolbarForViewMode();
         }
-
-        // Show/hide menu items based on current view mode
-        if (isUnifiedView) {
-            // In unified view: show "Show All Lines", hide "Show Empty Line Diffs"
-            menuShowAllLines.setVisible(true);
-            menuShowBlankLineDiffs.setVisible(false);
-        } else {
-            // In side-by-side view: show "Show Empty Line Diffs", hide "Show All Lines"
-            menuShowAllLines.setVisible(false);
-            menuShowBlankLineDiffs.setVisible(true);
-        }
-
-        toolBar.revalidate();
-        toolBar.repaint();
     }
 
     /**
@@ -556,204 +482,22 @@ public class BrokkDiffPanel extends JPanel
     private void disableAllControlButtons() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        // File navigation buttons
-        btnPreviousFile.setEnabled(false);
-        btnNextFile.setEnabled(false);
-
-        // Change navigation buttons
-        btnNext.setEnabled(false);
-        btnPrevious.setEnabled(false);
-
-        // Edit buttons
-        btnUndo.setEnabled(false);
-        btnRedo.setEnabled(false);
-        btnSaveAll.setEnabled(false);
-
-        // Capture diff button should always remain enabled
-
+        if (toolBar != null) {
+            toolBar.disableAllControlButtons();
+        }
     }
 
-    private JToolBar createToolbar() {
-        // Create toolbar
-        toolBar = new JToolBar();
-
-        // Configure button icons and tooltips
-        btnNext.setIcon(Icons.NAVIGATE_NEXT);
-        btnNext.setToolTipText("Next Change");
-        btnNext.addActionListener(e -> navigateToNextChange());
-
-        btnPrevious.setIcon(Icons.NAVIGATE_BEFORE);
-        btnPrevious.setToolTipText("Previous Change");
-        btnPrevious.addActionListener(e -> navigateToPreviousChange());
-
-        btnUndo.setIcon(Icons.UNDO);
-        btnUndo.setToolTipText("Undo");
-        btnUndo.addActionListener(e -> performUndoRedo(AbstractContentPanel::doUndo));
-
-        btnRedo.setIcon(Icons.REDO);
-        btnRedo.setToolTipText("Redo");
-        btnRedo.addActionListener(e -> performUndoRedo(AbstractContentPanel::doRedo));
-
-        btnSaveAll.setIcon(Icons.SAVE);
-        btnSaveAll.setToolTipText("Save");
-        btnSaveAll.addActionListener(e -> saveAll());
-
-        // File navigation handlers
-        btnPreviousFile.setIcon(Icons.NAVIGATE_BEFORE);
-        btnPreviousFile.setToolTipText("Previous File");
-        btnPreviousFile.addActionListener(e -> previousFile());
-
-        btnNextFile.setIcon(Icons.NAVIGATE_NEXT);
-        btnNextFile.setToolTipText("Next File");
-        btnNextFile.addActionListener(e -> nextFile());
-
-        captureDiffButton.setIcon(Icons.CONTENT_CAPTURE);
-        captureDiffButton.setToolTipText("Capture Diff");
-        captureDiffButton.addActionListener(e -> {
-            var currentComparison = core.getFileComparisons().get(core.getCurrentIndex());
-            capture(List.of(currentComparison));
-        });
-
-        // "Capture All Diffs" button (visible for multi-file contexts)
-        captureAllDiffsButton.setText("Capture All Diffs");
-        captureAllDiffsButton.setToolTipText("Capture all file diffs to the context");
-        captureAllDiffsButton.addActionListener(e -> capture(new ArrayList<>(core.getFileComparisons())));
-
-        // Add buttons to toolbar with spacing
-        toolBar.add(btnPrevious);
-        toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
-        toolBar.add(btnNext);
-
-        // Add file navigation buttons if multiple files
-        if (core.getFileComparisons().size() > 1) {
-            toolBar.add(Box.createHorizontalStrut(20)); // 20px spacing
-            toolBar.addSeparator();
-            toolBar.add(Box.createHorizontalStrut(10));
-            toolBar.add(btnPreviousFile);
-            toolBar.add(Box.createHorizontalStrut(10));
-            toolBar.add(btnNextFile);
-        }
-
-        toolBar.add(Box.createHorizontalStrut(20));
-        toolBar.addSeparator();
-        toolBar.add(Box.createHorizontalStrut(10));
-        toolBar.add(btnUndo);
-        toolBar.add(Box.createHorizontalStrut(10));
-        toolBar.add(btnRedo);
-        toolBar.add(Box.createHorizontalStrut(10));
-        toolBar.add(btnSaveAll);
-
-        toolBar.add(Box.createHorizontalStrut(20));
-        toolBar.addSeparator();
-        toolBar.add(Box.createHorizontalStrut(10));
-
-        // Add tools button with popup menu
-        btnTools.setIcon(Icons.DIFF_TOOLS);
-        btnTools.setToolTipText("View Options");
-        btnTools.setText(null); // Icon-only button
-        btnTools.setBorderPainted(false);
-        btnTools.setContentAreaFilled(false);
-        btnTools.setFocusPainted(false);
-        var toolsMenu = new JPopupMenu();
-        toolsMenu.add(menuShowBlame);
-        toolsMenu.add(menuShowAllLines);
-        toolsMenu.add(menuShowBlankLineDiffs);
-        btnTools.addActionListener(e -> toolsMenu.show(btnTools, 0, btnTools.getHeight()));
-        toolBar.add(viewModeToggle);
-        toolBar.add(Box.createHorizontalStrut(10));
-        toolBar.add(btnTools);
-
-        // Update control enable/disable state based on view mode
-        updateToolbarForViewMode();
-
-        toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
-
-        // Font size controls (positioned before capture button)
-        // Create font size control buttons using interface methods
-        btnDecreaseFont = createDecreaseFontButton(this::decreaseEditorFont);
-        btnResetFont = createResetFontButton(this::resetEditorFont);
-        btnIncreaseFont = createIncreaseFontButton(this::increaseEditorFont);
-
-        toolBar.add(btnDecreaseFont);
-        toolBar.add(Box.createHorizontalStrut(4));
-        toolBar.add(btnResetFont);
-        toolBar.add(Box.createHorizontalStrut(4));
-        toolBar.add(btnIncreaseFont);
-        toolBar.add(Box.createHorizontalStrut(8));
-        toolBar.add(captureDiffButton);
-        if (core.getFileComparisons().size() > 1 || isMultipleCommitsContext) {
-            toolBar.add(Box.createHorizontalStrut(8));
-            toolBar.add(captureAllDiffsButton);
-        }
-
+    private DiffToolbarPanel createToolbar() {
+        toolBar = new DiffToolbarPanel(toolbarFeatures, this);
         return toolBar;
     }
 
     public void updateUndoRedoButtons() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        var currentPanel = getCurrentContentPanel();
 
-        btnUndo.setEnabled(currentPanel != null && currentPanel.isUndoEnabled());
-        btnRedo.setEnabled(currentPanel != null && currentPanel.isRedoEnabled());
-
-        // Disable undo/redo when in unified mode or when both sides are read-only
-        boolean enableUndoRedo = false;
-        if (currentPanel instanceof BufferDiffPanel bp) {
-            enableUndoRedo = bp.atLeastOneSideEditable();
+        if (toolBar != null) {
+            toolBar.updateButtonStates();
         }
-        if (!enableUndoRedo) {
-            btnUndo.setEnabled(false);
-            btnRedo.setEnabled(false);
-        }
-
-        if (currentPanel != null) {
-            var isFirstChangeOverall = core.getCurrentIndex() == 0 && currentPanel.isAtFirstLogicalChange();
-            var isLastChangeOverall =
-                    core.getCurrentIndex() == core.getFileComparisons().size() - 1
-                            && currentPanel.isAtLastLogicalChange();
-            btnPrevious.setEnabled(!isFirstChangeOverall);
-            btnNext.setEnabled(!isLastChangeOverall);
-        } else {
-            btnPrevious.setEnabled(false);
-            btnNext.setEnabled(false);
-        }
-
-        // Capture diff button should always be enabled
-        captureDiffButton.setEnabled(true);
-
-        // Update blame menu item enabled state
-        // Blame is available if the panel can provide a target path for blame and it's a git repo
-        boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
-        boolean canShowBlame = false;
-        if (isGitRepo && currentDiffPanel != null) {
-            canShowBlame = currentDiffPanel.getTargetPathForBlame() != null;
-        }
-        menuShowBlame.setEnabled(canShowBlame);
-
-        // Update save button text, enable state, and visibility
-        // Compute the exact number of panels that would be saved by saveAll():
-        // include currentDiffPanel (if present) plus all cached panels (deduplicated),
-        // and count those with hasUnsavedChanges() == true.
-        int dirtyCount = 0;
-        var visited = new HashSet<AbstractDiffPanel>();
-
-        if (currentDiffPanel != null) {
-            visited.add(currentDiffPanel);
-            if (currentDiffPanel.hasUnsavedChanges()) {
-                dirtyCount++;
-            }
-        }
-
-        for (var p : core.getCachedPanels()) {
-            if (visited.add(p) && p.hasUnsavedChanges()) {
-                dirtyCount++;
-            }
-        }
-
-        String baseSaveText = core.getFileComparisons().size() > 1 ? "Save All" : "Save";
-        btnSaveAll.setToolTipText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
-        // Disable save button when in unified mode, when all sides are read-only, or when there are no changes
-        btnSaveAll.setEnabled(enableUndoRedo && dirtyCount > 0);
 
         // Update per-file dirty indicators in the file tree (only when multiple files are shown)
         if (showFileTree()) {
@@ -780,19 +524,23 @@ public class BrokkDiffPanel extends JPanel
     /**
      * Check if any loaded diff-panel holds modified documents.
      */
+    @Override
     public boolean hasUnsavedChanges() {
         if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
-        for (int i = 0; i < getFileComparisonCount(); i++) {
-            var p = core.getCachedPanel(i);
-            if (p != null && p.hasUnsavedChanges()) return true;
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
+            if (p.hasUnsavedChanges()) return true;
         }
         return false;
     }
 
     /** Saves every dirty document across all BufferDiffPanels, producing a single undoable history entry. */
+    @Override
     public void saveAll() {
         // Disable save button temporarily
-        btnSaveAll.setEnabled(false);
+        var saveBtn = toolBar != null ? toolBar.getSaveButton() : null;
+        if (saveBtn != null) {
+            saveBtn.setEnabled(false);
+        }
 
         // Collect unique BufferDiffPanels to process (current + cached)
         var visited = new LinkedHashSet<BufferDiffPanel>();
@@ -800,7 +548,7 @@ public class BrokkDiffPanel extends JPanel
         if (currentBufferPanel != null) {
             visited.add(currentBufferPanel);
         }
-        for (var p : core.getCachedPanels()) {
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
             if (p instanceof BufferDiffPanel bufferPanel) {
                 visited.add(bufferPanel);
             }
@@ -1111,13 +859,13 @@ public class BrokkDiffPanel extends JPanel
         manager.showDiffInTab(title, this, leftSources, rightSources);
     }
 
-    private void navigateToNextChange() {
+    @Override
+    public void navigateToNextChange() {
         var panel = getCurrentContentPanel();
         if (panel == null) return;
 
-        // Disable change navigation buttons FIRST
-        btnNext.setEnabled(false);
-        btnPrevious.setEnabled(false);
+        // Disable buttons during navigation
+        disableAllControlButtons();
 
         try {
             if (panel.isAtLastLogicalChange() && canNavigateToNextFile()) {
@@ -1134,13 +882,13 @@ public class BrokkDiffPanel extends JPanel
         }
     }
 
-    private void navigateToPreviousChange() {
+    @Override
+    public void navigateToPreviousChange() {
         var panel = getCurrentContentPanel();
         if (panel == null) return;
 
-        // Disable change navigation buttons FIRST
-        btnNext.setEnabled(false);
-        btnPrevious.setEnabled(false);
+        // Disable buttons during navigation
+        disableAllControlButtons();
 
         try {
             if (panel.isAtFirstLogicalChange() && canNavigateToPreviousFile()) {
@@ -1161,12 +909,14 @@ public class BrokkDiffPanel extends JPanel
         }
     }
 
-    private boolean canNavigateToNextFile() {
+    @Override
+    public boolean canNavigateToNextFile() {
         return core.getFileComparisons().size() > 1
                 && core.getCurrentIndex() < core.getFileComparisons().size() - 1;
     }
 
-    private boolean canNavigateToPreviousFile() {
+    @Override
+    public boolean canNavigateToPreviousFile() {
         return core.getFileComparisons().size() > 1 && core.getCurrentIndex() > 0;
     }
 
@@ -1347,9 +1097,8 @@ public class BrokkDiffPanel extends JPanel
     private void performUndoRedo(Consumer<AbstractContentPanel> action) {
         var panel = getCurrentContentPanel();
         if (panel != null) {
-            // Disable undo/redo buttons FIRST
-            btnUndo.setEnabled(false);
-            btnRedo.setEnabled(false);
+            // Disable buttons during operation
+            disableAllControlButtons();
 
             try {
                 action.accept(panel);
@@ -1381,7 +1130,9 @@ public class BrokkDiffPanel extends JPanel
     private void refreshAllDiffPanels() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Refresh existing cached panels (preserves cache for performance)
-        core.getCachedPanels().forEach(panel -> panel.diff(true)); // Scroll to selection for user-initiated refresh
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
+            p.diff(true); // Scroll to selection for user-initiated refresh
+        }
         // Refresh current panel if it's not cached
         var current = getBufferDiffPanel();
         if (current != null) {
@@ -1440,14 +1191,16 @@ public class BrokkDiffPanel extends JPanel
         if (hasUnsavedChanges()) {
             var window = SwingUtilities.getWindowAncestor(this);
             var parentFrame = (window instanceof JFrame jframe) ? jframe : null;
-            var opt = contextManager
-                    .getIo()
-                    .showConfirmDialog(
-                            parentFrame,
-                            "There are unsaved changes. Save before closing?",
-                            "Unsaved Changes",
-                            JOptionPane.YES_NO_CANCEL_OPTION,
-                            JOptionPane.WARNING_MESSAGE);
+            String[] options = {"Save", "Don't Save", "Cancel"};
+            int opt = MaterialOptionPane.showOptionDialog(
+                    parentFrame,
+                    "There are unsaved changes. Save before closing?",
+                    "Unsaved Changes",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE,
+                    null,
+                    options,
+                    options[0]);
             if (opt == JOptionPane.CANCEL_OPTION || opt == JOptionPane.CLOSED_OPTION) {
                 return false; // Don't close
             }
@@ -1537,7 +1290,7 @@ public class BrokkDiffPanel extends JPanel
         }
 
         boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
-        if (isGitRepo && menuShowBlame.isSelected()) {
+        if (isGitRepo && isShowingBlame()) {
             updateBlameForPanel(panel, true);
         }
 
@@ -1584,21 +1337,21 @@ public class BrokkDiffPanel extends JPanel
     /** Increase font size using interface method, then apply to all panels. */
     @Override
     public void increaseEditorFont() {
-        EditorFontSizeControl.super.increaseEditorFont();
+        DiffToolbarCallbacks.super.increaseEditorFont();
         applyAllEditorFontSizes();
     }
 
     /** Decrease font size using interface method, then apply to all panels. */
     @Override
     public void decreaseEditorFont() {
-        EditorFontSizeControl.super.decreaseEditorFont();
+        DiffToolbarCallbacks.super.decreaseEditorFont();
         applyAllEditorFontSizes();
     }
 
     /** Reset font size using interface method, then apply to all panels. */
     @Override
     public void resetEditorFont() {
-        EditorFontSizeControl.super.resetEditorFont();
+        DiffToolbarCallbacks.super.resetEditorFont();
         applyAllEditorFontSizes();
     }
 
@@ -1778,8 +1531,7 @@ public class BrokkDiffPanel extends JPanel
     }
 
     /**
-     * Shows one-time error dialog and updates menu text. Prioritizes right over left errors. Doesn't auto-disable
-     * blame.
+     * Shows one-time error dialog. Prioritizes right over left errors.
      */
     private void handleBlameError(@Nullable String rightError, @Nullable String leftError) {
         String errorMsg = (rightError != null) ? rightError : leftError;
@@ -1789,13 +1541,8 @@ public class BrokkDiffPanel extends JPanel
             SwingUtilities.invokeLater(() -> {
                 JOptionPane.showMessageDialog(
                         BrokkDiffPanel.this, userMessage, "Git Blame Unavailable", JOptionPane.WARNING_MESSAGE);
-                menuShowBlame.setText("Show Git Blame (unavailable: " + userMessage + ")");
             });
             blameErrorNotified = true;
-        } else if (errorMsg != null) {
-            SwingUtilities.invokeLater(() -> {
-                menuShowBlame.setText("Show Git Blame (unavailable: " + formatBlameErrorMessage(errorMsg) + ")");
-            });
         }
     }
 
@@ -1868,7 +1615,7 @@ public class BrokkDiffPanel extends JPanel
 
             SwingUtilities.invokeLater(() -> {
                 if (!rightMap.isEmpty() || !leftMap.isEmpty()) {
-                    menuShowBlame.setText("Show Git Blame");
+                    blameErrorNotified = false;
                 }
                 panel.applyBlame(leftMap, rightMap);
             });
@@ -1934,6 +1681,7 @@ public class BrokkDiffPanel extends JPanel
     }
 
     /** Returns true if currently in unified view mode, false for side-by-side. */
+    @Override
     public boolean isUnifiedView() {
         return isUnifiedView;
     }
@@ -1952,15 +1700,16 @@ public class BrokkDiffPanel extends JPanel
      *
      * @param useUnifiedView true for unified view, false for side-by-side view
      */
-    private void switchViewMode(boolean useUnifiedView) {
+    @Override
+    public void switchViewMode(boolean useUnifiedView) {
         if (this.isUnifiedView == useUnifiedView) {
             return; // No change needed
         }
 
         // Check for unsaved changes before switching views
         if (hasUnsavedChanges()) {
-            Object[] options = {"Save All", "Discard", "Cancel"};
-            int choice = JOptionPane.showOptionDialog(
+            String[] options = {"Save All", "Discard", "Cancel"};
+            int choice = MaterialOptionPane.showOptionDialog(
                     this,
                     "You have unsaved changes. Save or discard before switching views?",
                     "Unsaved Changes",
@@ -1973,8 +1722,12 @@ public class BrokkDiffPanel extends JPanel
             if (choice == 0) { // Save All
                 saveAll();
             } else if (choice == 2 || choice == JOptionPane.CLOSED_OPTION) { // Cancel or X button
-                // Reset toggle to previous state
-                SwingUtilities.invokeLater(() -> viewModeToggle.setSelected(!useUnifiedView));
+                // Reset toggle to previous state via toolbar update
+                SwingUtilities.invokeLater(() -> {
+                    if (toolBar != null) {
+                        toolBar.updateButtonStates();
+                    }
+                });
                 return; // Abort the view switch
             }
             // choice == 1 (Discard) - continue with switch, losing edits
@@ -1994,5 +1747,152 @@ public class BrokkDiffPanel extends JPanel
 
         // Refresh the current file with the new view mode
         core.showFile(core.getCurrentIndex());
+    }
+
+    // --- DiffToolbarCallbacks implementations ---
+
+    @Override
+    public void performUndo() {
+        performUndoRedo(AbstractContentPanel::doUndo);
+    }
+
+    @Override
+    public void performRedo() {
+        performUndoRedo(AbstractContentPanel::doRedo);
+    }
+
+    @Override
+    public void setShowBlame(boolean show) {
+        GlobalUiSettings.saveDiffShowBlame(show);
+        if (currentDiffPanel != null) {
+            currentDiffPanel.setShowGutterBlame(show);
+            updateBlameForPanel(currentDiffPanel, show);
+        }
+    }
+
+    @Override
+    public void setShowAllLines(boolean show) {
+        this.globalShowAllLinesInUnified = show;
+        GlobalUiSettings.saveDiffShowAllLines(show);
+        // Refresh unified panels to pick up the new setting
+        if (isUnifiedView) {
+            core.clearCache();
+            core.showFile(core.getCurrentIndex());
+        }
+    }
+
+    @Override
+    public void setShowBlankLineDiffs(boolean show) {
+        JMDiffNode.setIgnoreBlankLineDiffs(!show);
+        GlobalUiSettings.saveDiffShowBlankLines(show);
+        refreshAllDiffPanels();
+    }
+
+    @Override
+    public void captureCurrentDiff() {
+        var currentComparison = core.getFileComparisons().get(core.getCurrentIndex());
+        capture(List.of(currentComparison));
+    }
+
+    @Override
+    public void captureAllDiffs() {
+        capture(core.getFileComparisons());
+    }
+
+    @Override
+    public boolean canNavigateToNextChange() {
+        var panel = getCurrentContentPanel();
+        if (panel == null) return false;
+        return !panel.isAtLastLogicalChange() || canNavigateToNextFile();
+    }
+
+    @Override
+    public boolean canNavigateToPreviousChange() {
+        var panel = getCurrentContentPanel();
+        if (panel == null) return false;
+        return !panel.isAtFirstLogicalChange() || canNavigateToPreviousFile();
+    }
+
+    @Override
+    public boolean isUndoEnabled() {
+        var panel = getCurrentContentPanel();
+        return panel != null && panel.isUndoEnabled();
+    }
+
+    @Override
+    public boolean isRedoEnabled() {
+        var panel = getCurrentContentPanel();
+        return panel != null && panel.isRedoEnabled();
+    }
+
+    @Override
+    public int getUnsavedCount() {
+        int count = 0;
+        var visited = new HashSet<AbstractDiffPanel>();
+
+        if (currentDiffPanel != null) {
+            visited.add(currentDiffPanel);
+            if (currentDiffPanel.hasUnsavedChanges()) {
+                count++;
+            }
+        }
+
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
+            if (visited.add(p) && p.hasUnsavedChanges()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @Override
+    public boolean isSaveEnabled() {
+        // Save is enabled only if there are unsaved changes AND at least one editable panel
+        var visited = new HashSet<AbstractDiffPanel>();
+        if (currentDiffPanel != null) {
+            visited.add(currentDiffPanel);
+            if (currentDiffPanel.hasUnsavedChanges() && currentDiffPanel.atLeastOneSideEditable()) {
+                return true;
+            }
+        }
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
+            if (visited.add(p) && p.hasUnsavedChanges() && p.atLeastOneSideEditable()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean isBlameAvailable() {
+        return blameService != null;
+    }
+
+    @Override
+    public boolean canShowBlame() {
+        if (blameService == null) {
+            return false;
+        }
+        return currentDiffPanel != null && currentDiffPanel.getTargetPathForBlame() != null;
+    }
+
+    @Override
+    public boolean isMultiFile() {
+        return core.getFileComparisons().size() > 1;
+    }
+
+    @Override
+    public boolean isShowingBlame() {
+        return GlobalUiSettings.isDiffShowBlame();
+    }
+
+    @Override
+    public boolean isShowingAllLines() {
+        return globalShowAllLinesInUnified;
+    }
+
+    @Override
+    public boolean isShowingBlankLineDiffs() {
+        return GlobalUiSettings.isDiffShowBlankLines();
     }
 }

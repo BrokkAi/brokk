@@ -104,6 +104,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                         int fileIndex = findFileIndex(selectedPath);
                         if (fileIndex != -1) {
                             selectionListener.navigateToFile(fileIndex);
+                            SwingUtilities.invokeLater(() -> fileTree.requestFocusInWindow());
                         }
                     }
                 }

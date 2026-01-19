@@ -8,6 +8,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
@@ -658,15 +659,25 @@ public class BuildAgent {
             @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
             @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
-                    Map<String, String> environmentVariables) {
+                    Map<String, String> environmentVariables,
+            @Nullable Integer maxBuildAttempts) {
 
         @VisibleForTesting
         public BuildDetails(
                 String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of());
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null);
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of());
+        public BuildDetails(
+                String buildLintCommand,
+                String testAllCommand,
+                String testSomeCommand,
+                Set<String> exclusionPatterns,
+                Map<String, String> environmentVariables) {
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null);
+        }
+
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null);
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
@@ -679,7 +690,8 @@ public class BuildAgent {
                 @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
                 @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
-                @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables) {
+                @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables,
+                @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts) {
             // Migrate legacy excludedDirectories to exclusionPatterns
             Set<String> patterns = new LinkedHashSet<>();
             if (exclusionPatterns != null) {
@@ -693,17 +705,25 @@ public class BuildAgent {
                     testAllCommand != null ? testAllCommand : "",
                     testSomeCommand != null ? testSomeCommand : "",
                     patterns,
-                    environmentVariables != null ? environmentVariables : Map.of());
+                    environmentVariables != null ? environmentVariables : Map.of(),
+                    maxBuildAttempts);
         }
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
     @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
+        return determineVerificationCommand(ctx, null);
+    }
+
+    /** Determine the best verification command using the provided Context and an optional override. */
+    @Blocking
+    public static @Nullable String determineVerificationCommand(Context ctx, @Nullable BuildDetails override)
+            throws InterruptedException {
         var cm = ctx.getContextManager();
 
         // Retrieve build details from the project associated with the ContextManager
-        BuildDetails details = cm.getProject().awaitBuildDetails();
+        BuildDetails details = override != null ? override : cm.getProject().awaitBuildDetails();
 
         if (details.equals(BuildDetails.EMPTY)) {
             logger.warn("No build details available, cannot determine verification command.");
@@ -758,6 +778,15 @@ public class BuildAgent {
     }
 
     /**
+     * Determine and interpolate the "run some tests" command for the current workspace.
+     */
+    public static String getBuildLintSomeCommand(
+            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            throws InterruptedException {
+        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null);
+    }
+
+    /**
      * Runs determineVerificationCommand on the {@link ContextManager} background pool and
      * delivers the result asynchronously.
      *
@@ -778,7 +807,10 @@ public class BuildAgent {
      *  3) The import root of each file established by walking up until no __init__.py.
      */
     public static String getBuildLintSomeCommand(
-            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            IContextManager cm,
+            BuildDetails details,
+            Collection<ProjectFile> workspaceTestFiles,
+            @Nullable String pythonVersionOverride)
             throws InterruptedException {
 
         String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
@@ -800,7 +832,8 @@ public class BuildAgent {
         }
 
         final Path projectRoot = cm.getProject().getRoot();
-        String pythonVersion = getPythonVersionForProject(projectRoot);
+        String pythonVersion =
+                pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
 
         List<String> targetItems;
 
@@ -1039,12 +1072,48 @@ public class BuildAgent {
      */
     @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
+        return runVerification(cm, null);
+    }
+
+    /**
+     * Run the verification build for the current project with optional build details override.
+     */
+    @Blocking
+    public static String runVerification(IContextManager cm, @Nullable BuildDetails override)
+            throws InterruptedException {
         var interrupted = new AtomicReference<InterruptedException>(null);
         var updated = cm.pushContext(ctx -> {
             try {
-                return runVerification(ctx);
+                return runVerification(ctx, override);
             } catch (InterruptedException e) {
                 // Preserve interrupt status and defer propagation until after pushContext returns
+                Thread.currentThread().interrupt();
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        var ie = interrupted.get();
+        if (ie != null) {
+            throw ie;
+        }
+        return updated.getBuildError();
+    }
+
+    /**
+     * Run a caller-specified command (intended for ISSUE-mode gates, but reusable), stream output to the console, and
+     * update the session's Build Results fragment.
+     *
+     * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
+     * text.
+     */
+    @Blocking
+    public static String runExplicitCommand(IContextManager cm, String command, @Nullable BuildDetails override)
+            throws InterruptedException {
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
+            try {
+                return runExplicitCommand(ctx, command, override);
+            } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 interrupted.set(e);
                 return ctx;
@@ -1063,12 +1132,23 @@ public class BuildAgent {
      */
     @Blocking
     public static Context runVerification(Context ctx) throws InterruptedException {
+        return runVerification(ctx, null);
+    }
+
+    /**
+     * Context-based overload that performs build/check with an optional build details override.
+     */
+    @Blocking
+    public static Context runVerification(Context ctx, @Nullable BuildDetails override) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        var verificationCommand = determineVerificationCommand(ctx);
+        var verificationCommand = determineVerificationCommand(ctx, override);
         if (verificationCommand == null || verificationCommand.isBlank()) {
-            io.llmOutput("\nNo verification command specified, skipping build/check.", ChatMessageType.CUSTOM);
+            io.llmOutput(
+                    "\nNo verification command specified, skipping build/check.",
+                    ChatMessageType.CUSTOM,
+                    LlmOutputMeta.DEFAULT);
             return ctx; // unchanged
         }
 
@@ -1077,17 +1157,51 @@ public class BuildAgent {
             var lock = acquireBuildLock(cm);
             if (lock == null) {
                 logger.warn("Failed to acquire build lock; proceeding without it");
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
             }
             try (var ignored = lock) {
                 logger.debug("Acquired build lock {}", lock.lockFile());
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
             } catch (Exception e) {
                 logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
             }
         } else {
-            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
+        }
+    }
+
+    /**
+     * Context-based overload that performs a caller-specified command and returns an updated Context with the build
+     * results. No pushes are performed here; callers decide when to persist.
+     */
+    @Blocking
+    public static Context runExplicitCommand(Context ctx, String command, @Nullable BuildDetails override)
+            throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+
+        if (command.isBlank()) {
+            io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+            return ctx.withBuildResult(true, "");
+        }
+
+        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
+        if (noConcurrentBuilds) {
+            var lock = acquireBuildLock(cm);
+            if (lock == null) {
+                logger.warn("Failed to acquire build lock; proceeding without it");
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            }
+            try (var ignored = lock) {
+                logger.debug("Acquired build lock {}", lock.lockFile());
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            } catch (Exception e) {
+                logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            }
+        } else {
+            return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
         }
     }
 
@@ -1146,18 +1260,20 @@ public class BuildAgent {
     }
 
     /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */
-    private static Context runBuildAndUpdateFragmentInternal(Context ctx, String verificationCommand)
-            throws InterruptedException {
+    private static Context runBuildAndUpdateFragmentInternal(
+            Context ctx, String verificationCommand, @Nullable BuildDetails override) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
+        io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
         io.llmOutput(
-                "\nRunning verification command: \n\n```bash\n" + verificationCommand + "\n```\n",
-                ChatMessageType.CUSTOM);
-        String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
-        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
+                verificationCommand + "\n\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.newMessage().withTerminal(true));
+
         try {
-            var details = cm.getProject().awaitBuildDetails();
+            var details = override != null ? override : cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
@@ -1167,18 +1283,55 @@ public class BuildAgent {
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
                     timeout,
                     execCfg,
                     envVars);
-            io.llmOutput("\n```", ChatMessageType.CUSTOM);
 
             logger.debug("Verification command successful. Output: {}", output);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
-            io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
+            String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
+            String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
+            return ctx.withBuildResult(false, processed);
+        }
+    }
 
-            String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
+    private static Context runExplicitBuildAndUpdateFragmentInternal(
+            Context ctx, String command, @Nullable BuildDetails override) throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+
+        io.llmOutput(
+                "\nRunning command: \n\n```bash\n" + command + "\n```\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.DEFAULT);
+        String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
+        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
+        try {
+            var details = override != null ? override : cm.getProject().awaitBuildDetails();
+            var envVars = details.environmentVariables();
+            var execCfg = ExecutorConfig.fromProject(cm.getProject());
+
+            long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
+            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
+
+            var output = Environment.instance.runShellCommand(
+                    command,
+                    cm.getProject().getRoot(),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
+                    timeout,
+                    execCfg,
+                    envVars);
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
+            logger.debug("Explicit command successful. Output: {}", output);
+            return ctx.withBuildResult(true, "Build succeeded.");
+        } catch (Environment.SubprocessException e) {
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
+            String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
             return ctx.withBuildResult(false, processed);
         }

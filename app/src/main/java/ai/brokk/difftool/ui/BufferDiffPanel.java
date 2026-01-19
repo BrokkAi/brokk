@@ -13,7 +13,6 @@ import ai.brokk.difftool.scroll.ScrollSynchronizer;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
-import ai.brokk.util.SlidingWindowCache;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import com.jgoodies.forms.layout.CellConstraints;
@@ -42,13 +41,14 @@ import javax.swing.text.JTextComponent;
 import javax.swing.undo.UndoableEdit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * This panel shows the side-by-side file panels, the diff curves, plus search bars. It no longer depends on custom
  * JMRevision/JMDelta but rather on a Patch<String>.
  */
-public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowCache.Disposable {
+public class BufferDiffPanel extends AbstractDiffPanel {
     private static final Logger logger = LogManager.getLogger(BufferDiffPanel.class);
 
     /**
@@ -177,8 +177,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         this.mainPanel = mainPanel;
         this.guiTheme = theme;
 
-        // Let the mainPanel keep a reference to us for toolbar/undo/redo interplay
-        mainPanel.setBufferDiffPanel(this);
+        // Note: We no longer call mainPanel.setBufferDiffPanel(this) here.
+        // BrokkDiffPanel.displayAndRefreshPanel handles setting the active panel
+        // to ensure preloaded background panels don't overwrite the visible one.
 
         init();
         setFocusable(true);
@@ -1405,6 +1406,10 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         diffNode = null;
         patch = null;
         selectedDelta = null;
+
+        // super.dispose() called last to ensure subclass resources (listeners, editor models)
+        // are cleaned up before the superclass container is destroyed.
+        super.dispose();
     }
 
     /**
@@ -1684,6 +1689,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     }
 
     /** Writes all changed, non-readonly documents in this panel to disk and returns per-file results. */
+    @Blocking
     @Override
     public SaveResult writeChangedDocuments() {
         var succeeded = new LinkedHashSet<String>();
@@ -1814,13 +1820,11 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var rightPanel = getFilePanel(PanelSide.RIGHT);
 
         if (leftPanel != null) {
-            applyDerivedFont(leftPanel.getEditor(), size);
-            applyDerivedFontToGutter(leftPanel.getGutterComponent(), size);
+            applyFontToEditorAndGutter(leftPanel.getEditor(), leftPanel.getGutterComponent(), size);
         }
 
         if (rightPanel != null) {
-            applyDerivedFont(rightPanel.getEditor(), size);
-            applyDerivedFontToGutter(rightPanel.getGutterComponent(), size);
+            applyFontToEditorAndGutter(rightPanel.getEditor(), rightPanel.getGutterComponent(), size);
         }
     }
 

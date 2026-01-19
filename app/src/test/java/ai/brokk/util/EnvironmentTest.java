@@ -10,7 +10,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
+@Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock("ai.brokk.util.Environment.shellCommandRunnerFactory")
 class EnvironmentTest {
     @BeforeEach
     void setUp() {

@@ -3,6 +3,7 @@ package ai.brokk.gui.wand;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.util.Messages;
@@ -155,8 +156,8 @@ public class WandAction {
         }
 
         @Override
-        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-            if (!isReasoning && lastWasReasoning && !hasStartedContent) {
+        public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+            if (!meta.isReasoning() && lastWasReasoning && !hasStartedContent) {
                 // Transition from reasoning to content: clear the area first
                 SwingUtilities.invokeLater(() -> instructionsArea.setText(""));
                 hasStartedContent = true;
@@ -168,7 +169,7 @@ public class WandAction {
                     instructionsArea.setCaretPosition(instructionsArea.getText().length());
                 });
             }
-            lastWasReasoning = isReasoning;
+            lastWasReasoning = meta.isReasoning();
         }
 
         @Override

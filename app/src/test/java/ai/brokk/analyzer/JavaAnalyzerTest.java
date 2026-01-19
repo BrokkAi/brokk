@@ -6,7 +6,11 @@ import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -327,6 +331,8 @@ public class JavaAnalyzerTest {
         final var file = new ProjectFile(testProject.getRoot(), "Packaged.java");
         final var declarations = analyzer.getDeclarations(file);
         final var expected = Set.of(
+                // Module
+                CodeUnit.module(file, "io.github.jbellis", "brokk"),
                 // Class
                 CodeUnit.cls(file, "io.github.jbellis.brokk", "Foo"),
                 // Method
@@ -719,10 +725,16 @@ public class JavaAnalyzerTest {
 
         var topLevelUnits = analyzer.getTopLevelDeclarations(file);
 
-        assertEquals(1, topLevelUnits.size(), "Should return only the top-level class Foo");
-        var topLevelClass = topLevelUnits.get(0);
-        assertEquals("io.github.jbellis.brokk.Foo", topLevelClass.fqName());
-        assertTrue(topLevelClass.isClass());
+        // Now includes the Package Module definition
+        assertEquals(2, topLevelUnits.size(), "Should return top-level class Foo and Module p1");
+
+        boolean foundModule =
+                topLevelUnits.stream().anyMatch(cu -> cu.isModule() && "io.github.jbellis.brokk".equals(cu.fqName()));
+        boolean foundClass = topLevelUnits.stream()
+                .anyMatch(cu -> cu.isClass() && "io.github.jbellis.brokk.Foo".equals(cu.fqName()));
+
+        assertTrue(foundModule, "Should find module definition");
+        assertTrue(foundClass, "Should find class definition");
     }
 
     @Test
@@ -1022,6 +1034,45 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void annotatedPackageInfo_CreatesModuleAndExcludesAnnotationFromFqn() throws IOException {
+        String packageInfo =
+                """
+                @NullMarked
+                package p1;
+
+                import org.jspecify.annotations.NullMarked;
+                """;
+        String classA = """
+                package p1;
+                public class A {}
+                """;
+
+        try (var testProject = InlineTestProjectCreator.code(packageInfo, "package-info.java")
+                .addFileContents(classA, "A.java")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            // Assert module existence and FQN
+            var definitions = analyzer.getDefinitions("p1");
+            var moduleOpt = definitions.stream().filter(CodeUnit::isModule).findFirst();
+
+            assertTrue(moduleOpt.isPresent(), "Module 'p1' should be defined");
+            CodeUnit module = moduleOpt.get();
+            assertEquals("p1", module.fqName(), "Module FQN should be exactly 'p1'");
+
+            // Assert annotation is NOT part of the FQN lookup
+            var leakedAnnotation = analyzer.getDefinitions("p1.@NullMarked");
+            assertTrue(leakedAnnotation.isEmpty(), "FQN should not include package annotations");
+
+            // Assert children include top-level classes (important for wildcard import resolution)
+            var children = analyzer.getDirectChildren(module);
+            boolean foundClassA = children.stream().anyMatch(cu -> cu.isClass() && "p1.A".equals(cu.fqName()));
+            assertTrue(foundClassA, "Module 'p1' should have top-level class 'p1.A' as a child");
+        }
+    }
+
+    @Test
     public void testInlineJavadocDoesNotIncludePrecedingCode() throws IOException {
         var project = TestProject.createTestProject("testcode-java", Languages.JAVA);
         var testAnalyzer = new JavaAnalyzer(project);
@@ -1038,5 +1089,45 @@ public class JavaAnalyzerTest {
         // Verify the preceding code is NOT included
         assertFalse(source.contains("private int other"), "Should NOT include code from same line as Javadoc");
         assertFalse(source.contains("= 1;"), "Should NOT include field initialization from same line");
+    }
+
+    @Test
+    public void testSummaryFragmentSupportingFragmentsFiltersNestedAncestors() throws IOException {
+        try (var project = InlineTestProjectCreator.code(
+                        """
+                        package p;
+                        public class Outer extends OuterBase {
+                            class Inner extends InnerBase {}
+                        }
+                        """,
+                        "p/Outer.java")
+                .addFileContents(
+                        """
+                        package p;
+                        public class OuterBase {}
+                        """,
+                        "p/OuterBase.java")
+                .addFileContents(
+                        """
+                        package p;
+                        public class InnerBase {}
+                        """,
+                        "p/InnerBase.java")
+                .build()) {
+
+            var analyzer = new JavaAnalyzer(project);
+            var cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+            var frag =
+                    new ContextFragments.SummaryFragment(cm, "p.Outer", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+
+            var ids = frag.supportingFragments().stream()
+                    .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
+                    .collect(java.util.stream.Collectors.toSet());
+
+            assertTrue(ids.contains("p.OuterBase"), "Should contain top-level ancestor p.OuterBase");
+            assertFalse(ids.contains("p.InnerBase"), "Should NOT contain nested class ancestor p.InnerBase");
+        }
     }
 }

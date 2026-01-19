@@ -4,7 +4,7 @@ import ai.brokk.LlmOutputMeta;
 
 /**
  * Metadata describing properties of an LLM output chunk.
- * Used by MarkdownOutputPanel and passed through JCEFWebViewHost to JCEFBridge.
+ * Used by MarkdownOutputPanel and passed through the WebView host to the WebView bridge (e.g., JCEFWebViewHost/JCEFBridge).
  */
 public record ChunkMeta(boolean isNewMessage, boolean isReasoning, boolean isTerminal) {
     public static ChunkMeta fromLlmOutputMeta(LlmOutputMeta meta) {

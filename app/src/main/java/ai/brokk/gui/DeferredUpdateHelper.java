@@ -2,7 +2,6 @@ package ai.brokk.gui;
 
 import java.awt.Component;
 import java.awt.event.HierarchyEvent;
-import java.awt.event.HierarchyListener;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -26,17 +25,10 @@ public final class DeferredUpdateHelper {
         this.updateAction = updateAction;
         // Install a HierarchyListener on the EDT to listen for SHOWING changes.
         SwingUtil.runOnEdt(() -> {
-            component.addHierarchyListener(new HierarchyListener() {
-                @Override
-                public void hierarchyChanged(HierarchyEvent e) {
-                    if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
-                        if (component.isShowing() && dirty.getAndSet(false)) {
-                            try {
-                                updateAction.run();
-                            } catch (Throwable t) {
-                                logger.warn("Deferred update action threw", t);
-                            }
-                        }
+            component.addHierarchyListener(e -> {
+                if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
+                    if (component.isShowing() && dirty.getAndSet(false)) {
+                        updateAction.run();
                     }
                 }
             });

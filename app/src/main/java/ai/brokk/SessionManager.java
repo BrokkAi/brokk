@@ -1,7 +1,9 @@
 package ai.brokk;
 
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
@@ -19,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -35,6 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -55,9 +59,19 @@ public class SessionManager implements AutoCloseable {
         public boolean isSessionModified() {
             return created != modified;
         }
+
+        public Instant createdAt() {
+            return Instant.ofEpochMilli(created);
+        }
+
+        public Instant lastModified() {
+            return Instant.ofEpochMilli(modified);
+        }
     }
 
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
+
+    public static final String UNREADABLE_SESSIONS_DIR = "unreadable";
 
     private static class SessionExecutorThreadFactory implements ThreadFactory {
         private static final ThreadLocal<Boolean> isSessionExecutorThread = ThreadLocal.withInitial(() -> false);
@@ -97,9 +111,19 @@ public class SessionManager implements AutoCloseable {
         this.sessionsDir = sessionsDir;
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
         int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
-        this.sessionExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
+        var delegateExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
+        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
+        sessionExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
+    }
+
+    Map<UUID, SessionInfo> getSessionsCache() {
+        return sessionsCache;
+    }
+
+    SerialByKeyExecutor getSessionExecutorByKey() {
+        return sessionExecutorByKey;
     }
 
     private Map<UUID, SessionInfo> loadSessions() {
@@ -176,24 +200,28 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public void deleteSession(UUID sessionId) throws Exception {
+    public void deleteSession(UUID sessionId) {
         sessionsCache.remove(sessionId);
-        var deleteFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
+            Path tombstonePath = getTombstonePath(sessionId);
             try {
-                boolean deleted = Files.deleteIfExists(historyZipPath);
-                if (deleted) {
-                    logger.info("Deleted session zip: {}", historyZipPath.getFileName());
+                if (Files.exists(historyZipPath)) {
+                    Files.move(historyZipPath, tombstonePath, StandardCopyOption.REPLACE_EXISTING);
+                    logger.info("Marked session {} for deletion with tombstone.", sessionId);
                 } else {
-                    logger.warn(
-                            "Session zip {} not found for deletion, or already deleted.", historyZipPath.getFileName());
+                    // Even if local zip is gone, create tombstone to ensure remote deletion
+                    Files.writeString(
+                            tombstonePath, "deleted", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
                 }
             } catch (IOException e) {
-                logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
-                throw new RuntimeException("Failed to delete session " + sessionId, e);
+                logger.error("Error creating tombstone for session {}: {}", sessionId, e.getMessage());
             }
         });
-        deleteFuture.get(); // Wait for deletion to complete
+    }
+
+    private Path getTombstonePath(UUID sessionId) {
+        return sessionsDir.resolve(sessionId.toString() + ".tombstone");
     }
 
     /**
@@ -228,7 +256,7 @@ public class SessionManager implements AutoCloseable {
      */
     private void moveSessionToUnreadableSync(UUID sessionId) {
         Path historyZipPath = getSessionHistoryPath(sessionId);
-        Path unreadableDir = sessionsDir.resolve("unreadable");
+        Path unreadableDir = sessionsDir.resolve(UNREADABLE_SESSIONS_DIR);
         try {
             Files.createDirectories(unreadableDir);
             Path targetPath = unreadableDir.resolve(historyZipPath.getFileName());
@@ -338,7 +366,7 @@ public class SessionManager implements AutoCloseable {
         return newSessionInfo;
     }
 
-    private Path getSessionHistoryPath(UUID sessionId) {
+    Path getSessionHistoryPath(UUID sessionId) {
         return sessionsDir.resolve(sessionId.toString() + ".zip");
     }
 
@@ -355,7 +383,7 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    private Optional<SessionInfo> readSessionInfoFromZip(Path zipPath) {
+    Optional<SessionInfo> readSessionInfoFromZip(Path zipPath) {
         if (!Files.exists(zipPath)) return Optional.empty();
         try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
             Path manifestPath = fs.getPath("manifest.json");
@@ -369,7 +397,7 @@ public class SessionManager implements AutoCloseable {
         return Optional.empty();
     }
 
-    private void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
+    void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
         try (var fs =
                 FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
             Path manifestPath = fs.getPath("manifest.json");
@@ -383,7 +411,7 @@ public class SessionManager implements AutoCloseable {
 
     private void moveZipToUnreadable(Path zipPath) {
         var future = sessionExecutorByKey.submit(zipPath.toString(), () -> {
-            Path unreadableDir = sessionsDir.resolve("unreadable");
+            Path unreadableDir = sessionsDir.resolve(UNREADABLE_SESSIONS_DIR);
             try {
                 Files.createDirectories(unreadableDir);
                 Path targetPath = unreadableDir.resolve(zipPath.getFileName());
@@ -588,22 +616,7 @@ public class SessionManager implements AutoCloseable {
                     return new TaskList.TaskListData(List.of());
                 }
                 var loaded = AbstractProject.objectMapper.readValue(json, TaskList.TaskListData.class);
-
-                // Ensure backward compatibility: normalize any tasks that might have null/missing titles
-                // from old JSON format to use empty string
-                var normalizedTasks = loaded.tasks().stream()
-                        .map(task -> {
-                            @SuppressWarnings("NullAway") // Defensive check for deserialized data
-                            var titleValue = task.title();
-                            if (titleValue == null) {
-                                // Old JSON without title field; provide empty string default
-                                return new TaskList.TaskItem("", task.text(), task.done());
-                            }
-                            return task;
-                        })
-                        .toList();
-
-                return new TaskList.TaskListData(List.copyOf(normalizedTasks));
+                return new TaskList.TaskListData(List.copyOf(loaded.tasks()));
             } catch (IOException e) {
                 logger.warn("Error reading task list for session {}: {}", sessionId, e.getMessage());
                 return new TaskList.TaskListData(List.of());

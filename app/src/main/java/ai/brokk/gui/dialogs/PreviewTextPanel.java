@@ -2,11 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.ContextManager;
-import ai.brokk.EditBlock;
-import ai.brokk.IConsoleIO;
-import ai.brokk.Service;
-import ai.brokk.TaskResult;
+import ai.brokk.*;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
@@ -40,6 +36,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -1011,7 +1008,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+            public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
                 appendSystemMessage(token);
             }
 
@@ -1188,8 +1185,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
                     var ancestor = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
                     if (ancestor != null) {
-                        // If embedded in a shared PreviewFrame, let the frame own close behavior.
-                        if (ancestor instanceof ai.brokk.gui.dialogs.PreviewFrame) {
+                        // If embedded in a shared preview frame, let the frame own close behavior.
+                        if (ancestor instanceof ai.brokk.gui.dialogs.DetachableTabFrame) {
                             SwingUtilities.invokeLater(() -> removeHierarchyListener(this));
                             return;
                         }
@@ -1438,7 +1435,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         logger.debug("Attempting to refresh {} from disk", file);
         try {
             // Check if file still exists
-            if (!java.nio.file.Files.exists(file.absPath())) {
+            if (!Files.exists(file.absPath())) {
                 logger.debug("File no longer exists: {}", file);
                 SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File has been deleted: " + file);

@@ -20,6 +20,7 @@ import ai.brokk.util.Messages;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
@@ -87,7 +88,7 @@ public class DtoMapper {
                         var pm = new Service.ModelConfig(
                                 taskRefDto.primaryModelName(), reasoning, Service.ProcessingTier.DEFAULT);
                         meta = new TaskResult.TaskMeta(type, pm);
-                        logger.debug(
+                        logger.trace(
                                 "Reconstructed TaskMeta for sequence {}: type={}, model={}",
                                 taskRefDto.sequence(),
                                 meta.type(),
@@ -532,6 +533,8 @@ public class DtoMapper {
         String reasoningContentId = null;
         String contentId;
 
+        Map<String, Object> attributes = null;
+
         if (message instanceof AiMessage aiMessage) {
             // For AiMessage, store text and reasoning separately
             String text = aiMessage.text();
@@ -542,12 +545,21 @@ public class DtoMapper {
             if (reasoning != null && !reasoning.isBlank()) {
                 reasoningContentId = writer.writeContent(reasoning, null);
             }
+        } else if (message instanceof CustomMessage customMessage) {
+            Object rawText = customMessage.attributes().get("text");
+            String text = rawText instanceof String s ? s : "";
+            contentId = writer.writeContent(text, null);
+
+            attributes = customMessage.attributes().entrySet().stream()
+                    .filter(e -> !e.getKey().equals("text"))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> b));
         } else {
             // For other message types, use the display representation
             contentId = writer.writeContent(Messages.getRepr(message), null);
         }
 
-        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId);
+        return new ChatMessageDto(
+                message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId, attributes);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
@@ -570,7 +582,15 @@ public class DtoMapper {
                 // Graceful degrade: treat entire content as text when reasoningContentId is absent
                 yield new AiMessage(content);
             }
-            case "system", "custom" -> SystemMessage.from(content);
+            case "system" -> SystemMessage.from(content);
+            case "custom" -> {
+                Map<String, Object> attrs = new java.util.HashMap<>();
+                if (dto.attributes() != null) {
+                    attrs.putAll(dto.attributes());
+                }
+                attrs.put("text", content);
+                yield CustomMessage.from(attrs);
+            }
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };
     }

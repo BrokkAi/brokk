@@ -1,8 +1,10 @@
 package ai.brokk;
 
+import static ai.brokk.gui.theme.GuiTheme.THEME_CLIENT_PROPERTY;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.exception.GlobalExceptionHandler;
@@ -27,6 +29,7 @@ import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.google.common.base.Splitter;
 import java.awt.*;
+import java.awt.event.HierarchyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
@@ -231,6 +234,40 @@ public class Brokk {
         UIManager.put("FileChooser.readOnly", true);
     }
 
+    private static void addPopupMenusThemeChangeListener() {
+        SwingUtilities.invokeLater(() -> {
+            Toolkit.getDefaultToolkit()
+                    .addAWTEventListener(
+                            event -> {
+                                HierarchyEvent he = (HierarchyEvent) event;
+                                if (he.getComponent() instanceof JPopupMenu popupMenu) {
+                                    if ((he.getChangeFlags() & HierarchyEvent.PARENT_CHANGED) != 0) {
+                                        if (popupMenu.getParent() != null) {
+                                            String currentTheme = MainProject.getTheme();
+                                            if (!Objects.equals(
+                                                    currentTheme, popupMenu.getClientProperty(THEME_CLIENT_PROPERTY))) {
+                                                popupMenu.putClientProperty(THEME_CLIENT_PROPERTY, currentTheme);
+                                                SwingUtilities.updateComponentTreeUI(popupMenu);
+                                                System.out.println("hierarchy added");
+                                            }
+                                        }
+                                    }
+                                    if ((he.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
+                                        if (popupMenu.isShowing()) {
+                                            String currentTheme = MainProject.getTheme();
+                                            if (!Objects.equals(
+                                                    currentTheme, popupMenu.getClientProperty(THEME_CLIENT_PROPERTY))) {
+                                                popupMenu.putClientProperty(THEME_CLIENT_PROPERTY, currentTheme);
+                                                SwingUtilities.updateComponentTreeUI(popupMenu);
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            AWTEvent.HIERARCHY_EVENT_MASK);
+        });
+    }
+
     private static ParsedArgs parseArguments(String[] args) {
         boolean noProjectFlag = false;
         boolean noKeyFlag = false;
@@ -284,7 +321,7 @@ public class Brokk {
      * Blocks the calling thread until validation completes.
      */
     private static ValidationOutcome blockingValidateKey(String key) {
-        var future = CompletableFuture.supplyAsync(() -> {
+        var future = LoggingFuture.supplyAsync(() -> {
             try {
                 Service.validateKey(key);
                 return ValidationOutcome.VALID;
@@ -458,6 +495,7 @@ public class Brokk {
 
         String themeName = MainProject.getTheme();
         initializeLookAndFeelAndSplashScreen(themeName);
+        addPopupMenusThemeChangeListener();
 
         // Initialize theme border manager with current theme state
         ThemeBorderManager.getInstance().init();
@@ -1053,7 +1091,7 @@ public class Brokk {
         MainProject parent = builder.parent;
 
         // Run all blocking initialization off the calling thread (which may be EDT)
-        return CompletableFuture.supplyAsync(() -> {
+        return LoggingFuture.supplyAsync(() -> {
             try {
                 MainProject.updateRecentProject(projectPath);
                 var project = AbstractProject.createProject(projectPath, parent);
@@ -1227,6 +1265,20 @@ public class Brokk {
 
     public static List<Chrome> getWorktreeChromes(IProject mainProject) {
         return mainToWorktreeChromes.getOrDefault(mainProject, List.of());
+    }
+
+    /**
+     * Returns all Chrome windows associated with a project (the main project window plus all worktree windows).
+     */
+    public static List<Chrome> getProjectAndWorktreeChromes(IProject project) {
+        var mainProject = project.getMainProject();
+        var allChromes = new ArrayList<Chrome>();
+        var mainChrome = findOpenProjectWindow(mainProject.getRoot());
+        if (mainChrome != null) {
+            allChromes.add(mainChrome);
+        }
+        allChromes.addAll(getWorktreeChromes(mainProject));
+        return allChromes;
     }
 
     /**

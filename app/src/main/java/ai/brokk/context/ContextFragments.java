@@ -19,11 +19,12 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.git.GitRepo;
-import ai.brokk.util.ComputedValue;
 import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.ImageUtil;
-import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.util.Messages;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
@@ -54,9 +55,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -82,12 +80,10 @@ public class ContextFragments {
      * Resolves supporting summary fragments for the direct ancestors of the given code units.
      * Filters out anonymous units.
      */
+    @Blocking
     public static Set<ContextFragment> resolveAncestorFragments(
             Collection<CodeUnit> units, IContextManager contextManager) {
-        IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-        if (analyzer == null) {
-            return Set.of();
-        }
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         return units.stream()
                 .filter(CodeUnit::isClass)
                 .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
@@ -134,13 +130,7 @@ public class ContextFragments {
     }
 
     private static LoggingExecutorService createFragmentExecutor() {
-        ThreadFactory virtualThreadFactory = Thread.ofVirtual()
-                .name("brokk-cf-", 0) // Prefix and starting counter
-                .factory();
-        ExecutorService virtualExecutor = Executors.newThreadPerTaskExecutor(virtualThreadFactory);
-        return new LoggingExecutorService(
-                virtualExecutor,
-                th -> logger.error("Uncaught exception in ContextFragment Virtual Thread executor", th));
+        return ExecutorsUtil.newVirtualThreadExecutor("brokk-cf-", 1_000);
     }
 
     public sealed interface PathFragment extends ContextFragment
@@ -486,12 +476,10 @@ public class ContextFragments {
         }
 
         @Override
+        @Blocking
         public Set<ContextFragment> supportingFragments() {
-            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null) {
-                return Set.of();
-            }
-            return resolveAncestorFragments(analyzer.getDeclarations(file), contextManager);
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+            return resolveAncestorFragments(analyzer.getTopLevelDeclarations(file), contextManager);
         }
     }
 
@@ -535,15 +523,12 @@ public class ContextFragments {
 
         /**
          * Create a GitFileFragment representing the content of the given file at the given revision.
-         * This reads the file content via the provided GitRepo. On error, falls back to empty content.
+         * This reads the file content via the provided GitRepo.
          */
-        public static GitFileFragment fromCommit(ProjectFile file, String revision, GitRepo repo) {
-            try {
-                var content = repo.getFileContent(revision, file);
-                return new GitFileFragment(file, revision, content);
-            } catch (GitAPIException e) {
-                throw new RuntimeException(e);
-            }
+        public static GitFileFragment fromCommit(ProjectFile file, String revision, GitRepo repo)
+                throws GitAPIException {
+            var content = repo.getFileContent(revision, file);
+            return new GitFileFragment(file, revision, content);
         }
 
         public String revision() {
@@ -1466,11 +1451,9 @@ public class ContextFragments {
         }
 
         @Override
+        @Blocking
         public Set<ContextFragment> supportingFragments() {
-            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null) {
-                return Set.of();
-            }
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
             return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager);
         }
     }
@@ -1702,18 +1685,14 @@ public class ContextFragments {
         }
 
         @Override
+        @Blocking
         public Set<ContextFragment> supportingFragments() {
-            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null || summaryType != SummaryType.CODEUNIT_SKELETON) {
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+            if (summaryType != SummaryType.CODEUNIT_SKELETON) {
                 return Set.of();
             }
 
-            return analyzer.getDefinitions(targetIdentifier).stream()
-                    .filter(CodeUnit::isClass)
-                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                    .filter(anc -> !anc.isAnonymous())
-                    .map(anc -> new SummaryFragment(contextManager, anc.fqName(), SummaryType.CODEUNIT_SKELETON))
-                    .collect(Collectors.toSet());
+            return resolveAncestorFragments(analyzer.getDefinitions(targetIdentifier), contextManager);
         }
 
         private static ContentSnapshot computeSnapshotFor(

@@ -36,7 +36,7 @@ public interface IConsoleIO {
     }
 
     default void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
-        llmOutput(taskEntry.toString(), ChatMessageType.CUSTOM);
+        llmOutput(taskEntry.toString(), ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
     }
 
     /**
@@ -70,11 +70,7 @@ public interface IConsoleIO {
         CommandOutput
     }
 
-    void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning);
-
-    default void llmOutput(String token, ChatMessageType type) {
-        llmOutput(token, type, false, false);
-    }
+    void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta);
 
     /**
      * default implementation just forwards to systemOutput but the Chrome GUI implementation wraps JOptionPane;
@@ -89,7 +85,7 @@ public interface IConsoleIO {
      * systemOutput.
      */
     default void showNotification(NotificationRole role, String message) {
-        llmOutput("\n" + message, ChatMessageType.CUSTOM, true, false);
+        llmOutput("\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
     }
 
     default void showOutputSpinner(String message) {}

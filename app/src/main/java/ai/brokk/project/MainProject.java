@@ -12,15 +12,14 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
-import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.init.onboarding.GitIgnoreUtils;
 import ai.brokk.init.onboarding.StyleGuideMigrator;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.GlobalUiSettings;
@@ -54,6 +53,7 @@ import java.util.stream.Collectors;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
 import org.jetbrains.annotations.Blocking;
@@ -70,6 +70,7 @@ public final class MainProject extends AbstractProject {
     private final Path legacyStyleGuidePath;
     private final Path reviewGuidePath;
     private final SessionManager sessionManager;
+    private final SessionRegistry sessionRegistry = new SessionRegistry();
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
@@ -453,6 +454,7 @@ public final class MainProject extends AbstractProject {
         invalidateAllFiles();
     }
 
+    @Override
     public void setBuildDetails(BuildAgent.BuildDetails details) {
         if (detailsFuture.isDone()) {
             detailsFuture = new CompletableFuture<>();
@@ -2127,7 +2129,7 @@ public final class MainProject extends AbstractProject {
                     String sessionIdStr = props.getProperty("lastActiveSession");
                     if (sessionIdStr != null && !sessionIdStr.isBlank()) {
                         UUID sessionId = UUID.fromString(sessionIdStr.trim());
-                        if (SessionRegistry.claim(wtPath, sessionId)) {
+                        if (sessionRegistry.claim(wtPath, sessionId)) {
                             logger.info(
                                     "Reserved session {} for non-open worktree {}", sessionId, wtPath.getFileName());
                         } else {
@@ -2206,17 +2208,45 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void sessionsListChanged() {
-        var mainChrome = Brokk.findOpenProjectWindow(getRoot());
-        var worktreeChromes = Brokk.getWorktreeChromes(this);
+    public SessionRegistry getSessionRegistry() {
+        return sessionRegistry;
+    }
 
-        var allChromes = new ArrayList<Chrome>();
-        if (mainChrome != null) {
-            allChromes.add(mainChrome);
+    /**
+     * Deletes a worktree associated with this project.
+     *
+     * @param worktreePath The path of the worktree to delete.
+     * @param force        If true, force deletion even if the worktree is dirty or locked.
+     * @throws GitAPIException if the git operation fails.
+     */
+    public void deleteWorktree(Path worktreePath, boolean force) throws GitAPIException {
+        if (!hasGit() || !getRepo().supportsWorktrees()) {
+            throw new GitRepo.GitRepoException("This project does not support worktrees.");
         }
-        allChromes.addAll(worktreeChromes);
+        if (!(getRepo() instanceof GitRepo gitRepo)) {
+            throw new GitRepo.GitRepoException("Underlying repository is not a local GitRepo.");
+        }
 
-        for (var chrome : allChromes) {
+        gitRepo.removeWorktree(worktreePath, force);
+        sessionRegistry.release(worktreePath);
+        removeFromOpenProjectsListAndClearActiveSession(worktreePath);
+    }
+
+    @Override
+    public String getRemoteProjectName() {
+        String result = null;
+        if (hasGit()) {
+            result = getRepo().getRemoteUrl();
+        }
+        if (result == null) {
+            result = getRoot().getFileName().toString();
+        }
+        return result;
+    }
+
+    @Override
+    public void sessionsListChanged() {
+        for (var chrome : Brokk.getProjectAndWorktreeChromes(this)) {
             SwingUtilities.invokeLater(() -> chrome.getRightPanel().updateSessionComboBox());
         }
     }

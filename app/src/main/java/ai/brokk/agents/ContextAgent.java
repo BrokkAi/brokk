@@ -7,10 +7,12 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
+import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -19,7 +21,6 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
-import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -279,23 +280,22 @@ public class ContextAgent {
         var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
 
         // Create Llm instances - only analyzed group streams to UI
-        var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): %s".formatted(goal))
+        var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): " + goal)
                 .withForceReasoningEcho()
                 .withEcho();
         var filesLlmAnalyzed = cm.getLlm(filesOpts);
         filesLlmAnalyzed.setOutput(io);
 
-        var filesLlmUnanalyzed =
-                cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): %s".formatted(goal)));
+        var filesLlmUnanalyzed = cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): " + goal));
         filesLlmUnanalyzed.setOutput(io);
 
-        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): %s".formatted(goal))
+        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): " + goal)
                 .withForceReasoningEcho()
                 .withEcho();
         var llmAnalyzed = cm.getLlm(analyzedOpts);
         llmAnalyzed.setOutput(io);
 
-        var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): %s".formatted(goal)));
+        var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal));
         llmUnanalyzed.setOutput(io);
 
         // Process each group in parallel
@@ -768,13 +768,11 @@ public class ContextAgent {
             this.io.llmOutput(
                     "Processing " + chunks.size() + " batches in parallel (showing batch 1)…\n\n",
                     ChatMessageType.AI,
-                    false,
-                    true);
+                    LlmOutputMeta.reasoning());
         }
 
         Llm filesLlmWithEcho = showBatch1Reasoning
-                ? cm.getLlm(new Llm.Options(
-                                cm.getService().quickestModel(), "ContextAgent Files Unanalyzed %s".formatted(goal))
+                ? cm.getLlm(new Llm.Options(cm.getService().quickestModel(), "ContextAgent Files Unanalyzed " + goal)
                         .withForceReasoningEcho())
                 : filesLlm;
         if (showBatch1Reasoning) {
@@ -821,8 +819,7 @@ public class ContextAgent {
             this.io.llmOutput(
                     "All batches complete. " + combinedFiles.size() + " files selected.\n\n",
                     ChatMessageType.AI,
-                    false,
-                    true);
+                    LlmOutputMeta.reasoning());
         }
 
         return new LlmRecommendation(combinedFiles, combinedTests, combinedClasses, combinedUsage);
@@ -866,7 +863,7 @@ public class ContextAgent {
                     .append("\n</discarded_context>\n\n");
         }
 
-        userMessageText.append("\n<goal>\n%s\n</goal>\n".formatted(goal));
+        userMessageText.append("\n<goal>\n").append(goal).append("\n</goal>\n");
         var userPrompt =
                 """
                 Identify code context relevant to the goal by calling `recommendContext`.
@@ -882,10 +879,15 @@ public class ContextAgent {
                   do not recommend files that are listed in the <discarded_context> section.
                 - Compare this combined list against the items in the provided section (either summaries OR files content).
 
+                Selection rubric (important):
+                - Prefer `classesToSummarize` when you need navigational context (APIs, types, call sites) and are not confident the file will be edited.
+                - Prefer `testsToAdd` for tests/specs that clarify intended behavior or will likely need updating to verify the goal.
+                - Use `filesToAdd` only for files you expect to edit or where exact implementation details are required.
+
                 Then call the `recommendContext` tool with the appropriate entries:
 
-                - Populate `filesToAdd` with full (relative) paths of files that will need to be edited, or whose implementation details are necessary. Must exactly match one of the file paths provided in this message.
-                - Populate `classesToSummarize` with fully-qualified names of classes whose APIs will be used.
+                - Populate `filesToAdd` with full (relative) paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in this message.
+                - Populate `classesToSummarize` with fully-qualified names of classes whose APIs or structure are relevant but which do not need to be edited.
                 - Populate `testsToAdd` with full (relative) paths of related test/spec/e2e/integration files that help understand or verify the goal. These will be included as summaries/skeletons only (not full file contents). Must exactly match one of the file paths provided in this message.
 
                 Either or all arguments may be empty. Do NOT invent or guess file paths. Only use file paths that are present in the file list provided in this message. If no file list is provided, call `recommendContext` with empty lists.

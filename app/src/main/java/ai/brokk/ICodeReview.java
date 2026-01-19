@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import ai.brokk.util.ReviewParser;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -10,6 +11,6 @@ import org.jspecify.annotations.NullMarked;
 public interface ICodeReview {
 
     interface ReviewNavigationListener {
-        void onNavigate(ReviewParser.CodeExcerpt excerpt);
+        void onNavigate(@Nullable ReviewParser.CodeExcerpt excerpt);
     }
 }

@@ -3,6 +3,7 @@ package ai.brokk.init.onboarding;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
@@ -83,7 +84,7 @@ class GitRepoIgnoreConfiguratorTest {
         }
 
         @Override
-        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+        public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
             // No-op for tests
         }
 

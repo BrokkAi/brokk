@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -68,6 +69,27 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * Returns the fixed gitignore files that apply to all paths in this repo.
+     * These include: global gitignore, .git/info/exclude, and root .gitignore.
+     * All fixed files apply at root scope; nested .gitignore files are collected separately
+     * by FileFilteringService during path evaluation.
+     *
+     * @return list of ignore file paths in precedence order
+     */
+    default List<Path> getFixedGitignoreFiles() {
+        return List.of();
+    }
+
+    /**
+     * Returns the path to the global gitignore file, if configured.
+     *
+     * @return optional path to the global gitignore
+     */
+    default Optional<Path> getGlobalGitignorePath() {
+        return Optional.empty();
+    }
+
     /** Invalidate refs and tracked-files caches */
     default void invalidateCaches() {}
 
@@ -121,7 +143,7 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
-    default List<ModifiedFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
+    default List<ModifiedFile> listFilesChangedBetweenCommits(String oldCommitId, String newCommitId)
             throws GitAPIException {
         throw new UnsupportedOperationException();
     }
@@ -196,7 +218,7 @@ public interface IGitRepo {
         throw new UnsupportedOperationException("checkMergeConflicts not implemented");
     }
 
-    default List<String> getCommitMessagesBetween(String branchName, String targetBranchName) throws GitAPIException {
+    default List<String> getCommitMessagesBetween(String oldBranch, String newBranch) throws GitAPIException {
         throw new UnsupportedOperationException("getCommitMessagesBetween not implemented");
     }
 

@@ -54,15 +54,19 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                 // Build bubbles from messages first
                 (evt.messages ?? []).forEach(msg => {
                     const isReasoning = !!msg.reasoning;
+                    const isTerminal = !!msg.terminal;
                     entries.push({
                         seq: allocHistoryMsgSeq(),
                         threadId: threadId,
                         type: msg.msgType,
                         markdown: msg.text,
                         streaming: false,
-                        reasoning: isReasoning,
-                        reasoningComplete: isReasoning,
-                        isCollapsed: isReasoning,
+                        isTerminal: isTerminal,
+                        terminalComplete: isTerminal, // History terminal messages are always complete
+                        reasoningState: isReasoning ? {
+                            complete: true,
+                            isCollapsed: true,
+                        } : undefined,
                     });
                 });
 

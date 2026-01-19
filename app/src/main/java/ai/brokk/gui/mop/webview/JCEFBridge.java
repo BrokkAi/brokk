@@ -497,10 +497,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
             for (var message : msgs) {
                 var text = Messages.getText(message);
                 messages.add(new BrokkEvent.HistoryTask.Message(
-                        text,
-                        message.type(),
-                        Messages.isReasoningMessage(message),
-                        false));
+                        text, message.type(), Messages.isReasoningMessage(message), false));
             }
         }
 
