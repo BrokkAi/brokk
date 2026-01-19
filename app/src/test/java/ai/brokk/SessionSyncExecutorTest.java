@@ -358,7 +358,7 @@ class SessionSyncExecutorTest {
 
         @Override
         public byte[] getRemoteSessionContent(UUID id) throws IOException {
-            if (exceptionOnDownload) throw new IOException("Download failed");
+            if (exceptionOnDownload) throw new ServiceHttpException(500, "Mock Error", "Download failed");
             downloadedIds.add(id);
             return remoteContent.getOrDefault(id, new byte[0]);
         }

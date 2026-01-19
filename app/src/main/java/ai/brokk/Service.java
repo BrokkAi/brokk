@@ -114,7 +114,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 if (response.code() == 401) {
                     throw new IllegalArgumentException("Invalid Brokk Key (Unauthorized from server): " + errorBody);
                 }
-                throw new IOException("Failed to fetch user balance: " + response.code() + " - " + errorBody);
+                throw new ServiceHttpException(response.code(), errorBody, "Failed to fetch user balance");
             }
             String responseBody = response.body() != null ? response.body().string() : "";
             var objectMapper = new ObjectMapper();
@@ -225,8 +225,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
-                throw new IOException("Failed to fetch model info: " + response.code() + " " + response.message()
-                        + " - " + errorBody);
+                throw new ServiceHttpException(response.code(), errorBody, "Failed to fetch model info");
             }
 
             ResponseBody responseBodyObj = response.body();
@@ -420,8 +419,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
         try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
-                throw new IOException("Failed to send feedback: " + response.code() + " - "
-                        + (response.body() != null ? response.body().string() : "(no body)"));
+                String errorBody = response.body() != null ? response.body().string() : "(no body)";
+                throw new ServiceHttpException(response.code(), errorBody, "Failed to send feedback");
             }
             LogManager.getLogger(Service.class).debug("Feedback sent successfully");
         }
@@ -460,7 +459,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
-                throw new IOException("Failed to report exception: " + response.code() + " - " + errorBody);
+                throw new ServiceHttpException(response.code(), errorBody, "Failed to report exception");
             }
 
             String responseBody = response.body() != null ? response.body().string() : "{}";
@@ -533,7 +532,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
                 if (!response.isSuccessful()) {
                     logger.error("Proxied STT call failed with status {}: {}", response.code(), bodyStr);
-                    throw new IOException("Proxied STT call failed with status " + response.code() + ": " + bodyStr);
+                    throw new ServiceHttpException(response.code(), bodyStr, "Proxied STT call failed");
                 }
 
                 try {
@@ -603,7 +602,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
                 String body = response.body() != null ? response.body().string() : "";
-                throw new IOException("listRemoteSessions failed: " + response.code() + " - " + body);
+                throw new ServiceHttpException(response.code(), body, "listRemoteSessions failed");
             }
             String body = response.body() != null ? response.body().string() : "[]";
             RemoteSessionMeta[] arr = SESSION_OBJECT_MAPPER.readValue(body, RemoteSessionMeta[].class);
@@ -621,7 +620,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
                 String body = response.body() != null ? response.body().string() : "";
-                throw new IOException("getRemoteSessionContent failed: " + response.code() + " - " + body);
+                throw new ServiceHttpException(response.code(), body, "getRemoteSessionContent failed");
             }
             return response.body() != null ? response.body().bytes() : new byte[0];
         }
@@ -646,7 +645,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         try (Response response = BrokkHttp.execute(request)) {
             String respBody = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
-                throw new IOException("writeRemoteSession failed: " + response.code() + " - " + respBody);
+                throw new ServiceHttpException(response.code(), respBody, "writeRemoteSession failed");
             }
             return SESSION_OBJECT_MAPPER.readValue(respBody, RemoteSessionMeta.class);
         }
@@ -662,7 +661,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
                 String body = response.body() != null ? response.body().string() : "";
-                throw new IOException("deleteRemoteSession failed: " + response.code() + " - " + body);
+                throw new ServiceHttpException(response.code(), body, "deleteRemoteSession failed");
             }
         }
     }

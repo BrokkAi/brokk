@@ -206,25 +206,27 @@ class SessionSynchronizer {
                         case UPLOAD -> handleUpload(action, callbacks, remoteProject, openContextManagers, result);
                         case NO_OP -> {}
                     }
-                } catch (ExecutionException executionException) {
-                    Throwable cause = executionException.getCause();
-                    Exception ex = (cause instanceof Exception e) ? e : new Exception(cause);
-                    result.failed.put(id, ex);
-                    logger.warn("Action {} failed for session {}: {}", action.type(), id, ex.getMessage());
-                } catch (IOException e) {
-                    result.failed.put(id, e);
-                    logger.warn("Action {} failed for session {}: {}", action.type(), id, e.getMessage());
+                } catch (ExecutionException | IOException exception) {
+                    Exception finalEx = (exception instanceof ExecutionException ee)
+                            ? (ee.getCause() instanceof Exception ex ? ex : new Exception(ee.getCause()))
+                            : exception;
 
-                    // If we hit a rate limit on upload, stop processing further actions in this cycle
-                    if (action.type() == ActionType.UPLOAD
-                            && e.getMessage() != null
-                            && e.getMessage().contains("429")) {
+                    result.failed.put(id, finalEx);
+                    logger.warn("Action {} failed for session {}: {}", action.type(), id, finalEx.getMessage());
+
+                    if (isUploadRateLimit(action, finalEx)) {
                         logger.warn("Daily upload limit reached. Pausing remaining uploads for this sync cycle.");
                         break;
                     }
                 }
             }
             return result;
+        }
+
+        private boolean isUploadRateLimit(SyncAction action, Exception e) {
+            return action.type() == ActionType.UPLOAD
+                    && e instanceof ServiceHttpException se
+                    && se.getStatusCode() == 429;
         }
 
         private void handleDeleteRemote(SyncAction action, SyncCallbacks callbacks, SyncResult result)
