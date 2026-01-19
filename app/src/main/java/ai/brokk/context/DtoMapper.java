@@ -337,8 +337,7 @@ public class DtoMapper {
                         reader.readContent(stDto.codeContentId()));
             }
             case CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.UsageFragment(
-                        callGraphDto.id(), mgr, callGraphDto.methodName(), true);
+                new ContextFragments.UsageFragment(callGraphDto.id(), mgr, callGraphDto.methodName(), true);
             case CodeFragmentDto codeDto -> {
                 String snapshot = codeDto.snapshotText() != null ? reader.readContent(codeDto.snapshotText()) : null;
                 yield new ContextFragments.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);

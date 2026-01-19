@@ -445,10 +445,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 && !project.getRemoteProjectName().isBlank();
 
         // Load saved context history or create a new one
-        CompletableFuture<Void> contextTask =
-                submitBackgroundTask("Loading saved context", () -> {
-                    initializeCurrentSessionAndHistory(false);
-                });
+        CompletableFuture<Void> contextTask = submitBackgroundTask("Loading saved context", () -> {
+            initializeCurrentSessionAndHistory(false);
+        });
 
         // Ensure build details are loaded/generated asynchronously
         // (style and review guides are handled by ensureGuidesAsync() called earlier)
@@ -1243,9 +1242,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         var fragment = new ContextFragments.UsageFragment(this, methodName);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Add usages for callers of " + methodName);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Add usages for callers of " + methodName);
     }
 
     /** callees for method */
@@ -1257,9 +1254,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         var fragment = new ContextFragments.UsageFragment(this, methodName);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Add usages for methods called by " + methodName);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Add usages for methods called by " + methodName);
     }
 
     /** parse stacktrace */

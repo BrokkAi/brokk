@@ -1455,7 +1455,6 @@ public class ContextFragments {
         }
     }
 
-
     public static class SkeletonFragmentFormatter {
         public record Request(
                 @Nullable CodeUnit primaryTarget,

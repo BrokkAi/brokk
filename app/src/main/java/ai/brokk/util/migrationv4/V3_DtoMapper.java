@@ -380,8 +380,7 @@ public class V3_DtoMapper {
                         reader.readContent(stDto.codeContentId()));
             }
             case V3_FragmentDtos.CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.UsageFragment(
-                        callGraphDto.id(), mgr, callGraphDto.methodName(), true);
+                new ContextFragments.UsageFragment(callGraphDto.id(), mgr, callGraphDto.methodName(), true);
             case V3_FragmentDtos.CodeFragmentDto codeDto -> {
                 // Extract fully qualified name from the V3 CodeUnitDto and preserve the ID
                 String fqName = buildFullyQualifiedName(codeDto.unit());

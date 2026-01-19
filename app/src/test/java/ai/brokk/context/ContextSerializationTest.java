@@ -808,7 +808,6 @@ public class ContextSerializationTest {
         }
     }
 
-
     @Test
     void testRoundTripHistoryFragment() throws Exception {
         var taskMessages = List.<ChatMessage>of(UserMessage.from("Task user"), AiMessage.from("Task AI"));
