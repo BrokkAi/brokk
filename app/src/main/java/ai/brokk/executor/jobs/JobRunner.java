@@ -13,6 +13,7 @@ import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -36,7 +37,6 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import ai.brokk.git.GitWorkflow;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
@@ -866,31 +866,46 @@ public final class JobRunner {
                                                         try {
                                                             return BuildAgent.runVerification(cm, buildDetailsOverride);
                                                         } catch (InterruptedException ie) {
-                                                            Thread.currentThread().interrupt();
+                                                            Thread.currentThread()
+                                                                    .interrupt();
                                                             throw new RuntimeException(ie);
                                                         }
                                                     };
 
                                                     java.util.function.Consumer<String> fixTaskRunner = prompt -> {
-                                                        String taskLabel = Objects.requireNonNullElse(generatedTask.text(), "(unnamed task)");
-                                                        String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n"
-                                                                + prompt + "\n\nPlease make a single fix attempt to resolve this verification failure.";
+                                                        String taskLabel = Objects.requireNonNullElse(
+                                                                generatedTask.text(), "(unnamed task)");
+                                                        String fixPrompt = "Verification failed for task: " + taskLabel
+                                                                + "\n\nOutput:\n" + prompt
+                                                                + "\n\nPlease make a single fix attempt to resolve this verification failure.";
                                                         var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
                                                         try {
                                                             cm.executeTask(fixTask, issuePlannerModel, issueCodeModel);
                                                         } catch (Exception e) {
-                                                            logger.warn("Fix attempt failed for job {} task {}: {}", jobId, taskLabel, e.getMessage());
+                                                            logger.warn(
+                                                                    "Fix attempt failed for job {} task {}: {}",
+                                                                    jobId,
+                                                                    taskLabel,
+                                                                    e.getMessage());
                                                         }
                                                     };
 
-                                                    // Delegate to single-shot gate helper which will append notifications/events.
-                                                    runSingleFixVerificationGate(jobId, store, console != null ? console : cm.getIo(), verificationRunner, fixTaskRunner);
+                                                    // Delegate to single-shot gate helper which will append
+                                                    // notifications/events.
+                                                    runSingleFixVerificationGate(
+                                                            jobId,
+                                                            store,
+                                                            console != null ? console : cm.getIo(),
+                                                            verificationRunner,
+                                                            fixTaskRunner);
                                                 }
 
-                                                // After all tasks completed, run the end-of-run final gate using the single-fix helper.
+                                                // After all tasks completed, run the end-of-run final gate using the
+                                                // single-fix helper.
                                                 java.util.function.Function<String, String> commandRunner = cmd -> {
                                                     try {
-                                                        return BuildAgent.runExplicitCommand(cm, cmd, buildDetailsOverride);
+                                                        return BuildAgent.runExplicitCommand(
+                                                                cm, cmd, buildDetailsOverride);
                                                     } catch (InterruptedException ie) {
                                                         Thread.currentThread().interrupt();
                                                         throw new RuntimeException(ie);
@@ -898,12 +913,17 @@ public final class JobRunner {
                                                 };
 
                                                 java.util.function.Supplier<String> finalVerificationRunner = () -> {
-                                                    // Run tests and lint once each and compose combined output if any failed.
+                                                    // Run tests and lint once each and compose combined output if any
+                                                    // failed.
                                                     String testCmd = buildDetailsOverride.testAllCommand();
                                                     String lintCmd = buildDetailsOverride.buildLintCommand();
 
-                                                    String testOut = (testCmd == null || testCmd.isBlank()) ? "" : commandRunner.apply(testCmd);
-                                                    String lintOut = (lintCmd == null || lintCmd.isBlank()) ? "" : commandRunner.apply(lintCmd);
+                                                    String testOut = (testCmd == null || testCmd.isBlank())
+                                                            ? ""
+                                                            : commandRunner.apply(testCmd);
+                                                    String lintOut = (lintCmd == null || lintCmd.isBlank())
+                                                            ? ""
+                                                            : commandRunner.apply(lintCmd);
 
                                                     boolean testsPassed = testOut.isBlank();
                                                     boolean lintPassed = lintOut.isBlank();
@@ -913,35 +933,50 @@ public final class JobRunner {
                                                     }
 
                                                     var parts = new java.util.ArrayList<String>();
-                                                    if (!testsPassed) parts.add("Tests failed (" + testCmd + "):\n" + testOut);
-                                                    if (!lintPassed) parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
+                                                    if (!testsPassed)
+                                                        parts.add("Tests failed (" + testCmd + "):\n" + testOut);
+                                                    if (!lintPassed)
+                                                        parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
                                                     return String.join("\n\n", parts);
                                                 };
 
                                                 java.util.function.Consumer<String> finalFixTaskRunner = prompt -> {
-                                                    String finalFixPrompt = "Final checks failed. Output:\n" + prompt + "\n\nPlease make a single fix attempt to resolve these failures.";
+                                                    String finalFixPrompt = "Final checks failed. Output:\n" + prompt
+                                                            + "\n\nPlease make a single fix attempt to resolve these failures.";
                                                     var finalFixTask = TaskList.TaskItem.createFixTask(finalFixPrompt);
                                                     try {
                                                         cm.executeTask(finalFixTask, issuePlannerModel, issueCodeModel);
                                                     } catch (Exception e) {
-                                                        logger.warn("Final fix attempt failed for job {}: {}", jobId, e.getMessage());
+                                                        logger.warn(
+                                                                "Final fix attempt failed for job {}: {}",
+                                                                jobId,
+                                                                e.getMessage());
                                                     }
                                                 };
 
-                                                // Delegate to single-shot gate helper which will throw on persistent failure.
-                                                runSingleFixVerificationGate(jobId, store, console != null ? console : cm.getIo(), finalVerificationRunner, finalFixTaskRunner);
+                                                // Delegate to single-shot gate helper which will throw on persistent
+                                                // failure.
+                                                runSingleFixVerificationGate(
+                                                        jobId,
+                                                        store,
+                                                        console != null ? console : cm.getIo(),
+                                                        finalVerificationRunner,
+                                                        finalFixTaskRunner);
 
                                                 // 5. Commit and Create Pull Request (conditional)
                                                 // Only create a PR if:
                                                 //  - delivery policy enables PR creation (issue_delivery != "none")
-                                                //  - final gate verification passed (we reached here only when tests/lint passed)
+                                                //  - final gate verification passed (we reached here only when
+                                                // tests/lint passed)
                                                 if (issueDeliveryEnabled(spec)) {
                                                     try {
                                                         var workflow = new GitWorkflow(cm);
 
                                                         // Commit any remaining changes before creating the PR.
-                                                        // performAutoCommit returns Optional<CommitResult> in GitWorkflow.
-                                                        workflow.performAutoCommit("Resolves #" + issueNumber + ": " + details.title());
+                                                        // performAutoCommit returns Optional<CommitResult> in
+                                                        // GitWorkflow.
+                                                        workflow.performAutoCommit(
+                                                                "Resolves #" + issueNumber + ": " + details.title());
 
                                                         String targetBranch = gitHubAuth.getDefaultBranch();
                                                         var suggestion = workflow.suggestPullRequestDetails(
@@ -959,32 +994,51 @@ public final class JobRunner {
 
                                                         logger.info("ISSUE job {} created PR: {}", jobId, prUri);
                                                         if (console != null) {
-                                                            console.showNotification(IConsoleIO.NotificationRole.INFO, "Created Pull Request: " + prUri);
+                                                            console.showNotification(
+                                                                    IConsoleIO.NotificationRole.INFO,
+                                                                    "Created Pull Request: " + prUri);
                                                         }
                                                     } catch (Exception e) {
-                                                        // Surface the error to logs and headless console / events (best-effort)
-                                                        logger.warn("ISSUE job {}: failed to create PR: {}", jobId, e.getMessage(), e);
+                                                        // Surface the error to logs and headless console / events
+                                                        // (best-effort)
+                                                        logger.warn(
+                                                                "ISSUE job {}: failed to create PR: {}",
+                                                                jobId,
+                                                                e.getMessage(),
+                                                                e);
                                                         if (console != null) {
                                                             try {
-                                                                console.toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
+                                                                console.toolError(
+                                                                        "Failed to create PR: " + e.getMessage(),
+                                                                        "PR creation error");
                                                             } catch (Throwable ignore) {
                                                                 // best-effort only
                                                             }
                                                         } else {
                                                             try {
-                                                                cm.getIo().toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
+                                                                cm.getIo()
+                                                                        .toolError(
+                                                                                "Failed to create PR: "
+                                                                                        + e.getMessage(),
+                                                                                "PR creation error");
                                                             } catch (Throwable ignore) {
                                                                 // best-effort only
                                                             }
                                                         }
                                                         try {
-                                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Failed to create PR: " + e.getMessage()));
+                                                            store.appendEvent(
+                                                                    jobId,
+                                                                    JobEvent.of(
+                                                                            "NOTIFICATION",
+                                                                            "Failed to create PR: " + e.getMessage()));
                                                         } catch (Exception ignore) {
                                                             // best-effort only
                                                         }
 
-                                                        // Delivery was enabled but creation failed — fail the job to preserve contract.
-                                                        throw new IssueExecutionException("Failed to create PR: " + e.getMessage(), e);
+                                                        // Delivery was enabled but creation failed — fail the job to
+                                                        // preserve contract.
+                                                        throw new IssueExecutionException(
+                                                                "Failed to create PR: " + e.getMessage(), e);
                                                     }
                                                 } else {
                                                     // Delivery disabled by policy: inform console but continue cleanup.
@@ -992,9 +1046,12 @@ public final class JobRunner {
                                                     logger.info("ISSUE job {}: {}", jobId, msg);
                                                     try {
                                                         if (console != null) {
-                                                            console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                                            console.showNotification(
+                                                                    IConsoleIO.NotificationRole.INFO, msg);
                                                         } else {
-                                                            cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                                            cm.getIo()
+                                                                    .showNotification(
+                                                                            IConsoleIO.NotificationRole.INFO, msg);
                                                         }
                                                         store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
                                                     } catch (Exception ignore) {
@@ -1003,8 +1060,9 @@ public final class JobRunner {
                                                 }
                                             }
                                         } finally {
-                                            boolean forceDelete = "always".equalsIgnoreCase(
-                                                    spec.tags().getOrDefault("issue_branch_cleanup", ""));
+                                            boolean forceDelete = "always"
+                                                    .equalsIgnoreCase(
+                                                            spec.tags().getOrDefault("issue_branch_cleanup", ""));
                                             cleanupIssueBranch(
                                                     jobId,
                                                     gitRepo,
@@ -1401,7 +1459,8 @@ public final class JobRunner {
 
         // Cleanup semantics (linear and auditable):
         // 1) Attempt to checkout originalBranch once.
-        // 2) If checkout fails and there are modified files in the working tree, create a stash and retry checkout once.
+        // 2) If checkout fails and there are modified files in the working tree, create a stash and retry checkout
+        // once.
         // 3) After attempting to restore the original branch, attempt to delete the issue branch:
         //    - Try normal delete once.
         //    - If normal delete fails and forceDelete==true, attempt force delete once.
@@ -1471,7 +1530,11 @@ public final class JobRunner {
                 }
             }
         } catch (Exception e) {
-            logger.warn("ISSUE job {}: Unexpected error while attempting to restore original branch '{}': {}", jobId, originalBranch, e);
+            logger.warn(
+                    "ISSUE job {}: Unexpected error while attempting to restore original branch '{}': {}",
+                    jobId,
+                    originalBranch,
+                    e);
         }
 
         // Attempt to delete the created issue branch.
@@ -1506,7 +1569,8 @@ public final class JobRunner {
                 }
             }
         } catch (Exception e) {
-            logger.warn("ISSUE job {}: Failed to delete issue branch '{}' during cleanup: {}", jobId, issueBranchName, e);
+            logger.warn(
+                    "ISSUE job {}: Failed to delete issue branch '{}' during cleanup: {}", jobId, issueBranchName, e);
         }
     }
 
@@ -1543,7 +1607,8 @@ public final class JobRunner {
         try {
             store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Verification: " + (passedFirst ? "PASS" : "FAIL")));
         } catch (IOException ioe) {
-            logger.warn("Failed to append verification notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
+            logger.warn(
+                    "Failed to append verification notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
         }
 
         if (passedFirst) {
@@ -1564,14 +1629,20 @@ public final class JobRunner {
 
         boolean passedSecond = secondOut == null || secondOut.isBlank();
         try {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
         } catch (Throwable ignore) {
             // best-effort
         }
         try {
-            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Verification after fix: " + (passedSecond ? "PASS" : "FAIL")));
+            store.appendEvent(
+                    jobId, JobEvent.of("NOTIFICATION", "Verification after fix: " + (passedSecond ? "PASS" : "FAIL")));
         } catch (IOException ioe) {
-            logger.warn("Failed to append verification-after-fix notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
+            logger.warn(
+                    "Failed to append verification-after-fix notification event for job {}: {}",
+                    jobId,
+                    ioe.getMessage(),
+                    ioe);
         }
 
         if (passedSecond) {

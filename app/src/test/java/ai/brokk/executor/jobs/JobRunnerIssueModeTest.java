@@ -230,7 +230,8 @@ class JobRunnerIssueModeTest {
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runSingleFixVerificationGate("job-single-fix-1", store, io, verificationRunner, fixRunner));
+                () -> JobRunner.runSingleFixVerificationGate(
+                        "job-single-fix-1", store, io, verificationRunner, fixRunner));
 
         assertEquals(2, verificationCalls.get(), "Verification should be called exactly twice");
         assertEquals(1, fixCalls.get(), "Fix runner should be called exactly once");
@@ -247,8 +248,8 @@ class JobRunnerIssueModeTest {
         };
 
         // Build minimal BuildDetails with non-blank commands to ensure both test and lint run
-        BuildAgent.BuildDetails buildDetails = new BuildAgent.BuildDetails(
-                "./gradlew classes", "./gradlew test", "./gradlew test --tests", Set.of());
+        BuildAgent.BuildDetails buildDetails =
+                new BuildAgent.BuildDetails("./gradlew classes", "./gradlew test", "./gradlew test --tests", Set.of());
 
         // attemptsLeft = 2 should cause two attempts then throw
         java.util.concurrent.atomic.AtomicInteger attemptsLeft = new java.util.concurrent.atomic.AtomicInteger(2);
@@ -259,11 +260,16 @@ class JobRunnerIssueModeTest {
                         "job-final-gate-1", store, io, buildDetails, attemptsLeft, commandRunner, fixRunner));
 
         String msg = ex.getMessage();
-        assertTrue(msg.contains("Final gate failed after") || msg.contains("Pre-PR gate failed after") || msg.contains("Pre-PR gate failed"),
+        assertTrue(
+                msg.contains("Final gate failed after")
+                        || msg.contains("Pre-PR gate failed after")
+                        || msg.contains("Pre-PR gate failed"),
                 "Exception message should indicate final/pre-PR gate failure (kept for compatibility): " + msg);
 
-        // Ensure the message does not use legacy "pre-pr" casing variants (case-insensitive match of 'pre-pr' or 'prepr')
-        assertFalse(msg.toLowerCase().contains("pre-pr") || msg.toLowerCase().contains("prepr"),
+        // Ensure the message does not use legacy "pre-pr" casing variants (case-insensitive match of 'pre-pr' or
+        // 'prepr')
+        assertFalse(
+                msg.toLowerCase().contains("pre-pr") || msg.toLowerCase().contains("prepr"),
                 "Exception message must not contain pre-PR terminology: " + msg);
     }
 
@@ -280,13 +286,11 @@ class JobRunnerIssueModeTest {
         };
         java.util.function.Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
-        assertThrows(
-                IssueExecutionException.class,
-                () -> {
-                    JobRunner.runSingleFixVerificationGate("job-pr-skip-1", store, io, verificationRunner, fixRunner);
-                    // This line simulates PR creation that must not be reached if verification fails.
-                    prCreated.set(true);
-                });
+        assertThrows(IssueExecutionException.class, () -> {
+            JobRunner.runSingleFixVerificationGate("job-pr-skip-1", store, io, verificationRunner, fixRunner);
+            // This line simulates PR creation that must not be reached if verification fails.
+            prCreated.set(true);
+        });
 
         assertFalse(prCreated.get(), "PR creation path must not be reached when verification fails");
         assertEquals(2, verificationCalls.get(), "Verification should be invoked twice (before and after fix)");
@@ -310,7 +314,6 @@ class JobRunnerIssueModeTest {
         assertFalse(repo.isLocalBranch(issueBranchName), "Issue branch should be deleted after cleanup");
     }
 
-
     @Test
     void cleanupIssueBranch_forceDeleteFallback_deletesBranch() throws Exception {
         String originalBranch = repo.getCurrentBranch();
@@ -328,7 +331,8 @@ class JobRunnerIssueModeTest {
                 "job-cleanup-3", repo, originalBranch, issueBranchName, originalCommitId, true));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
-        assertFalse(repo.isLocalBranch(issueBranchName), "Cleanup should delete issue branch even when forcing fallback");
+        assertFalse(
+                repo.isLocalBranch(issueBranchName), "Cleanup should delete issue branch even when forcing fallback");
     }
 
     @Test
@@ -344,7 +348,8 @@ class JobRunnerIssueModeTest {
                 "job-cleanup-1", repo, originalBranch, issueBranchName, originalCommitId, false));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
-        assertFalse(repo.isLocalBranch(issueBranchName), "Issue branch should be deleted when it has no unique commits");
+        assertFalse(
+                repo.isLocalBranch(issueBranchName), "Issue branch should be deleted when it has no unique commits");
     }
 
     @Test
@@ -394,7 +399,8 @@ class JobRunnerIssueModeTest {
 
     @Test
     void cleanupIssueBranch_respectsForceDeleteFlag_falseLeavesBranchWhenNormalDeleteFails() throws Exception {
-        // Setup: create a branch and make it unmerged so normal delete may fail (JGit throws when branch not fully merged).
+        // Setup: create a branch and make it unmerged so normal delete may fail (JGit throws when branch not fully
+        // merged).
         String originalBranch = repo.getCurrentBranch();
         String originalCommitId = repo.getCurrentCommitId();
         Path root = repo.getWorkTreeRoot();
@@ -405,17 +411,25 @@ class JobRunnerIssueModeTest {
         // Create a unique commit on issue branch so it is not fully merged into originalBranch.
         Files.writeString(root.resolve("README.md"), "unique commit for force-flag test");
         repo.getGit().add().addFilepattern("README.md").call();
-        repo.getGit().commit().setMessage("unique-for-force-flag").setSign(false).call();
+        repo.getGit()
+                .commit()
+                .setMessage("unique-for-force-flag")
+                .setSign(false)
+                .call();
 
         // Return to original branch so cleanup will attempt to delete issue branch
         repo.checkout(originalBranch);
         assertEquals(originalBranch, repo.getCurrentBranch());
 
-        // Call cleanup with forceDelete=false. If deleteBranch throws, cleanup should NOT force-delete and branch should remain.
-        JobRunner.cleanupIssueBranch("job-cleanup-force-flag-1", repo, originalBranch, issueBranchName, originalCommitId, false);
+        // Call cleanup with forceDelete=false. If deleteBranch throws, cleanup should NOT force-delete and branch
+        // should remain.
+        JobRunner.cleanupIssueBranch(
+                "job-cleanup-force-flag-1", repo, originalBranch, issueBranchName, originalCommitId, false);
 
         // The branch should still exist (delete should not have been force-applied).
-        assertTrue(repo.isLocalBranch(issueBranchName), "Issue branch must remain when forceDelete=false and normal delete fails");
+        assertTrue(
+                repo.isLocalBranch(issueBranchName),
+                "Issue branch must remain when forceDelete=false and normal delete fails");
     }
 
     @Test
@@ -431,15 +445,22 @@ class JobRunnerIssueModeTest {
         // Create a unique commit on issue branch so it is not fully merged into originalBranch.
         Files.writeString(root.resolve("README.md"), "unique commit for force-flag test 2");
         repo.getGit().add().addFilepattern("README.md").call();
-        repo.getGit().commit().setMessage("unique-for-force-flag-2").setSign(false).call();
+        repo.getGit()
+                .commit()
+                .setMessage("unique-for-force-flag-2")
+                .setSign(false)
+                .call();
 
         // Return to original branch so cleanup will attempt to delete issue branch
         repo.checkout(originalBranch);
         assertEquals(originalBranch, repo.getCurrentBranch());
 
         // Call cleanup with forceDelete=true; branch should be removed even if normal delete would have failed.
-        JobRunner.cleanupIssueBranch("job-cleanup-force-flag-2", repo, originalBranch, issueBranchName, originalCommitId, true);
+        JobRunner.cleanupIssueBranch(
+                "job-cleanup-force-flag-2", repo, originalBranch, issueBranchName, originalCommitId, true);
 
-        assertFalse(repo.isLocalBranch(issueBranchName), "Issue branch must be removed when forceDelete=true and normal delete fails");
+        assertFalse(
+                repo.isLocalBranch(issueBranchName),
+                "Issue branch must be removed when forceDelete=true and normal delete fails");
     }
 }
