@@ -30,6 +30,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -141,6 +142,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
                 case "captureText" -> captureText(args.get(0).asText());
                 case "onZoomChanged" -> onZoomChanged(args.get(0).asDouble());
                 case "deleteHistoryTask" -> deleteHistoryTask(args.get(0).asInt());
+                case "dismissPopups" -> dismissPopups();
                 default -> logger.warn("Unknown bridge method: {}", method);
             }
 
@@ -188,6 +190,10 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
         } catch (Exception e) {
             logger.error("Failed to open URL: {}", url, e);
         }
+    }
+
+    private void dismissPopups() {
+        SwingUtilities.invokeLater(() -> MenuSelectionManager.defaultManager().clearSelectedPath());
     }
 
     private void onSymbolClick(String symbolName, boolean symbolExists, @Nullable String fqn, int x, int y) {

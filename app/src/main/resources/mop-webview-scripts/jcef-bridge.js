@@ -87,8 +87,20 @@
                 onSuccess: function(r) {},
                 onFailure: function(e, m) { console.error('onZoomChanged failed:', m); }
             });
+        },
+        dismissPopups: function() {
+            window.cefQuery({
+                request: JSON.stringify({method: 'dismissPopups', args: []}),
+                onSuccess: function(r) {},
+                onFailure: function(e, m) {}
+            });
         }
     };
+
+    // Dismiss Swing popup menus when clicking anywhere on the page
+    document.addEventListener('mousedown', function() {
+        window.javaBridge.dismissPopups();
+    }, true);
 
     // Signal to Java that the bridge is ready
     window.javaBridge.onBridgeReady();
