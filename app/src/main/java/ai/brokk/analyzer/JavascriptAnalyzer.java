@@ -20,6 +20,9 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJavascript;
 
 public class JavascriptAnalyzer extends TreeSitterAnalyzer {
+    private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
+    private static final Pattern CJS_REQUIRE_PATTERN = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
+
     // JS_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
@@ -503,15 +506,13 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     private Optional<String> extractModulePath(String importStatement) {
         // Try ES6 pattern first
-        Pattern es6Pattern = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
-        Matcher es6Matcher = es6Pattern.matcher(importStatement);
+        Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
         if (es6Matcher.find()) {
             return Optional.of(es6Matcher.group(1));
         }
 
         // Try CommonJS pattern
-        Pattern cjsPattern = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
-        Matcher cjsMatcher = cjsPattern.matcher(importStatement);
+        Matcher cjsMatcher = CJS_REQUIRE_PATTERN.matcher(importStatement);
         if (cjsMatcher.find()) {
             return Optional.of(cjsMatcher.group(1));
         }
