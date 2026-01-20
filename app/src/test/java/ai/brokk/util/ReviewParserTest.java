@@ -9,12 +9,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepoData.FileDiff;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 class ReviewParserTest {
@@ -844,6 +846,8 @@ class ReviewParserTest {
 
     @Test
     void testParseLiveReviewLog() throws IOException {
+        Function<String, String> normalize = (in) -> in.replace("/", File.separator);
+
         Path resourcePath = Path.of("src/test/resources/reviews/jbe2.log");
         String markdown = Files.readString(resourcePath);
 
@@ -852,23 +856,23 @@ class ReviewParserTest {
 
         // Spot check a few stable excerpt headers to ensure ordering and parsing are correct.
         assertEquals(
-                "errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java",
+                normalize.apply("errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java"),
                 raws.get(0).file());
         assertEquals(47, raws.get(0).line());
 
         assertEquals(
-                "errorprone-checks/src/main/java/ai/brokk/errorprone/TypeHierarchyUtils.java",
+                normalize.apply("errorprone-checks/src/main/java/ai/brokk/errorprone/TypeHierarchyUtils.java"),
                 raws.get(1).file());
         assertEquals(35, raws.get(1).line());
 
         assertEquals(
-                "errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java",
+                normalize.apply("errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java"),
                 raws.get(2).file());
         assertEquals(83, raws.get(2).line());
 
         // Later excerpts are more likely to change ordering as the log evolves; avoid brittle index checks.
         var chromeExcerpt = raws.stream()
-                .filter(r -> r.file().equals("app/src/main/java/ai/brokk/gui/Chrome.java"))
+                .filter(r -> r.file().equals(normalize.apply("app/src/main/java/ai/brokk/gui/Chrome.java")))
                 .findFirst()
                 .orElseThrow();
         assertEquals(2493, chromeExcerpt.line());
