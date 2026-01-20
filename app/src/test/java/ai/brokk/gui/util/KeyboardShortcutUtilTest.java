@@ -213,4 +213,28 @@ public class KeyboardShortcutUtilTest {
         assertNull(im.get(ks2));
         assertEquals("otherAction", im.get(ks3));
     }
+
+    @Test
+    void registerFocusedShortcut_rebindSameActionName_removesOldKeystrokeMapping() {
+        var component = new javax.swing.JTextArea();
+
+        KeyStroke oldKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
+        KeyStroke newKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+
+        KeyboardShortcutUtil.registerFocusedShortcut(component, oldKeyStroke, "submitAction", () -> {});
+        assertEquals("submitAction", component.getInputMap(javax.swing.JComponent.WHEN_FOCUSED).get(oldKeyStroke));
+
+        KeyboardShortcutUtil.registerFocusedShortcut(component, newKeyStroke, "submitAction", () -> {});
+
+        Object oldMapping = component.getInputMap(javax.swing.JComponent.WHEN_FOCUSED).get(oldKeyStroke);
+        assertNotEquals(
+                "submitAction",
+                oldMapping,
+                "Old keystroke must no longer map to the actionName when re-binding the same actionName");
+
+        assertEquals(
+                "submitAction",
+                component.getInputMap(javax.swing.JComponent.WHEN_FOCUSED).get(newKeyStroke),
+                "New keystroke must map to the actionName");
+    }
 }
