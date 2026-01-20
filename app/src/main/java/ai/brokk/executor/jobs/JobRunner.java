@@ -900,7 +900,6 @@ public final class JobRunner {
                                                 var inlineComments = issueModeComputeInlineComments(
                                                         jobId,
                                                         store,
-                                                        console != null ? console : cm.getIo(),
                                                         gitRepo,
                                                         context,
                                                         issuePlannerModel,
@@ -2062,7 +2061,6 @@ public final class JobRunner {
     List<PrReviewService.InlineComment> issueModeComputeInlineComments(
             String jobId,
             JobStore store,
-            IConsoleIO io,
             GitRepo gitRepo,
             Context ctx,
             StreamingChatModel reviewModel,
