@@ -48,16 +48,17 @@ public class MavenCefProvider implements CefAppProvider {
         // Don't use jcefmaven if the JVM has bundled JCEF (e.g., JBR)
         // Using both would cause native library conflicts and segfaults
         if (hasJvmBundledJcef()) {
-            logger.trace("JVM has bundled JCEF, Maven provider unavailable to avoid conflicts");
+            System.out.println("[CEF DEBUG] JVM has bundled JCEF, Maven provider unavailable to avoid conflicts");
             return false;
         }
 
         try {
             Class.forName("me.friwi.jcefmaven.CefAppBuilder");
-            logger.trace("Maven CEF provider is available");
+            System.out.println("[CEF DEBUG] Maven CEF provider is available");
             return true;
         } catch (ClassNotFoundException e) {
-            logger.trace("jcefmaven not available (classes stripped or not on classpath)");
+            System.out.println(
+                    "[CEF DEBUG] jcefmaven not available (classes stripped or not on classpath): " + e.getMessage());
             return false;
         }
     }
@@ -67,13 +68,20 @@ public class MavenCefProvider implements CefAppProvider {
      */
     private static boolean hasJvmBundledJcef() {
         String javaHome = System.getProperty("java.home");
+        System.out.println("[CEF DEBUG] Checking for bundled JCEF, java.home=" + javaHome);
         if (javaHome == null) return false;
 
         // Check for jcef_helper which indicates bundled JCEF
         if (Environment.isMacOs() || Environment.isLinux()) {
-            return Files.exists(Paths.get(javaHome, "lib", "jcef_helper"));
+            Path helper = Paths.get(javaHome, "lib", "jcef_helper");
+            boolean exists = Files.exists(helper);
+            System.out.println("[CEF DEBUG] Checking " + helper + ": exists=" + exists);
+            return exists;
         } else if (Environment.isWindows()) {
-            return Files.exists(Paths.get(javaHome, "bin", "jcef_helper.exe"));
+            Path helper = Paths.get(javaHome, "bin", "jcef_helper.exe");
+            boolean exists = Files.exists(helper);
+            System.out.println("[CEF DEBUG] Checking " + helper + ": exists=" + exists);
+            return exists;
         }
         return false;
     }

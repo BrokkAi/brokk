@@ -31,6 +31,7 @@ public final class CefSettingsHelper {
      * <ul>
      *   <li>Disabling windowless rendering (we use windowed mode)</li>
      *   <li>Setting theme-aware background color to reduce flash while loading</li>
+     *   <li>Redirecting CEF logs to the Brokk debug log file</li>
      * </ul>
      *
      * @param settings the CefSettings to configure
