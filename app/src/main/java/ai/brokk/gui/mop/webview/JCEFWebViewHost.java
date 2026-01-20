@@ -389,13 +389,8 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             }
             cefAppRef.set(app);
 
-            var version = app.getVersion();
-            if (version != null) {
-                logger.info("CEF version: {} (Chromium {})", version.getCefVersion(), version.getChromeVersion());
-            }
-
             var currentState = app.getState();
-            logger.info("JCEF CefApp created (state: {})", currentState);
+            logger.debug("JCEF CefApp created (state: {})", currentState);
 
             // Complete future immediately for already-initialized or MavenCefProvider
             // (MavenCefProvider's build() blocks until ready internally)
@@ -486,8 +481,6 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         logger.info("Flushed {} pending commands", count);
     }
 
-    // Public API methods (minimal for PoC)
-
     @Override
     public void append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta) {
         if (bridgeReady && browser != null && bridge != null) {
@@ -517,9 +510,6 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     @Override
     public void setShowEmptyState(boolean show) {
-        if (bridge != null) {
-            bridge.setShowEmptyState(show);
-        }
         if (bridgeReady && browser != null && bridge != null) {
             bridge.setShowEmptyState(browser, show);
         } else {
@@ -541,8 +531,6 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         bridge = null;
         // Note: CefApp is shared singleton, don't dispose it here
     }
-
-    // Stub methods for API compatibility (not implemented in PoC)
 
     @Override
     public void historyReset() {
@@ -643,11 +631,19 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         }
     }
 
+    /**
+     * @deprecated Not implemented in JCEF backend; kept for API compatibility.
+     */
+    @Deprecated
     @Override
     public CompletableFuture<Void> flushAsync() {
         return CompletableFuture.completedFuture(null);
     }
 
+    /**
+     * @deprecated Not implemented in JCEF backend; kept for API compatibility.
+     */
+    @Deprecated
     @Override
     public CompletableFuture<String> getSelectedText() {
         return CompletableFuture.completedFuture("");

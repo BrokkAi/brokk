@@ -133,7 +133,7 @@ public class JbrCefProvider implements CefAppProvider {
         if (launcherPath.endsWith(".app")) {
             Path frameworks = launcher.resolve("Contents/Frameworks");
             if (hasChromiumFramework(frameworks)) {
-                logger.info("Found app bundle Frameworks at {}", frameworks);
+                logger.debug("Found app bundle Frameworks at {}", frameworks);
                 return frameworks;
             }
         }
@@ -148,7 +148,7 @@ public class JbrCefProvider implements CefAppProvider {
             if ("Contents".equals(current.getFileName().toString())) {
                 Path frameworks = current.resolve("Frameworks");
                 if (hasChromiumFramework(frameworks)) {
-                    logger.info("Found app bundle Frameworks at {}", frameworks);
+                    logger.debug("Found app bundle Frameworks at {}", frameworks);
                     return frameworks;
                 }
             }
@@ -196,12 +196,12 @@ public class JbrCefProvider implements CefAppProvider {
         if (Files.exists(frameworkResources)) {
             settings.resources_dir_path = frameworkResources.toString();
             settings.locales_dir_path = frameworkResources.toString();
-            logger.info("Set resources_dir_path = {}", settings.resources_dir_path);
+            logger.debug("Set resources_dir_path = {}", settings.resources_dir_path);
 
             Path helperExe = frameworksDir.resolve("jcef Helper.app/Contents/MacOS/jcef Helper");
             if (Files.exists(helperExe)) {
                 settings.browser_subprocess_path = helperExe.toString();
-                logger.info("Set browser_subprocess_path = {}", helperExe);
+                logger.debug("Set browser_subprocess_path = {}", helperExe);
             }
         } else {
             logger.warn("Framework resources not found at {}", frameworkResources);
@@ -213,12 +213,12 @@ public class JbrCefProvider implements CefAppProvider {
         if (Files.exists(libPath.resolve("icudtl.dat"))) {
             settings.resources_dir_path = libPath.toString();
             settings.locales_dir_path = libPath.resolve("locales").toString();
-            logger.info("Using Linux resources from {}", libPath);
+            logger.debug("Using Linux resources from {}", libPath);
 
             Path helperExe = libPath.resolve("jcef_helper");
             if (Files.exists(helperExe)) {
                 settings.browser_subprocess_path = helperExe.toString();
-                logger.info("Set browser_subprocess_path = {}", helperExe);
+                logger.debug("Set browser_subprocess_path = {}", helperExe);
             } else {
                 logger.warn("jcef_helper not found at {}", helperExe);
             }
@@ -230,12 +230,12 @@ public class JbrCefProvider implements CefAppProvider {
         if (Files.exists(binPath.resolve("icudtl.dat"))) {
             settings.resources_dir_path = binPath.toString();
             settings.locales_dir_path = binPath.resolve("locales").toString();
-            logger.info("Using Windows resources from {}", binPath);
+            logger.debug("Using Windows resources from {}", binPath);
 
             Path helperExe = binPath.resolve("jcef_helper.exe");
             if (Files.exists(helperExe)) {
                 settings.browser_subprocess_path = helperExe.toString();
-                logger.info("Set browser_subprocess_path = {}", helperExe);
+                logger.debug("Set browser_subprocess_path = {}", helperExe);
             } else {
                 logger.warn("jcef_helper.exe not found at {}", helperExe);
             }

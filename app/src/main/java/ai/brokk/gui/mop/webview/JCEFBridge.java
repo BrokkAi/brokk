@@ -29,7 +29,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
@@ -51,7 +50,6 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
     private static final double MAX_ZOOM = 2.0;
 
     private final JCEFWebViewHost host;
-    private final AtomicInteger epoch = new AtomicInteger();
     private final List<Consumer<IWebViewHost.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
 
     // Context for symbol right-click handling
@@ -166,7 +164,6 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
 
     private void onAck(int e) {
         logger.trace("onAck: epoch={}", e);
-        // In full implementation, this would complete awaiting futures
     }
 
     private void jsLog(String level, String message) {
@@ -446,8 +443,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
      */
     public void sendAppend(
             CefBrowser browser, String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta) {
-        int e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Chunk(text, msgType, e, streaming, chunkMeta);
+        var event = new BrokkEvent.Chunk(text, msgType, 0, streaming, chunkMeta);
         sendEvent(browser, event);
     }
 
@@ -455,15 +451,13 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
      * Send a clear event to the frontend.
      */
     public void sendClear(CefBrowser browser) {
-        int e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Clear(e);
+        var event = new BrokkEvent.Clear(0);
         sendEvent(browser, event);
     }
 
     /** Send a static document event to the frontend. */
-    public void sendStaticDocument(CefBrowser browser, @org.jetbrains.annotations.Nullable String markdown) {
-        int e = epoch.incrementAndGet();
-        var event = new BrokkEvent.StaticDocument(e, markdown);
+    public void sendStaticDocument(CefBrowser browser, @Nullable String markdown) {
+        var event = new BrokkEvent.StaticDocument(0, markdown);
         sendEvent(browser, event);
     }
 
@@ -471,8 +465,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
      * Send a theme event to the frontend.
      */
     public void sendTheme(CefBrowser browser, String themeName, boolean isDevMode, boolean wrapMode) {
-        int e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Theme(e, themeName, isDevMode, wrapMode);
+        var event = new BrokkEvent.Theme(0, themeName, isDevMode, wrapMode);
         logger.info("Sending theme event: {}", event);
         sendEvent(browser, event);
     }
@@ -481,8 +474,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
      * Send a history reset event to the frontend.
      */
     public void sendHistoryReset(CefBrowser browser) {
-        int e = epoch.incrementAndGet();
-        var event = new BrokkEvent.HistoryReset(e);
+        var event = new BrokkEvent.HistoryReset(0);
         sendEvent(browser, event);
     }
 
@@ -490,8 +482,6 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
      * Send a history task event to the frontend.
      */
     public void sendHistoryTask(CefBrowser browser, TaskEntry entry) {
-        int e = epoch.incrementAndGet();
-
         // Convert messages from log when available
         List<BrokkEvent.HistoryTask.Message> messages = new ArrayList<>();
         var taskFragment = entry.log();
@@ -511,7 +501,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
         var compressed = entry.isCompressed();
         var messagesList = messages.isEmpty() ? null : messages;
 
-        var event = new BrokkEvent.HistoryTask(e, entry.sequence(), compressed, summary, messagesList);
+        var event = new BrokkEvent.HistoryTask(0, entry.sequence(), compressed, summary, messagesList);
         sendEvent(browser, event);
     }
 
@@ -519,8 +509,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
      * Send a live summary event to the frontend.
      */
     public void sendLiveSummary(CefBrowser browser, int taskSequence, boolean compressed, String summary) {
-        int e = epoch.incrementAndGet();
-        var event = new BrokkEvent.LiveSummary(e, taskSequence, compressed, summary);
+        var event = new BrokkEvent.LiveSummary(0, taskSequence, compressed, summary);
         sendEvent(browser, event);
     }
 
@@ -733,9 +722,9 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
                         langInfo.put("depCount", depCount);
                         analyzerLanguagesInfo.add(langInfo);
                     } catch (IllegalArgumentException e) {
-                        logger.trace("Language not found or invalid: {}", langName, e);
+                        logger.warn("Language not found or invalid: {}", langName, e);
                     } catch (Exception e) {
-                        logger.trace("Failed to get file counts for language: {}", langName, e);
+                        logger.warn("Failed to get file counts for language: {}", langName, e);
                     }
                 }
             } catch (Throwable t) {
