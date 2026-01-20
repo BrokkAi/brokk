@@ -556,9 +556,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 continue;
             }
 
-            Path candidatePath = ext.isEmpty()
-                    ? resolvedPath
-                    : resolvedPath.resolveSibling(fileName + ext);
+            Path candidatePath = ext.isEmpty() ? resolvedPath : resolvedPath.resolveSibling(fileName + ext);
 
             if (Files.exists(candidatePath) && candidatePath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
@@ -598,7 +596,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 && !requireFuncNode.isNull()) {
             String funcName = sourceContent.substringFrom(requireFuncNode).strip();
             if ("require".equals(funcName)) {
-                String requireText = sourceContent.substringFrom(requireCallNode).strip();
+                String requireText =
+                        sourceContent.substringFrom(requireCallNode).strip();
                 if (!requireText.isEmpty()) {
                     localImportStatements.add(requireText);
                 }

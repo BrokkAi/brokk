@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
+
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
@@ -1045,7 +1046,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 && !requireFuncNode.isNull()) {
             String funcName = sourceContent.substringFrom(requireFuncNode).strip();
             if ("require".equals(funcName)) {
-                String requireText = sourceContent.substringFrom(requireCallNode).strip();
+                String requireText =
+                        sourceContent.substringFrom(requireCallNode).strip();
                 if (!requireText.isEmpty()) {
                     localImportStatements.add(requireText);
                 }
