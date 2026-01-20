@@ -339,29 +339,22 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     /**
      * Gets or creates the shared CefApp instance, calling the callback when it's ready.
-     * If CefApp is already INITIALIZED, callback is invoked immediately.
-     * Otherwise, callback is invoked when INITIALIZED state is reached.
+     * Uses CompletableFuture for race-free callback handling:
+     * - If already complete, callback runs immediately
+     * - If not complete, callback is queued and guaranteed to fire
      */
     private static void getOrCreateCefAppAsync(CefAppReadyCallback callback) {
-        CefApp existing = cefAppRef.get();
-        if (existing != null) {
-            if (existing.getState() == CefApp.CefAppState.INITIALIZED) {
-                callback.onCefAppReady(existing);
-            } else {
-                // Already created but not initialized - wait for callback
-                waitForInitialized(callback);
-            }
+        cefAppFuture.thenAccept(callback::onCefAppReady);
+        ensureCefAppCreated();
+    }
+
+    private static void ensureCefAppCreated() {
+        if (cefAppRef.get() != null) {
             return;
         }
 
         synchronized (cefInitLock) {
-            existing = cefAppRef.get();
-            if (existing != null) {
-                if (existing.getState() == CefApp.CefAppState.INITIALIZED) {
-                    callback.onCefAppReady(existing);
-                } else {
-                    waitForInitialized(callback);
-                }
+            if (cefAppRef.get() != null) {
                 return;
             }
 
@@ -375,16 +368,24 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                     public void stateHasChanged(CefApp.CefAppState state) {
                         logger.info("CefApp state changed: {}", state);
                         if (state == CefApp.CefAppState.INITIALIZED) {
-                            notifyInitialized();
+                            var cefApp = cefAppRef.get();
+                            if (cefApp != null) {
+                                var version = cefApp.getVersion();
+                                if (version != null) {
+                                    logger.info("CEF version: {} (Chromium {})",
+                                                version.getCefVersion(), version.getChromeVersion());
+                                }
+                                cefAppFuture.complete(cefApp);
+                            }
                         }
                     }
                 });
             } catch (Exception e) {
+                cefAppFuture.completeExceptionally(e);
                 throw wrapWithDependencyHint(e);
             }
             cefAppRef.set(app);
 
-            // Log CEF/Chromium version info (may be null before initialization completes on JBR)
             var version = app.getVersion();
             if (version != null) {
                 logger.info("CEF version: {} (Chromium {})", version.getCefVersion(), version.getChromeVersion());
@@ -393,54 +394,22 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             var currentState = app.getState();
             logger.info("JCEF CefApp created (state: {})", currentState);
 
-            // MavenCefProvider's builder.build() blocks until fully initialized internally,
-            // even though state shows NEW. Invoke callback immediately for it.
-            // JbrCefProvider returns before initialization completes, so we wait for callback.
+            // Complete future immediately for already-initialized or MavenCefProvider
+            // (MavenCefProvider's build() blocks until ready internally)
             if (currentState == CefApp.CefAppState.INITIALIZED) {
-                logger.info("CefApp already INITIALIZED, invoking callback directly");
-                callback.onCefAppReady(app);
+                logger.info("CefApp already INITIALIZED, completing future");
+                cefAppFuture.complete(app);
             } else if (provider instanceof MavenCefProvider) {
-                logger.info("MavenCefProvider used, CefApp ready after build(), invoking callback directly");
-                callback.onCefAppReady(app);
+                logger.info("MavenCefProvider used, CefApp ready after build(), completing future");
+                cefAppFuture.complete(app);
             } else {
-                logger.info("CefApp not yet INITIALIZED, queuing callback");
-                waitForInitialized(callback);
+                logger.info("CefApp not yet INITIALIZED, future will complete on state callback");
             }
         }
     }
 
-    // Callbacks waiting for INITIALIZED state
-    private static final List<CefAppReadyCallback> pendingCallbacks = new CopyOnWriteArrayList<>();
-
-    private static void waitForInitialized(CefAppReadyCallback callback) {
-        logger.info("Queuing callback to wait for CefApp INITIALIZED state...");
-        pendingCallbacks.add(callback);
-    }
-
-    private static void notifyInitialized() {
-        CefApp app = cefAppRef.get();
-        if (app == null) return;
-
-        // Log version now that initialization is complete (for JBR)
-        var version = app.getVersion();
-        if (version != null) {
-            logger.info("CEF version: {} (Chromium {})", version.getCefVersion(), version.getChromeVersion());
-        }
-
-        logger.info("CefApp reached INITIALIZED state, notifying {} pending callbacks", pendingCallbacks.size());
-
-        // Copy and clear before iterating to avoid concurrent modification
-        var callbacks = new java.util.ArrayList<>(pendingCallbacks);
-        pendingCallbacks.clear();
-
-        for (var cb : callbacks) {
-            try {
-                cb.onCefAppReady(app);
-            } catch (Exception e) {
-                logger.error("Error notifying CefApp ready callback", e);
-            }
-        }
-    }
+    // CompletableFuture for race-free callback handling
+    private static final CompletableFuture<CefApp> cefAppFuture = new CompletableFuture<>();
 
     private static String extractMissingLibrary(String errorMessage, String extension) {
         // Parse library name from error message (e.g., "libnss3.so: cannot open shared object file")
