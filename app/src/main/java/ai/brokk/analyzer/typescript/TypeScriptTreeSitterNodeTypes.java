@@ -65,5 +65,12 @@ public final class TypeScriptTreeSitterNodeTypes {
     public static final String ABSTRACT_CLASS = "abstract class";
     public static final String IMPORT_DECLARATION = "import_statement";
 
+    // Capture name used in Tree-sitter queries for import statements
+    public static final String IMPORT_CAPTURE_NAME = "module.import_statement";
+
+    // Capture name used in Tree-sitter queries for CommonJS require calls
+    public static final String REQUIRE_CALL_CAPTURE_NAME = "module.require_call";
+    public static final String REQUIRE_FUNC_CAPTURE_NAME = "_require_func";
+
     private TypeScriptTreeSitterNodeTypes() {}
 }

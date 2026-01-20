@@ -1,8 +1,6 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
-
-import ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes;
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
@@ -69,7 +67,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // decoratorNodeTypes
             Set.of(DECORATOR),
             // imports - capture name must match query pattern @module.import_statement
-            JavaScriptTreeSitterNodeTypes.IMPORT_CAPTURE_NAME,
+            IMPORT_CAPTURE_NAME,
             // identifierFieldName
             "name",
             // bodyFieldName
@@ -1039,7 +1037,20 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
             List<String> localImportStatements) {
-        JavascriptAnalyzer.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
+        TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
+        TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
+        if (requireCallNode != null
+                && !requireCallNode.isNull()
+                && requireFuncNode != null
+                && !requireFuncNode.isNull()) {
+            String funcName = sourceContent.substringFrom(requireFuncNode).strip();
+            if ("require".equals(funcName)) {
+                String requireText = sourceContent.substringFrom(requireCallNode).strip();
+                if (!requireText.isEmpty()) {
+                    localImportStatements.add(requireText);
+                }
+            }
+        }
     }
 
     @Override
