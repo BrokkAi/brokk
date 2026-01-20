@@ -3410,7 +3410,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return lazyHierarchy.computeSubtypesIfAbsent(cu, k -> {
             Set<CodeUnit> descendants = this.state.codeUnitState().keySet().stream()
                     .filter(CodeUnit::isClass)
-                    .filter(candidateClass -> performGetDirectAncestors(candidateClass).contains(k))
+                    .filter(candidateClass ->
+                            performGetDirectAncestors(candidateClass).contains(k))
                     .collect(Collectors.toUnmodifiableSet());
             return descendants;
         });
