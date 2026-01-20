@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -29,7 +30,7 @@ class ChatMessageDtoSerializationTest {
 
     @Test
     void testSerializeAndDeserializeWithReasoningContentId() throws Exception {
-        ChatMessageDto original = new ChatMessageDto("ai", "content-123", "reasoning-456");
+        ChatMessageDto original = new ChatMessageDto("ai", "content-123", "reasoning-456", null);
 
         String json = objectMapper.writeValueAsString(original);
         ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
@@ -61,11 +62,38 @@ class ChatMessageDtoSerializationTest {
         assertEquals("system", deserialized.role());
         assertEquals("content-old", deserialized.contentId());
         assertNull(deserialized.reasoningContentId());
+        assertNull(deserialized.attributes());
+    }
+
+    @Test
+    void testSerializeAndDeserializeWithAttributes() throws Exception {
+        // Use Boolean value since attributes is now Map<String, Object>
+        ChatMessageDto original = new ChatMessageDto("custom", "content-123", null, Map.of("terminal", true));
+
+        String json = objectMapper.writeValueAsString(original);
+        ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
+
+        assertEquals("custom", deserialized.role());
+        assertEquals("content-123", deserialized.contentId());
+        assertNull(deserialized.reasoningContentId());
+        assertEquals(Map.of("terminal", true), deserialized.attributes());
+    }
+
+    @Test
+    void testDeserializeLegacyJsonWithoutAttributesField() throws Exception {
+        String legacyJson = "{\"role\":\"custom\",\"contentId\":\"content-old\",\"reasoningContentId\":null}";
+
+        ChatMessageDto deserialized = objectMapper.readValue(legacyJson, ChatMessageDto.class);
+
+        assertEquals("custom", deserialized.role());
+        assertEquals("content-old", deserialized.contentId());
+        assertNull(deserialized.reasoningContentId());
+        assertNull(deserialized.attributes());
     }
 
     @Test
     void testSerializeWithNullReasoningContentId() throws Exception {
-        ChatMessageDto original = new ChatMessageDto("ai", "content-111", null);
+        ChatMessageDto original = new ChatMessageDto("ai", "content-111");
 
         String json = objectMapper.writeValueAsString(original);
         ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
@@ -77,12 +105,12 @@ class ChatMessageDtoSerializationTest {
 
     @Test
     void testBackwardCompatibleConstructor() {
-        // Verify the backward-compatible 2-arg constructor still works
         ChatMessageDto dto = new ChatMessageDto("custom", "content-abc");
 
         assertEquals("custom", dto.role());
         assertEquals("content-abc", dto.contentId());
         assertNull(dto.reasoningContentId());
+        assertNull(dto.attributes());
         assertNull(dto.toolExecutionRequests());
     }
 

@@ -1,15 +1,24 @@
-# Context Subsystem Design Guidance
+# Context Subsystem Guide
 
-## Data Modeling and Identification
-- **Prefer Domain Objects over IDs**: Use domain objects (e.g., `Context`) directly as keys in maps or caches rather than adding UUID indirection. This simplifies lookups, improves type safety, and avoids manual management of ID-to-object mappings.
-- **Identity via Identity**: 
-    - Prefer `Objects.equals(a, b)` over `a == b` for null-safe equality checks.
-    - When caching relationships between specific object instances (like diffs between two `Context` versions that may be logically equivalent but represent distinct snapshots), use identity-based keys. In these cases, implement `equals` by comparing fields with reference equality (`==`) rather than `Objects.equals()`, and implement `hashCode` using `System.identityHashCode(obj)` for each field.
+## Core Concepts
 
-## Concurrency and Performance
-- **Avoid Complex Batching**: Avoid complex, stateful batching patterns (e.g., manual EDT timers/queues for coalescing). Prefer simple executor-based patterns or non-blocking queues when asynchronous processing is required.
-- **Async by Default**: Leverage `CompletableFuture` and `ComputedValue` for long-running computations. UI-facing code should peek at caches or use non-blocking callbacks rather than blocking the Event Dispatch Thread (EDT).
+1. **Context is immutable**: All mutation methods (`addFragments`, `removeFragments`, `withParsedOutput`, etc.) return a new `Context` instance with a fresh UUID. A Context cannot be modified in-place.
+1. **Context identity**: Two Contexts are equal iff they share the same UUID (`id`). Use `workspaceContentEquals()` to compare semantic content across different Context instances.
+1. **Fragment asynchronicity**: Some Fragments (especially UsageFragment) can be expensive and slow to materialize text() and other ComputedValues. Methods that block for these values to be ready (usually via join()) should be annotated with @org.jetbrains.annotations.Blocking. If you need to wait for all current Fragments to be materialized before doing something that changes state-on-disk, use Context.awaitContentsAreComputed.
+1. **Fragment identity (`hasSameSource`)**: Use `hasSameSource()` to check if two fragments represent the same underlying resource (file, symbol, etc.) regardless of content differences. This is distinct from `contentEquals()` which compares actual content, and from `equals()` which is just object identity. Since contentEquals must wait for materialization it is much more expensive than the others, don't use it unless semantically necessary. (It is probably not necessary unless you're editing the Context-diffing code.)
+1. **ContextFragment is also immutable**; use refreshCopy() to get a new copy if the backing store may have changed. NB: because of the above, even if nothing has changed equals() will usually return false. (Exception: a few fragment types like PasteFragment that have no external source of truth).
 
-## Memory Management
-- **Bounded Caches**: Use bounded caches with clear eviction policies (e.g., **Caffeine** with `maximumSize` or `expireAfterAccess`) for long-running processes. 
-- **Avoid Unbounded Maps**: Never use unbounded `HashMap` or `ConcurrentHashMap` for data that grows over time (like history or diffs), as this eventually leads to memory leaks.
+## Interacting with the GUI
+
+- **ComputedSubscription**: Use `ComputedSubscription.bind(fragment, owner, uiUpdate)` to safely subscribe to async fragment completion. Subscriptions auto-dispose when the owning component is removed from the ancestor hierarchy. `bind()` also guards against duplicate subscriptions for the same `ComputedValue` on the same component.
+
+## DiffService vs ContextDelta
+
+- DiffService is not appropriate for asking "did anything change between Contexts X and Y"; instead, DiffService is trying to answer the question of "what changes should we show the user" and it plays a bunch of games around ignoring new files and so forth to do that.
+- ContextDelta exists to answer the "did anything change" question and is appropriate for activity/action descriptions.
+
+## Working with Fragments
+
+- **SpecialTextType**: Some StringFragments are "special"; these have their behavior encapsulated in SpecialTextType. You should try to have SpecialTextType in your Workspace when you are working with StringFragments.
+- **Files**: you should almost never need to cast to ProjectPathFragment etc to get a ProjectFile reference; just use ContextFragment::files().stream().flatmap().
+- **Path normalization**: `DtoMapper` uses `contextManager.toFile(relPath)` with the *current* project root, not the serialized root. This handles ZIP histories created on different OSes.

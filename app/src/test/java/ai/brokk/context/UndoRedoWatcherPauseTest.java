@@ -2,6 +2,7 @@ package ai.brokk.context;
 
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestAnalyzerWrapper;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
@@ -19,7 +20,8 @@ public class UndoRedoWatcherPauseTest {
         ContextManager cm = new ContextManager(project);
 
         // Inject FakeAnalyzerWrapper into ContextManager via reflection
-        TestAnalyzerWrapper fake = new TestAnalyzerWrapper();
+        TestAnalyzer analyzer = new TestAnalyzer();
+        TestAnalyzerWrapper fake = new TestAnalyzerWrapper(analyzer);
         cm.setAnalyzerWrapper(fake);
 
         // Create a file in the temp project (not strictly required for pause/resume semantics)
@@ -35,7 +37,7 @@ public class UndoRedoWatcherPauseTest {
         ch.push(ctx -> ctx.addFragments(new ContextFragments.StringFragment(cm, "second", "second change", "text")));
 
         // Perform undo while pausing file change notifications
-        var undoResult = cm.withFileChangeNotificationsPaused(() -> ch.undo(1, cm.getIo(), project));
+        var undoResult = cm.withContextResolvedAndWatcherPaused(() -> ch.undo(1, cm.getIo(), project));
         Assertions.assertTrue(undoResult.wasUndone(), "Undo should succeed when there is at least one prior context");
 
         // Verify pause/resume called exactly once for the undo operation
@@ -43,7 +45,7 @@ public class UndoRedoWatcherPauseTest {
         Assertions.assertEquals(1, fake.getResumeCount(), "resume() should be called exactly once during undo");
 
         // Perform redo while pausing file change notifications
-        var redoResult = cm.withFileChangeNotificationsPaused(() -> ch.redo(cm.getIo(), project));
+        var redoResult = cm.withContextResolvedAndWatcherPaused(() -> ch.redo(cm.getIo(), project));
         Assertions.assertTrue(redoResult.wasRedone(), "Redo should be possible after one undo");
 
         // Verify pause/resume called exactly once for the redo operation as well (cumulative totals: 2 each)

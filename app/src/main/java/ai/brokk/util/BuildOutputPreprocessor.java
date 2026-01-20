@@ -28,7 +28,7 @@ public class BuildOutputPreprocessor {
      * Minimum number of lines in build output to trigger preprocessing. Below this threshold, the original output is
      * returned unchanged.
      */
-    public static final int THRESHOLD_LINES = 500;
+    public static final int THRESHOLD_LINES = 200;
 
     /**
      * Maximum number of errors to extract from the build output. This limits context size while ensuring we capture
@@ -205,7 +205,7 @@ public class BuildOutputPreprocessor {
      */
     @SuppressWarnings("UnusedVariable")
     private static String truncateToTokenLimit(String buildOutput, StreamingChatModel model, IContextManager cm) {
-        int targetTokens = cm.getService().getMaxInputTokens(model) / 2;
+        int targetTokens = cm.getService().getMaxInputTokens(model) / 10;
         logger.debug("Using conservative target of {} tokens for build output", targetTokens);
 
         List<String> lines = Splitter.on('\n').splitToList(buildOutput);

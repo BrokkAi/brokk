@@ -52,3 +52,14 @@
     ; result: (_) @interface.method.result ; Result is optional, removing from query to ensure match
   ) @interface.method.definition
 )
+
+; Semantic test marker candidate detection
+; Matches top-level function declarations. Predicate-free so GoAnalyzer can filter in Java.
+; Uses node shape/ordering to avoid capturing methods with receivers.
+; Excludes generic functions (those with type_parameters) as they cannot be tests.
+(function_declaration
+  "func"
+  !type_parameters
+  (identifier) @test_candidate.name
+  (parameter_list) @test_candidate.params
+) @test_marker

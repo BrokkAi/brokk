@@ -52,9 +52,6 @@ class ContextTest {
 
         analyzer = new TestAnalyzer(List.of(cu1, cu2), Map.of());
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), analyzer);
-
-        // Reset fragment ID counter for test isolation
-        ContextFragments.setMinimumId(1);
     }
 
     @Test
@@ -425,6 +422,27 @@ class ContextTest {
                 "v1",
                 fragmentInContext.text().join(),
                 "addFragments should preserve existing fragment content even if new fragment has newer content");
+    }
+
+    @Test
+    void testAddFragmentsExpandsSupportingFragments() {
+        ContextFragment supporting =
+                new ContextFragments.StringFragment(contextManager, "supp", "supp", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment primary =
+                new ContextFragments.StringFragment(
+                        contextManager, "primary", "primary", SyntaxConstants.SYNTAX_STYLE_NONE) {
+                    @Override
+                    public Set<ContextFragment> supportingFragments() {
+                        return Set.of(supporting);
+                    }
+                };
+
+        Context ctx = new Context(contextManager).addFragments(List.of(primary));
+
+        assertTrue(ctx.allFragments().anyMatch(f -> f == primary), "Primary fragment should be present");
+        assertTrue(
+                ctx.allFragments().anyMatch(f -> f == supporting),
+                "Supporting fragment should be expanded and present");
     }
 
     @Test

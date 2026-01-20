@@ -13,6 +13,8 @@ import com.sun.source.util.TreePath;
 import com.sun.source.util.TreeScanner;
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Symbol.MethodSymbol;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Flags invocations of methods annotated with ai.brokk.annotations.Blocking
@@ -25,15 +27,26 @@ import com.sun.tools.javac.code.Symbol.MethodSymbol;
 @BugPattern(
         name = "BrokkBlockingOperation",
         summary = "Potentially blocking operation on ContextFragment; prefer the computed non-blocking alternative",
-        explanation =
-                "This call may perform analyzer work or I/O. Prefer using the corresponding computed*() "
-                        + "non-blocking method (e.g., computedFiles(), computedSources(), computedText(), computedDescription(), computedSyntaxStyle()).",
+        explanation = "This call may perform analyzer work or I/O. Prefer using the corresponding computed*() "
+                + "non-blocking method or LoggingFuture call for short-lived tasks. For tasks long enough to be "
+                + "noticeable by a user, consider using ContextManager.submitBackgroundTask.",
         severity = BugPattern.SeverityLevel.WARNING)
 public final class BlockingOperationChecker extends BugChecker implements BugChecker.MethodInvocationTreeMatcher {
 
     private static final String BLOCKING_ANN_FQCN = "org.jetbrains.annotations.Blocking";
     private static final String SWING_UTILS_FQCN = "javax.swing.SwingUtilities";
     private static final String EVENT_QUEUE_FQCN = "java.awt.EventQueue";
+
+    /**
+     * Map of owner class FQCNs to method names that represent safe background contexts.
+     * When a @Blocking call occurs within an argument to any of these methods, it is considered safe.
+     *
+     * <p>For interface types (like IContextManager), the check uses type hierarchy traversal
+     * to match any implementing class. For final classes (like LoggingFuture), a direct FQCN match is used.
+     */
+    private static final Map<String, List<String>> SAFE_BACKGROUND_CONTEXTS = Map.of(
+            "ai.brokk.IContextManager", List.of("submitBackgroundTask"),
+            "ai.brokk.concurrent.LoggingFuture", List.of("supplyAsync", "supplyCallableAsync"));
 
     private static boolean hasDirectAnnotation(Symbol sym, String fqcn) {
         for (var a : sym.getAnnotationMirrors()) {
@@ -56,16 +69,76 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
             return Description.NO_MATCH;
         }
 
+        // Do not warn if we are already inside a safe background context
+        if (isWithinSafeBackgroundContext(state)) {
+            return Description.NO_MATCH;
+        }
+
         // Only warn when the @Blocking call occurs on the EDT contexts we care about
         if (!(isWithinInvokeLaterArgument(state) || isWithinTrueBranchOfEdtCheck(state))) {
             return Description.NO_MATCH;
         }
 
         String message = String.format(
-                "Calling potentially blocking %s(); prefer the corresponding computed*() non-blocking method.",
+                "Calling potentially blocking %s() on the EDT; move to a background thread using "
+                        + "contextManager.submitBackgroundTask() or use the corresponding computed*() non-blocking method.",
                 sym.getSimpleName());
 
         return buildDescription(tree).setMessage(message).build();
+    }
+
+    /**
+     * Checks if the current node is within an argument to any method defined in SAFE_BACKGROUND_CONTEXTS.
+     */
+    private static boolean isWithinSafeBackgroundContext(VisitorState state) {
+        Tree target = state.getPath().getLeaf();
+
+        for (TreePath path = state.getPath(); path != null; path = path.getParentPath()) {
+            Tree node = path.getLeaf();
+            if (node instanceof MethodInvocationTree mit && isSafeBackgroundMethod(mit)) {
+                for (Tree arg : mit.getArguments()) {
+                    if (containsTree(arg, target)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Checks if the method invocation matches any entry in SAFE_BACKGROUND_CONTEXTS.
+     * For instance methods, uses type hierarchy traversal to match implementing classes.
+     * For static methods, uses direct FQCN comparison.
+     */
+    private static boolean isSafeBackgroundMethod(MethodInvocationTree mit) {
+        MethodSymbol ms = ASTHelpers.getSymbol(mit);
+        if (ms == null) {
+            return false;
+        }
+
+        String methodName = ms.getSimpleName().toString();
+        if (!(ms.owner instanceof Symbol.ClassSymbol ownerClass)) {
+            return false;
+        }
+
+        for (var entry : SAFE_BACKGROUND_CONTEXTS.entrySet()) {
+            String targetFqcn = entry.getKey();
+            List<String> methods = entry.getValue();
+
+            if (!methods.contains(methodName)) {
+                continue;
+            }
+
+            // Check if owner matches directly or via type hierarchy
+            if (ownerClass.getQualifiedName().contentEquals(targetFqcn)) {
+                return true;
+            }
+            if (TypeHierarchyUtils.implementsOrExtends(ownerClass, targetFqcn)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isWithinInvokeLaterArgument(VisitorState state) {

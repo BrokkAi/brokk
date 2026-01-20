@@ -4,16 +4,18 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
+import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.McpPrompts;
 import ai.brokk.prompts.SearchPrompts;
@@ -21,7 +23,6 @@ import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -89,12 +90,13 @@ public class SearchAgent {
 
     protected final IContextManager cm;
     protected final StreamingChatModel model;
-    protected final ContextManager.TaskScope scope;
+    protected final ContextManager.@Nullable TaskScope scope;
     protected final Llm llm;
     protected final Llm summarizer;
     protected final IConsoleIO io;
     protected final String goal;
     protected final List<McpPrompts.McpTool> mcpTools;
+    protected final List<String> staticTools;
     protected final SearchMetrics metrics;
     protected final ScanConfig scanConfig;
     protected boolean scanPerformed;
@@ -110,6 +112,17 @@ public class SearchAgent {
     // State toggles
     protected boolean beastMode;
 
+    @FunctionalInterface
+    public interface TurnListener {
+        void turnFinished();
+    }
+
+    private @Nullable TurnListener turnListener;
+
+    public void setTurnListener(@Nullable TurnListener listener) {
+        this.turnListener = listener;
+    }
+
     public SearchAgent(
             Context initialContext,
             String goal,
@@ -117,6 +130,17 @@ public class SearchAgent {
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
+        this(initialContext, goal, model, scope, io, scanConfig, null);
+    }
+
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            ContextManager.TaskScope scope,
+            IConsoleIO io,
+            ScanConfig scanConfig,
+            @Nullable List<String> staticTools) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
@@ -140,8 +164,16 @@ public class SearchAgent {
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
 
-        var mcpConfig = cm.getProject().getMcpConfig();
-        List<McpPrompts.McpTool> tools = new ArrayList<>();
+        this.mcpTools = initMcpTools(cm.getProject());
+        this.context = initialContext;
+        this.initialContext = initialContext;
+        this.scanConfig = scanConfig;
+        this.staticTools = initStaticTools(staticTools, cm.getProject(), mcpTools);
+    }
+
+    private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
+        var mcpConfig = project.getMcpConfig();
+        var tools = new ArrayList<McpPrompts.McpTool>();
         for (var server : mcpConfig.servers()) {
             if (server.tools() != null) {
                 for (var toolName : server.tools()) {
@@ -149,10 +181,44 @@ public class SearchAgent {
                 }
             }
         }
-        this.mcpTools = List.copyOf(tools);
-        this.initialContext = initialContext;
-        this.context = initialContext;
-        this.scanConfig = scanConfig;
+        return tools;
+    }
+
+    private static List<String> initStaticTools(
+            @Nullable List<String> explicitTools, IProject project, List<McpPrompts.McpTool> mcpTools) {
+        if (explicitTools != null) {
+            return WorkspaceTools.filterByAnalyzerAvailability(explicitTools, project);
+        }
+
+        var tools = new ArrayList<String>();
+
+        // Search-specific analyzer tools
+        tools.add("searchSymbols");
+        tools.add("getSymbolLocations");
+        tools.add("skimDirectory");
+
+        // Workspace analyzer tools
+        tools.add("addSymbolUsagesToWorkspace");
+        tools.add("addClassesToWorkspace");
+        tools.add("addClassSummariesToWorkspace");
+        tools.add("addMethodsToWorkspace");
+        tools.add("addFileSummariesToWorkspace");
+
+        // Non-analyzer tools
+        tools.add("searchSubstrings");
+        tools.add("searchGitCommitMessages");
+        tools.add("explainCommit");
+        tools.add("searchFilenames");
+        tools.add("addFilesToWorkspace");
+        tools.add("addUrlContentsToWorkspace");
+        tools.add("appendNote");
+
+        if (!mcpTools.isEmpty()) {
+            tools.add("callMcpTool");
+        }
+
+        // Filter out analyzer-required tools at the very end
+        return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
     }
 
     public SearchAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope) {
@@ -263,6 +329,7 @@ public class SearchAgent {
 
             Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
             boolean executedResearch = false;
+            boolean executedNonHygiene = false;
             Context contextAtTurnStart = context;
             try {
                 var sortedNonterminalCalls = ai.toolExecutionRequests().stream()
@@ -294,10 +361,13 @@ public class SearchAgent {
                     }
 
                     conversation.append(finalResult.toExecutionResultMessage());
-                    if (categorizeTool(req.name()) == ToolCategory.RESEARCH) {
-                        if (!isWorkspaceTool(req, tr)) {
-                            executedResearch = true;
-                        }
+
+                    var category = categorizeTool(req.name());
+                    if (category != ToolCategory.WORKSPACE_HYGIENE) {
+                        executedNonHygiene = true;
+                    }
+                    if (category == ToolCategory.RESEARCH && !isWorkspaceTool(req, tr)) {
+                        executedResearch = true;
                     }
                 }
 
@@ -305,7 +375,9 @@ public class SearchAgent {
                         .filter(req -> categorizeTool(req.name()) == ToolCategory.TERMINAL)
                         .min(Comparator.comparingInt(this::priority));
 
-                if (terminal.isPresent() && context.equals(contextAtTurnStart) && !executedResearch) {
+                boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
+
+                if (terminal.isPresent() && contextSafeForTerminal && !executedResearch) {
                     var termReq = terminal.get();
                     var termExec = executeTool(termReq, tr, wst);
                     var toolExecResult = termExec.toExecutionResultMessage();
@@ -337,11 +409,14 @@ public class SearchAgent {
                 Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
                 Set<ProjectFile> added = new HashSet<>(filesAfterSet);
                 added.removeAll(filesBeforeSet);
-                if (!added.isEmpty()) {
+                if (!added.isEmpty() && scope != null) {
                     scope.publish(context);
                 }
             } finally {
                 endTurnAndRecordFileChanges(filesBeforeSet);
+                if (turnListener != null) {
+                    turnListener.turnFinished();
+                }
             }
         }
     }
@@ -382,35 +457,9 @@ public class SearchAgent {
             return List.of();
         }
 
-        var names = new ArrayList<String>();
-        if (!cm.getProject().getAnalyzerLanguages().equals(Set.of(Languages.NONE))) {
-            names.add("searchSymbols");
-            names.add("getSymbolLocations");
-        }
-
-        names.add("getClassSkeletons");
-        names.add("getClassSources");
-        names.add("getMethodSources");
-        names.add("getUsages");
-        names.add("searchSubstrings");
-        names.add("searchGitCommitMessages");
-        names.add("searchFilenames");
-        names.add("getFileContents");
-        names.add("getFileSummaries");
-        names.add("skimDirectory");
-        names.add("addFilesToWorkspace");
-        names.add("addClassesToWorkspace");
-        names.add("addClassSummariesToWorkspace");
-        names.add("addMethodsToWorkspace");
-        names.add("addFileSummariesToWorkspace");
-        names.add("addSymbolUsagesToWorkspace");
-        names.add("appendNote");
+        var names = new ArrayList<String>(staticTools);
         if (hasDroppableFragments()) {
             names.add("dropWorkspaceFragments");
-        }
-
-        if (!mcpTools.isEmpty()) {
-            names.add("callMcpTool");
         }
 
         return names;
@@ -435,7 +484,7 @@ public class SearchAgent {
         };
     }
 
-    protected boolean isWorkspaceTool(dev.langchain4j.agent.tool.ToolExecutionRequest request, ToolRegistry tr) {
+    protected boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
         try {
             var vi = tr.validateTool(request);
             return vi.instance() instanceof WorkspaceTools;
@@ -473,7 +522,7 @@ public class SearchAgent {
     }
 
     public Context pruneContext() throws InterruptedException {
-        if (contextPruned || context.isEmpty()) {
+        if (contextPruned || !hasDroppableFragments()) {
             return context;
         }
 
@@ -540,7 +589,7 @@ public class SearchAgent {
             int finalBudget =
                     cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
             if (totalTokens > finalBudget) {
-                var summaries = ContextFragment.describe(recommendation.fragments());
+                var summaries = ContextFragment.describe(recommendation.fragments().stream());
                 context = context.addFragments(List.of(new ContextFragments.StringFragment(
                         cm,
                         "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model's context capacity, their summarized descriptions are provided below:\n\n"
@@ -549,6 +598,10 @@ public class SearchAgent {
                         SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
                 addToWorkspace(recommendation);
+                io.llmOutput(
+                        "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
+                        ChatMessageType.AI,
+                        LlmOutputMeta.DEFAULT);
             }
         } else {
             conversation.appendUi("No context recommendations found.", true);
@@ -560,7 +613,9 @@ public class SearchAgent {
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
 
         var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
-        context = scanConfig.appendToScope() ? scope.append(contextAgentResult) : contextAgentResult.context();
+        context = (scanConfig.appendToScope() && scope != null)
+                ? scope.append(contextAgentResult)
+                : contextAgentResult.context();
 
         return context;
         }
@@ -623,6 +678,7 @@ public class SearchAgent {
         // Fake this like an AI message (it's not a real tool call)
         var aiMsg = new AiMessage("Context recommendations\n\n" + explanation);
         conversation.append(aiMsg, true);
+        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
     }
 
     @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
@@ -709,7 +765,7 @@ public class SearchAgent {
 
     protected Set<ProjectFile> getWorkspaceFileSet() {
         try {
-            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
@@ -725,7 +781,7 @@ public class SearchAgent {
 
     protected List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
         try {
-            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
@@ -751,12 +807,9 @@ public class SearchAgent {
                         "getSymbolLocations",
                         "searchSymbols",
                         "getUsages",
-                        "getClassSources",
                         "searchSubstrings",
                         "searchFilenames",
-                        "searchGitCommitMessages",
-                        "getFileContents",
-                        "getFileSummaries")
+                        "searchGitCommitMessages")
                 .contains(toolName);
     }
 

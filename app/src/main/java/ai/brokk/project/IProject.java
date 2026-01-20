@@ -5,6 +5,7 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
+import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
@@ -12,7 +13,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.Environment;
-import ai.brokk.util.StringDiskCache;
+import ai.brokk.util.IStringDiskCache;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,6 +27,7 @@ import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
@@ -42,8 +44,8 @@ public interface IProject extends AutoCloseable {
      * <p>Implementations (MainProject) should return a properly initialized StringDiskCache.
      * WorktreeProject will forward to its MainProject parent.
      */
-    default StringDiskCache getDiskCache() {
-        throw new UnsupportedOperationException();
+    default IStringDiskCache getDiskCache() {
+        return new IStringDiskCache.NoopDiskCache();
     }
 
     /**
@@ -60,6 +62,7 @@ public interface IProject extends AutoCloseable {
     }
 
     /** All files in the project, including decompiled dependencies that are not in the git repo. */
+    @Blocking
     default Set<ProjectFile> getAllFiles() {
         return Set.of();
     }
@@ -72,6 +75,7 @@ public interface IProject extends AutoCloseable {
      * This intentionally ignores configuration files like AGENTS.md, .brokk/**,
      * .gitignore, etc. since those don't have analyzable extensions.
      */
+    @Blocking
     default boolean isEmptyProject() {
         return false;
     }
@@ -153,6 +157,14 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default void setBuildDetails(BuildAgent.BuildDetails details) {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setRepo(IGitRepo repo) {
+        throw new UnsupportedOperationException();
+    }
+
     default CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
@@ -189,6 +201,11 @@ public interface IProject extends AutoCloseable {
     // JDK configuration: project-scoped JAVA_HOME setting (path or sentinel)
     default @Nullable String getJdk() {
         return null;
+    }
+
+    /** Returns true if the user has explicitly configured a JDK override in this workspace. */
+    default boolean hasJdkOverride() {
+        return false;
     }
 
     default void setJdk(@Nullable String jdkHome) {}
@@ -323,7 +340,17 @@ public interface IProject extends AutoCloseable {
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
     // Primary build language configuration
+    @Blocking
     default Language getBuildLanguage() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * EDT-safe accessor for build language. Returns the configured language if available,
+     * or Languages.NONE as a safe fallback if the cache is not yet populated.
+     * Use this method on the EDT instead of getBuildLanguage().
+     */
+    default Language computedBuildLanguage() {
         throw new UnsupportedOperationException();
     }
 
@@ -352,6 +379,14 @@ public interface IProject extends AutoCloseable {
     /** Sets a UI filter property for persistence across sessions. */
     default void setUiFilterProperty(String key, @Nullable String value) {}
 
+    /** Gets the list of expanded directory paths in the project tree (relative to project root). */
+    default List<Path> getExpandedTreePaths() {
+        return List.of();
+    }
+
+    /** Sets the list of expanded directory paths in the project tree (relative to project root). */
+    default void setExpandedTreePaths(List<Path> paths) {}
+
     default boolean getArchitectRunInWorktree() {
         throw new UnsupportedOperationException();
     }
@@ -374,7 +409,15 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default SessionRegistry getSessionRegistry() {
+        throw new UnsupportedOperationException();
+    }
+
     default SessionManager getSessionManager() {
+        throw new UnsupportedOperationException();
+    }
+
+    default String getRemoteProjectName() {
         throw new UnsupportedOperationException();
     }
 

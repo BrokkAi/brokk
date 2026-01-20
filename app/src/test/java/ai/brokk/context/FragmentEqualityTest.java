@@ -2,6 +2,8 @@ package ai.brokk.context;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.IContextManager;
+import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
@@ -49,14 +51,13 @@ class FragmentEqualityTest {
     @TempDir
     Path tempDir;
 
-    private ai.brokk.IContextManager contextManager;
+    private IContextManager contextManager;
 
     private final List<ComputedFragment> trackedFragments = new ArrayList<>();
 
     @BeforeEach
     void setup() {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        ContextFragments.setMinimumId(1);
     }
 
     private <T extends ComputedFragment> T track(T fragment) {
@@ -934,7 +935,7 @@ class FragmentEqualityTest {
         void testEqualsIdenticalHistory() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"));
             var tf = new ContextFragments.TaskFragment(contextManager, messages, "session");
-            var te = new ai.brokk.TaskEntry(1, tf, null);
+            var te = new TaskEntry(1, tf, null);
             var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
             var hf2 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
 
@@ -948,8 +949,8 @@ class FragmentEqualityTest {
             var messages2 = List.<ChatMessage>of(UserMessage.from("user2"));
             var tf1 = new ContextFragments.TaskFragment(contextManager, messages1, "session");
             var tf2 = new ContextFragments.TaskFragment(contextManager, messages2, "session");
-            var te1 = new ai.brokk.TaskEntry(1, tf1, null);
-            var te2 = new ai.brokk.TaskEntry(1, tf2, null);
+            var te1 = new TaskEntry(1, tf1, null);
+            var te2 = new TaskEntry(1, tf2, null);
             var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te1));
             var hf2 = new ContextFragments.HistoryFragment(contextManager, List.of(te2));
 

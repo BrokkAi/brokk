@@ -27,6 +27,7 @@ import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -44,7 +45,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
+@Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock("ai.brokk.util.Environment.shellCommandRunnerFactory")
 class CodeAgentTest {
 
     private TestProject project;
@@ -791,7 +797,7 @@ class CodeAgentTest {
         var taskMessages = new ArrayList<ChatMessage>();
         var nextRequest = new UserMessage("Please fix the build");
 
-        var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST, SpecialTextType.BUILD_RESULTS);
+        var suppressed = EnumSet.of(SpecialTextType.TASK_LIST, SpecialTextType.BUILD_RESULTS);
         var messages = CodePrompts.instance.collectCodeMessages(
                 cm.getCodeModel(), ctx, prologue, taskMessages, nextRequest, suppressed, Messages.getText(nextRequest));
 
@@ -917,7 +923,7 @@ class CodeAgentTest {
         var ctx = newContext().addFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
-        ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        ctx.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
         // Scripted model proposes an edit to the read-only file
         var response =
                 """
@@ -971,7 +977,7 @@ class CodeAgentTest {
         // Simulate a read-only virtual fragment by wrapping in a mock (this is a simplified test)
         // In practice, Code/Usage fragments would be read-only; here we just ensure the logic
         // favors the editable ProjectPathFragment
-        ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        ctx.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         var response =
                 """
@@ -1201,7 +1207,7 @@ class CodeAgentTest {
         ctx = ctx.setReadonly(codeCodeReadonlyOnly, true);
 
         // Make sure computed fragments have resolved their files() so computeReadOnlyPaths sees correct ProjectFiles.
-        ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        ctx.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         var readOnlyPaths = CodeAgent.computeReadOnlyPaths(ctx);
 
@@ -1271,7 +1277,7 @@ class CodeAgentTest {
         ctx = ctx.setReadonly(roPpf, true);
 
         // Ensure context fragments have resolved
-        ctx.awaitContextsAreComputed(Duration.of(5, ChronoUnit.SECONDS));
+        ctx.awaitContentsAreComputed(Duration.of(5, ChronoUnit.SECONDS));
 
         var request = new UserMessage("Please fix things");
 
@@ -1282,11 +1288,11 @@ class CodeAgentTest {
                 List.of(),
                 List.of(),
                 request,
-                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
+                EnumSet.of(SpecialTextType.TASK_LIST),
                 Messages.getText(request));
 
         // 1) first message is SystemMessage
-        assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, msgsNoChanged.get(0));
+        assertInstanceOf(SystemMessage.class, msgsNoChanged.get(0));
 
         // 2) last message should be the augmented request (original text + TOC reminder)
         var lastMsg = msgsNoChanged.get(msgsNoChanged.size() - 1);
@@ -1308,7 +1314,7 @@ class CodeAgentTest {
                 List.of(),
                 List.of(),
                 request,
-                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
+                EnumSet.of(SpecialTextType.TASK_LIST),
                 Messages.getText(request));
 
         // 4) ensure editable file name appears when it is provided as changed
@@ -1319,7 +1325,7 @@ class CodeAgentTest {
                 "Expected editable fragment content to appear in messages when it's listed as changed");
 
         // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
-        var toc = WorkspacePrompts.formatToc(ctx, java.util.Collections.emptySet());
+        var toc = WorkspacePrompts.formatToc(ctx, Collections.emptySet());
         var tocReminder =
                 """
                 Reminder: here is a list of the full contents of the Workspace that you can refer to above:
@@ -1383,16 +1389,10 @@ class CodeAgentTest {
         var request = new UserMessage("Request text");
         var goalText = "Special goal text";
         var messages = CodePrompts.instance.collectCodeMessages(
-                cm.getCodeModel(),
-                ctx,
-                List.of(),
-                List.of(),
-                request,
-                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
-                goalText);
+                cm.getCodeModel(), ctx, List.of(), List.of(), request, EnumSet.of(SpecialTextType.TASK_LIST), goalText);
 
         // First message must be SystemMessage
-        assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, messages.get(0));
+        assertInstanceOf(SystemMessage.class, messages.get(0));
         String sysText = Messages.getText(messages.get(0));
 
         // Verify Goal block

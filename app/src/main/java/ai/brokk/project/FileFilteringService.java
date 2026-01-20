@@ -3,7 +3,6 @@ package ai.brokk.project;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,7 +20,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.ignore.IgnoreNode;
 import org.eclipse.jgit.ignore.IgnoreNode.MatchResult;
-import org.eclipse.jgit.util.FS;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
 /**
@@ -39,7 +38,7 @@ public final class FileFilteringService {
     private final Map<Path, List<Map.Entry<Path, Path>>> gitignoreChainCache = new ConcurrentHashMap<>();
 
     public FileFilteringService(Path root, IGitRepo repo) {
-        this.root = root;
+        this.root = root.toAbsolutePath().normalize();
         this.repo = repo;
     }
 
@@ -73,7 +72,6 @@ public final class FileFilteringService {
             return patternFiltered;
         }
 
-        var gitTopLevel = gitRepo.getGitTopLevel();
         var workTreeRoot = gitRepo.getWorkTreeRoot();
 
         // If project root is outside the git work tree, skip gitignore filtering
@@ -83,7 +81,7 @@ public final class FileFilteringService {
             return patternFiltered;
         }
 
-        var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
+        var fixedGitignoreFiles = gitRepo.getFixedGitignoreFiles();
 
         return patternFiltered.stream()
                 .filter(file -> {
@@ -91,7 +89,7 @@ public final class FileFilteringService {
                     var isDep = file.getRelPath()
                             .startsWith(Path.of(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR));
                     // ProjectFile instances are files, not directories
-                    return isDep || !isPathIgnored(gitRepo, file.getRelPath(), fixedGitignorePairs, false);
+                    return isDep || !isPathIgnored(gitRepo, file.getRelPath(), fixedGitignoreFiles, false);
                 })
                 .collect(Collectors.toSet());
     }
@@ -99,34 +97,30 @@ public final class FileFilteringService {
     /**
      * Determine if a path (file or directory) is ignored by gitignore rules.
      * Returns false on error or if no git repo.
-     * This method calls {@link java.nio.file.Files#isDirectory} to determine directory status.
+     * This method calls {@link Files#isDirectory} to determine directory status.
      */
     public boolean isGitignored(Path relPath) {
         if (!(repo instanceof GitRepo gitRepo)) {
             return false;
         }
 
-        var gitTopLevel = gitRepo.getGitTopLevel();
         var workTreeRoot = gitRepo.getWorkTreeRoot();
 
         if (!root.startsWith(workTreeRoot)) {
             return false;
         }
 
-        var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
+        var fixedGitignoreFiles = gitRepo.getFixedGitignoreFiles();
 
         // Compute isDirectory here since caller didn't provide it
         Path absPath = root.resolve(relPath);
         boolean isDirectory = Files.isDirectory(absPath);
 
-        return isPathIgnored(gitRepo, relPath, fixedGitignorePairs, isDirectory);
+        return isPathIgnored(gitRepo, relPath, fixedGitignoreFiles, isDirectory);
     }
 
     public Optional<Path> getGlobalGitignorePath() {
-        if (!(repo instanceof GitRepo gitRepo)) {
-            return Optional.empty();
-        }
-        return getGlobalGitignoreFile(gitRepo);
+        return repo.getGlobalGitignorePath();
     }
 
     /** Clear internal caches. */
@@ -300,63 +294,6 @@ public final class FileFilteringService {
         return Pattern.compile(regex.toString());
     }
 
-    private Optional<Path> getGlobalGitignoreFile(GitRepo gitRepo) {
-        var config = gitRepo.getGit().getRepository().getConfig();
-
-        String configPath = config.getString("core", null, "excludesfile");
-        if (configPath != null && !configPath.isEmpty()) {
-            var fs = FS.DETECTED;
-            Path globalIgnore;
-
-            if (configPath.startsWith("~/")) {
-                File resolved = fs.resolve(fs.userHome(), configPath.substring(2));
-                globalIgnore = resolved.toPath();
-            } else {
-                globalIgnore = Path.of(configPath);
-            }
-
-            if (Files.exists(globalIgnore)) {
-                logger.trace("Using global gitignore from core.excludesfile: {}", globalIgnore);
-                return Optional.of(globalIgnore);
-            }
-        }
-
-        File userHome = FS.DETECTED.userHome();
-        Path xdgIgnore = userHome.toPath().resolve(".config/git/ignore");
-        if (Files.exists(xdgIgnore)) {
-            logger.trace("Using global gitignore from XDG location: {}", xdgIgnore);
-            return Optional.of(xdgIgnore);
-        }
-
-        Path legacyIgnore = userHome.toPath().resolve(".gitignore_global");
-        if (Files.exists(legacyIgnore)) {
-            logger.trace("Using global gitignore from legacy location: {}", legacyIgnore);
-            return Optional.of(legacyIgnore);
-        }
-
-        return Optional.empty();
-    }
-
-    private List<Map.Entry<Path, Path>> computeFixedGitignorePairs(GitRepo gitRepo, Path gitTopLevel) {
-        var fixedPairs = new ArrayList<Map.Entry<Path, Path>>();
-
-        getGlobalGitignoreFile(gitRepo).ifPresent(globalIgnore -> {
-            fixedPairs.add(Map.entry(Path.of(""), globalIgnore));
-        });
-
-        var gitInfoExclude = gitTopLevel.resolve(".git/info/exclude");
-        if (Files.exists(gitInfoExclude)) {
-            fixedPairs.add(Map.entry(Path.of(""), gitInfoExclude));
-        }
-
-        var rootGitignore = gitTopLevel.resolve(".gitignore");
-        if (Files.exists(rootGitignore)) {
-            fixedPairs.add(Map.entry(Path.of(""), rootGitignore));
-        }
-
-        return fixedPairs;
-    }
-
     private MatchResult checkIgnoreFile(Path ignoreFile, String pathToCheck, boolean isDirectory) {
         var ignoreNode = ignoreNodeCache.computeIfAbsent(ignoreFile, path -> {
             try {
@@ -374,7 +311,7 @@ public final class FileFilteringService {
     }
 
     private List<Map.Entry<Path, Path>> collectGitignorePairs(
-            Path gitTopLevel, Path gitRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs) {
+            Path workTreeRoot, Path gitRelPath, List<Path> fixedGitignoreFiles) {
         Path directory = gitRelPath.getParent();
         if (directory == null) {
             directory = Path.of("");
@@ -385,13 +322,18 @@ public final class FileFilteringService {
             return cached;
         }
 
+        // Fixed gitignore files (global, info/exclude, root .gitignore) all apply at root scope
         var gitignorePairs = new ArrayList<Map.Entry<Path, Path>>();
-        gitignorePairs.addAll(fixedGitignorePairs);
+        for (var file : fixedGitignoreFiles) {
+            gitignorePairs.add(Map.entry(Path.of(""), file));
+        }
 
         var nestedGitignores = new ArrayList<Map.Entry<Path, Path>>();
         Path currentDir = directory;
         while (currentDir != null && !currentDir.toString().isEmpty()) {
-            var nestedGitignore = gitTopLevel.resolve(currentDir).resolve(".gitignore");
+            // Use workTreeRoot for nested gitignores - for worktrees this is the worktree
+            // directory, not the main repo. Nested .gitignore files are in the working tree.
+            var nestedGitignore = workTreeRoot.resolve(currentDir).resolve(".gitignore");
             if (Files.exists(nestedGitignore)) {
                 nestedGitignores.add(Map.entry(currentDir, nestedGitignore));
             }
@@ -544,23 +486,29 @@ public final class FileFilteringService {
         }
     }
 
-    private String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
-        Path gitTopLevel = gitRepo.getGitTopLevel();
-        Path projectAbsPath = root.resolve(projectRelPath);
-        Path gitRelPath = gitTopLevel.relativize(projectAbsPath);
-        return toUnixPath(gitRelPath);
+    private @Nullable String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
+        // Use workTreeRoot for relativizing paths - for worktrees this is the worktree's
+        // working directory, not the main repo. Using gitTopLevel would produce incorrect
+        // paths like "../worktree-name/src/file.java" that don't match gitignore patterns.
+        Path workTreeRoot = gitRepo.getWorkTreeRoot();
+        // Normalize to handle any . or .. components in projectRelPath
+        Path projectAbsPath = root.resolve(projectRelPath).normalize();
+        if (!projectAbsPath.startsWith(workTreeRoot)) {
+            return null;
+        }
+        return toUnixPath(workTreeRoot.relativize(projectAbsPath));
     }
 
     private boolean isPathIgnored(
-            GitRepo gitRepo,
-            Path projectRelPath,
-            List<Map.Entry<Path, Path>> fixedGitignorePairs,
-            boolean isDirectory) {
+            GitRepo gitRepo, Path projectRelPath, List<Path> fixedGitignoreFiles, boolean isDirectory) {
         String gitRelPath = toGitRelativePath(gitRepo, projectRelPath);
+        if (gitRelPath == null) {
+            return false;
+        }
         Path gitRelPathObj = Path.of(gitRelPath);
-        var gitTopLevel = gitRepo.getGitTopLevel();
+        var workTreeRoot = gitRepo.getWorkTreeRoot();
 
-        var gitignorePairs = collectGitignorePairs(gitTopLevel, gitRelPathObj, fixedGitignorePairs);
+        var gitignorePairs = collectGitignorePairs(workTreeRoot, gitRelPathObj, fixedGitignoreFiles);
 
         MatchResult finalResult = MatchResult.CHECK_PARENT;
 
@@ -588,7 +536,7 @@ public final class FileFilteringService {
         while (parent != null && !parent.toString().isEmpty()) {
             String parentPath = toUnixPath(parent);
 
-            var parentGitignorePairs = collectGitignorePairs(gitTopLevel, parent, fixedGitignorePairs);
+            var parentGitignorePairs = collectGitignorePairs(workTreeRoot, parent, fixedGitignoreFiles);
 
             MatchResult parentResult = MatchResult.CHECK_PARENT;
 

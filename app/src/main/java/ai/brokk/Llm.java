@@ -42,15 +42,11 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
-import dev.langchain4j.model.openai.internal.Json;
 import dev.langchain4j.model.openai.internal.OpenAiUtils;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.shared.StreamOptions;
 import dev.langchain4j.model.output.FinishReason;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -140,7 +136,9 @@ public class Llm {
     }
 
     private IConsoleIO io;
-    private final Path taskHistoryDir; // Directory for this specific LLM task's history files
+    private final Path historyBaseDir;
+    private final String baseTaskDirName;
+    private @Nullable Path taskHistoryDir; // Directory for this specific LLM task's history files (created lazily)
     final IContextManager contextManager;
     private static final int DEFAULT_MAX_ATTEMPTS = 8;
     private final int MAX_ATTEMPTS;
@@ -149,7 +147,6 @@ public class Llm {
     private final boolean forceReasoningEcho;
     private final boolean tagRetain;
     private final boolean echo;
-    private volatile @Nullable String previousResponseId;
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
@@ -173,32 +170,13 @@ public class Llm {
         this.echo = echo;
         this.MAX_ATTEMPTS = determineMaxAttempts();
         logger.trace("MAX_ATTEMPTS configured to {}", this.MAX_ATTEMPTS);
-        var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
+        this.historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
-        // Create task directory name for this specific LLM interaction
+        // Store task directory name components for lazy creation
         var timestamp =
                 LocalDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
         var taskDesc = LogDescription.getShortDescription(taskDescription);
-
-        // Create the specific directory for this task with uniqueness check
-        var baseTaskDirName = String.format("%s %s", timestamp, taskDesc);
-        synchronized (Llm.class) {
-            int suffix = 1;
-            var mutableDirName = historyBaseDir.resolve(baseTaskDirName);
-            while (Files.exists(mutableDirName)) {
-                var newDirName = baseTaskDirName + "-" + suffix;
-                mutableDirName = historyBaseDir.resolve(newDirName);
-                suffix++;
-            }
-
-            this.taskHistoryDir = mutableDirName;
-            try {
-                Files.createDirectories(this.taskHistoryDir);
-            } catch (IOException e) {
-                logger.error("Failed to create task history directory {}", this.taskHistoryDir, e);
-                // taskHistoryDir might be null or unusable, logRequest checks for null
-            }
-        }
+        this.baseTaskDirName = String.format("%s %s", timestamp, taskDesc);
     }
 
     /**
@@ -245,14 +223,39 @@ public class Llm {
     }
 
     /**
+     * Lazily creates and returns the task history directory. Thread-safe.
+     */
+    private synchronized Path getOrCreateTaskHistoryDir() {
+        if (taskHistoryDir == null) {
+            synchronized (Llm.class) {
+                int suffix = 1;
+                var mutableDirName = historyBaseDir.resolve(baseTaskDirName);
+                while (Files.exists(mutableDirName)) {
+                    var newDirName = baseTaskDirName + "-" + suffix;
+                    mutableDirName = historyBaseDir.resolve(newDirName);
+                    suffix++;
+                }
+                taskHistoryDir = mutableDirName;
+                try {
+                    Files.createDirectories(taskHistoryDir);
+                } catch (IOException e) {
+                    logger.error("Failed to create task history directory {}", taskHistoryDir, e);
+                }
+            }
+        }
+        return taskHistoryDir;
+    }
+
+    /**
      * Write the request JSON before sending to the model, to a file named "<base>-request.json".
      * Returns the assigned sequence number so that the corresponding response can use the same number.
      */
     private synchronized int logRequest(ChatRequest request) {
         int assignedSequence = requestSequence++;
         try {
+            var dir = getOrCreateTaskHistoryDir();
             var filename = "%s %03d-request.json".formatted(logFileTimestamp(), assignedSequence);
-            var requestPath = taskHistoryDir.resolve(filename);
+            var requestPath = dir.resolve(filename);
             var requestOptions = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
@@ -284,8 +287,15 @@ public class Llm {
                     .stream(true)
                     .streamOptions(StreamOptions.builder().includeUsage(true).build())
                     .build();
-            return Json.toJson(
-                    ChatCompletionRequest.builder().from(openAiRequest).build());
+            try {
+                return objectMapper
+                        .writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(ChatCompletionRequest.builder()
+                                .from(openAiRequest)
+                                .build());
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
         }
         try {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
@@ -361,10 +371,14 @@ public class Llm {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         if (addJsonFence && !fenceOpen.get()) {
-                            io.llmOutput("\n```json\n", ChatMessageType.AI, false, forceReasoningEcho);
+                            io.llmOutput(
+                                    "\n```json\n",
+                                    ChatMessageType.AI,
+                                    LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                             fenceOpen.set(true);
                         }
-                        io.llmOutput(token, ChatMessageType.AI, false, forceReasoningEcho);
+                        io.llmOutput(
+                                token, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     }
                 });
             }
@@ -379,7 +393,7 @@ public class Llm {
 
                     accumulatedReasoningBuilder.append(out);
                     if (echo) {
-                        io.llmOutput(out, ChatMessageType.AI, false, true);
+                        io.llmOutput(out, ChatMessageType.AI, LlmOutputMeta.reasoning());
                     }
                 });
             }
@@ -401,18 +415,13 @@ public class Llm {
                         errorRef.set(ex);
                     } else {
                         completedChatResponse.set(response);
-                        var id = response.id();
-                        if (id != null) {
-                            logger.trace("response_id={}", id);
-                            assert !id.isBlank();
-                            previousResponseId = id;
-                        }
                         String tokens =
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+                        io.llmOutput(
+                                "\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -430,7 +439,8 @@ public class Llm {
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     errorRef.set(th);
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+                        io.llmOutput(
+                                "\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -455,7 +465,7 @@ public class Llm {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 errorRef.set(mapped);
                 if (echo && addJsonFence && fenceOpen.get()) {
-                    io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+                    io.llmOutput("\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     fenceOpen.set(false);
                 }
                 completed.set(true);
@@ -496,7 +506,7 @@ public class Llm {
 
         // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
         if (echo && addJsonFence && fenceOpen.get()) {
-            io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+            io.llmOutput("\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
             fenceOpen.set(false);
         }
 
@@ -527,9 +537,6 @@ public class Llm {
         // Happy path: successful completion, no errors
         var response = completedChatResponse.get(); // Will be null if an error occurred or onComplete got null
         assert response != null : "If no error, completedChatResponse must be set by onCompleteResponse";
-        if (echo) {
-            io.llmOutput("\n", ChatMessageType.AI, false, forceReasoningEcho);
-        }
         return StreamingResult.fromResponse(response, null, elapsedMs);
     }
 
@@ -618,11 +625,9 @@ public class Llm {
 
         // poor man's ToolChoice.REQUIRED (not supported by langchain4j for some providers)
         // Also needed for our emulation if it returns a response without a tool call
-        var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
         int totalAttemptsMade = result.retries() + 1;
         while (result.error == null
-                && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED
                 && totalAttemptsMade < MAX_ATTEMPTS) {
@@ -640,10 +645,9 @@ public class Llm {
         // If we exhausted attempts and still don't have tool calls when REQUIRED, fail
         if (totalAttemptsMade >= MAX_ATTEMPTS
                 && result.error == null
-                && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED) {
-            return new StreamingResult(cr, new MissingToolCallsException(totalAttemptsMade), result.retries());
+            return new StreamingResult(null, new MissingToolCallsException(totalAttemptsMade), result.retries());
         }
 
         return result;
@@ -657,6 +661,10 @@ public class Llm {
             List<ChatMessage> rawMessages, ToolContext toolContext, int maxAttempts) throws InterruptedException {
         if (SwingUtilities.isEventDispatchThread() && Boolean.getBoolean("brokk.devmode")) {
             throw new IllegalStateException("LLM calls must not be made from the EDT");
+        }
+        if (toolContext.toolChoice().equals(ToolChoice.REQUIRED)
+                && toolContext.toolSpecifications().isEmpty()) {
+            throw new IllegalArgumentException("REQUIRED tool specifications must not be empty");
         }
 
         Throwable lastError = null;
@@ -750,13 +758,6 @@ public class Llm {
         var toolChoice = toolContext.toolChoice();
 
         var messagesToSend = messages;
-        // Preprocess messages *only* if no tools are being requested for this call.
-        // This handles the case where prior TERMs exist in history but the current
-        // request doesn't involve tools (which makes some providers unhappy if they see tool history).
-        if (tools.isEmpty()) {
-            messagesToSend = Llm.emulateToolExecutionResults(messages);
-            validateEmulatedToolMessages(messagesToSend);
-        }
 
         if (!tools.isEmpty() && contextManager.getService().requiresEmulatedTools(model)) {
             // Emulation handles its own preprocessing and needs the toolContext to validate owner
@@ -797,12 +798,14 @@ public class Llm {
         }
         var tr = toolContext.toolRegistry();
 
+        // we need an empty line before each tool call render (needed for rehype-plugin to render correctly)
         var rendered = requests.stream()
                 .map(tr::getExplanationForToolRequest)
                 .filter(s -> !s.isBlank())
-                .collect(Collectors.joining("\n"));
+                .collect(Collectors.joining("\n\n"));
         if (!rendered.isBlank()) {
-            io.llmOutput("\n" + rendered, ChatMessageType.AI, false, forceReasoningEcho);
+            io.llmOutput(
+                    "\n\n" + rendered, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
         }
     }
 
@@ -815,10 +818,6 @@ public class Llm {
             Map<String, String> newMetadata = new HashMap<>();
             newMetadata.put("tags", "retain");
             builder.metadata(newMetadata);
-        }
-
-        if (previousResponseId != null) {
-            builder.previousResponseId(previousResponseId);
         }
 
         return builder;
@@ -889,7 +888,7 @@ public class Llm {
                     // output the LLM's thinking
                     String textToOutput = parseResult.text();
                     if (textToOutput != null && !textToOutput.isBlank()) {
-                        io.llmOutput(textToOutput, ChatMessageType.AI, false, false);
+                        io.llmOutput(textToOutput, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     }
                 }
 
@@ -916,8 +915,7 @@ public class Llm {
                         io.llmOutput(
                                 "\nTool call validation errors:\n- " + String.join("\n- ", validationErrors),
                                 ChatMessageType.CUSTOM,
-                                false,
-                                forceReasoningEcho);
+                                LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     }
                     attemptMessages.add(new AiMessage(rawResult.text()));
                     attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(new IllegalArgumentException(
@@ -941,8 +939,7 @@ public class Llm {
                         "\nRetry " + attempt + "/" + (maxTries - 1)
                                 + ": invalid JSON response; requesting proper format.",
                         ChatMessageType.CUSTOM,
-                        false,
-                        forceReasoningEcho);
+                        LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                 var txt = rawResult.text();
                 attemptMessages.add(new AiMessage(txt));
                 attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(parseError)));
@@ -1457,6 +1454,7 @@ public class Llm {
     private synchronized void logResult(
             StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result, int logSequence) {
         try {
+            var dir = getOrCreateTaskHistoryDir();
             var formattedRequest = "# Request to %s:\n\n%s\n"
                     .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
             var formattedTools = request.toolSpecifications() == null
@@ -1472,13 +1470,13 @@ public class Llm {
             String fileTimestamp = logFileTimestamp();
             String shortDesc =
                     result == null ? "Cancelled" : LogDescription.getShortDescription(result.getDescription());
-            var filePath =
-                    taskHistoryDir.resolve(String.format("%s %03d-%s.log", fileTimestamp, logSequence, shortDesc));
+            var filePath = dir.resolve(String.format("%s %03d-%s.log", fileTimestamp, logSequence, shortDesc));
             var options = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
             logger.trace("Writing history to file {}", filePath);
-            Files.writeString(filePath, formattedRequest + formattedTools + formattedResponse, options);
+            Files.writeString(
+                    filePath, formattedRequest + "\n\n" + formattedTools + "\n\n" + formattedResponse, options);
         } catch (IOException e) {
             logger.error("Failed to write LLM response history file", e);
         }
@@ -1503,7 +1501,8 @@ public class Llm {
                     logger.debug("Cost notifications disabled by user settings");
                     return;
                 }
-                var pricing = service.getModelPricing(modelName);
+                var tier = Service.getProcessingTier(model);
+                var pricing = service.getModelPricing(modelName, tier);
 
                 int input = usage.inputTokens();
                 int cached = usage.cachedInputTokens();
@@ -1552,14 +1551,10 @@ public class Llm {
         }
 
         public AiMessage aiMessage() {
-            var messageText = text == null ? "" : text;
-            if (messageText.isBlank() && !toolRequests.isEmpty()) {
-                // Works around crazy-ass Anthropic bug where they don't allow empty text
-                // but sometimes return empty themselves as part of a tool call response.
-                // See https://github.com/BrokkAi/brokk/pull/1556
-                messageText = Messages.TOOL_CALLS_PLACEHOLDER;
-            }
-            return new AiMessage(messageText, reasoningContent, toolRequests);
+            var thoughtSignature = originalResponse == null
+                    ? null
+                    : originalResponse.aiMessage().thoughtSignature();
+            return new AiMessage(text, reasoningContent, thoughtSignature, toolRequests);
         }
     }
 
@@ -1707,18 +1702,43 @@ public class Llm {
                        [Error: %s]
                        %s
                        """
-                        .formatted(formatThrowable(error), contentToShow);
+                        .formatted(ExceptionReporter.formatStackTrace(error), contentToShow);
             }
-            // If no error, originalResponse is guaranteed to be non-null by the record's invariant.
-            return castNonNull(originalResponse()).toString();
-        }
 
-        private String formatThrowable(Throwable th) {
-            var baos = new ByteArrayOutputStream();
-            try (var ps = new PrintStream(baos)) {
-                th.printStackTrace(ps);
+            AiMessage ai = aiMessage();
+            String toolRequestsJson = "[]";
+            String metadataJson = "{}";
+
+            try {
+                toolRequestsJson =
+                        objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(ai.toolExecutionRequests());
+                if (originalResponse() != null) {
+                    metadataJson = objectMapper
+                            .writerWithDefaultPrettyPrinter()
+                            .writeValueAsString(originalResponse().metadata());
+                }
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to serialize components for formatted()", e);
             }
-            return baos.toString(StandardCharsets.UTF_8);
+
+            return """
+                ## text
+                %s
+
+                ## reasoningContent
+                %s
+
+                ## toolExecutionRequests
+                %s
+
+                ## metadata
+                %s
+                """
+                    .formatted(
+                            ai.text() == null ? "" : ai.text(),
+                            ai.reasoningContent() == null ? "" : ai.reasoningContent(),
+                            toolRequestsJson,
+                            metadataJson);
         }
 
         /**

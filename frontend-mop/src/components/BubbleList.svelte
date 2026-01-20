@@ -7,7 +7,7 @@
 </script>
 
 {#each bubbles as bubble (bubble.seq)}
-  {#if bubble.type === 'AI' && bubble.reasoning}
+  {#if bubble.type === 'AI' && bubble.reasoningState !== undefined}
     <AIReasoningBubble {bubble} />
   {:else}
     <MessageBubble {bubble} />

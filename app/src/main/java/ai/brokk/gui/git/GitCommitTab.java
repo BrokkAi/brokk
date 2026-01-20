@@ -9,7 +9,6 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.Constants;
@@ -53,7 +52,6 @@ public class GitCommitTab extends JPanel implements ThemeAware {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitWorkflow workflowService;
 
     // Commit tab UI
     private JTable uncommittedFilesTable; // Initialized via fileStatusPane
@@ -88,7 +86,6 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.workflowService = new GitWorkflow(contextManager);
         buildCommitTabUI();
         // Deferred update helper: run full commit-panel update when visible, otherwise mark dirty.
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performUpdateCommitPanel);
@@ -130,7 +127,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         var viewDiffItem = new JMenuItem("View Diff (All Files)");
         uncommittedContextMenu.add(viewDiffItem);
 
-        var editFileItem = new JMenuItem("Edit File(s)");
+        var editFileItem = new JMenuItem("Attach File(s)");
         uncommittedContextMenu.add(editFileItem);
 
         // Add "View History" item
@@ -251,22 +248,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
             }
 
             Window owner = SwingUtilities.getWindowAncestor(GitCommitTab.this);
-            CommitDialog dialog = new CommitDialog(
-                    owner,
-                    chrome,
-                    contextManager,
-                    workflowService,
-                    filesToCommit,
-                    commitResult -> { // This is the onCommitSuccessCallback
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                "Committed "
-                                        + getRepo().shortHash(commitResult.commitId())
-                                        + ": " + commitResult.firstLine());
-                        requestUpdate(); // Refresh file list
-                        chrome.updateLogTab();
-                        chrome.selectCurrentBranchInLogTab();
-                    });
+            CommitDialog dialog = new CommitDialog(owner, chrome, contextManager, filesToCommit, commitResult -> {});
             dialog.setVisible(true);
         });
         buttonPanel.add(commitButton);
@@ -528,7 +510,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                     (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
             String status = fileStatusPane.statusFor(projectFile);
 
-            // Enable Edit File
+            // Enable Attach File
             editFileItem.setEnabled(true);
             editFileItem.setToolTipText("Edit this file");
 

@@ -3,9 +3,11 @@ package ai.brokk.agents;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -47,7 +49,7 @@ class BlitzForgeInterruptedTest {
     void testTaskResultRequiresLiveContext() throws InterruptedException {
         // Get the live top context
         Context liveContext = contextManager.liveContext();
-        liveContext.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        liveContext.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // Constructing TaskResult with live context should succeed
         TaskResult result = assertDoesNotThrow(
@@ -69,7 +71,7 @@ class BlitzForgeInterruptedTest {
     void testUnfrozenContextSucceeds() throws InterruptedException {
         // Get the live top context
         Context liveContext = contextManager.liveContext();
-        liveContext.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        liveContext.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // Constructing TaskResult with unfrozen context should succeed
         TaskResult result = assertDoesNotThrow(
@@ -100,7 +102,7 @@ class BlitzForgeInterruptedTest {
 
         var listener = new BlitzForge.Listener() {
             @Override
-            public ai.brokk.IConsoleIO getConsoleIO(ai.brokk.analyzer.ProjectFile file) {
+            public IConsoleIO getConsoleIO(ProjectFile file) {
                 return new NoOpConsoleIO();
             }
         };
@@ -121,7 +123,7 @@ class BlitzForgeInterruptedTest {
     @DisplayName("Context.unfreeze is idempotent on live contexts")
     void testUnfreezeIdempotency() throws InterruptedException {
         Context liveContext = contextManager.liveContext();
-        liveContext.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        liveContext.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // Should be usable for TaskResult construction
         TaskResult result = assertDoesNotThrow(
@@ -160,7 +162,7 @@ class BlitzForgeInterruptedTest {
 
         var listener = new BlitzForge.Listener() {
             @Override
-            public ai.brokk.IConsoleIO getConsoleIO(ai.brokk.analyzer.ProjectFile file) {
+            public IConsoleIO getConsoleIO(ProjectFile file) {
                 return new NoOpConsoleIO();
             }
 

@@ -7,17 +7,22 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.SettingsDialog.SettingsData;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EventObject;
 import java.util.List;
 import java.util.Map;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.ButtonGroup;
+import javax.swing.DefaultCellEditor;
+import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -55,8 +60,11 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             new JCheckBox("Tab inserts indentation in Instructions (Code-style)");
     private final JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
     private final JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
+    private final JLabel watchServiceImplLabel = new JLabel("File watcher implementation:");
     private final JComboBox<String> watchServiceImplCombo =
             new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
+    private final JLabel watchNote =
+            new JLabel("<html><i>Changing this will require restarting Brokk to fully take effect.</i></html>");
 
     // Startup tab
     private final JRadioButton startupOpenLastRadio = new JRadioButton("Open last project (recommended)");
@@ -333,9 +341,15 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             memorySpinner.setValue(v);
         }
 
-        advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+        boolean isAdvanced = GlobalUiSettings.isAdvancedMode();
+        advancedModeCheckbox.setSelected(isAdvanced);
         skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
-        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
+        skipCommitGateEzCheckbox.setVisible(!isAdvanced);
+        boolean isDevMode = Boolean.getBoolean("brokk.devmode");
+        watchServiceImplLabel.setVisible(isDevMode);
+        watchServiceImplCombo.setVisible(isDevMode);
+        watchNote.setVisible(isDevMode);
+
         instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
 
         String pref = MainProject.getWatchServiceImplPreference();
@@ -429,7 +443,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         vendors.add(ModelProperties.DEFAULT_VENDOR);
         vendors.addAll(ModelProperties.getAvailableVendors());
 
-        otherModelsVendorCombo.setModel(new javax.swing.DefaultComboBoxModel<>(vendors.toArray(new String[0])));
+        otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
         String persistedVendor = MainProject.getOtherModelsVendorPreference();
         String vendorToSelect;
@@ -515,11 +529,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         var manualPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         manualPanel.add(memoryManualRadio);
-        manualPanel.add(new javax.swing.Box.Filler(
-                new java.awt.Dimension(5, 0), new java.awt.Dimension(5, 0), new java.awt.Dimension(5, 0)));
+        manualPanel.add(new Box.Filler(new Dimension(5, 0), new Dimension(5, 0), new Dimension(5, 0)));
         manualPanel.add(memorySpinner);
-        manualPanel.add(new javax.swing.Box.Filler(
-                new java.awt.Dimension(5, 0), new java.awt.Dimension(5, 0), new java.awt.Dimension(5, 0)));
+        manualPanel.add(new Box.Filler(new Dimension(5, 0), new Dimension(5, 0), new Dimension(5, 0)));
         manualPanel.add(new JLabel("MB"));
 
         gbc.gridy = row++;
@@ -532,7 +544,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         memorySpinner.setEnabled(false);
 
         var restartLabel = new JLabel("Restart required after changing memory settings");
-        restartLabel.setFont(restartLabel.getFont().deriveFont(java.awt.Font.ITALIC));
+        restartLabel.setFont(restartLabel.getFont().deriveFont(Font.ITALIC));
         gbc.gridy = row++;
         gbc.insets = new Insets(0, 25, 2, 5);
         panel.add(restartLabel, gbc);
@@ -576,6 +588,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         advancedModeCheckbox.addActionListener(e -> {
             boolean advanced = advancedModeCheckbox.isSelected();
             skipCommitGateEzCheckbox.setVisible(!advanced);
+            watchServiceImplLabel.setVisible(advanced);
+            watchServiceImplCombo.setVisible(advanced);
+            watchNote.setVisible(advanced);
             panel.revalidate();
             panel.repaint();
         });
@@ -585,7 +600,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         gbc.gridy = row;
         gbc.weightx = 0.0;
         gbc.fill = GridBagConstraints.NONE;
-        panel.add(new JLabel("File watcher implementation:"), gbc);
+        panel.add(watchServiceImplLabel, gbc);
 
         gbc.gridx = 1;
         gbc.gridy = row++;
@@ -595,8 +610,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         watchPanel.add(watchServiceImplCombo);
         panel.add(watchPanel, gbc);
 
-        var watchNote =
-                new JLabel("<html><i>Changing this will require restarting Brokk to fully take effect.</i></html>");
         gbc.gridy = row++;
         gbc.insets = new Insets(0, 25, 2, 5);
         gbc.gridx = 1;
@@ -607,7 +620,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
-        panel.add(javax.swing.Box.createVerticalGlue(), gbc);
+        panel.add(Box.createVerticalGlue(), gbc);
 
         return panel;
     }
@@ -650,7 +663,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
-        startupPanel.add(javax.swing.Box.createVerticalGlue(), gbc);
+        startupPanel.add(Box.createVerticalGlue(), gbc);
 
         return startupPanel;
     }
@@ -705,7 +718,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         gbc.gridy = row++;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.BOTH;
-        panel.add(javax.swing.Box.createVerticalGlue(), gbc);
+        panel.add(Box.createVerticalGlue(), gbc);
 
         return panel;
     }
@@ -722,10 +735,10 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         quickModelsTable.setRowHeight(quickModelsTable.getRowHeight() + 4);
 
         var sorter = new TableRowSorter<>(quickModelsTableModel);
-        sorter.setComparator(2, java.util.Comparator.comparingInt(Service.ReasoningLevel::ordinal));
+        sorter.setComparator(2, Comparator.comparingInt(Service.ReasoningLevel::ordinal));
         boolean showServiceTiers = Boolean.getBoolean("brokk.servicetiers");
         if (showServiceTiers) {
-            sorter.setComparator(3, java.util.Comparator.comparingInt(Service.ProcessingTier::ordinal));
+            sorter.setComparator(3, Comparator.comparingInt(Service.ProcessingTier::ordinal));
         }
         quickModelsTable.setRowSorter(sorter);
 
@@ -734,7 +747,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         TableColumn modelColumn = quickModelsTable.getColumnModel().getColumn(1);
         var modelComboBoxEditor = new JComboBox<>(availableModelNames);
-        modelColumn.setCellEditor(new javax.swing.DefaultCellEditor(modelComboBoxEditor));
+        modelColumn.setCellEditor(new DefaultCellEditor(modelComboBoxEditor));
         modelColumn.setPreferredWidth(200);
 
         TableColumn reasoningColumn = quickModelsTable.getColumnModel().getColumn(2);
@@ -756,10 +769,10 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         var addButton = new MaterialButton();
-        addButton.setIcon(ai.brokk.gui.util.Icons.ADD);
+        addButton.setIcon(Icons.ADD);
         addButton.setToolTipText("Add favorite model");
         var removeButton = new MaterialButton();
-        removeButton.setIcon(ai.brokk.gui.util.Icons.REMOVE);
+        removeButton.setIcon(Icons.REMOVE);
         removeButton.setToolTipText("Remove selected favorite model");
         var defaultsButton = new MaterialButton("Defaults");
         defaultsButton.setToolTipText("Restore default favorite models");
@@ -803,17 +816,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         });
 
         defaultsButton.addActionListener(e -> {
-            int result = JOptionPane.showConfirmDialog(
-                    this,
-                    "This will replace all your current favorite models with the default set.\n\nAre you sure you want to restore defaults?",
-                    "Restore Default Favorite Models",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-
-            if (result != JOptionPane.YES_OPTION) {
-                return;
-            }
-
             if (quickModelsTable.isEditing()) {
                 quickModelsTable.getCellEditor().stopCellEditing();
             }
@@ -825,12 +827,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 int viewRowIndex = quickModelsTable.convertRowIndexToView(0);
                 quickModelsTable.setRowSelectionInterval(viewRowIndex, viewRowIndex);
             }
-
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Favorite models restored to defaults.",
-                    "Defaults Restored",
-                    JOptionPane.INFORMATION_MESSAGE);
         });
 
         Runnable updateRemoveButtonEnabled = () -> {
@@ -864,7 +860,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         var primaryComboHolder = new JPanel(new BorderLayout(0, 0));
         primaryComboHolder.add(primaryModelCombo, BorderLayout.CENTER);
         var primaryHelpButton = new MaterialButton();
-        primaryHelpButton.setIcon(ai.brokk.gui.util.Icons.HELP);
+        primaryHelpButton.setIcon(Icons.HELP);
         primaryHelpButton.setToolTipText(
                 "This model is used by Lutz mode for planning, coding simple tasks, and answering questions.");
         primaryHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
@@ -888,7 +884,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         var codeComboHolder = new JPanel(new BorderLayout(0, 0));
         codeComboHolder.add(preferredCodeModelCombo, BorderLayout.CENTER);
         var codeHelpButton = new MaterialButton();
-        codeHelpButton.setIcon(ai.brokk.gui.util.Icons.HELP);
+        codeHelpButton.setIcon(Icons.HELP);
         codeHelpButton.setToolTipText("This model is used by Lutz mode to implement tasks.");
         codeHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         codeHelpButton.setContentAreaFilled(false);
@@ -920,7 +916,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 + "</div></html>";
 
         var vendorHelpButton = new MaterialButton();
-        vendorHelpButton.setIcon(ai.brokk.gui.util.Icons.HELP);
+        vendorHelpButton.setIcon(Icons.HELP);
         vendorHelpButton.setToolTipText(vendorTooltip);
         vendorHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         vendorHelpButton.setContentAreaFilled(false);
@@ -938,7 +934,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         gbcRoles.weighty = 1.0;
         gbcRoles.fill = GridBagConstraints.BOTH;
         gbcRoles.gridwidth = 2;
-        rolesPanel.add(javax.swing.Box.createVerticalGlue(), gbcRoles);
+        rolesPanel.add(Box.createVerticalGlue(), gbcRoles);
         gbcRoles.gridwidth = 1;
 
         var rolesButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
@@ -955,16 +951,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         rolesPanel.add(rolesButtonsPanel, gbcRoles);
 
         defaultsRolesButton.addActionListener(e -> {
-            int result = JOptionPane.showConfirmDialog(
-                    SettingsAdvancedPanel.this,
-                    "This will restore default model role selections.\nYou will lose your old settings. Continue?",
-                    "Restore Default Model Roles",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-            if (result != JOptionPane.YES_OPTION) {
-                return;
-            }
-
             otherModelsVendorCombo.setSelectedItem(ModelProperties.DEFAULT_VENDOR);
 
             // Get preferred defaults from ModelProperties
@@ -998,12 +984,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             if (!foundCode && preferredCodeModelCombo.getItemCount() > 0) {
                 preferredCodeModelCombo.setSelectedIndex(0);
             }
-
-            JOptionPane.showMessageDialog(
-                    SettingsAdvancedPanel.this,
-                    "Model role selections restored to defaults. Click Apply to save.",
-                    "Defaults Restored",
-                    JOptionPane.INFORMATION_MESSAGE);
         });
 
         var favoritesPanel = new JPanel(new BorderLayout(5, 5));
@@ -1018,7 +998,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 new JPanel(new BorderLayout(5, 5)) {
                     {
                         add(rolesPanel, BorderLayout.NORTH);
-                        add(javax.swing.Box.createVerticalGlue(), BorderLayout.CENTER);
+                        add(Box.createVerticalGlue(), BorderLayout.CENTER);
                         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
                     }
                 },
@@ -1277,7 +1257,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private static class ReasoningCellEditor extends javax.swing.DefaultCellEditor {
+    private static class ReasoningCellEditor extends DefaultCellEditor {
         private final AbstractService service;
         private final JTable table;
         private final JComboBox<Service.ReasoningLevel> comboBox;
@@ -1385,7 +1365,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private static class ProcessingTierCellEditor extends javax.swing.DefaultCellEditor {
+    private static class ProcessingTierCellEditor extends DefaultCellEditor {
         private final AbstractService service;
         private final JTable table;
         private final JComboBox<Service.ProcessingTier> comboBox;

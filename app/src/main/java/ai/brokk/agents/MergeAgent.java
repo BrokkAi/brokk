@@ -6,16 +6,17 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModifiedFile;
 import ai.brokk.tools.GitTools;
-import ai.brokk.util.AdaptiveExecutor;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -307,7 +308,7 @@ public class MergeAgent {
             var msg = "Merge completed successfully. Processed %d conflicted files. Verification passed."
                     .formatted(hasConflictLines.size());
             logger.debug(msg);
-            cm.getIo().llmOutput(msg, ChatMessageType.AI);
+            cm.getIo().llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
             var ctx = new Context(cm).addFragments(cm.toPathFragments(changedFiles));
             return new TaskResult(
@@ -677,10 +678,10 @@ public class MergeAgent {
         List<ProjectFile> theirsChanged;
 
         if (baseCommitId != null) {
-            oursChanged = repo.listFilesChangedBetweenCommits(conflict.ourCommitId(), baseCommitId).stream()
+            oursChanged = repo.listFilesChangedBetweenCommits(baseCommitId, conflict.ourCommitId()).stream()
                     .map(ModifiedFile::file)
                     .collect(Collectors.toList());
-            theirsChanged = repo.listFilesChangedBetweenCommits(otherCommitId, baseCommitId).stream()
+            theirsChanged = repo.listFilesChangedBetweenCommits(baseCommitId, otherCommitId).stream()
                     .map(ModifiedFile::file)
                     .collect(Collectors.toList());
         } else {
@@ -688,8 +689,9 @@ public class MergeAgent {
             theirsChanged = changedFilesFromParent(otherCommitId);
         }
 
+        var analyzer = cm.getAnalyzerUninterrupted();
         return Stream.concat(oursChanged.stream(), theirsChanged.stream())
-                .filter(ContextManager::isTestFile)
+                .filter(f -> ContextManager.isTestFile(f, analyzer))
                 .collect(Collectors.toSet());
     }
 
@@ -707,7 +709,7 @@ public class MergeAgent {
                 return List.of();
             }
             var parent = commit.getParent(0);
-            return repo.listFilesChangedBetweenCommits(commitId, parent.getName()).stream()
+            return repo.listFilesChangedBetweenCommits(parent.getName(), commitId).stream()
                     .map(ModifiedFile::file)
                     .collect(Collectors.toList());
         } catch (IOException e) {
@@ -723,7 +725,7 @@ public class MergeAgent {
         var conflictFiles = allConflictFilesInWorkspace();
         // Give fragments time to compute if necessary
         try {
-            top.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            top.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }

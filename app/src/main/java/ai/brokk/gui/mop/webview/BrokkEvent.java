@@ -1,6 +1,9 @@
 package ai.brokk.gui.mop.webview;
 
+import ai.brokk.gui.mop.ChunkMeta;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -15,12 +18,17 @@ public sealed interface BrokkEvent {
 
     record Chunk(
             String text,
-            boolean isNew,
             @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType,
             int epoch,
             boolean streaming,
-            boolean reasoning)
+            @JsonIgnore ChunkMeta chunkMeta)
             implements BrokkEvent {
+
+        @JsonProperty("meta")
+        public ChunkMeta meta() {
+            return chunkMeta;
+        }
+
         @Override
         public String getType() {
             return "chunk";
@@ -71,7 +79,8 @@ public sealed interface BrokkEvent {
         public static record Message(
                 String text,
                 @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType,
-                boolean reasoning) {}
+                boolean reasoning,
+                boolean terminal) {}
 
         @Override
         public String getType() {
@@ -93,6 +102,18 @@ public sealed interface BrokkEvent {
         @Override
         public String getType() {
             return "live-summary";
+        }
+
+        @Override
+        public Integer getEpoch() {
+            return epoch;
+        }
+    }
+
+    record StaticDocument(int epoch, @Nullable String markdown) implements BrokkEvent {
+        @Override
+        public String getType() {
+            return "static-document";
         }
 
         @Override

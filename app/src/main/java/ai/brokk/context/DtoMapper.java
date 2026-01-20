@@ -21,6 +21,7 @@ import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -90,7 +91,7 @@ public class DtoMapper {
                         var pm = new Service.ModelConfig(
                                 taskRefDto.primaryModelName(), reasoning, Service.ProcessingTier.DEFAULT);
                         meta = new TaskResult.TaskMeta(type, pm);
-                        logger.debug(
+                        logger.trace(
                                 "Reconstructed TaskMeta for sequence {}: type={}, model={}",
                                 taskRefDto.sequence(),
                                 meta.type(),
@@ -190,9 +191,6 @@ public class DtoMapper {
             @Nullable Map<String, byte[]> imageBytesMap,
             Map<String, ContextFragment> fragmentCacheForRecursion,
             ContentReader contentReader) {
-        // Ensure ID continuity for numeric IDs
-        ContextFragments.setMinimumId(parseNumericId(idToResolve));
-
         if (referencedDtos.containsKey(idToResolve)) {
             var dto = referencedDtos.get(idToResolve);
             if (dto instanceof FrozenFragmentDto ffd && isDeprecatedBuildFragment(ffd)) {
@@ -224,31 +222,20 @@ public class DtoMapper {
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve);
     }
 
-    private static int parseNumericId(String id) {
-        try {
-            return Integer.parseInt(id);
-        } catch (NumberFormatException e) {
-            return 0; // Non-numeric IDs (hash-based) don't affect nextId
-        }
-    }
-
     private static @Nullable ContextFragment _buildReferencedFragment(
             ReferencedFragmentDto dto, IContextManager mgr, ContentReader reader) {
         return switch (dto) {
             case ProjectFileDto pfd -> {
-                ContextFragments.setMinimumId(parseNumericId(pfd.id()));
                 // Use current project root for cross-platform compatibility
                 String snapshot = pfd.snapshotText() != null ? reader.readContent(pfd.snapshotText()) : null;
                 yield ContextFragments.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr, snapshot);
             }
             case ExternalFileDto efd -> {
-                ContextFragments.setMinimumId(parseNumericId(efd.id()));
                 String snapshot = efd.snapshotText() != null ? reader.readContent(efd.snapshotText()) : null;
                 yield ContextFragments.ExternalPathFragment.withId(
                         new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr, snapshot);
             }
             case ImageFileDto ifd -> {
-                ContextFragments.setMinimumId(parseNumericId(ifd.id()));
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
                 yield ContextFragments.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
@@ -281,8 +268,6 @@ public class DtoMapper {
             Map<String, TaskFragmentDto> allTaskDtos,
             ContentReader reader) {
         if (dto == null) return null;
-        // Ensure ID continuity for numeric IDs
-        ContextFragments.setMinimumId(parseNumericId(dto.id()));
         return switch (dto) {
             case FrozenFragmentDto ffd -> {
                 if (isDeprecatedBuildFragment(ffd)) {
@@ -553,6 +538,8 @@ public class DtoMapper {
         List<FragmentDtos.ToolExecutionRequestDto> toolDtos = null;
         FragmentDtos.ToolExecutionResultDto toolResultDto = null;
 
+        Map<String, Object> attributes = null;
+
         if (message instanceof AiMessage aiMessage) {
             // For AiMessage, store text and reasoning separately
             String text = aiMessage.text();
@@ -563,7 +550,6 @@ public class DtoMapper {
             if (reasoning != null && !reasoning.isBlank()) {
                 reasoningContentId = writer.writeContent(reasoning, null);
             }
-
             // Serialize tool execution requests if present
             if (aiMessage.hasToolExecutionRequests()) {
                 toolDtos = aiMessage.toolExecutionRequests().stream()
@@ -575,13 +561,20 @@ public class DtoMapper {
             contentId = writer.writeContent(text != null ? text : "", null);
             toolResultDto =
                     new FragmentDtos.ToolExecutionResultDto(toolResult.id(), toolResult.toolName(), text != null ? text : "");
+        } else if (message instanceof CustomMessage customMessage) {
+            Object rawText = customMessage.attributes().get("text");
+            String text = rawText instanceof String s ? s : "";
+            contentId = writer.writeContent(text, null);
+
+            attributes = customMessage.attributes().entrySet().stream()
+                    .filter(e -> !e.getKey().equals("text"))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> b));
         } else {
             // For other message types, use the display representation
             contentId = writer.writeContent(Messages.getRepr(message), null);
         }
 
-        return new ChatMessageDto(
-                message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId, toolDtos, toolResultDto);
+        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId,  toolDtos, toolResultDto, attributes);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
@@ -631,7 +624,15 @@ public class DtoMapper {
                     yield new ToolExecutionResultMessage(null, "unknown", content);
                 }
             }
-            case "system", "custom" -> SystemMessage.from(content);
+            case "system" -> SystemMessage.from(content);
+            case "custom" -> {
+                Map<String, Object> attrs = new java.util.HashMap<>();
+                if (dto.attributes() != null) {
+                    attrs.putAll(dto.attributes());
+                }
+                attrs.put("text", content);
+                yield CustomMessage.from(attrs);
+            }
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };
     }

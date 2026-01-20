@@ -17,11 +17,14 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 
 /** Lightweight IProject implementation for unit-testing Tree-sitter analyzers. */
 public class TestProject implements IProject {
     private final Path root;
     private final Language language;
+
+    private long runCommandTimeoutSeconds = 0L;
 
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
             CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
@@ -32,6 +35,7 @@ public class TestProject implements IProject {
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
+    private @Nullable String jdk;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -119,6 +123,26 @@ public class TestProject implements IProject {
     }
 
     @Override
+    public @Nullable String getJdk() {
+        return jdk;
+    }
+
+    @Override
+    public void setJdk(@Nullable String jdkHome) {
+        this.jdk = jdkHome;
+    }
+
+    @Override
+    public boolean hasJdkOverride() {
+        return jdk != null;
+    }
+
+    public TestProject withJdk(@Nullable String jdkHome) {
+        setJdk(jdkHome);
+        return this;
+    }
+
+    @Override
     public McpConfig getMcpConfig() {
         return McpConfig.EMPTY;
     }
@@ -142,6 +166,15 @@ public class TestProject implements IProject {
     @Override
     public Language getBuildLanguage() {
         return language;
+    }
+
+    @Override
+    public long getRunCommandTimeoutSeconds() {
+        return runCommandTimeoutSeconds;
+    }
+
+    public void setRunCommandTimeoutSeconds(long seconds) {
+        this.runCommandTimeoutSeconds = seconds;
     }
 
     @Override

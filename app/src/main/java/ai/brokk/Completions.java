@@ -20,14 +20,6 @@ import org.fife.ui.autocomplete.ShorthandCompletion;
 
 public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
-    private static final int SHORT_TOLERANCE = 300;
-    /**
-     * Bonus applied to preferred extensions when ranking ProjectFile completions.
-     * Lower composite scores indicate better matches; subtracting this bonus for preferred extensions
-     * ensures analyzer-supported file types (e.g., .java) sort ahead of unrelated ones (e.g., .svg)
-     * when fuzzy scores are close.
-     */
-    private static final int PREFERRED_EXTENSION_PRIORITY_BONUS = 300;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String query = input.trim();
@@ -56,7 +48,7 @@ public class Completions {
             // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
             return analyzer.autocompleteDefinitions(query).stream().limit(5000).toList();
         } catch (Exception e) {
-            // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
+            // Handle analyzer exceptions
             logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
             // Fall back to using top-level declarations only
             return analyzer.getAllDeclarations();
@@ -66,7 +58,7 @@ public class Completions {
     private static List<CodeUnit> enhanceWithParentClasses(
             String query, List<CodeUnit> candidates, IAnalyzer analyzer) {
         // Preserve insertion order while deduping by FQN
-        java.util.LinkedHashMap<String, CodeUnit> dedup = new java.util.LinkedHashMap<>();
+        LinkedHashMap<String, CodeUnit> dedup = new LinkedHashMap<>();
         for (CodeUnit cu : candidates) {
             dedup.put(cu.fqName(), cu);
         }
@@ -91,29 +83,91 @@ public class Completions {
         return new ArrayList<>(dedup.values());
     }
 
-    private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
-        var matcher = new FuzzyMatcher(query);
-        boolean hierarchicalQuery = isHierarchicalQuery(query);
+    /**
+     * A CodeUnit paired with its calculated completion score.
+     * Lower scores are better (more relevant matches).
+     */
+    public record ScoredCodeUnit(CodeUnit codeUnit, int score) {}
 
-        record ScoredCU(CodeUnit cu, int score) {}
+    /**
+     * Scores a list of CodeUnit candidates for symbol completion.
+     * Returns scored results (before deduplication and limiting).
+     * This allows tests and callers to inspect the scoring logic directly.
+     *
+     * @param query the search query
+     * @param candidates the candidate CodeUnits to score
+     * @return list of scored candidates, filtered to remove non-matches (score == MAX_VALUE)
+     */
+    public static List<ScoredCodeUnit> scoreCodeUnits(String query, List<CodeUnit> candidates) {
+        boolean hierarchicalQuery = isHierarchicalQuery(query);
+        var matcher = new FuzzyMatcher(query);
 
         return candidates.stream()
                 .map(cu -> {
-                    int score = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
-                    return new ScoredCU(cu, score);
+                    int baseScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
+                    if (baseScore == Integer.MAX_VALUE) {
+                        return new ScoredCodeUnit(cu, Integer.MAX_VALUE);
+                    }
+
+                    int typeBonus = (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS)
+                            ? -ScoringConstants.CLASS_TYPE_BONUS
+                            : 0;
+                    // Tie-breaker: prefer shallower package depths (fewer dots).
+                    // This is a penalty, so it increases the score.
+                    int depthPenalty =
+                            (int) cu.fqName().chars().filter(ch -> ch == '.').count()
+                                    * ScoringConstants.PACKAGE_DEPTH_PENALTY;
+
+                    int finalScore;
+                    try {
+                        finalScore = Math.addExact(baseScore, Math.addExact(typeBonus, depthPenalty));
+                    } catch (ArithmeticException e) {
+                        // Overflow should be extremely rare with current constants.
+                        // Saturate to OVERFLOW_SCORE_SENTINEL (a high/bad score) so overflowed
+                        // candidates rank last, not first. Log a warning to alert maintainers
+                        // that constants may need review if this occurs in practice.
+                        logger.warn(
+                                "Score overflow for candidate: {}; baseScore={}, typeBonus={}, depthPenalty={}. "
+                                        + "Check if ScoringConstants need adjustment.",
+                                cu.fqName(),
+                                baseScore,
+                                typeBonus,
+                                depthPenalty);
+                        finalScore = ScoringConstants.OVERFLOW_SCORE_SENTINEL;
+                    }
+                    return new ScoredCodeUnit(cu, finalScore);
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
-                .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
-                        .thenComparing(sc -> sc.cu().fqName()))
-                .map(ScoredCU::cu)
-                .collect(Collectors.collectingAndThen(
-                        Collectors.toMap(CodeUnit::fqName, Function.identity(), (a, b) -> a, LinkedHashMap::new), m -> {
-                            var ordered = new ArrayList<>(m.values());
-                            if (ordered.size() > 100) {
-                                return ordered.subList(0, 100);
-                            }
-                            return ordered;
-                        }));
+                .toList();
+    }
+
+    /**
+     * Returns the comparator used for sorting ScoredCodeUnit results in symbol completion.
+     * This comparator is used by both production code and tests to ensure consistent ordering.
+     *
+     * Sort order:
+     * 1. Score (ascending - lower scores are better)
+     * 2. FQN length (shorter is better - top-level vs nested)
+     * 3. Short name length (shorter is better)
+     * 4. FQN alphabetically (tie-breaker)
+     *
+     * @return the comparator for ScoredCodeUnit sorting
+     */
+    static Comparator<ScoredCodeUnit> scoredCodeUnitComparator() {
+        return Comparator.comparingInt(ScoredCodeUnit::score)
+                .thenComparingInt(sc -> sc.codeUnit().fqName().length())
+                .thenComparingInt(sc -> sc.codeUnit().shortName().length())
+                .thenComparing(sc -> sc.codeUnit().fqName());
+    }
+
+    private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
+        List<ScoredCodeUnit> scored = scoreCodeUnits(query, candidates);
+        // we assume that we won't see duplicates as the source for "candidates" has been deduplicated by the analyzer
+        return scored.stream()
+                .sorted(scoredCodeUnitComparator())
+                .map(ScoredCodeUnit::codeUnit)
+                .limit(100)
+                .toList();
     }
 
     /** Expand paths that may contain wildcards (*, ?), returning all matches. */
@@ -251,7 +305,15 @@ public class Completions {
     }
 
     private static int calculateCompositeScore(int shortScore, int longScore, boolean preferred) {
-        return Math.min(shortScore, longScore) + (preferred ? -PREFERRED_EXTENSION_PRIORITY_BONUS : 0);
+        int base = Math.min(shortScore, longScore);
+        int bonus = preferred ? -ScoringConstants.PREFERRED_EXTENSION_BONUS : 0;
+        try {
+            return Math.addExact(base, bonus);
+        } catch (ArithmeticException e) {
+            // Overflow in file scoring (rare). Return sentinel so overflowed
+            // candidates rank last in file completions.
+            return ScoringConstants.OVERFLOW_SCORE_SENTINEL;
+        }
     }
 
     /**
@@ -310,7 +372,9 @@ public class Completions {
 
         int bestShortScore =
                 scoredCandidates.stream().mapToInt(ScoredPF::shortScore).min().orElse(Integer.MAX_VALUE);
-        int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
+        int shortThreshold = bestShortScore == Integer.MAX_VALUE
+                ? Integer.MAX_VALUE
+                : bestShortScore + ScoringConstants.FILE_SHORT_NAME_TOLERANCE;
 
         // Lower scores are better; subtracting the bonus for preferred extensions ensures they sort first.
         Comparator<ScoredPF> cmp = Comparator.<ScoredPF>comparingInt(

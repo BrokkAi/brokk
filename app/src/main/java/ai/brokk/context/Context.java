@@ -7,6 +7,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.ContextFragments.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
@@ -110,36 +111,9 @@ public class Context {
 
         // TODO: Get this off common FJP
         return candidates.parallelStream()
-                .map(pf -> Map.entry(pf, buildRelatedIdentifiers(analyzer, pf)))
+                .map(pf -> Map.entry(pf, analyzer.buildRelatedIdentifiers(pf)))
                 .filter(e -> !e.getValue().isBlank())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a));
-    }
-
-    public static String buildRelatedIdentifiers(IAnalyzer analyzer, ProjectFile file) {
-        return buildRelatedIdentifiers(analyzer, analyzer.getTopLevelDeclarations(file), 0);
-    }
-
-    private static String buildRelatedIdentifiers(IAnalyzer analyzer, List<CodeUnit> units, int indent) {
-        var prefix = "  ".repeat(Math.max(0, indent));
-        var sb = new StringBuilder();
-        for (var cu : units) {
-            // Skip anonymous/lambda artifacts
-            if (cu.isAnonymous()) {
-                continue;
-            }
-
-            // Use FQN for top-level entries, simple identifier for nested entries
-            String name = indent == 0 ? cu.fqName() : cu.identifier();
-            sb.append(prefix).append("- ").append(name);
-
-            var children = analyzer.getDirectChildren(cu);
-            if (!children.isEmpty()) {
-                sb.append("\n");
-                sb.append(buildRelatedIdentifiers(analyzer, children, indent + 1));
-            }
-            sb.append("\n");
-        }
-        return sb.toString().stripTrailing();
     }
 
     public static UUID newContextId() {
@@ -163,13 +137,21 @@ public class Context {
             return this;
         }
 
-        // 1. Deduplicate the input 'toAdd' collection internally first.
-        var uniqueInputs = new ArrayList<ContextFragment>();
-        for (var f : toAdd) {
-            if (uniqueInputs.stream().noneMatch(existing -> existing.hasSameSource(f))) {
-                uniqueInputs.add(f);
+        // Expand with supporting fragments while guarding against cycles and redundancy.
+        LinkedHashSet<ContextFragment> expanded = new LinkedHashSet<>();
+        Deque<ContextFragment> queue = new ArrayDeque<>(toAdd);
+
+        while (!queue.isEmpty()) {
+            ContextFragment f = queue.poll();
+            // Check if we've already added a fragment with the same source.
+            // This is expensive, O(N^2), keep an eye on this
+            if (expanded.stream().noneMatch(f::hasSameSource)) {
+                expanded.add(f);
+                queue.addAll(f.supportingFragments());
             }
         }
+
+        var uniqueInputs = expanded;
 
         // 2. Identify files that are being added as full PATH fragments.
         // These will "kill" any existing SKELETON fragments for the same files.
@@ -428,8 +410,13 @@ public class Context {
         assert fragments.contains(fragment) : "%s is not part of %s".formatted(fragment, fragments);
 
         var newPinned = new HashSet<>(this.pinnedFragments);
+        var newFragments = new ArrayList<>(this.fragments);
+
         if (pinned) {
             newPinned.add(fragment);
+            // Move to front: remove from current position and add at index 0
+            newFragments.remove(fragment);
+            newFragments.add(0, fragment);
         } else {
             newPinned.remove(fragment);
         }
@@ -437,7 +424,7 @@ public class Context {
         return new Context(
                 newContextId(),
                 contextManager,
-                fragments,
+                newFragments,
                 taskHistory,
                 parsedOutput,
                 this.markedReadonlyFragments,
@@ -1120,7 +1107,7 @@ public class Context {
      * not timeout-per-fragment.
      */
     @Blocking
-    public void awaitContextsAreComputed(Duration timeout) throws InterruptedException {
+    public void awaitContentsAreComputed(Duration timeout) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         for (var fragment : this.allFragments().toList()) {
             if (fragment instanceof ContextFragment.ComputedFragment cf) {

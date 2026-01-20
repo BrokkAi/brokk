@@ -4,11 +4,16 @@ export type BrokkEvent =
   | {
       type: 'chunk';
       text: string;
-      isNew: boolean;
+      msgType: 'USER' | 'AI' | 'SYSTEM' | 'CUSTOM';
       streaming: boolean;
-      msgType: 'USER' | 'AI' | 'SYSTEM' | 'TOOL_EXECUTION_RESULT';
+      msgType: 'USER' | 'AI' | 'SYSTEM';
       reasoning: boolean;
       epoch: number;
+      meta: {
+        isNewMessage: boolean;
+        isReasoning: boolean;
+        isTerminal: boolean;
+      };
     }
   | {
       type: 'clear';
@@ -24,18 +29,23 @@ export type BrokkEvent =
       taskSequence: number;
       compressed: boolean;
       summary?: string;
-      messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM' | 'TOOL_EXECUTION_RESULT'; reasoning?: boolean }[];
+      messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM'; reasoning?: boolean }[];
     }
   | {
       type: 'live-summary';
       epoch: number;
       compressed: boolean;
       summary: string;
+    }
+  | {
+      type: 'static-document';
+      epoch: number;
+      markdown: string | null;
     };
 
 export type Bubble = {
   seq: number;
-  type: 'USER' | 'AI' | 'SYSTEM' | 'TOOL_EXECUTION_RESULT';
+  type: 'USER' | 'AI' | 'SYSTEM';
   markdown: string;
   title?: string;
   iconId?: string;
@@ -54,18 +64,27 @@ export interface BufferItem {
   args?: unknown[];
 }
 
+export type ReasoningState = {
+  startTime?: number;           // ms timestamp when the reasoning started
+  complete: boolean;            // true when the reasoning stream ends (was reasoningComplete)
+  duration?: number;            // calculated duration in seconds
+  isCollapsed: boolean;         // for UI state
+};
+
 export type BubbleState = Bubble & {
   threadId: number;
   hast?: ResultMsg['tree'];     // latest parsed tree
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
 
-  // Properties for Reasoning bubbles
-  reasoning?: boolean;
-  startTime?: number;           // ms timestamp when the reasoning started
-  reasoningComplete?: boolean;  // true when the reasoning stream ends
-  duration?: number;            // calculated duration in seconds
-  isCollapsed?: boolean;        // for UI state
+  // If true, this bubble should be treated as terminal output by the UI.
+  isTerminal?: boolean;
+
+  // True when terminal output is finalized (new message started or task ended)
+  terminalComplete?: boolean;
+
+  // Optional reasoning state - presence indicates this is a reasoning bubble
+  reasoningState?: ReasoningState;
 };
 
 /**

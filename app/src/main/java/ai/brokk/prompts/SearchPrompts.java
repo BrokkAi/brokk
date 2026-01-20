@@ -1,5 +1,7 @@
 package ai.brokk.prompts;
 
+import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
+
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.context.Context;
@@ -23,6 +25,29 @@ public class SearchPrompts {
     public static final SearchPrompts instance = new SearchPrompts();
 
     private static final double WORKSPACE_CRITICAL = 0.80;
+
+    private static final String WORKSPACE_CONTEXT_GUIDANCE =
+            """
+            Workspace context guidance:
+              - Use search tools FIRST to identify specific files/classes/methods.
+              - Prefer skimDirectory for directory exploration (what exists where); do not use add*ToWorkspace tools with globs/wildcards to explore directories.
+              - Then add only those specific items to Workspace (no globs, no wildcards, no bulk directory adds).
+              - Summaries: when you only need API signatures/types/constants.
+              - Method sources: when you need implementation details for specific methods.
+              - Task Notes (appendNote): factual excerpts and cross-fragment synthesis.
+              - Full sources: only when you need complete implementation details.
+            """
+                    .stripIndent();
+
+    private static final String FINALIZATION_INVARIANT =
+            """
+            Invariant: Before any final action:
+              1. Prune fragments that are no longer needed (superseded by summaries or irrelevant to the goal).
+                 Do not finalize while the Workspace still contains obvious noise or superseded large fragments.
+              2. Add the minimum sufficient, decision-relevant context to remove guesswork.
+            An unchanged or empty Workspace is a failure unless the question is explicitly independent of this codebase.
+            """
+                    .stripIndent();
 
     public enum Objective {
         ANSWER_ONLY {
@@ -123,13 +148,36 @@ public class SearchPrompts {
                 <instructions>
                 %s
 
+                Memory model (reliability):
+                  - Durable memory is ONLY the Workspace (fragments + SpecialText such as Task Notes and Discarded Context).
+                  - Chat history (including tool outputs) may be summarized or truncated; do NOT rely on it to retain details.
+                  - If you might need something later, persist it into the Workspace:
+                      - For structure/types/navigation: add class/file summaries.
+                      - For behavior: add method sources; escalate to class source or full files only when needed.
+                      - For cross-fragment conclusions (facts only): appendNote (Task Notes).
+                      - When dropping, record breadcrumbs in Discarded Context via dropWorkspaceFragments (keyFacts + dropReason).
+                  - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
+
                 Critical rules:
-                  1) PRUNE the Workspace at every turn in parallel with your next steps.
-                     - Remove fragments that are not directly useful for the goal (add a reason).
-                     - Prefer concise, goal-focused summaries over full files when possible.
-                     - When you pull information from a long fragment, first add your extraction/summary, then drop the original from workspace.
-                     - Keep the Workspace focused on answering/solving the goal.
+                  1) PRUNE the Workspace continuously.
+                     - You may drop a fragment only when it is:
+                         (a) unrelated to the goal, OR
+                         (b) adequately replaced by smaller Workspace artifacts (method sources and/or class/file summaries), OR
+                         (c) you have captured any relevant takeaways in Task Notes (appendNote).
+                     - When using dropWorkspaceFragments, provide:
+                         %s
+                     - Workspace granularity (Prefer the smallest sufficient unit of context):
+                         - Structure/types/navigation: class or file summary is usually sufficient.
+                         - Behavior/implementation: method source > class source > full file.
+
                   2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                     - Search tool selection:
+                          Definitions / declarations only?
+                          → searchSymbols
+                          How is something used, accessed, obtained, injected, or called?
+                          → addSymbolUsagesToWorkspace
+                          Strings, configs, markdown, comments, reflection, or unknown names?
+                          → searchSubstrings
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
                   4) Group related lookups into a single tool call when possible.
@@ -150,7 +198,10 @@ public class SearchPrompts {
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
                 </instructions>
                 """
-                        .formatted(searchAgentIdentity(), supportedTypes));
+                        .formatted(
+                                searchAgentIdentity(),
+                                DROP_EXPLANATION_GUIDANCE.indent(12).stripTrailing(),
+                                supportedTypes));
     }
 
     /**
@@ -159,7 +210,7 @@ public class SearchPrompts {
     public List<ChatMessage> buildPruningPrompt(Context context, String goal) {
         var messages = new ArrayList<ChatMessage>();
 
-        var sys = new SystemMessage(
+        var sysText =
                 """
                 <instructions>
                 You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
@@ -167,43 +218,45 @@ public class SearchPrompts {
                 Scope:
                 - Workspace curation ONLY. No code, no answers, no plans.
 
+                Curation guidelines:
+                - KEEP any fragment that contains logic, UI components, or utility methods
+                  related to the search goal.
+                - DROP if the fragment is irrelevant OR if a concise summary provides
+                  100% of the value with 0% information loss.
+
                 Tools (call exactly one):
-                - performedInitialReview(): use ONLY when ALL fragments are short, focused, clean, and directly relevant.
-                - dropWorkspaceFragments(fragments: {fragmentId, explanation}[]): batch ALL drops in a single call.
+                - performedInitialReview(): Signals that ALL unpinned fragments are relevant to the search goal.
+                - dropWorkspaceFragments(fragments: {fragmentId, keyFacts, dropReason}[]): batch ALL drops in a single call.
+                  Include ONLY the irrelevant fragments to drop in this call.
 
-                Default behavior:
-                - If a fragment is large, noisy, or of mixed relevance → write a detailed summary of anything relevant to the search goal in the drop explanation and DROP it.
-                  (Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.)
+                drop explanation format:
+                """
+                        + DROP_EXPLANATION_GUIDANCE.indent(4).stripTrailing()
+                        + """
 
-                Keep rule:
-                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing (i.e. to much information loss on summary).
-
-                fragment.explanation (string) format:
-                - Summary: information needed to solve the goal (e.g. descriptions, file paths, class names, method names, code snippets, stack traces)
-                - Reason: one short sentence why dropped.
-                - DO NOT include instructions for implementing a solution for the search goal.
-
-                Response rule:
+                Response rules:
                 - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
+                - Don't give up: if the number of irrelevant fragments is overwhelming, do your best. It’s okay to not get everything, but it’s not okay to call performedInitialReview without trying to clean up.
                 </instructions>
-                """);
-        messages.add(sys);
+                """;
+        messages.add(new SystemMessage(sysText));
 
         // Current Workspace contents (use default viewing policy)
         var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
         messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(context, suppressed));
 
         // Goal and project context
-        messages.add(new UserMessage(
-                """
+        var userText = """
                 <goal>
-                %s
+                """
+                + goal
+                + """
                 </goal>
 
                 Review the Workspace above. Use the dropWorkspaceFragments tool to remove ALL fragments that are not directly useful for accomplishing the goal.
                 If the workspace is already well-curated, you're done!
-                """
-                        .formatted(goal)));
+                """;
+        messages.add(new UserMessage(userText));
 
         return messages;
     }
@@ -303,7 +356,7 @@ public class SearchPrompts {
         var finals = new ArrayList<String>();
         if (objective.terminals().contains(Terminal.ANSWER)) {
             finals.add(
-                    "- Use answer(String) when the request is purely informational and you have enough information to answer. The answer needs to be Markdown-formatted (see <persistence>).");
+                    "- Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <persistence>).");
             finals.add(
                     "- Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.");
         }
@@ -313,10 +366,13 @@ public class SearchPrompts {
                     - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
                       Guidance:
                         - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
-                        - Wherever possible, include instructions to add or update automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
-                        - Keep the project buildable and testable after each step.
-                        - The executing agent may adjust task scope/order based on more up-to-date information discovered during implementation.
-                        - Each task needs to be Markdown-formatted, use `inline code` (for file, directory, function, class names and other symbols).
+                        - Each task is a single Markdown-formatted string that MUST contain these labeled sections:
+                          **Task**: Describe what to do. Be specific and self-contained.
+                          **Acceptance**: State how to verify success. You MAY omit Acceptance only for purely mechanical refactors with no behavior change.
+                          **Touch points**: List concrete file paths (required when known, in `inline code`) and symbols (optional but helpful, in `inline code`).
+                        - Wherever possible, include automated tests in Acceptance; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
+                        - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
+                          temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
                     """);
         }
         if (objective.terminals().contains(Terminal.WORKSPACE)) {
@@ -389,11 +445,12 @@ public class SearchPrompts {
 
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
-                        Pruning mandate:
-                          - In parallel with new exploration, prune the Workspace by dropping less-relevant fragments.
-                          - Replace large file fragments with concise, goal-focused summaries (or targeted class/method fragments) and drop the originals.
-                          - The Discarded Context fragment provides a record of fragments you have seen and dropped;
-                            avoid re-adding this content unnecessarily.
+                        Pruning mandate (do this now):
+                          - In parallel with exploration, prune the Workspace
+                          - **MANDATORY** Drop irrelevant/noise fragments now with dropWorkspaceFragments
+                          - **MANDATORY** Reduce Workspace size: replace large fragments with smaller artifacts (addFileSummariesToWorkspace, addClassSummariesToWorkspace, addMethodsToWorkspace) if reasonable
+                          - When replacing fragments, drop the originals (dropWorkspaceFragments) - no superseded fragments!
+                          - Before re-adding content, check Discarded Context to avoid redoing work
 
                         %s
 
@@ -447,7 +504,8 @@ public class SearchPrompts {
         TASK_LIST,
         ANSWER,
         WORKSPACE,
-        CODE
+        CODE,
+        REVIEW
     }
 
     private record TerminalObjective(String type, String text) {}
@@ -465,7 +523,12 @@ public class SearchPrompts {
                         "instructions",
                         """
                     Deliver a task list using the createOrReplaceTaskList(String explanation, List<String> tasks) tool.
-                    """);
+
+                    %s
+
+                    %s
+                    """
+                                .formatted(FINALIZATION_INVARIANT, WORKSPACE_CONTEXT_GUIDANCE));
             case WORKSPACE_ONLY ->
                 new TerminalObjective(
                         "task",
@@ -478,11 +541,17 @@ public class SearchPrompts {
                         "query_or_instructions",
                         """
                     Either deliver a written answer, solve the problem by invoking Code Agent, or decompose the problem into a task list.
-                    In all cases, find and add appropriate source context to the Workspace so that you do not have to guess. Then,
-                      - Prefer answer(String) when no code changes are needed.
-                      - Prefer callCodeAgent(String) if the requested change is small.
+
+                    %s
+
+                    %s
+
+                    Then:
+                      - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
+                      - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
                       - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
-                    """);
+                    """
+                                .formatted(FINALIZATION_INVARIANT, WORKSPACE_CONTEXT_GUIDANCE));
         };
     }
 }

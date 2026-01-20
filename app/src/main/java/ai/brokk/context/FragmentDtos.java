@@ -141,7 +141,8 @@ public class FragmentDtos {
             String contentId,
             @Nullable String reasoningContentId,
             @Nullable List<ToolExecutionRequestDto> toolExecutionRequests,
-            @Nullable ToolExecutionResultDto toolExecutionResult) {
+            @Nullable ToolExecutionResultDto toolExecutionResult,
+            @Nullable Map<String, Object> attributes) {
         public ChatMessageDto {
             if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");
@@ -152,25 +153,14 @@ public class FragmentDtos {
             } else if (toolExecutionRequests != null) {
                 toolExecutionRequests = List.copyOf(toolExecutionRequests);
             }
+
+            if (attributes != null) {
+                attributes = Map.copyOf(attributes);
+            }
         }
 
-        /** Backward-compatible constructor for older code that doesn't provide reasoningContentId. */
         public ChatMessageDto(String role, String contentId) {
-            this(role, contentId, null, null, null);
-        }
-
-        /** Backward-compatible constructor for code that provides reasoningContentId but not tool requests. */
-        public ChatMessageDto(String role, String contentId, @Nullable String reasoningContentId) {
-            this(role, contentId, reasoningContentId, null, null);
-        }
-
-        /** Backward-compatible constructor for code that provides tool requests but not tool execution result. */
-        public ChatMessageDto(
-                String role,
-                String contentId,
-                @Nullable String reasoningContentId,
-                @Nullable List<ToolExecutionRequestDto> toolExecutionRequests) {
-            this(role, contentId, reasoningContentId, toolExecutionRequests, null);
+            this(role, contentId, null, null, null, null);
         }
     }
 

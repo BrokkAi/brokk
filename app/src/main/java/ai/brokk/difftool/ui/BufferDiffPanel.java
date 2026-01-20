@@ -13,7 +13,6 @@ import ai.brokk.difftool.scroll.ScrollSynchronizer;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
-import ai.brokk.util.SlidingWindowCache;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import com.jgoodies.forms.layout.CellConstraints;
@@ -42,13 +41,14 @@ import javax.swing.text.JTextComponent;
 import javax.swing.undo.UndoableEdit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * This panel shows the side-by-side file panels, the diff curves, plus search bars. It no longer depends on custom
  * JMRevision/JMDelta but rather on a Patch<String>.
  */
-public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowCache.Disposable {
+public class BufferDiffPanel extends AbstractDiffPanel {
     private static final Logger logger = LogManager.getLogger(BufferDiffPanel.class);
 
     /**
@@ -177,8 +177,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         this.mainPanel = mainPanel;
         this.guiTheme = theme;
 
-        // Let the mainPanel keep a reference to us for toolbar/undo/redo interplay
-        mainPanel.setBufferDiffPanel(this);
+        // Note: We no longer call mainPanel.setBufferDiffPanel(this) here.
+        // BrokkDiffPanel.displayAndRefreshPanel handles setting the active panel
+        // to ensure preloaded background panels don't overwrite the visible one.
 
         init();
         setFocusable(true);
@@ -1405,6 +1406,10 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         diffNode = null;
         patch = null;
         selectedDelta = null;
+
+        // super.dispose() called last to ensure subclass resources (listeners, editor models)
+        // are cleaned up before the superclass container is destroyed.
+        super.dispose();
     }
 
     /**
@@ -1684,6 +1689,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     }
 
     /** Writes all changed, non-readonly documents in this panel to disk and returns per-file results. */
+    @Blocking
     @Override
     public SaveResult writeChangedDocuments() {
         var succeeded = new LinkedHashSet<String>();
@@ -1761,8 +1767,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
     @Override
     public void applyBlame(
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap) {
+            Map<Integer, BlameService.BlameInfo> leftMap, Map<Integer, BlameService.BlameInfo> rightMap) {
         var right = getFilePanel(PanelSide.RIGHT);
         if (right != null) {
             right.getGutterComponent().setBlameLines(rightMap);
@@ -1791,14 +1796,14 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
     @Override
     @Nullable
-    public java.nio.file.Path getTargetPathForBlame() {
+    public Path getTargetPathForBlame() {
         var right = getFilePanel(PanelSide.RIGHT);
         if (right != null) {
             var bd = right.getBufferDocument();
             if (bd != null) {
                 String name = bd.getName();
                 if (!name.isBlank()) {
-                    var targetPath = java.nio.file.Paths.get(name);
+                    var targetPath = Paths.get(name);
                     if (!targetPath.isAbsolute()) {
                         return targetPath.toAbsolutePath().normalize();
                     }
@@ -1815,13 +1820,58 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var rightPanel = getFilePanel(PanelSide.RIGHT);
 
         if (leftPanel != null) {
-            applyDerivedFont(leftPanel.getEditor(), size);
-            applyDerivedFontToGutter(leftPanel.getGutterComponent(), size);
+            applyFontToEditorAndGutter(leftPanel.getEditor(), leftPanel.getGutterComponent(), size);
         }
 
         if (rightPanel != null) {
-            applyDerivedFont(rightPanel.getEditor(), size);
-            applyDerivedFontToGutter(rightPanel.getGutterComponent(), size);
+            applyFontToEditorAndGutter(rightPanel.getEditor(), rightPanel.getGutterComponent(), size);
         }
+    }
+
+    /**
+     * Scrolls the right panel (new content side) to center the specified line.
+     *
+     * @param lineNumber 1-based line number to scroll to
+     */
+    public void scrollToLine(int lineNumber) {
+        scrollToLine(lineNumber, PanelSide.RIGHT);
+    }
+
+    /**
+     * Scrolls the specified panel side to center the specified line.
+     *
+     * @param lineNumber 1-based line number to scroll to
+     * @param side the panel side to scroll
+     */
+    public void scrollToLine(int lineNumber, PanelSide side) {
+        // Explicit manual scroll cancels any pending initial auto-scroll
+        initialAutoScrollDone = true;
+
+        var panel = getFilePanel(side);
+        if (panel == null) return;
+
+        // Wrap in invokeLater to ensure components are laid out and sized
+        SwingUtilities.invokeLater(() -> {
+            var editor = panel.getEditor();
+            try {
+                // Convert 1-based to 0-based line number
+                int offset = editor.getLineStartOffset(Math.max(0, lineNumber - 1));
+                editor.setCaretPosition(offset);
+
+                // Center the line in the viewport
+                var rect = editor.modelToView2D(offset);
+                if (rect != null) {
+                    var viewport = panel.getScrollPane().getViewport();
+                    int viewHeight = viewport.getHeight();
+
+                    // If viewHeight is 0, we can't center properly, so we just scroll to top of line
+                    int y = (viewHeight > 0) ? (int) rect.getY() - viewHeight / 2 : (int) rect.getY();
+
+                    viewport.setViewPosition(new Point(0, Math.max(0, y)));
+                }
+            } catch (BadLocationException e) {
+                logger.warn("Could not scroll to line {} on side {}", lineNumber, side, e);
+            }
+        });
     }
 }

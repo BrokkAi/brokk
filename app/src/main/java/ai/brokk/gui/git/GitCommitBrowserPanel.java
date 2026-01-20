@@ -6,11 +6,14 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.CommitDialog;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.TableUtils;
 import ai.brokk.gui.components.GitHubAppInstallLabel;
@@ -110,6 +113,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     private static final int DEFAULT_DEBOUNCE_MILLIS = 300;
 
     private JMenuItem addToContextItem;
+    private JMenuItem reviewCommitsItem;
     private JMenuItem softResetItem;
     private JMenuItem revertCommitItem;
     private JMenuItem viewChangesItem;
@@ -438,9 +442,9 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         setupChangesTreeDoubleClick();
     }
 
-    private static Stream<ProjectFile> safeChangedFiles(ICommitInfo c) {
+    private static Stream<ProjectFile> safeChangedFiles(GitRepo repo, ICommitInfo c) {
         try {
-            List<ProjectFile> changedFilesList = c.changedFiles();
+            List<ProjectFile> changedFilesList = CommitInfo.changedFiles(repo, c.id());
             return changedFilesList.stream();
         } catch (GitAPIException ex) {
             String commitIdStr = "unknown";
@@ -521,9 +525,9 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void setupCommitContextMenu() {
         var commitsContextMenu = new JPopupMenu();
-        registerMenu(commitsContextMenu);
 
         addToContextItem = new JMenuItem("Capture Diff");
+        reviewCommitsItem = new JMenuItem("Review Commits");
         captureWorkspaceSelectionsItem = new JMenuItem("Capture workspace content at this revision");
         softResetItem = new JMenuItem("Soft Reset to Here");
         revertCommitItem = new JMenuItem("Revert Commit");
@@ -536,6 +540,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         cherryPickCommitItem = new JMenuItem("Cherry pick into ...");
 
         commitsContextMenu.add(addToContextItem);
+        commitsContextMenu.add(reviewCommitsItem);
         commitsContextMenu.add(captureWorkspaceSelectionsItem);
         commitsContextMenu.add(viewChangesItem);
         commitsContextMenu.add(compareAllToLocalItem);
@@ -601,6 +606,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                         .anyMatch(f -> !f.files().renderNowOr(Set.of()).isEmpty());
 
         viewChangesItem.setEnabled(selectedRows.length == 1);
+        reviewCommitsItem.setEnabled(selectedRows.length >= 1 && !isStash);
+        reviewCommitsItem.setVisible(!isStash);
         compareAllToLocalItem.setEnabled(selectedRows.length == 1 && !isStash);
         captureWorkspaceSelectionsItem.setVisible(!isStash);
         captureWorkspaceSelectionsItem.setEnabled(selectedRows.length == 1 && !isStash && hasProjectFilesInContext);
@@ -651,6 +658,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void setAllCommitMenuContextItemsVisible(boolean visible) {
         addToContextItem.setVisible(visible);
+        reviewCommitsItem.setVisible(visible);
         viewChangesItem.setVisible(visible);
         compareAllToLocalItem.setVisible(visible);
         softResetItem.setVisible(visible);
@@ -664,6 +672,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void setupCommitContextMenuActions() {
+        reviewCommitsItem.addActionListener(e -> handleReviewCommitsAction());
+
         addToContextItem.addActionListener(e -> {
             int[] selectedRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
             if (selectedRows.length == 0) return;
@@ -846,6 +856,94 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         });
     }
 
+    private void handleReviewCommitsAction() {
+        int[] rows = commitsTable.getSelectedRows();
+        if (rows.length == 0) return;
+        rows = Arrays.stream(rows).sorted().toArray();
+
+        // 1. Check contiguity
+        var groups = GitDiffUiUtil.groupContiguous(rows);
+        if (groups.size() > 1) {
+            chrome.toolError("Please select a contiguous range of commits to review.", "Non-Contiguous Selection");
+            return;
+        }
+
+        // 2. Check for uncommitted changes
+        try {
+            if (!getRepo().getModifiedFiles().isEmpty()) {
+                int option = MaterialOptionPane.showOptionDialog(
+                        chrome.getFrame(),
+                        "You have uncommitted changes. These must be committed or stashed before performing a code review to ensure accuracy.",
+                        "Uncommitted Changes",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE,
+                        null,
+                        new String[] {"Commit First", "Cancel"},
+                        "Commit First");
+
+                if (option == JOptionPane.YES_OPTION) {
+                    showCommitDialogAndThen(this::handleReviewCommitsAction);
+                }
+                return;
+            }
+        } catch (GitAPIException e) {
+            logger.warn("Failed to check for modified files", e);
+        }
+
+        // 3. Check if working tree matches newest commit
+        ICommitInfo newest = (ICommitInfo) commitsTableModel.getValueAt(rows[0], COL_COMMIT_OBJ);
+        ICommitInfo oldest = (ICommitInfo) commitsTableModel.getValueAt(rows[rows.length - 1], COL_COMMIT_OBJ);
+        String newestId = newest.id();
+
+        try {
+            if (!newestId.equals(getRepo().getCurrentCommitId())) {
+                String shortHash = getShortId(newestId);
+                String okText = "Checkout " + shortHash;
+
+                int option = MaterialOptionPane.showOptionDialog(
+                        chrome.getFrame(),
+                        "To perform an accurate code review, the working tree must match the code being reviewed.",
+                        "Checkout Required",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE,
+                        null,
+                        new String[] {okText, "Cancel"},
+                        okText);
+
+                if (option == JOptionPane.YES_OPTION) {
+                    contextManager.submitExclusiveAction(() -> {
+                        try {
+                            getRepo().checkout(newestId);
+                            handleReviewCommitsAction(); // Re-validate after checkout
+                        } catch (GitAPIException e) {
+                            chrome.toolError("Checkout failed: " + e.getMessage());
+                        }
+                    });
+                }
+                return;
+            }
+        } catch (GitAPIException e) {
+            logger.warn("Failed to check current commit ID", e);
+        }
+
+        // 4. Start review
+        chrome.getRightPanel().startCommitRangeReview(oldest.id());
+    }
+
+    private void showCommitDialogAndThen(Runnable continuation) {
+        var dialog = new CommitDialog(
+                chrome.getFrame(), chrome, chrome.getContextManager(), chrome.getModifiedFiles(), commitResult -> {
+                    try {
+                        if (getRepo().getModifiedFiles().isEmpty()) {
+                            continuation.run();
+                        }
+                    } catch (GitAPIException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+        dialog.setVisible(true);
+    }
+
     private void handleStashAction(
             Function<ICommitInfo, Optional<Integer>> stashIndexExtractor, IntConsumer stashOperation) {
         int row = commitsTable.getSelectedRow(); // int preferred by style guide
@@ -860,14 +958,13 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void setupChangesTreeContextMenu() {
         var changesContextMenu = new JPopupMenu();
-        registerMenu(changesContextMenu);
 
         var addFileToContextItem = new JMenuItem("Capture Diff");
         var compareFileWithLocalItem = new JMenuItem("Compare with Local");
         var viewFileAtRevisionItem = new JMenuItem("View File at Revision");
         var viewDiffItem = new JMenuItem("View Diff");
         var viewHistoryItem = new JMenuItem("View History");
-        var editFileItem = new JMenuItem("Edit File(s)");
+        var editFileItem = new JMenuItem("Attach File(s)");
         var comparePrevWithLocalItem = new JMenuItem("Compare Previous with Local");
         JMenuItem rollbackFilesItem = new JMenuItem("Rollback Files to This Commit");
 
@@ -1061,7 +1158,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
         contextManager.submitBackgroundTask("Fetching changes for commits", () -> {
             var allChangedFiles = commits.stream()
-                    .flatMap(GitCommitBrowserPanel::safeChangedFiles)
+                    .flatMap((ICommitInfo ci) -> safeChangedFiles(getRepo(), ci))
                     .collect(Collectors.toSet());
             final int changedCount = allChangedFiles.size();
             var newRootNode = new DefaultMutableTreeNode("Changes");
@@ -1156,12 +1253,12 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void dropStashInternal(int stashIndex) {
-        int result = chrome.showConfirmDialog(
+        int result = MaterialOptionPane.showConfirmDialog(
                 this,
                 "Delete stash@{" + stashIndex + "}?",
                 "Confirm Drop",
                 JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE); // int preferred by style guide
+                JOptionPane.WARNING_MESSAGE);
         if (result != JOptionPane.YES_OPTION) return;
         performStashOp(stashIndex, "Dropping stash", getRepo()::dropStash, "Stash dropped successfully.", true);
     }
@@ -1491,6 +1588,16 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             if (!GitHubAuth.getOrCreateInstance(contextManager.getProject()).hasWriteAccess()) {
                 return new ButtonConfig(
                         false, "Your GitHub token does not have write permissions for this repository.", null);
+            }
+
+            // Check if a PR already exists for this branch
+            try {
+                if (GitHubAuth.getOrCreateInstance(contextManager.getProject()).hasOpenPullRequestForBranch(branch)) {
+                    return new ButtonConfig(false, "A pull request already exists for branch " + branch, null);
+                }
+            } catch (IOException e) {
+                logger.debug("Could not check for existing PRs for branch {}: {}", branch, e.getMessage());
+                // Continue - don't block PR creation just because we couldn't check
             }
         } catch (IOException e) {
             logger.warn(
@@ -1841,10 +1948,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 button.addActionListener(listener);
             }
         }
-    }
-
-    private void registerMenu(JPopupMenu menu) {
-        chrome.getTheme().registerPopupMenu(menu);
     }
 
     @Override

@@ -123,7 +123,6 @@ public class TaskListTest {
         var data = result.getTaskListDataOrEmpty();
         assertEquals(1, data.tasks().size());
         var task = data.tasks().get(0);
-        assertNotNull(task.title(), "Task should have a title");
         assertFalse(task.title().isEmpty(), "Task title should not be empty");
         // Title may differ from full text due to summarization
         assertEquals(
@@ -142,7 +141,7 @@ public class TaskListTest {
         var data = result.getTaskListDataOrEmpty();
         var task = data.tasks().get(0);
         assertEquals("Simple task", task.text());
-        assertNotNull(task.title());
+        assertFalse(task.title().isEmpty());
     }
 
     // ===== Action Message Tests =====

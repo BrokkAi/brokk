@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.exc.InvalidTypeIdException;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -362,8 +363,7 @@ public final class V3_HistoryIo {
     }
 
     // Type-safe handler to map legacy FQCN-based polymorphic type ids to our V3 DTOs
-    private static final class LegacyTypeMappingHandler
-            extends com.fasterxml.jackson.databind.deser.DeserializationProblemHandler {
+    private static final class LegacyTypeMappingHandler extends DeserializationProblemHandler {
         private final Map<String, String> prefixMapping;
 
         // Map legacy runtime ContextFragment nested class names to V3 DTO nested class names

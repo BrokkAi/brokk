@@ -18,6 +18,7 @@ group = "ai.brokk"
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
+        vendor.set(JvmVendorSpec.JETBRAINS)
     }
 }
 
@@ -63,6 +64,7 @@ repositories {
     mavenLocal()
 
     mavenCentral()
+    google()
 
     // Additional repositories for dependencies
     maven {

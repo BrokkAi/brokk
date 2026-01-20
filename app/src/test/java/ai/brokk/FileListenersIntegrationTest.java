@@ -2,10 +2,11 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IWatchService.EventBatch;
-import ai.brokk.IWatchService.Listener;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.watchservice.AbstractWatchService.EventBatch;
+import ai.brokk.watchservice.AbstractWatchService.Listener;
+import ai.brokk.watchservice.JavaProjectWatchService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -33,7 +34,7 @@ class FileListenersIntegrationTest {
     Path tempDir;
 
     private AnalyzerWrapper analyzerWrapper;
-    private LegacyProjectWatchService watchService;
+    private JavaProjectWatchService watchService;
 
     @AfterEach
     void tearDown() {
@@ -54,7 +55,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Step 1: Create IWatchService (like ContextManager does)
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
 
         // Step 2: Create AnalyzerWrapper with injected watch service (like ContextManager does)
         // Note: Pass null for analyzerListener to avoid git repo access in tests
@@ -98,7 +99,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
 
@@ -135,7 +136,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
 
@@ -173,7 +174,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
 
         // Simulate two different components accessing the watch service
@@ -214,8 +215,5 @@ class FileListenersIntegrationTest {
             filesChangedCount.incrementAndGet();
             filesChangedLatch.countDown();
         }
-
-        @Override
-        public void onNoFilesChangedDuringPollInterval() {}
     }
 }

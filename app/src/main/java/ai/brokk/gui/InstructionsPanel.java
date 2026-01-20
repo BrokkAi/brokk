@@ -15,7 +15,9 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
@@ -357,19 +359,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             public void focusGained(FocusEvent e) {
                 // Use a brighter, thicker focus border for visibility
                 var focusColor = new Color(0x3DA9FF);
-                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                var original = (Border) micButton.getClientProperty("originalBorder");
                 if (original == null) {
                     micButton.putClientProperty("originalBorder", micButton.getBorder());
                 }
                 var focusBorder = BorderFactory.createLineBorder(focusColor, 4, true);
-                var inner = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                var inner = (Border) micButton.getClientProperty("originalBorder");
                 micButton.setBorder(BorderFactory.createCompoundBorder(focusBorder, inner));
                 micButton.repaint();
             }
 
             @Override
             public void focusLost(FocusEvent e) {
-                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                var original = (Border) micButton.getClientProperty("originalBorder");
                 micButton.setBorder(original);
                 micButton.repaint();
             }
@@ -983,8 +985,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setOnHoverScroll(() -> {
             try {
                 var hovered = tokenUsageBar.getHoveredFragments();
-                ai.brokk.context.ContextFragment fragment =
-                        hovered.stream().findFirst().orElse(null);
+                ContextFragment fragment = hovered.stream().findFirst().orElse(null);
                 workspaceItemsChipPanel.scrollFragmentIntoView(fragment);
             } catch (Exception ex) {
                 logger.trace("TokenUsageBar onHoverScroll handler threw", ex);
@@ -1087,7 +1088,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of()));
                 emptySpaceMenu.add(paste);
 
-                chrome.getThemeManager().registerPopupMenu(emptySpaceMenu);
                 emptySpaceMenu.show(titledContainer, e.getX(), e.getY());
             }
         });
@@ -1098,16 +1098,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
-        var service = chrome.getContextManager().getService();
-        var model = service.getModel(config);
 
         // Compute tokens off-EDT
-        chrome.getContextManager()
-                .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
+        LoggingFuture.supplyAsync(() -> {
+                    var service = chrome.getContextManager().getService();
+                    var model = service.getModel(config);
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
-                                        "Unavailable", 150_000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
+                                        "Unavailable",
+                                        150_000,
+                                        "0.00",
+                                        config.tier(),
+                                        TokenUsageBar.WarningLevel.NONE,
+                                        100),
                                 150_000,
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
@@ -1162,8 +1166,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     }
 
-                    String tooltipHtml =
-                            buildTokenUsageTooltip(modelName, modelMaxTokens, costStr, warningLevel, successRate);
+                    String tooltipHtml = buildTokenUsageTooltip(
+                            modelName, modelMaxTokens, costStr, config.tier(), warningLevel, successRate);
                     return new TokenUsageBarComputation(
                             tooltipHtml, barScaleMax, approxTokens, warningLevel, config, successRate, isTested);
                 })
@@ -1229,22 +1233,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Calculate cost estimate mirroring ContextActions for only the model currently selected in InstructionsPanel.
      */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, AbstractService service) {
-        var pricing = service.getModelPricing(config.name());
-        if (pricing.bands().isEmpty()) {
-            return "";
-        }
-
-        long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
-        if (service.isReasoning(config)) {
-            estimatedOutputTokens += 1000;
-        }
-        double estimatedCost = pricing.getCostFor(inputTokens, 0, estimatedOutputTokens);
-
-        if (service.isFreeTier(config.name())) {
-            return "$0.00 (Free Tier)";
-        } else {
-            return String.format("$%.2f", estimatedCost);
-        }
+        return service.estimateCost(config, inputTokens).formatted();
     }
 
     private static String buildBrokkRankingOnlyTooltip(int successRate) {
@@ -1271,6 +1260,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String modelName,
             int maxTokens,
             String costPerRequest,
+            Service.ProcessingTier tier,
             TokenUsageBar.WarningLevel warningLevel,
             int successRate) {
         StringBuilder body = new StringBuilder();
@@ -1294,6 +1284,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             body.append("<div>Estimated cost/request: ")
                     .append(htmlEscape(costPerRequest))
                     .append("</div>");
+        }
+        var multiplier = tier.getMultiplierLabel();
+        if (!multiplier.isEmpty()) {
+            body.append("<div>Service tier: ")
+                    .append(tier.toString())
+                    .append(" (")
+                    .append(multiplier)
+                    .append(")</div>");
         }
 
         body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
@@ -1458,7 +1456,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dropdown.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
             try {
                 var menu = historyMenuSupplier.get();
-                chrome.getThemeManager().registerPopupMenu(menu);
                 menu.show(dropdown, 0, dropdown.getHeight());
             } catch (Exception ex) {
                 logger.error("Error showing history dropdown", ex);
@@ -1495,17 +1492,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         Please select vision-capable models in the settings to proceed with image-based tasks.</html>
                         """
                         .formatted(requiredModelsInfo);
-        Object[] options = {"Open Model Settings", "Cancel"};
-        int choice = JOptionPane.showOptionDialog(
+        String[] options = {"Open Model Settings", "Cancel"};
+        int choice = MaterialOptionPane.showOptionDialog(
                 chrome.getFrame(),
                 message,
                 "Model Vision Support Error",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.ERROR_MESSAGE,
-                null, // icon
+                null,
                 options,
-                options[0] // Default button (open settings)
-                );
+                options[0]);
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
             SwingUtilities.invokeLater(
@@ -1709,8 +1705,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
                     "Are you sure you want to code with no attached context? This is the right thing to do if you want to create new source files from scratch. Otherwise, run Search first or manually attach context.";
-            Object[] options = {"Code", "Search", "Cancel"};
-            int choice = JOptionPane.showOptionDialog(
+            String[] options = {"Code", "Search", "Cancel"};
+            int choice = MaterialOptionPane.showOptionDialog(
                     chrome.getFrame(),
                     message,
                     "No Context",
@@ -1829,8 +1825,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         try {
                             SwingUtilities.invokeAndWait(() -> {
                                 String message = "New tasks were created. What would you like to do?";
-                                Object[] options = {"Append to existing", "Replace with new"};
-                                choiceHolder[0] = JOptionPane.showOptionDialog(
+                                String[] options = {"Append to existing", "Replace with new"};
+                                choiceHolder[0] = MaterialOptionPane.showOptionDialog(
                                         SwingUtilities.getWindowAncestor(this),
                                         message,
                                         "New Tasks",
@@ -3216,7 +3212,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // If any tasks were removed, update the task list and refresh UI
         if (filtered.size() < originalTasks.size()) {
-            cm.setTaskList(new TaskList.TaskListData(filtered));
+            cm.setTaskListAsync(new TaskList.TaskListData(filtered));
         }
     }
 

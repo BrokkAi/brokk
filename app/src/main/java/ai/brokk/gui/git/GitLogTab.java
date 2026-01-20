@@ -9,6 +9,7 @@ import ai.brokk.git.GitRepoRemote.RemoteBranchRef;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DeferredUpdateHelper;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.mop.ThemeColors;
@@ -30,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -392,7 +394,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Local branch context menu
         JPopupMenu branchContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(branchContextMenu);
         JMenuItem checkoutItem = new JMenuItem("Checkout");
         JMenuItem newBranchItem = new JMenuItem("New Branch From This");
         JMenuItem mergeItem = new JMenuItem("Merge into...");
@@ -527,7 +528,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Remote branch context menu
         JPopupMenu remoteBranchContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(remoteBranchContextMenu);
         JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
         JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");
         JMenuItem remoteMergeItem = new JMenuItem(); // text set dynamically
@@ -598,7 +598,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Tags context menu
         JPopupMenu tagContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(tagContextMenu);
         JMenuItem tagNewBranchItem = new JMenuItem("New Branch From This");
         tagContextMenu.add(tagNewBranchItem);
 
@@ -899,7 +898,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                         currentActualBranch = localTrackingName;
                     }
                 }
-                refreshAllGitUi(currentActualBranch);
+                chrome.refreshGitAsync(currentActualBranch);
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
                 chrome.toolError(Objects.toString(e.getMessage(), "Unknown error during checkout."));
@@ -992,7 +991,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     // Update commit/branch tables
                     if (branchForUiRefreshFinal != null) {
-                        refreshAllGitUi(branchForUiRefreshFinal);
+                        chrome.refreshGitAsync(branchForUiRefreshFinal);
                     }
                 });
             }
@@ -1059,7 +1058,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
             contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
-                    refreshAllGitUi(newName);
+                    chrome.refreshGitAsync(newName);
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
@@ -1078,7 +1077,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 boolean isMerged = getRepo().isBranchMerged(branchName);
                 SwingUtilities.invokeLater(() -> {
                     if (isMerged) {
-                        int result = chrome.showConfirmDialog(
+                        int result = MaterialOptionPane.showConfirmDialog(
                                 this,
                                 "Are you sure you want to delete branch '" + branchName + "'?",
                                 "Delete Branch",
@@ -1088,8 +1087,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
                             performBranchDeletion(branchName, false);
                         }
                     } else {
-                        Object[] options = {"Force Delete", "Cancel"};
-                        int result = JOptionPane.showOptionDialog(
+                        String[] options = {"Force Delete", "Cancel"};
+                        int result = MaterialOptionPane.showOptionDialog(
                                 this,
                                 "Branch '" + branchName + "' is not fully merged.\n"
                                         + "Changes on this branch will be lost if deleted.\n"
@@ -1224,7 +1223,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
      * Creates a cell renderer with fuzzy match highlighting for simple single-column tables.
      */
     private static DefaultTableCellRenderer createFuzzyHighlightRenderer(
-            java.util.function.Supplier<@Nullable FuzzyMatcher> matcherSupplier) {
+            Supplier<@Nullable FuzzyMatcher> matcherSupplier) {
         return new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(
@@ -1244,18 +1243,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 return this;
             }
         };
-    }
-
-    private void refreshAllGitUi(String branchName) {
-        chrome.updateGitRepo();
-        chrome.getInstructionsPanel().refreshBranchUi(branchName);
-
-        // Also refresh the Changes tab to reflect the new branch's diff
-        try {
-            chrome.getRightPanel().requestReviewUpdate();
-        } catch (Exception ex) {
-            logger.debug("Unable to refresh Changes tab after Git UI action", ex);
-        }
     }
 
     private GitRepo getRepo() {

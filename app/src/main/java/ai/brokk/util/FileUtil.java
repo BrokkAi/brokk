@@ -2,9 +2,12 @@ package ai.brokk.util;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,7 +32,18 @@ public final class FileUtil {
             walk.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.delete(p);
+                } catch (NoSuchFileException e) {
+                    // Already gone
                 } catch (IOException e) {
+                    // On Windows, Git object files are often read-only. Attempt to make writable and retry.
+                    if (p.toFile().setWritable(true)) {
+                        try {
+                            Files.delete(p);
+                            return;
+                        } catch (IOException ignored) {
+                            // Fall through to log original exception
+                        }
+                    }
                     logger.warn("Failed to delete {}", p, e);
                 }
             });
@@ -88,5 +102,50 @@ public final class FileUtil {
             }
         }
         return idx;
+    }
+
+    /**
+     * Abbreviates a path for display. If the path has more than 4 components,
+     * shows first + "..." + last three components (e.g., "/Users/.../jdk-21/Contents/Home").
+     * Paths with 4 or fewer components or under maxLength are returned unchanged.
+     */
+    public static String abbreviatePath(String path) {
+        int maxLength = 35;
+        if (path.length() <= maxLength) {
+            return path;
+        }
+
+        Path pathObj;
+        try {
+            pathObj = Path.of(path);
+        } catch (InvalidPathException e) {
+            // Not a valid path on this OS; return original (possibly truncated if extremely long)
+            return path.length() > maxLength ? path.substring(0, maxLength - 3) + "..." : path;
+        }
+
+        int nameCount = pathObj.getNameCount();
+        if (nameCount <= 4) {
+            return path;
+        }
+
+        String sep = pathObj.getFileSystem().getSeparator();
+        var root = pathObj.getRoot();
+        String rootStr = root != null ? root.toString() : "";
+
+        // Build the middle part: root + first name + "..."
+        String first = pathObj.getName(0).toString();
+        String prefix = rootStr + first + sep + "...";
+
+        // Collect the last three components
+        List<String> lastParts = new ArrayList<>();
+        for (int i = nameCount - 3; i < nameCount; i++) {
+            lastParts.add(pathObj.getName(i).toString());
+        }
+
+        var result = prefix + sep + String.join(sep, lastParts);
+        if (result.length() > maxLength && maxLength > 3) {
+            return result.substring(0, maxLength - 3) + "...";
+        }
+        return result;
     }
 }

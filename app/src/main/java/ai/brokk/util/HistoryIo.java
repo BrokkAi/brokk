@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ContentDtos.ContentMetadataDto;
 import ai.brokk.context.ContentDtos.DiffContentMetadataDto;
 import ai.brokk.context.ContentDtos.FullContentMetadataDto;
@@ -256,19 +257,6 @@ public final class HistoryIo {
                     }
                 }));
 
-        // Ensure nextId is updated to avoid collisions with loaded fragment IDs
-        fragmentCache.keySet().stream()
-                .map(id -> {
-                    try {
-                        return Integer.parseInt(id);
-                    } catch (NumberFormatException e) {
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .max(Integer::compareTo)
-                .ifPresent(maxId -> ContextFragments.setMinimumId(maxId + 1));
-
         var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {
             CompactContextDto compactDto = objectMapper.readValue(line, CompactContextDto.class);
@@ -435,14 +423,6 @@ public final class HistoryIo {
         logger.trace("writeZip: groupLabels map has {} entries", grpLabels.size());
         for (var entry : grpLabels.entrySet()) {
             logger.trace("  group {} -> label '{}'", entry.getKey(), entry.getValue());
-        }
-
-        // Validate that all context IDs in group mappings exist in the history
-        var historyContextIds = ch.getHistory().stream().map(Context::id).collect(Collectors.toSet());
-        for (var ctxId : ctxToGrp.keySet()) {
-            if (!historyContextIds.contains(ctxId)) {
-                logger.warn("writeZip: context {} in group mapping not found in history!", ctxId);
-            }
         }
 
         groupInfoBytes = objectMapper.writeValueAsBytes(groupDto);

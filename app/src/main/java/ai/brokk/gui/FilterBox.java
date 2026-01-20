@@ -98,14 +98,12 @@ public final class FilterBox extends JPanel implements ThemeAware {
     // Colors will be set dynamically based on theme
     private Color unselectedFgColor = Color.BLACK; // Default initialization
     private Color selectedFgColor = Color.BLUE; // Default initialization
-    private final Chrome chrome;
 
     public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices) {
         this(chrome, label, choices, null);
     }
 
     public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices, @Nullable String initialSelection) {
-        this.chrome = chrome;
         this.label = label;
         this.choices = choices;
 
@@ -238,7 +236,6 @@ public final class FilterBox extends JPanel implements ThemeAware {
 
     private void showPopup() {
         JPopupMenu pop = new JPopupMenu();
-        chrome.getThemeManager().registerPopupMenu(pop);
 
         JTextField search = new JTextField();
         // Add search field first, so it's always at the top

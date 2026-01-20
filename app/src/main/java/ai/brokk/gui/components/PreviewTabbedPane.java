@@ -11,7 +11,9 @@ import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -60,7 +62,24 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         contentPanel = new JPanel(cardLayout);
 
         // Tab list on the right
-        tabList = new JList<>(listModel);
+        tabList = new JList<>(listModel) {
+            @Override
+            public @Nullable String getToolTipText(MouseEvent e) {
+                int index = locationToIndex(e.getPoint());
+                if (index >= 0) {
+                    var bounds = getCellBounds(index, index);
+                    if (bounds != null && bounds.contains(e.getPoint())) {
+                        var entry = listModel.get(index);
+                        if (entry.fileKey() != null) {
+                            return entry.fileKey().getRelPath().toString();
+                        }
+                        return entry.title();
+                    }
+                }
+                return null;
+            }
+        };
+        tabList.setToolTipText("");
         tabList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         tabList.setCellRenderer(new TabCellRenderer());
         tabList.setFixedCellWidth(200);
@@ -197,7 +216,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
             closeOthersItem.addActionListener(e -> {
                 // Iterate backwards to avoid index shifting issues,
                 // but keep track of components as they might be removed during iteration.
-                java.util.List<TabEntry> toClose = new java.util.ArrayList<>();
+                List<TabEntry> toClose = new ArrayList<>();
                 for (int i = 0; i < listModel.size(); i++) {
                     TabEntry current = listModel.get(i);
                     if (!entry.equals(current)) {

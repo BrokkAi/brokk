@@ -218,6 +218,10 @@ JSON
 
 All job payloads must include `plannerModel`. The examples below use inline JSON via stdin; swap in real identifiers.
 
+Notes on request vs persisted fields:
+- `sessionId` exists in the request body and is used to select the active session; it is not persisted in `JobSpec` (it may be copied into tags as `session_id`).
+- `sourceBranch` / `targetBranch` are persisted/reserved `JobSpec` fields but are not currently accepted by `POST /v1/jobs`.
+
 ### Job-scoped free-form text seeding (inline)
 
 You can seed free-form text that applies only to the newly created job. These fragments are added just before execution and automatically cleaned up when the job finishes.
@@ -367,68 +371,71 @@ curl -sS "http://localhost:8080/v1/jobs/550e8400-e29b-41d4-a716-446655440000/eve
 **Sample events:**
 
 ```json
-[
-  {
-    "seq": 1,
-    "type": "NOTIFICATION",
-    "data": "Job started: 550e8400-e29b-41d4-a716-446655440000"
-  },
-  {
-    "seq": 2,
-    "type": "LLM_TOKEN",
-    "data": "Planning phase: Analyzing refactoring objectives..."
-  },
-  {
-    "seq": 3,
-    "type": "NOTIFICATION",
-    "data": "Task list generated with 3 subtasks"
-  },
-  {
-    "seq": 4,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 1/3: Improve error handling..."
-  },
-  {
-    "seq": 5,
-    "type": "LLM_TOKEN",
-    "data": "[code changes shown here]"
-  },
-  {
-    "seq": 6,
-    "type": "NOTIFICATION",
-    "data": "Task 1 completed, progress: 33%"
-  },
-  {
-    "seq": 7,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 2/3: Add logging..."
-  },
-  {
-    "seq": 8,
-    "type": "LLM_TOKEN",
-    "data": "[code changes shown here]"
-  },
-  {
-    "seq": 9,
-    "type": "NOTIFICATION",
-    "data": "Task 2 completed, progress: 66%"
-  },
-  {
-    "seq": 10,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 3/3: Create unit tests..."
-  },
-  {
-    "seq": 11,
-    "type": "LLM_TOKEN",
-    "data": "[code changes shown here]"
-  },
-  {
-    "seq": 12,
-    "type": "NOTIFICATION",
-    "data": "Task 3 completed, progress: 100%"
-  }
-]
+{
+  "events": [
+    {
+      "seq": 1,
+      "type": "NOTIFICATION",
+      "data": "Job started: 550e8400-e29b-41d4-a716-446655440000"
+    },
+    {
+      "seq": 2,
+      "type": "LLM_TOKEN",
+      "data": "Planning phase: Analyzing refactoring objectives..."
+    },
+    {
+      "seq": 3,
+      "type": "NOTIFICATION",
+      "data": "Task list generated with 3 subtasks"
+    },
+    {
+      "seq": 4,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 1/3: Improve error handling..."
+    },
+    {
+      "seq": 5,
+      "type": "LLM_TOKEN",
+      "data": "[code changes shown here]"
+    },
+    {
+      "seq": 6,
+      "type": "NOTIFICATION",
+      "data": "Task 1 completed, progress: 33%"
+    },
+    {
+      "seq": 7,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 2/3: Add logging..."
+    },
+    {
+      "seq": 8,
+      "type": "LLM_TOKEN",
+      "data": "[code changes shown here]"
+    },
+    {
+      "seq": 9,
+      "type": "NOTIFICATION",
+      "data": "Task 2 completed, progress: 66%"
+    },
+    {
+      "seq": 10,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 3/3: Create unit tests..."
+    },
+    {
+      "seq": 11,
+      "type": "LLM_TOKEN",
+      "data": "[code changes shown here]"
+    },
+    {
+      "seq": 12,
+      "type": "NOTIFICATION",
+      "data": "Task 3 completed, progress: 100%"
+    }
+  ],
+  "nextAfter": 12
+}
 ```
 
 **Key characteristics of LUTZ mode:**
@@ -585,12 +592,244 @@ JSON
 **Note:** `plannerModel` is still required here for validation, but CODE execution uses `codeModel`. Omit `codeModel`
 to fall back to the project's default code model.
 
+### REVIEW Mode (GitHub PR Review)
+
+REVIEW mode automates code review for GitHub Pull Requests.
+
+#### Option 1: Convenience Endpoint (Recommended)
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs/pr-review" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "owner": "myorg",
+  "repo": "myrepo",
+  "prNumber": 123,
+  "githubToken": "ghp_xxxxxxxxxxxx",
+  "plannerModel": "gpt-5"
+}
+JSON
+```
+
+#### Option 2: Standard Endpoint with Tags
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "REVIEW",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "pr_number": "123"
+  }
+}
+JSON
+```
+
+**Key characteristics:**
+- Fetches PR from GitHub and computes merge-base diff
+- Generates LLM-powered code review
+- Posts summary comment and inline line comments to the PR
+- Skips duplicate comments; falls back to PR comment if inline fails
+- `codeModel` is ignored (no code generation)
+
+### ISSUE Mode (Automated Issue Resolution)
+
+ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (controlled by `buildSettings.maxBuildAttempts`, per task).
+
+Additionally, you can cap the overall issue remediation workflow using `maxIssueFixAttempts`: this is the maximum number of ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). Default: 5.
+
+#### Verification and fix contract (ISSUE mode)
+
+For ISSUE mode the executor follows a simplified verification contract:
+
+- For each verification point (per-task verification and final gate), Brokk runs verification once.
+- If verification fails, Brokk performs at most one fix attempt and then re-runs verification exactly once.
+- If verification still fails after the single fix attempt, the ISSUE workflow fails and no Pull Request is created.
+- The `buildSettings.maxBuildAttempts` and job-level `maxIssueFixAttempts` fields are currently not used as iterative retry budgets in the headless executor; they may be reserved for future enhancements.
+
+#### Option 1: Convenience Endpoint (Recommended)
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs/issue" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "owner": "myorg",
+  "repo": "myrepo",
+  "issueNumber": 42,
+  "githubToken": "ghp_xxxxxxxxxxxx",
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "maxIssueFixAttempts": 5,
+  "buildSettings": {
+    "buildLintCommand": "./gradlew classes",
+    "testAllCommand": "./gradlew test",
+    "testSomeCommand": "./gradlew test --tests",
+    "environmentVariables": {
+      "JAVA_HOME": "/usr/lib/jvm/java-21"
+    },
+    "maxBuildAttempts": 5
+  }
+}
+JSON
+```
+
+#### Option 2: Standard Endpoint with Tags
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ISSUE",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "issue_number": "42",
+    "build_settings": "{\"buildLintCommand\":\"./gradlew classes\",\"testAllCommand\":\"./gradlew test\"}"
+  }
+}
+JSON
+```
+
+#### Streaming Events
+
+Observe the iterative workflow by streaming job events:
+
+```bash
+curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+**Sample Events:**
+
+```json
+{
+  "events": [
+    {
+      "seq": 1,
+      "type": "NOTIFICATION",
+      "data": "Job started: <job-id>"
+    },
+    {
+      "seq": 2,
+      "type": "LLM_TOKEN",
+      "data": "Planning phase: Analyzing issue #42..."
+    },
+    {
+      "seq": 3,
+      "type": "NOTIFICATION",
+      "data": "Task list generated with 2 subtasks"
+    },
+    {
+      "seq": 4,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 1/2: Implement fix..."
+    },
+    {
+      "seq": 5,
+      "type": "NOTIFICATION",
+      "data": "Running build verification..."
+    },
+    {
+      "seq": 6,
+      "type": "NOTIFICATION",
+      "data": "Build verification passed"
+    },
+    {
+      "seq": 7,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 2/2: Add tests..."
+    },
+    {
+      "seq": 8,
+      "type": "NOTIFICATION",
+      "data": "Running build verification..."
+    },
+    {
+      "seq": 9,
+      "type": "NOTIFICATION",
+      "data": "Build failed, attempting fix (1/3)..."
+    },
+    {
+      "seq": 10,
+      "type": "LLM_TOKEN",
+      "data": "Fixing build error..."
+    },
+    {
+      "seq": 11,
+      "type": "NOTIFICATION",
+      "data": "Build verification passed"
+    },
+    {
+      "seq": 12,
+      "type": "NOTIFICATION",
+      "data": "Task 2 completed, progress: 100%"
+    }
+  ],
+  "nextAfter": 12
+}
+```
+
+**Key characteristics:**
+- Fetches issue title and body from GitHub.
+- **Branching**: Automatically creates a branch named `brokk/issue-{number}`.
+- Uses LUTZ-style planning to decompose issue into tasks.
+- Executes each task with ArchitectAgent (uses `plannerModel` + `codeModel`).
+- Runs build verification after each task.
+- Retries failed builds per task (default: 3 attempts per task, configurable via `buildSettings.maxBuildAttempts`).
+- Caps overall issue remediation attempts (default: 5, configurable via `maxIssueFixAttempts`).
+- **PR Creation**: On success, pushes changes and creates a Pull Request with an AI-generated title and description.
+- `buildSettings` overrides project defaults for the job duration.
+- `codeModel` is optional; defaults to project default if omitted.
+
 ## Job Status
 
 ```bash
 curl -sS "${BASE}/v1/jobs/<job-id>" \
   -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
+
+**Response (200 OK):**
+
+```json
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "state": "COMPLETED",
+  "startTime": 1734567890123,
+  "endTime": 1734567890456,
+  "progressPercent": 100,
+  "result": null,
+  "error": null,
+  "metadata": {}
+}
+```
+
+Possible `state` values: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`.
 
 ## Job Events
 
@@ -606,10 +845,50 @@ curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
   -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
 
+## Job-level model overrides (optional): reasoningLevel and temperature
+
+You can pass these optional top-level fields in any `POST /v1/jobs` payload:
+
+- `reasoningLevel` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"` — applies to the planner model.
+- `reasoningLevelCode` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"` — applies to the code model (CODE and ARCHITECT modes).
+- `temperature` (number): `0.0` to `2.0` inclusive — applies to the planner model.
+- `temperatureCode` (number): `0.0` to `2.0` inclusive — applies to the code model (CODE and ARCHITECT modes).
+
+If omitted, the executor uses the model/service defaults.
+
+### Example: CODE mode with overrides
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Implement a utility to sanitize filenames.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "reasoningLevel": "MEDIUM",
+  "reasoningLevelCode": "LOW",
+  "temperature": 0.0,
+  "temperatureCode": 0.2,
+  "tags": {
+    "mode": "CODE"
+  }
+}
+JSON
+```
+
 ## Troubleshooting
 
 - Missing `plannerModel` triggers `HTTP 400` with a validation error (`plannerModel is required`).
 - Providing an unknown `plannerModel` yields a job that transitions to `FAILED` with an error containing `MODEL_UNAVAILABLE`.
 - In CODE mode, changing `plannerModel` does not alter execution, but it must still be supplied; `codeModel` selects the LLM used for code actions.
+- `reasoningLevel` must be one of `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`; invalid values trigger `HTTP 400`.
+- `temperature` (planner model) must be a number between `0.0` and `2.0` inclusive; invalid values trigger `HTTP 400`.
+- `temperatureCode` (code model) must be a number between `0.0` and `2.0` inclusive; invalid values trigger `HTTP 400`.
 - Free-form text that exceeds 1 MiB (UTF-8 bytes) is rejected with `HTTP 400`.
 - Blank free-form text is rejected with `HTTP 400`.

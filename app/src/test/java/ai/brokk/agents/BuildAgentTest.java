@@ -5,6 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.TestProject;
+import ai.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -14,7 +18,12 @@ import java.util.function.Predicate;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
+@Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock("ai.brokk.util.Environment.shellCommandRunnerFactory")
 class BuildAgentTest {
     @Test
     void testInterpolateModulesTemplate() {
@@ -294,7 +303,7 @@ class BuildAgentTest {
         // Create a project with existing exclusion patterns
         Files.createDirectory(tempDir.resolve("src"));
         Files.createDirectory(tempDir.resolve("build"));
-        var testProject = new ai.brokk.testutil.TestProject(tempDir);
+        var testProject = new TestProject(tempDir);
         testProject.setExclusionPatterns(Set.of("*.svg", "*.png", "build"));
 
         // Create a BuildAgent - we don't need LLM for this test
@@ -409,5 +418,113 @@ class BuildAgentTest {
         assertTrue(llmPatterns.contains("build"), "Kept pattern should be in LLM tracking");
 
         project.close();
+    }
+
+    @Test
+    void testRunExplicitCommandSuccessStreamsAndClearsBuildError(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            String cmd = "explicit-success";
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                assertEquals(cmd, command);
+                assertTrue(timeout != null && !timeout.isNegative());
+                outputConsumer.accept("line1");
+                return "ok";
+            };
+
+            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+
+            assertTrue(updated.getBuildError().isBlank(), "Build error should be blank on success");
+            assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
+            assertTrue(io.getOutputLog().contains("line1"), "Console output should contain streamed output");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunExplicitCommandFailureSetsBuildErrorAndStreams(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            String cmd = "explicit-failure";
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                outputConsumer.accept("some output");
+                throw new Environment.FailureException("boom", "stdout:\nfail", 1);
+            };
+
+            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+
+            assertFalse(updated.getBuildError().isBlank(), "Build error should be non-blank on failure");
+            assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
+            assertTrue(io.getOutputLog().contains("some output"), "Console output should contain streamed output");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunExplicitCommandFailureNullOutputDoesNotEmbedNullLiteral(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            String cmd = "explicit-failure-null-output";
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                outputConsumer.accept("some output");
+                throw new Environment.SubprocessException(null, "ignored") {
+                    @Override
+                    public String getOutput() {
+                        return null;
+                    }
+                };
+            };
+
+            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+
+            assertFalse(updated.getBuildError().contains("null"), "Build error must not contain the literal 'null'");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunExplicitCommandBlankClearsPreviousBuildError(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("README.md"), "x");
+        var project = new TestProject(tempDir);
+        project.setBuildDetails(
+                new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+
+        var io = new TestConsoleIO();
+        var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+        var ctx = cm.liveContext();
+
+        var ctxWithError = ctx.withBuildResult(false, "previous failure");
+
+        var updated = BuildAgent.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
+
+        assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
+        assertTrue(io.getOutputLog().contains("No explicit command specified, skipping."), "Should log skip message");
     }
 }

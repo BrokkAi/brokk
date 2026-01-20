@@ -4,8 +4,8 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.webview.MOPBridge;
 import ai.brokk.gui.mop.webview.MOPWebViewHost;
@@ -13,7 +13,6 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -39,8 +38,10 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     private final MOPWebViewHost webHost;
     private boolean taskInProgress = false;
+    private boolean showEmptyState = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
+    private @Nullable String staticMarkdown = null;
     private @Nullable ContextManager currentContextManager;
     private @Nullable String lastHistorySignature = null;
     private boolean transientMessageVisible = false;
@@ -134,7 +135,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             logger.debug("Skipping MOP main update, content is unchanged.");
             return;
         }
-        setText(newMessages);
+        setMessages(newMessages);
     }
 
     private void setHistoryIfChanged(List<TaskEntry> entries) {
@@ -188,83 +189,118 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         return result;
     }
 
-    public void clear() {
-        messages.clear();
+    private void clearHistory() {
+        // local
         lastHistorySignature = null;
-        transientMessageVisible = false;
-        webHost.clear();
+        // webhost
         webHost.historyReset();
+    }
+
+    private void clearMain() {
+        // local
+        messages.clear();
+        transientMessageVisible = false;
+        // webhost
+        webHost.clear();
+    }
+
+    private void clearStaticDocument() {
+        // local
+        staticMarkdown = null;
+        // webhost
+        webHost.sendStaticDocument(null);
+    }
+
+    public void clear() {
+        clearHistory();
+        clearMain();
+        clearStaticDocument();
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void append(String text, ChatMessageType type, boolean isNewMessage, boolean reasoning) {
+    public void append(String text, ChatMessageType type, LlmOutputMeta meta) {
         if (text.isEmpty()) {
             return;
         }
 
-        // If transient message was visible, this chunk should start a new message
+        // 1. Transient message cleanup
         boolean wasTransientVisible = transientMessageVisible;
         if (wasTransientVisible) {
             transientMessageVisible = false;
             webHost.hideTransientMessage();
         }
 
-        // Compute effective isNew: force true if transient was visible
-        boolean effectiveIsNew = isNewMessage || wasTransientVisible;
-
-        var lastMessageIsReasoning = !messages.isEmpty() && isReasoningMessage(messages.getLast());
-        if (effectiveIsNew
-                || messages.isEmpty()
-                || reasoning != lastMessageIsReasoning
-                || (!reasoning && type != messages.getLast().type())) {
-            // new message
-            messages.add(Messages.create(text, type, reasoning));
+        // 2. Determine if we must start a new message bubble
+        boolean isNew;
+        if (messages.isEmpty() || meta.isNewMessage() || wasTransientVisible) {
+            isNew = true;
         } else {
-            // merge with last message
+            var last = messages.getLast();
+
+            // Precedence is intentional:
+            // - a base ChatMessageType change always starts a new bubble
+            // - within the same type, split on variant changes (reasoning for AI, terminal for CUSTOM)
+            if (type != last.type()) {
+                isNew = true;
+            } else {
+                boolean lastIsReasoning = Messages.isReasoningMessage(last);
+                boolean lastIsTerminal = Messages.isTerminalMessage(last);
+                isNew = meta.isReasoning() != lastIsReasoning || meta.isTerminal() != lastIsTerminal;
+            }
+        }
+
+        var chunkMeta = ChunkMeta.fromLlmOutputMeta(meta, isNew);
+
+        if (isNew) {
+            messages.add(Messages.create(text, type, meta));
+        } else {
             var lastIdx = messages.size() - 1;
             var last = messages.get(lastIdx);
             var combined = Messages.getText(last) + text;
-            messages.set(lastIdx, Messages.create(combined, type, reasoning));
+            messages.set(lastIdx, Messages.create(combined, type, meta));
         }
 
-        webHost.append(text, effectiveIsNew, type, true, reasoning);
+        webHost.append(text, type, true, chunkMeta);
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void setText(ContextFragments.TaskFragment newOutput) {
-        setText(newOutput.messages());
-    }
-
-    public void setText(List<? extends ChatMessage> newMessages) {
-        messages.clear();
+    public void setMessages(List<? extends ChatMessage> newMessages) {
+        clearMain();
         messages.addAll(newMessages);
-        webHost.clear();
         for (var message : newMessages) {
             if (!Messages.shouldDisplayInMop(message)) {
                 continue;
             }
-            var isReasoning = isReasoningMessage(message);
-            webHost.append(Messages.getTextWithToolCalls(message), true, message.type(), false, isReasoning);
+            LlmOutputMeta meta = LlmOutputMeta.DEFAULT
+                    .withReasoning(Messages.isReasoningMessage(message))
+                    .withTerminal(Messages.isTerminalMessage(message));
+            var chunkMeta = ChunkMeta.fromLlmOutputMeta(meta, true);
+            webHost.append(Messages.getText(message), message.type(), false, chunkMeta);
         }
         // All appends are sent, now flush to make sure they are processed.
         webHost.flushAsync();
         textChangeListeners.forEach(Runnable::run);
     }
 
+    public void setStaticDocument(String markdown) {
+        clearStaticDocument();
+        if (markdown.isBlank()) {
+            return;
+        }
+        staticMarkdown = markdown;
+        webHost.sendStaticDocument(markdown);
+        textChangeListeners.forEach(Runnable::run);
+    }
+
     public String getText() {
+        if (staticMarkdown != null) {
+            return staticMarkdown;
+        }
         return messages.stream().map(Messages::getRepr).collect(Collectors.joining("\n\n"));
     }
 
     public List<ChatMessage> getRawMessages() {
         return List.copyOf(messages);
-    }
-
-    public static boolean isReasoningMessage(ChatMessage msg) {
-        if (msg instanceof AiMessage ai) {
-            var reasoning = ai.reasoningContent();
-            return reasoning != null && !reasoning.isEmpty();
-        }
-        return false;
     }
 
     public void addTextChangeListener(Runnable listener) {
@@ -347,7 +383,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.removeSearchStateListener(l);
     }
 
-    public void withContextForLookups(@Nullable ContextManager contextManager, @Nullable Chrome chrome) {
+    public void setContextForLookups(@Nullable ContextManager contextManager, @Nullable Chrome chrome) {
         // Unregister from previous context manager if it exists
         if (currentContextManager != null) {
             currentContextManager.removeAnalyzerCallback(this);
@@ -361,6 +397,15 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         currentContextManager = contextManager;
         webHost.setContextManager(contextManager);
         webHost.setSymbolRightClickHandler(chrome);
+    }
+
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
+        webHost.setShowEmptyState(show);
+    }
+
+    public boolean isShowEmptyState() {
+        return showEmptyState;
     }
 
     @Override

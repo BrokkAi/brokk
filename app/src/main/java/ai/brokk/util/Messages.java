@@ -2,6 +2,8 @@ package ai.brokk.util;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.LlmOutputMeta;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.tools.ExplanationRenderer;
@@ -21,13 +23,6 @@ import org.jetbrains.annotations.Blocking;
 public class Messages {
     private static final Logger logger = LogManager.getLogger(Messages.class);
 
-    /**
-     * Placeholder text used when an AI message has tool calls but no text content.
-     * This is a workaround for Anthropic's API which doesn't allow empty text in tool call responses.
-     * This placeholder should be filtered out when displaying messages to users.
-     */
-    public static final String TOOL_CALLS_PLACEHOLDER = "Tool calls";
-
     // Simple OpenAI token count estimator for approximate counting
     // It can remain static as it's stateless based on model ID
     private static final OpenAiTokenCountEstimator tokenCountEstimator = new OpenAiTokenCountEstimator("gpt-4o");
@@ -42,6 +37,13 @@ public class Messages {
      * allowed at the very beginning for some models.
      */
     public static CustomMessage customSystem(String text) {
+        return new CustomMessage(Map.of("text", text));
+    }
+
+    public static CustomMessage customSystem(String text, LlmOutputMeta meta) {
+        if (meta.isTerminal()) {
+            return new CustomMessage(Map.of("text", text, "isTerminal", true));
+        }
         return new CustomMessage(Map.of("text", text));
     }
 
@@ -83,15 +85,15 @@ public class Messages {
 
     /** Helper method to create a ChatMessage of the specified type */
     public static ChatMessage create(String text, ChatMessageType type) {
-        return create(text, type, false);
+        return create(text, type, LlmOutputMeta.DEFAULT);
     }
 
-    public static ChatMessage create(String text, ChatMessageType type, boolean isReasoning) {
+    public static ChatMessage create(String text, ChatMessageType type, LlmOutputMeta meta) {
+        boolean isReasoning = meta.isReasoning();
         return switch (type) {
             case USER -> new UserMessage(text);
             case AI -> isReasoning ? new AiMessage("", text) : new AiMessage(text);
-            case CUSTOM -> customSystem(text);
-            // Add other cases as needed with appropriate implementations
+            case CUSTOM -> customSystem(text, meta);
             default -> {
                 logger.warn("Unsupported message type: {}, using AiMessage as fallback", type);
                 yield new AiMessage(text);
@@ -190,6 +192,11 @@ public class Messages {
                 && !aiMessage.reasoningContent().isBlank();
     }
 
+    public static boolean isTerminalMessage(ChatMessage message) {
+        return message instanceof CustomMessage cm && cm.attributes().get("isTerminal") != null;
+    }
+
+
     /**
      * Determines if a message should be displayed in the MOP (Markdown Output Panel).
      * ToolExecutionResultMessage is hidden unless dev mode is enabled.
@@ -207,10 +214,6 @@ public class Messages {
         }
 
         var text = getText(message);
-        if (TOOL_CALLS_PLACEHOLDER.equals(text)) {
-            text = "";
-        }
-
         var rendered = aiMessage.toolExecutionRequests().stream()
                 .map(ExplanationRenderer::renderToolRequest)
                 .filter(s -> !s.isBlank())

@@ -1,6 +1,7 @@
 package ai.brokk.cli;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -11,18 +12,27 @@ import dev.langchain4j.data.message.UserMessage;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 public abstract class MemoryConsole implements IConsoleIO {
     List<ChatMessage> messages = new ArrayList<>();
+    private @Nullable IConsoleIO echoTo;
+
+    public void setEchoTo(@Nullable IConsoleIO echoTo) {
+        this.echoTo = echoTo;
+    }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
-        if (isNewMessage(type, explicitNewMessage)) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+        if (isNewMessage(type, meta.isNewMessage())) {
             messages.add(createMessage(type, token));
         } else {
             var lastMessage = messages.getLast();
             var newText = Messages.getText(lastMessage) + token;
             messages.set(messages.size() - 1, updateMessage(lastMessage, newText));
+        }
+        if (echoTo != null) {
+            echoTo.llmOutput(token, type, meta);
         }
     }
 
@@ -61,5 +71,19 @@ public abstract class MemoryConsole implements IConsoleIO {
     @Override
     public List<ChatMessage> getLlmRawMessages() {
         return List.copyOf(messages);
+    }
+
+    @Override
+    public void toolError(String message, String title) {
+        if (echoTo != null) {
+            echoTo.toolError(message, title);
+        }
+    }
+
+    @Override
+    public void showNotification(NotificationRole role, String message) {
+        if (echoTo != null) {
+            echoTo.showNotification(role, message);
+        }
     }
 }

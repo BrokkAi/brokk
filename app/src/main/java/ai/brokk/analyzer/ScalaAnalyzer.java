@@ -7,6 +7,10 @@ import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQueryCapture;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterScala;
 
 public class ScalaAnalyzer extends TreeSitterAnalyzer {
@@ -117,6 +121,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean requiresSemicolons() {
+        return false; // Scala does not require semicolons
+    }
+
+    @Override
     protected String renderClassHeader(
             TSNode classNode,
             SourceContent sourceContent,
@@ -186,5 +195,44 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForScala(reference);
+    }
+
+    private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
+    private static final Set<String> TEST_INFIX_KEYWORDS = Set.of("in", "should", "must", "can");
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        var query = getThreadLocalQuery();
+        var cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                switch (captureName) {
+                    case "test.import", "test.call" -> {
+                        return true;
+                    }
+                    case "test.annotation" -> {
+                        String nodeText = sourceContent.substringFromBytes(
+                                capture.getNode().getStartByte(),
+                                capture.getNode().getEndByte());
+                        if (TEST_ANNOTATIONS.contains(nodeText)) {
+                            return true;
+                        }
+                    }
+                    case "test.infix" -> {
+                        String nodeText = sourceContent.substringFromBytes(
+                                capture.getNode().getStartByte(),
+                                capture.getNode().getEndByte());
+                        if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

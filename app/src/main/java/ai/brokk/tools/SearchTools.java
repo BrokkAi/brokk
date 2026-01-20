@@ -13,7 +13,6 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
@@ -166,6 +165,8 @@ public class SearchTools {
     @Tool(
             """
                     Search for symbols (class/function/field/module definitions) using static analysis.
+                    ONLY returns symbol definitions (declarations).
+                    DO NOT use for usages/call sites/instantiation/access patterns — use addSymbolUsagesToWorkspace or searchSubstrings.
                     Output is grouped by file, then by symbol kind within each file.
 
                     - kinds: CLASS, FUNCTION, FIELD, MODULE
@@ -249,6 +250,8 @@ public class SearchTools {
     @Tool(
             """
                     Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
+                    Use this for questions like “how is X used/accessed/obtained/wired”.
+                    If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
                     """)
     public String getUsages(
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")
@@ -477,14 +480,18 @@ public class SearchTools {
             return "Cannot search commit messages: Git repository not found for this project.";
         }
 
+        var repo = contextManager.getRepo();
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return "Cannot search commit messages: git repo is not available as a GitRepo (was: "
+                    + repo.getClass().getName() + ").";
+        }
+
         List<CommitInfo> matchingCommits;
-        try (var gitRepo = new GitRepo(projectRoot)) {
-            try {
-                matchingCommits = gitRepo.searchCommits(pattern);
-            } catch (GitAPIException e) {
-                logger.error("Error searching commit messages", e);
-                return "Error searching commit messages: " + e.getMessage();
-            }
+        try {
+            matchingCommits = gitRepo.searchCommits(pattern);
+        } catch (GitAPIException e) {
+            logger.error("Error searching commit messages", e);
+            return "Error searching commit messages: " + e.getMessage();
         }
 
         if (matchingCommits.isEmpty()) {
@@ -508,7 +515,7 @@ public class SearchTools {
                 try {
                     List<ProjectFile> changedFilesList;
                     try {
-                        changedFilesList = commit.changedFiles();
+                        changedFilesList = CommitInfo.changedFiles(gitRepo, commit.id());
                     } catch (GitAPIException e) {
                         logger.error("Error retrieving changed files for commit {}", commit.id(), e);
                         changedFilesList = List.of();
@@ -795,7 +802,7 @@ public class SearchTools {
         StringBuilder fileSummaries = new StringBuilder();
         children.sort(ProjectFile::compareTo);
         for (var file : children) {
-            String identifiers = Context.buildRelatedIdentifiers(analyzer, file);
+            String identifiers = analyzer.buildRelatedIdentifiers(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
             String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\">\n" + content + "\n</file>\n";
 

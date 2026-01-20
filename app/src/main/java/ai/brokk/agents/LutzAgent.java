@@ -2,6 +2,7 @@ package ai.brokk.agents;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.git.GitWorkflow;
@@ -9,6 +10,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.SearchPrompts.Terminal;
+import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.agent.tool.P;
@@ -116,11 +118,17 @@ public class LutzAgent extends SearchAgent {
             @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
                     String instructions)
             throws InterruptedException, ToolRegistry.FatalLlmException {
+        if (scope == null) {
+            throw new ToolRegistry.FatalLlmException("Cannot call Code Agent without a valid Task Scope.");
+        }
+
         // Append first the SearchAgent's result so far; CodeAgent appends its own result
-        context = scope.append(createResult("Search: " + goal, goal));
+        var searchResult = createResult("Search: " + goal, goal);
+        context = scope.append(searchResult);
 
         // Call the agent (actually Architect, not Code, so it can recover if the Context isn't quite complete)
         logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
+
         var agent = new ArchitectAgent(
                 cm, cm.getService().getModel(ModelType.ARCHITECT), cm.getCodeModel(), instructions, scope, context);
         var result = agent.execute();
@@ -145,8 +153,7 @@ public class LutzAgent extends SearchAgent {
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
-        throw new ToolRegistry.ToolCallException(
-                ai.brokk.tools.ToolExecutionResult.Status.INTERNAL_ERROR, stopDetails.explanation());
+        throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.INTERNAL_ERROR, stopDetails.explanation());
     }
 
     @Override

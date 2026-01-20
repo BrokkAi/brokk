@@ -1,6 +1,7 @@
 package ai.brokk.executor.jobs;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.HashMap;
 import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
@@ -89,7 +90,7 @@ public record JobStatus(
      * Returns a copy of this status with metadata added/updated.
      */
     public JobStatus withMetadata(String key, String value) {
-        var newMetadata = new java.util.HashMap<>(metadata);
+        var newMetadata = new HashMap<>(metadata);
         newMetadata.put(key, value);
         return new JobStatus(jobId, state, startTime, endTime, progressPercent, result, error, newMetadata);
     }

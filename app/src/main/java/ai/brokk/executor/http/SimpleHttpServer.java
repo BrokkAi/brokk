@@ -1,5 +1,6 @@
 package ai.brokk.executor.http;
 
+import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.executor.jobs.ErrorPayload;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
@@ -9,8 +10,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -22,7 +21,6 @@ import org.jetbrains.annotations.Nullable;
 public final class SimpleHttpServer {
     private static final Logger logger = LogManager.getLogger(SimpleHttpServer.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final AtomicInteger workerThreadCounter = new AtomicInteger(0);
 
     private final HttpServer httpServer;
     private final String authToken;
@@ -40,11 +38,7 @@ public final class SimpleHttpServer {
         this.authToken = authToken;
         this.httpServer = HttpServer.create(new InetSocketAddress(host, port), 0);
 
-        var executor = Executors.newFixedThreadPool(threadCount, r -> {
-            var t = new Thread(r, "SimpleHttpServer-Worker-" + workerThreadCounter.incrementAndGet());
-            t.setDaemon(true);
-            return t;
-        });
+        var executor = ExecutorsUtil.newFixedThreadExecutor(threadCount, "SimpleHttpServer-Worker-");
         this.httpServer.setExecutor(executor);
 
         logger.info("SimpleHttpServer created: {}:{} with {} worker threads", host, port, threadCount);

@@ -2,6 +2,8 @@ package ai.brokk;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.watchservice.AbstractWatchService;
+import ai.brokk.watchservice.NoopWatchService;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.jetbrains.annotations.Nullable;
@@ -35,8 +37,8 @@ public interface IAnalyzerWrapper extends AutoCloseable {
      * Returns the underlying watch service for direct access.
      * Callers can use this to pause/resume file watching or add additional listeners.
      */
-    default IWatchService getWatchService() {
-        return new IWatchService() {};
+    default AbstractWatchService getWatchService() {
+        return new NoopWatchService();
     }
 
     @Override

@@ -1,18 +1,8 @@
 package ai.brokk.testutil;
 
 import ai.brokk.analyzer.*;
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.LintResult;
-import ai.brokk.analyzer.LintingProvider;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.project.IProject;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.SequencedSet;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -25,6 +15,9 @@ import org.jetbrains.annotations.Nullable;
 public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvider {
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
+    private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
+    private final Map<CodeUnit, String> skeletons = new HashMap<>();
+    private final Map<CodeUnit, String> sources = new HashMap<>();
     private Function<List<ProjectFile>, LintResult> lintBehavior = files -> new LintResult(List.of());
     private @Nullable IProject testProject;
 
@@ -40,7 +33,11 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     public TestAnalyzer() {
-        this(List.of(), Map.of());
+        this(new ArrayList<>(), Map.of());
+    }
+
+    public void addDeclaration(CodeUnit cu) {
+        this.allClasses.add(cu);
     }
 
     public void setLintBehavior(Function<List<ProjectFile>, LintResult> behavior) {
@@ -124,16 +121,20 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
+        return Optional.empty();
+    }
+
+    @Override
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
-        var matches = allClasses.stream()
-                .filter(cu -> cu.fqName().equals(fqName))
-                .collect(java.util.stream.Collectors.toSet());
+        var matches =
+                allClasses.stream().filter(cu -> cu.fqName().equals(fqName)).collect(Collectors.toSet());
         return sortDefinitions(matches);
     }
 
     @Override
     public Set<CodeUnit> getDeclarations(ProjectFile file) {
-        return Set.of(); // Return empty set for test purposes
+        return allClasses.stream().filter(cu -> cu.source().equals(file)).collect(Collectors.toSet());
     }
 
     @Override
@@ -143,12 +144,20 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public Optional<String> getSkeleton(CodeUnit cu) {
-        return Optional.empty(); // Return empty for test purposes
+        return Optional.ofNullable(skeletons.get(cu));
     }
 
     @Override
     public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
-        return Optional.empty(); // Return empty for test purposes
+        return Optional.empty();
+    }
+
+    public void setSkeleton(CodeUnit cu, String skeleton) {
+        this.skeletons.put(cu, skeleton);
+    }
+
+    public void setSource(CodeUnit cu, String source) {
+        this.sources.put(cu, source);
     }
 
     @Override
@@ -158,7 +167,43 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        return List.of();
+        return ancestorsMap.getOrDefault(cu, List.of());
+    }
+
+    public void setDirectAncestors(CodeUnit cu, List<CodeUnit> ancestors) {
+        this.ancestorsMap.put(cu, ancestors);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+        if (capability.isInstance(this)) {
+            return Optional.of((T) this);
+        }
+        if (capability == SourceCodeProvider.class) {
+            return Optional.of((T) new SourceCodeProvider() {
+                @Override
+                public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
+                    return getMethodSource(method, includeComments).map(Set::of).orElse(Set.of());
+                }
+
+                @Override
+                public Optional<String> getMethodSource(CodeUnit method, boolean includeComments) {
+                    return Optional.ofNullable(sources.get(method));
+                }
+
+                @Override
+                public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
+                    return Optional.ofNullable(sources.get(classUnit));
+                }
+
+                @Override
+                public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
+                    return Optional.ofNullable(sources.get(codeUnit));
+                }
+            });
+        }
+        return Optional.empty();
     }
 
     @Override

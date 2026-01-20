@@ -7,7 +7,6 @@ import ai.brokk.prompts.CommitPrompts;
 import ai.brokk.prompts.MergePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.util.Messages;
-import ai.brokk.util.StringDiskCache;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.exception.ContextTooLargeException;
@@ -56,7 +55,7 @@ public class GitTools {
         var shortHash = repo.shortHash(revision);
         var cacheKey = (detailed ? "explain-" : "summarize-") + shortHash;
 
-        StringDiskCache cache = cm.getProject().getDiskCache();
+        var cache = cm.getProject().getDiskCache();
 
         return cache.computeIfAbsent(cacheKey, () -> {
             // Compute explanation
