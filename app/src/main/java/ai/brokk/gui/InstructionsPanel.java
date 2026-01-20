@@ -98,7 +98,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static final String PLACEHOLDER_TEXT =
             """
-                    Type your prompt here. (Shift+Enter for a new line)
+                    Type your prompt here. Shift+Enter = newline. Cmd/Ctrl+Enter = submit.
                     """
                     .stripIndent();
 
@@ -2633,7 +2633,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String submitLine = "";
             try {
                 var submitKs = GlobalUiSettings.getKeybinding(
-                        "instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
+                        "instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
                 var submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
                 if (submitStr == null || submitStr.isBlank()) {
                     submitStr = "(unbound)";
