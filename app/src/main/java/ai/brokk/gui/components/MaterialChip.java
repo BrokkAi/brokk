@@ -166,33 +166,66 @@ public class MaterialChip extends JPanel {
         closeButton.addActionListener(l);
     }
 
-    public void addChipClickListener(Runnable onClick) {
-        this.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getButton() == MouseEvent.BUTTON1) {
-                    onClick.run();
-                }
-            }
-        });
+    /**
+     * Adds a listener for primary clicks on the chip.
+     */
+    public void addChipClickListener(Runnable onPrimaryClick) {
+        addChipClickListener(onPrimaryClick, () -> {});
     }
 
     /**
-     * Installs logic to trigger the close action when clicking to the right of the separator.
+     * Adds a listener for clicks on the chip. Clicks to the left of the separator (if visible)
+     * trigger {@code onPrimaryClick}, while clicks to the right trigger {@code onCloseClick}.
      */
-    public void addSeparatorCloseListener(Runnable onClose) {
+    public void addChipClickListener(Runnable onPrimaryClick, Runnable onCloseClick) {
         this.addMouseListener(new MouseAdapter() {
             @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.getButton() != MouseEvent.BUTTON1) e.consume();
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.getButton() != MouseEvent.BUTTON1) e.consume();
+            }
+
+            @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getButton() == MouseEvent.BUTTON1 && separator.isVisible()) {
+                if (e.getButton() != MouseEvent.BUTTON1) {
+                    e.consume();
+                    return;
+                }
+
+                if (separator.isVisible()) {
                     int clickX = e.getX();
                     int separatorEndX = separator.getX() + separator.getWidth();
                     if (clickX > separatorEndX) {
-                        onClose.run();
+                        onCloseClick.run();
+                        return;
                     }
                 }
+                onPrimaryClick.run();
             }
         });
+
+        // Consume mouse events on the button so they don't bubble up and trigger the panel listener twice
+        MouseAdapter consumer = new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                e.consume();
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                e.consume();
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                e.consume();
+            }
+        };
+        closeButton.addMouseListener(consumer);
     }
 
     private void updateSeparatorSize() {
