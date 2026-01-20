@@ -502,11 +502,20 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     private Optional<String> extractModulePath(String importStatement) {
-        Pattern pattern = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
-        Matcher matcher = pattern.matcher(importStatement);
-        if (matcher.find()) {
-            return Optional.of(matcher.group(1));
+        // Try ES6 pattern first
+        Pattern es6Pattern = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
+        Matcher es6Matcher = es6Pattern.matcher(importStatement);
+        if (es6Matcher.find()) {
+            return Optional.of(es6Matcher.group(1));
         }
+
+        // Try CommonJS pattern
+        Pattern cjsPattern = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
+        Matcher cjsMatcher = cjsPattern.matcher(importStatement);
+        if (cjsMatcher.find()) {
+            return Optional.of(cjsMatcher.group(1));
+        }
+
         return Optional.empty();
     }
 

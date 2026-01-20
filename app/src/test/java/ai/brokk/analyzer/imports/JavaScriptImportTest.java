@@ -151,4 +151,95 @@ public class JavaScriptImportTest {
             assertTrue(foundBaseService, "Should have resolved 'BaseService' class from src/some/BaseService.js");
         }
     }
+
+    @Test
+    public void testRequireImport() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                const path = require('path');
+                const fs = require('fs');
+                const local = require('./local-module');
+                const { func } = require('../other');
+
+                function app() {}
+                """,
+                        "app.js")
+                .build()) {
+            var analyzer = createAnalyzer(testProject);
+            var file = AnalyzerUtil.getFileFor(analyzer, "app").get();
+            var imports = analyzer.importStatementsOf(file);
+
+            assertTrue(imports.stream().anyMatch(s -> s.contains("require('path')")));
+            assertTrue(imports.stream().anyMatch(s -> s.contains("require('fs')")));
+            assertTrue(imports.stream().anyMatch(s -> s.contains("require('./local-module')")));
+            assertTrue(imports.stream().anyMatch(s -> s.contains("require('../other')")));
+            assertEquals(4, imports.size());
+        }
+    }
+
+    @Test
+    public void testResolveRequireImport() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export function shared() { return 1; }
+                """,
+                        "lib/shared.js")
+                .addFileContents(
+                        """
+                const { shared } = require('./lib/shared');
+                shared();
+                """,
+                        "index.js")
+                .build()) {
+
+            var analyzer = createAnalyzer(testProject);
+            var indexFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("index.js"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits = analyzer.importedCodeUnitsOf(indexFile);
+
+            boolean foundShared = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("shared") && cu.source().getRelPath().toString().contains("shared.js"));
+
+            assertTrue(foundShared, "Should have resolved 'shared' function from require call");
+        }
+    }
+
+    @Test
+    public void testMixedImportAndRequire() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export const val = 100;
+                """,
+                        "mod1.js")
+                .addFileContents(
+                        """
+                export const otherVal = 200;
+                """,
+                        "mod2.js")
+                .addFileContents(
+                        """
+                import { val } from './mod1';
+                const { otherVal } = require('./mod2');
+                """,
+                        "mixed.js")
+                .build()) {
+
+            var analyzer = createAnalyzer(testProject);
+            var mixedFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("mixed.js"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits = analyzer.importedCodeUnitsOf(mixedFile);
+
+            boolean foundVal = importedUnits.stream().anyMatch(cu -> cu.shortName().endsWith("val"));
+            boolean foundOtherVal = importedUnits.stream().anyMatch(cu -> cu.shortName().endsWith("otherVal"));
+
+            assertTrue(foundVal, "Should resolve ES6 import");
+            assertTrue(foundOtherVal, "Should resolve CommonJS require");
+        }
+    }
 }
