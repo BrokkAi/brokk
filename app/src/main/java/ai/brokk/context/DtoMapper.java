@@ -729,18 +729,6 @@ public class DtoMapper {
                             : null;
                     return new ContextFragments.UsageFragment(mgr, targetIdentifier, true, snapshot);
                 }
-                case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
-                        "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
-                    var methodName = meta.get("methodName");
-                    if (methodName == null) {
-                        throw new IllegalArgumentException("Missing 'methodName' for CallGraphFragment");
-                    }
-                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
-                            ? reader.readContent(ffd.contentId())
-                            : null;
-                    // Migrate to UsageFragment with includeTestFiles=true
-                    return new ContextFragments.UsageFragment(ffd.id(), mgr, methodName, true, snapshot);
-                }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {
                     var fqName = meta.get("fqName");

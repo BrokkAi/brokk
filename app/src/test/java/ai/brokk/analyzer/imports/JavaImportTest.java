@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.HashSet;
@@ -88,7 +89,9 @@ public class JavaImportTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
-            var resolvedImports = analyzer.importedCodeUnitsOf(fooFile);
+            var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(fooFile))
+                    .orElse(Set.of());
 
             var bazCUs = resolvedImports.stream()
                     .filter(cu -> cu.fqName().equals("example.Baz"))
@@ -123,7 +126,9 @@ public class JavaImportTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
-            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+            var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(consumerFile))
+                    .orElse(Set.of());
 
             var sampleClasses = resolvedImports.stream()
                     .filter(cu -> cu.fqName().startsWith("sample."))
@@ -157,7 +162,9 @@ public class JavaImportTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
-            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+            var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(consumerFile))
+                    .orElse(Set.of());
 
             var helperCUs = resolvedImports.stream()
                     .filter(cu -> cu.fqName().equals("util.Helper"))
@@ -179,7 +186,9 @@ public class JavaImportTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
-            var resolvedImports = analyzer.importedCodeUnitsOf(fooFile);
+            var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(fooFile))
+                    .orElse(Set.of());
 
             assertTrue(resolvedImports.isEmpty(), "Unresolved imports should result in empty resolved set");
         }
@@ -212,7 +221,9 @@ public class JavaImportTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
-            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+            var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(consumerFile))
+                    .orElse(Set.of());
 
             var fqNames = resolvedImports.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
@@ -255,7 +266,9 @@ public class JavaImportTest {
                     .findFirst()
                     .get()
                     .source();
-            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+            var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(consumerFile))
+                    .orElse(Set.of());
 
             var ambiguousCUs = resolvedImports.stream()
                     .filter(cu -> cu.identifier().equals("Ambiguous"))
@@ -298,7 +311,9 @@ public class JavaImportTest {
                     .findFirst()
                     .get()
                     .source();
-            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+            var resolvedImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(consumerFile))
+                    .orElse(Set.of());
 
             var ambiguousCUs = resolvedImports.stream()
                     .filter(cu -> cu.identifier().equals("Ambiguous"))
@@ -343,23 +358,35 @@ public class JavaImportTest {
             var fileC = AnalyzerUtil.getFileFor(analyzer, "pkg.C").get();
 
             // Verify forward imports
-            var importsA = analyzer.importedCodeUnitsOf(fileA);
+            var importsA = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(fileA))
+                    .orElse(Set.of());
             assertTrue(importsA.stream().anyMatch(cu -> cu.fqName().equals("pkg.B")), "A should import B");
 
-            var importsB = analyzer.importedCodeUnitsOf(fileB);
+            var importsB = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(fileB))
+                    .orElse(Set.of());
             assertTrue(importsB.stream().anyMatch(cu -> cu.fqName().equals("pkg.C")), "B should import C");
 
-            var importsC = analyzer.importedCodeUnitsOf(fileC);
+            var importsC = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(fileC))
+                    .orElse(Set.of());
             assertTrue(importsC.stream().anyMatch(cu -> cu.fqName().equals("pkg.A")), "C should import A");
 
             // Verify reverse edges
-            var refsA = analyzer.referencingFilesOf(fileA);
+            var refsA = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.referencingFilesOf(fileA))
+                    .orElse(Set.of());
             assertTrue(refsA.contains(fileC), "C.java should be a referencing file of A.java");
 
-            var refsB = analyzer.referencingFilesOf(fileB);
+            var refsB = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.referencingFilesOf(fileB))
+                    .orElse(Set.of());
             assertTrue(refsB.contains(fileA), "A.java should be a referencing file of B.java");
 
-            var refsC = analyzer.referencingFilesOf(fileC);
+            var refsC = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.referencingFilesOf(fileC))
+                    .orElse(Set.of());
             assertTrue(refsC.contains(fileB), "B.java should be a referencing file of C.java");
         }
     }
@@ -384,7 +411,9 @@ public class JavaImportTest {
 
             // This call triggers resolveImports -> getDefinitions -> importedCodeUnitsOf...
             // If the guard fails, this will throw StackOverflowError
-            var resolved = analyzer.importedCodeUnitsOf(fileA);
+            var resolved = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(fileA))
+                    .orElse(Set.of());
             assertEquals(1, resolved.size());
             assertEquals("B", resolved.iterator().next().fqName());
         }
@@ -411,8 +440,12 @@ public class JavaImportTest {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var fileA = AnalyzerUtil.getFileFor(analyzer, "pkg.A").get();
 
-            var firstCall = analyzer.importedCodeUnitsOf(fileA);
-            var secondCall = analyzer.importedCodeUnitsOf(fileA);
+            var firstCall = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(fileA))
+                    .orElse(Set.of());
+            var secondCall = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importedCodeUnitsOf(fileA))
+                    .orElse(Set.of());
 
             assertEquals(firstCall, secondCall, "Subsequent calls should return identical cached results");
             assertEquals(1, firstCall.size());
