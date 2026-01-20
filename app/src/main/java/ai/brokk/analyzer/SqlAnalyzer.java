@@ -147,6 +147,7 @@ public class SqlAnalyzer implements IAnalyzer {
         return sortDefinitions(new HashSet<>(cus));
     }
 
+    @Override
     public List<String> importStatementsOf(ProjectFile file) {
         return List.of();
     }

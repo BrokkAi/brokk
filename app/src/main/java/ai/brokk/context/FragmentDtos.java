@@ -228,7 +228,6 @@ public class FragmentDtos {
         }
     }
 
-
     /** DTO for CodeFragment - contains the fully qualified name of the code unit. */
     public record CodeFragmentDto(String id, String fullyQualifiedName, @Nullable String snapshotText)
             implements VirtualFragmentDto { // id changed to String

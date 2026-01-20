@@ -30,10 +30,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Mapper for legacy V3 DTOs.
  *
- * <p>Note: References to {@link ai.brokk.context.FragmentDtos.CallGraphFragmentDto} are for migration only.
- * CallGraphFragment is no longer supported and is dropped during deserialization.
  */
-@SuppressWarnings("deprecation")
 public class V3_DtoMapper {
     private static final Logger logger = LogManager.getLogger(V3_DtoMapper.class);
 
