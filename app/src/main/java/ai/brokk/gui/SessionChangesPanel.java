@@ -300,9 +300,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(false);
-        var leftHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        headerPanel.setBorder(new EmptyBorder(0, 0, 5, 0));
+        var leftHeader = new JPanel();
+        leftHeader.setLayout(new BoxLayout(leftHeader, BoxLayout.X_AXIS));
         leftHeader.setOpaque(false);
+        branchLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        baselineLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
         leftHeader.add(branchLabel);
+        leftHeader.add(Box.createHorizontalStrut(12));
         leftHeader.add(baselineLabel);
         headerPanel.add(leftHeader, BorderLayout.WEST);
 
