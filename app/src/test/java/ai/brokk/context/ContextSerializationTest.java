@@ -13,6 +13,9 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
+import ai.brokk.util.migrationv4.V3_DtoMapper;
+import ai.brokk.util.migrationv4.V3_FragmentDtos;
+import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
@@ -2115,6 +2118,27 @@ public class ContextSerializationTest {
         assertEquals(
                 groupId, loaded.getGroupId(ctx2Id), "Group ID should be preserved after round-trip with task history");
         assertEquals("Task Group", loaded.getGroupLabels().get(groupId));
+    }
+
+    @Test
+    void testCallGraphFragmentDtoDeserializationReturnsNull() {
+        // CallGraph fragments are no longer supported and should be dropped (return null) during V3 migration
+        var dto = new V3_FragmentDtos.CallGraphFragmentDto(
+                "test-id", "com.example.MyClass.myMethod", 1, true);
+
+        var virtualDtos = Map.of(dto.id(), (V3_FragmentDtos.VirtualFragmentDto) dto);
+        var contentReader = new V3_HistoryIo.ContentReader(Map.of());
+
+        ContextFragment result = V3_DtoMapper.resolveAndBuildFragment(
+                dto.id(),
+                Map.of(),
+                virtualDtos,
+                Map.of(),
+                mockContextManager,
+                new HashMap<>(),
+                contentReader);
+
+        assertNull(result, "CallGraphFragmentDto should resolve to null (dropped)");
     }
 
     @Test
