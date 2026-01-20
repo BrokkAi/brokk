@@ -3,7 +3,12 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -483,6 +488,53 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                         moduleCU.fqName());
             }
         }
+    }
+
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        return importStatements.stream()
+                .map(this::extractModulePath)
+                .flatMap(Optional::stream)
+                .map(path -> resolveModulePath(file, path))
+                .filter(Objects::nonNull)
+                .flatMap(resolvedFile -> getDeclarations(resolvedFile).stream())
+                .collect(Collectors.toSet());
+    }
+
+    private Optional<String> extractModulePath(String importStatement) {
+        Pattern pattern = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
+        Matcher matcher = pattern.matcher(importStatement);
+        if (matcher.find()) {
+            return Optional.of(matcher.group(1));
+        }
+        return Optional.empty();
+    }
+
+    private @Nullable ProjectFile resolveModulePath(ProjectFile importingFile, String modulePath) {
+        if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
+            return null;
+        }
+
+        Path parentDir = importingFile.absPath().getParent();
+        if (parentDir == null) {
+            return null;
+        }
+
+        Path resolvedPath = parentDir.resolve(modulePath).normalize();
+        Path root = getProject().getRoot();
+
+        List<String> extensions = List.of(
+                ".js", ".jsx", ".ts", ".tsx",
+                "/index.js", "/index.jsx", "/index.ts", "/index.tsx");
+
+        for (String ext : extensions) {
+            Path candidatePath = Path.of(resolvedPath.toString() + ext);
+            if (Files.exists(candidatePath) && candidatePath.startsWith(root)) {
+                return new ProjectFile(root, root.relativize(candidatePath));
+            }
+        }
+
+        return null;
     }
 
     @Override

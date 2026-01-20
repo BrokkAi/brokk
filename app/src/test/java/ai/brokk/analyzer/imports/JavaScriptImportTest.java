@@ -1,8 +1,10 @@
 package ai.brokk.analyzer.imports;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -39,6 +41,36 @@ public class JavaScriptImportTest {
                     "import React, { useState } from 'react';",
                     "import DefaultThing from './default-thing';");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
+        }
+    }
+
+    @Test
+    public void testResolveImports() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export function helper() { return 42; }
+                """,
+                        "utils/helper.js")
+                .addFileContents(
+                        """
+                import { helper } from './utils/helper';
+                function main() { return helper(); }
+                """,
+                        "main.js")
+                .build()) {
+
+            var analyzer = createAnalyzer(testProject);
+            var mainFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("main.js"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits = analyzer.importedCodeUnitsOf(mainFile);
+
+            boolean foundHelper = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("helper") && cu.source().getRelPath().toString().contains("helper.js"));
+
+            assertTrue(foundHelper, "Should have resolved 'helper' function from utils/helper.js");
         }
     }
 }
