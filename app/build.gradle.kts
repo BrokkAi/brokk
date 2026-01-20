@@ -692,20 +692,6 @@ tasks.named("clean") {
     dependsOn("frontendClean")
 }
 
-// JcefDemo task - minimal JCEF test
-tasks.register<JavaExec>("runJcefDemo") {
-    group = "application"
-    description = "Run minimal JCEF demo with JBR bundled JCEF"
-    classpath = sourceSets["main"].runtimeClasspath
-    mainClass.set("ai.brokk.JcefDemo")
-
-    jvmArgs = listOf(
-        "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED"
-    )
-}
-
 // Disable script and distribution generation since we don't need them
 tasks.named("startScripts") {
     enabled = false
