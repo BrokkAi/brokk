@@ -647,7 +647,7 @@ public class Context {
     public Optional<ContextFragments.StringFragment> getSpecial(String description) {
         // Since special looks for self-freezing fragments, we can reliably use `renderNow`
         return allFragments()
-                .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
+                .filter(f -> f instanceof ContextFragments.StringFragment sf
                         && description.equals(sf.description().renderNowOrNull()))
                 .map(ContextFragments.StringFragment.class::cast)
                 .findFirst();
