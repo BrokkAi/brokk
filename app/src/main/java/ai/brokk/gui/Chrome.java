@@ -659,8 +659,8 @@ public class Chrome
 
         // Submit action (configurable; default Cmd/Ctrl+Enter) - only when instructions area is focused
         var ip = rightPanel.getInstructionsPanel();
-        KeyStroke submitKeyStroke = GlobalUiSettings.getKeybinding(
-                "instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
+        KeyStroke submitKeyStroke =
+                GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
         // Bind directly to instructions area instead of globally to avoid interfering with other components
         bindKey(ip.getInstructionsArea().getInputMap(JComponent.WHEN_FOCUSED), submitKeyStroke, "submitAction");
         ip.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
