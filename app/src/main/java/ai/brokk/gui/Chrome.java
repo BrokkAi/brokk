@@ -715,8 +715,11 @@ public class Chrome
         }
 
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
-        KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
+        @Nullable KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.closeWindow", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        if (closeWindowKeyStroke == null) {
+            closeWindowKeyStroke = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+        }
         if (closeWindowKeyStroke.getKeyCode() == KeyEvent.VK_ESCAPE && closeWindowKeyStroke.getModifiers() == 0) {
             closeWindowKeyStroke = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
         }
@@ -942,7 +945,7 @@ public class Chrome
         });
     }
 
-    private static void bindKey(JRootPane rootPane, KeyStroke stroke, String actionKey) {
+    private static void bindKey(JRootPane rootPane, @Nullable KeyStroke stroke, String actionKey) {
         // Remove any previous stroke bound to this actionKey to avoid duplicates
         var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         // Remove all existing inputs mapping to actionKey
@@ -952,15 +955,21 @@ public class Chrome
                 im.remove(ks);
             }
         }
+        if (stroke == null) {
+            return;
+        }
         im.put(stroke, actionKey);
     }
 
-    private static void bindKey(InputMap inputMap, KeyStroke stroke, String actionKey) {
+    private static void bindKey(InputMap inputMap, @Nullable KeyStroke stroke, String actionKey) {
         for (KeyStroke ks : inputMap.allKeys() == null ? new KeyStroke[0] : inputMap.allKeys()) {
             Object val = inputMap.get(ks);
             if (actionKey.equals(val)) {
                 inputMap.remove(ks);
             }
+        }
+        if (stroke == null) {
+            return;
         }
         inputMap.put(stroke, actionKey);
     }
