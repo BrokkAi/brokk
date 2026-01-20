@@ -698,6 +698,11 @@ public class HeadlessExecCli {
                 System.err.println("ERROR: --repo-name is required for ISSUE mode");
                 return false;
             }
+            if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName
+                        + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
+                return false;
+            }
             if (issueNumber <= 0) {
                 System.err.println("ERROR: --issue-number is required for ISSUE mode");
                 return false;
@@ -716,6 +721,11 @@ public class HeadlessExecCli {
             }
             if (repoName.isBlank()) {
                 System.err.println("ERROR: --repo-name is required for REVIEW mode");
+                return false;
+            }
+            if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName
+                        + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
                 return false;
             }
             if (prNumber <= 0) {

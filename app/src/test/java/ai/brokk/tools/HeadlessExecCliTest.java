@@ -252,6 +252,42 @@ class HeadlessExecCliTest {
     }
 
     @Test
+    void testParseArgs_IssueMode_InvalidRepoNameIsRejected() {
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
+
+        try (PrintStream capturedErr = new PrintStream(errBytes, true, StandardCharsets.UTF_8)) {
+            System.setErr(capturedErr);
+
+            String[] args = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "../evil",
+                "--issue-number",
+                "123",
+                "Fix bug"
+            };
+
+            int exitCode = HeadlessExecCli.runCli(args);
+            capturedErr.flush();
+
+            String stderr = errBytes.toString(StandardCharsets.UTF_8);
+            assertEquals(1, exitCode);
+            assertTrue(stderr.contains("Invalid --repo-name"), stderr);
+            assertTrue(stderr.contains("must match ^[A-Za-z0-9_.-]+$"), stderr);
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
     void testParseArgs_ReviewMode_RequiredFields() {
         PrintStream originalErr = System.err;
         ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
