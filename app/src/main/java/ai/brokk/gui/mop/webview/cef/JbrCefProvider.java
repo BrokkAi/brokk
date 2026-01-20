@@ -32,11 +32,14 @@ public class JbrCefProvider implements CefAppProvider {
 
     @Override
     public boolean isAvailable() {
-        // Must be running in jDeploy
-        String launcherPath = System.getProperty("jdeploy.launcher.path");
-        if (launcherPath == null || launcherPath.isEmpty()) {
-            logger.trace("jdeploy.launcher.path not set, JBR provider not available");
-            return false;
+        // On macOS, jdeploy.launcher.path is required to find the Frameworks directory
+        // On Windows/Linux, resources are in java.home so jdeploy is not required
+        if (Environment.isMacOs()) {
+            String launcherPath = System.getProperty("jdeploy.launcher.path");
+            if (launcherPath == null || launcherPath.isEmpty()) {
+                logger.trace("jdeploy.launcher.path not set, JBR provider not available on macOS");
+                return false;
+            }
         }
 
         // Must have JBR JCEF resources available (platform-specific check)
