@@ -107,7 +107,7 @@ public class JavaScriptImportTest {
             boolean foundSubtract = importedUnits.stream()
                     .anyMatch(cu -> cu.shortName().equals("subtract") && cu.isFunction());
             boolean foundPI = importedUnits.stream()
-                    .anyMatch(cu -> cu.shortName().contains("PI") && cu.isField());
+                    .anyMatch(cu -> cu.shortName().endsWith("PI") && cu.isField());
 
             assertTrue(foundAdd, "Should have resolved 'add' function from wildcard import");
             assertTrue(foundSubtract, "Should have resolved 'subtract' function from wildcard import");
