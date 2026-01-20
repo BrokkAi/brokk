@@ -1063,6 +1063,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private void generateGuidedReviewInternal(ReviewScope scope) {
         cm.submitLlmAction(() -> {
+            chrome.showOutputSpinner("Generating guided review...");
             try {
                 var agent = new ReviewAgent(scope, cm.getProject().getModelConfig(ModelType.ARCHITECT), true, cm);
 
@@ -1077,6 +1078,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                 SwingUtilities.invokeLater(() -> {
                     setGuidedReviewBusy(false);
+                    chrome.hideOutputSpinner();
                     lastReviewState = new ReviewState(scope.metadata().fromRef(), now);
                     reviewTargetCommit = currentHash;
                     setMode(PanelMode.REVIEW);
@@ -1089,6 +1091,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (InterruptedException ex) {
                 logger.debug("Review generation cancelled by user");
                 SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
                     revalidate();
@@ -1097,6 +1100,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (ReviewGenerationException ex) {
                 logger.warn("Review generation failed: {}", ex.getMessage());
                 SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
 
@@ -1110,6 +1114,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (Exception ex) {
                 logger.error("Unexpected error during review generation", ex);
                 SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());

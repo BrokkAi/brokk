@@ -210,6 +210,9 @@ public final class ActivityTableRenderers {
                 case BLITZFORGE -> {
                     return Icons.BLITZFORGE;
                 }
+                case REVIEW -> {
+                    return Icons.FLOWSHEET;
+                }
                 default -> {
                     return Icons.CHAT_BUBBLE;
                 }
