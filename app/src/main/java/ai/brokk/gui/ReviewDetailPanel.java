@@ -49,7 +49,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final ContextManager contextManager;
     private final Runnable onNext;
 
-    private final MarkdownOutputPanel markdownPanel;
+    // Lazy-initialized to avoid creating second JCEF instance at startup (causes black window issue)
+    private @org.jetbrains.annotations.Nullable MarkdownOutputPanel markdownPanel;
+    private final JPanel contentCard;
 
     private final JPanel excerptsPanel;
     private final JPanel buttonPanel;
@@ -76,8 +78,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         placeholderArea.setFont(placeholderArea.getFont().deriveFont(Font.ITALIC, 14f));
         placeholderArea.setBorder(new EmptyBorder(40, 40, 40, 40));
 
-        markdownPanel = new MarkdownOutputPanel();
-        markdownPanel.updateTheme(MainProject.getTheme());
+        // Lazy: markdownPanel is created on first use, not at startup
+        markdownPanel = null;
 
         excerptsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
         excerptsPanel.setOpaque(false);
@@ -89,16 +91,26 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         buttonPanel.setBorder(new EmptyBorder(0, 18, 10, 10));
         buttonPanel.setVisible(false);
 
-        var contentCard = new JPanel(new BorderLayout());
+        contentCard = new JPanel(new BorderLayout());
         contentCard.setOpaque(true);
         contentCard.add(excerptsPanel, BorderLayout.NORTH);
-        contentCard.add(markdownPanel, BorderLayout.CENTER);
+        // Center will be populated lazily with markdownPanel
         contentCard.add(buttonPanel, BorderLayout.SOUTH);
 
         add(placeholderArea, CARD_PLACEHOLDER);
         add(contentCard, CARD_CONTENT);
 
         showPlaceholder();
+    }
+
+    private MarkdownOutputPanel getOrCreateMarkdownPanel() {
+        if (markdownPanel == null) {
+            markdownPanel = new MarkdownOutputPanel();
+            markdownPanel.updateTheme(MainProject.getTheme());
+            contentCard.add(markdownPanel, BorderLayout.CENTER);
+            contentCard.revalidate();
+        }
+        return markdownPanel;
     }
 
     public void showPlaceholder() {
@@ -189,7 +201,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         excerptsPanel.setVisible(false);
         buttonPanel.removeAll();
         buttonPanel.setVisible(false);
-        markdownPanel.clear();
+        if (markdownPanel != null) markdownPanel.clear();
     }
 
     private void addNavigationButtons(boolean isLast) {
@@ -204,12 +216,15 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void flushContent() {
+        // Lazy-create markdownPanel on first actual use
+        var panel = getOrCreateMarkdownPanel();
+
         // (Chrome isn't ready when RDP is constructed)
-        markdownPanel.setContextForLookups(contextManager, (Chrome) contextManager.getIo());
+        panel.setContextForLookups(contextManager, (Chrome) contextManager.getIo());
 
         // send the Markdown
         String combined = String.join("\n\n", markdownChunks);
-        markdownPanel.setStaticDocument(combined);
+        panel.setStaticDocument(combined);
     }
 
     private void addRecommendationButtons(String title, String recommendation, boolean isLast) {
@@ -351,7 +366,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         setBackground(
                 guiTheme.isDarkTheme() ? ThemeColors.getPanelBackground() : UIManager.getColor("Panel.background"));
 
-        markdownPanel.applyTheme(guiTheme);
+        if (markdownPanel != null) markdownPanel.applyTheme(guiTheme);
 
         var isDark = UIManager.getBoolean("laf.dark");
         placeholderArea.setForeground(UIManager.getColor("Label.disabledForeground"));

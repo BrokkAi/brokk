@@ -83,6 +83,7 @@ public class Brokk {
         logger.info("OS: {}", Environment.getOsDescription());
         logger.info("JRE: {}", Environment.getJreDescription());
         logger.info("CEF: {}", CefAppProviderFactory.getProviderName());
+        logger.info("Build marker: JCEF-FIX-v9"); // TODO: remove after jDeploy testing
         logger.info("Starting Brokk semantic code assistant...");
         logger.info("");
     }
