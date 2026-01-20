@@ -932,7 +932,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private static String getKeybindingDisplayName(String id) {
         return switch (id) {
-            case "instructions.submit" -> "Submit (Enter)";
+            case "instructions.submit" -> "Submit (Ctrl/Cmd+Enter)";
             case "instructions.toggleMode" -> "Toggle Code/Ask/Lutz";
             case "global.undo" -> "Undo";
             case "global.redo" -> "Redo";
@@ -2328,7 +2328,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @SuppressWarnings("UnusedMethod")
     private static KeyStroke defaultFor(String id) {
         return switch (id) {
-            case "instructions.submit" -> KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
+            case "instructions.submit" ->
+                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
             case "instructions.toggleMode" -> defaultToggleMode();
             case "global.undo" -> defaultUndo();
             case "global.redo" -> defaultRedo();
