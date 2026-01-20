@@ -404,6 +404,36 @@ class HeadlessExecCliTest {
     }
 
     @Test
+    void testParseArgs_IssueMode_PromptIsOptional() {
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
+
+        try (PrintStream capturedErr = new PrintStream(errBytes, true, StandardCharsets.UTF_8)) {
+            System.setErr(capturedErr);
+
+            String[] args = {
+                "--planner-model", "gpt-5",
+                "--mode", "ISSUE",
+                "--github-token", "token123",
+                "--repo-owner", "owner",
+                "--repo-name", "repo",
+                "--issue-number", "123"
+            };
+
+            HeadlessExecCli cli = new HeadlessExecCli();
+            java.lang.reflect.Method parseArgs = HeadlessExecCli.class.getDeclaredMethod("parseArgs", String[].class);
+            parseArgs.setAccessible(true);
+
+            boolean result = (boolean) parseArgs.invoke(cli, (Object) args);
+            assertTrue(result, "Parsing should succeed for ISSUE mode without a prompt");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
     void testParseArgs_ReviewMode_ValidArgs() {
         PrintStream originalErr = System.err;
         ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
@@ -417,8 +447,7 @@ class HeadlessExecCliTest {
                 "--github-token", "token123",
                 "--repo-owner", "owner",
                 "--repo-name", "repo",
-                "--pr-number", "101",
-                "Review this"
+                "--pr-number", "101"
             };
 
             HeadlessExecCli cli = new HeadlessExecCli();
@@ -426,8 +455,7 @@ class HeadlessExecCliTest {
             parseArgs.setAccessible(true);
 
             boolean result = (boolean) parseArgs.invoke(cli, (Object) args);
-            assertTrue(result, "Parsing should succeed for valid REVIEW mode arguments");
-
+            assertTrue(result, "Parsing should succeed for valid REVIEW mode arguments without a prompt");
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {

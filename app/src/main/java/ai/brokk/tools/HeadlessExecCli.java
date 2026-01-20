@@ -553,7 +553,8 @@ public class HeadlessExecCli {
     }
 
     private static void printUsage() {
-        System.out.println("Usage: java HeadlessExecCli [options] <prompt>");
+        System.out.println("Usage: java HeadlessExecCli [options] [prompt]");
+        System.out.println("  Note: [prompt] is optional in ISSUE/REVIEW mode, and required in all other modes.");
         System.out.println();
         System.out.println("Options:");
         System.out.println(
@@ -638,7 +639,10 @@ public class HeadlessExecCli {
             System.err.println("ERROR: --planner-model is required");
             return false;
         }
-        if (prompt.isBlank()) {
+
+        String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
+        boolean promptRequired = !("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode));
+        if (promptRequired && prompt.isBlank()) {
             System.err.println("ERROR: <prompt> positional argument is required");
             return false;
         }
