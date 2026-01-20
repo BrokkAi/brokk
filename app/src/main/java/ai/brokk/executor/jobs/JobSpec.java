@@ -50,6 +50,39 @@ public record JobSpec(
      * Sensitive keys are replaced with "[REDACTED]" rather than removed entirely,
      * to preserve the structure for debugging while protecting the actual values.
      */
+    public JobSpec(
+            @JsonProperty("taskInput") String taskInput,
+            @JsonProperty("autoCommit") boolean autoCommit,
+            @JsonProperty("autoCompress") boolean autoCompress,
+            @JsonProperty("plannerModel") String plannerModel,
+            @JsonProperty("scanModel") @Nullable String scanModel,
+            @JsonProperty("codeModel") @Nullable String codeModel,
+            @JsonProperty("preScan") boolean preScan,
+            @JsonProperty("tags") @Nullable Map<String, String> tags,
+            @JsonProperty("sourceBranch") @Nullable String sourceBranch,
+            @JsonProperty("targetBranch") @Nullable String targetBranch,
+            @JsonProperty("reasoningLevel") @Nullable String reasoningLevel,
+            @JsonProperty("reasoningLevelCode") @Nullable String reasoningLevelCode,
+            @JsonProperty("temperature") @Nullable Double temperature,
+            @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
+            @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts) {
+        this.taskInput = taskInput;
+        this.autoCommit = autoCommit;
+        this.autoCompress = autoCompress;
+        this.plannerModel = plannerModel;
+        this.scanModel = scanModel;
+        this.codeModel = codeModel;
+        this.preScan = preScan;
+        this.tags = tags == null ? Map.of() : Map.copyOf(tags);
+        this.sourceBranch = sourceBranch;
+        this.targetBranch = targetBranch;
+        this.reasoningLevel = reasoningLevel;
+        this.reasoningLevelCode = reasoningLevelCode;
+        this.temperature = temperature;
+        this.temperatureCode = temperatureCode;
+        this.maxIssueFixAttempts = maxIssueFixAttempts;
+    }
+
     public Map<String, String> redactedTags() {
         var result = new HashMap<>(tags);
         for (var key : SENSITIVE_TAG_KEYS) {
