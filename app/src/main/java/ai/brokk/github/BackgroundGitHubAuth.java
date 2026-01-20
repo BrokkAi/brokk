@@ -3,10 +3,12 @@ package ai.brokk.github;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IContextManager;
+import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.MainProject;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -39,11 +41,8 @@ public class BackgroundGitHubAuth {
             cancelCurrentAuthUnsafe();
 
             // Create new service for this authentication with dedicated scheduler
-            var executor = Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "BackgroundGitHubAuth-Scheduler");
-                t.setDaemon(true);
-                return t;
-            });
+            var executor = Executors.newSingleThreadScheduledExecutor(
+                    ExecutorsUtil.createNamedThreadFactory("BackgroundGitHubAuth-Scheduler"));
             currentExecutor = executor;
             currentService = new GitHubDeviceFlowService(GitHubAuthConfig.getClientId(), executor);
 
@@ -77,7 +76,14 @@ public class BackgroundGitHubAuth {
 
         var executor = currentExecutor;
         if (executor != null) {
-            executor.shutdown();
+            executor.shutdownNow();
+            try {
+                if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
+                    logger.warn("Background GitHub auth executor did not terminate in time");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             currentExecutor = null;
         }
 
@@ -99,12 +105,20 @@ public class BackgroundGitHubAuth {
                     MainProject.setGitHubToken(token.accessToken());
 
                     // Validate the token immediately to ensure it works
-                    if (GitHubAuth.validateStoredToken()) {
-                        logger.info("GitHub token validated successfully");
-                        GitHubAuth.invalidateInstance();
-                    } else {
-                        logger.error("GitHub token validation failed, clearing token");
-                        MainProject.setGitHubToken("");
+                    var validationResult = GitHubAuth.validateStoredTokenWithResult();
+                    switch (validationResult) {
+                        case VALID -> {
+                            logger.info("GitHub token validated successfully");
+                            GitHubAuth.invalidateInstance();
+                        }
+                        case INVALID -> {
+                            logger.error("GitHub token is invalid (401), clearing token");
+                            MainProject.setGitHubToken("");
+                        }
+                        case TRANSIENT_ERROR -> {
+                            logger.warn("Could not validate GitHub token due to transient error, keeping token");
+                            GitHubAuth.invalidateInstance();
+                        }
                     }
                 } else {
                     logger.error("Background GitHub authentication returned null token");
@@ -141,7 +155,12 @@ public class BackgroundGitHubAuth {
 
             var executor = currentExecutor;
             if (executor != null) {
-                executor.shutdown();
+                executor.shutdownNow();
+                try {
+                    executor.awaitTermination(1, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
                 currentExecutor = null;
             }
         }

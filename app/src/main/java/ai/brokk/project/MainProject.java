@@ -329,6 +329,22 @@ public final class MainProject extends AbstractProject {
                     logger.info("brokkApiKey is being CHANGED in global properties");
                 }
             }
+
+            // Log githubToken changes to help diagnose disappearing token issues
+            var existingGHToken = existingProps.getProperty(GITHUB_TOKEN_KEY, "");
+            var newGHToken = props.getProperty(GITHUB_TOKEN_KEY, "");
+            if (!existingGHToken.equals(newGHToken)) {
+                if (newGHToken.isEmpty() && !existingGHToken.isEmpty()) {
+                    logger.warn(
+                            "githubToken is being REMOVED from global properties. Stack trace:",
+                            new Exception("githubToken removal trace"));
+                } else if (!newGHToken.isEmpty() && existingGHToken.isEmpty()) {
+                    logger.info("githubToken is being SET in global properties");
+                } else {
+                    logger.info("githubToken is being CHANGED in global properties");
+                }
+            }
+
             AtomicWrites.save(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
             globalPropertiesCache = (Properties) props.clone();
         } catch (IOException e) {
