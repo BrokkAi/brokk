@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cef.CefApp;
@@ -122,98 +123,100 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
     }
 
     private void createBrowserWithCefApp(CefApp cefApp) {
-        try {
-            logger.info("CefApp ready (state: {}), creating browser", cefApp.getState());
+        SwingUtilities.invokeLater(() -> {
+            try {
+                logger.info("CefApp ready (state: {}), creating browser", cefApp.getState());
 
-            // Create per-instance client and bridge
-            client = cefApp.createClient();
-            bridge = new JCEFBridge(this);
+                // Create per-instance client and bridge
+                client = cefApp.createClient();
+                bridge = new JCEFBridge(this);
 
-            // Set up message router for JS→Java callbacks
-            CefMessageRouter.CefMessageRouterConfig routerConfig = new CefMessageRouter.CefMessageRouterConfig();
-            routerConfig.jsQueryFunction = "cefQuery";
-            routerConfig.jsCancelFunction = "cefQueryCancel";
-            CefMessageRouter messageRouter = CefMessageRouter.create(routerConfig);
-            messageRouter.addHandler(bridge, true);
-            client.addMessageRouter(messageRouter);
+                // Set up message router for JS→Java callbacks
+                CefMessageRouter.CefMessageRouterConfig routerConfig = new CefMessageRouter.CefMessageRouterConfig();
+                routerConfig.jsQueryFunction = "cefQuery";
+                routerConfig.jsCancelFunction = "cefQueryCancel";
+                CefMessageRouter messageRouter = CefMessageRouter.create(routerConfig);
+                messageRouter.addHandler(bridge, true);
+                client.addMessageRouter(messageRouter);
 
-            // Add load handler to inject bridge script after page loads
-            client.addLoadHandler(new CefLoadHandlerAdapter() {
-                @Override
-                public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
-                    if (frame.isMain()) {
-                        logger.info("Page loaded with status {}, injecting bridge script", httpStatusCode);
-                        injectBridgeScript(browser);
+                // Add load handler to inject bridge script after page loads
+                client.addLoadHandler(new CefLoadHandlerAdapter() {
+                    @Override
+                    public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
+                        if (frame.isMain()) {
+                            logger.info("Page loaded with status {}, injecting bridge script", httpStatusCode);
+                            injectBridgeScript(browser);
+                        }
                     }
-                }
 
-                @Override
-                public void onLoadError(
-                        CefBrowser browser,
-                        CefFrame frame,
-                        CefLoadHandler.ErrorCode errorCode,
-                        String errorText,
-                        String failedUrl) {
-                    // ERR_ABORTED is common during navigation changes and usually not fatal
-                    if (errorCode == CefLoadHandler.ErrorCode.ERR_ABORTED) {
-                        logger.debug("Load aborted (non-fatal): {} for URL: {}", errorText, failedUrl);
-                        return;
+                    @Override
+                    public void onLoadError(
+                            CefBrowser browser,
+                            CefFrame frame,
+                            CefLoadHandler.ErrorCode errorCode,
+                            String errorText,
+                            String failedUrl) {
+                        // ERR_ABORTED is common during navigation changes and usually not fatal
+                        if (errorCode == CefLoadHandler.ErrorCode.ERR_ABORTED) {
+                            logger.debug("Load aborted (non-fatal): {} for URL: {}", errorText, failedUrl);
+                            return;
+                        }
+                        logger.error("Load error: {} - {} for URL: {}", errorCode, errorText, failedUrl);
+
+                        // Retry once for connection errors (server may not be ready)
+                        if (frame.isMain()
+                                && (errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_REFUSED
+                                        || errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_RESET)) {
+                            logger.info("Retrying load after connection error...");
+                            // Retry after a short delay
+                            new Thread(() -> {
+                                        try {
+                                            Thread.sleep(500);
+                                            browser.reload();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    })
+                                    .start();
+                        }
                     }
-                    logger.error("Load error: {} - {} for URL: {}", errorCode, errorText, failedUrl);
+                });
 
-                    // Retry once for connection errors (server may not be ready)
-                    if (frame.isMain()
-                            && (errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_REFUSED
-                                    || errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_RESET)) {
-                        logger.info("Retrying load after connection error...");
-                        // Retry after a short delay
-                        new Thread(() -> {
-                                    try {
-                                        Thread.sleep(500);
-                                        browser.reload();
-                                    } catch (InterruptedException e) {
-                                        Thread.currentThread().interrupt();
-                                    }
-                                })
-                                .start();
-                    }
-                }
-            });
+                // Get ClasspathHttpServer port and create browser
+                int port = ClasspathHttpServer.ensureStarted();
+                String themeName = MainProject.getTheme();
+                String url = "http://127.0.0.1:" + port + "/index.html?theme=" + themeName;
+                logger.info("Creating JCEF browser for URL: {}", url);
 
-            // Get ClasspathHttpServer port and create browser
-            int port = ClasspathHttpServer.ensureStarted();
-            String themeName = MainProject.getTheme();
-            String url = "http://127.0.0.1:" + port + "/index.html?theme=" + themeName;
-            logger.info("Creating JCEF browser for URL: {}", url);
+                // Create browser directly with URL (like working jcef branch)
+                @SuppressWarnings("deprecation")
+                var createdBrowser = client.createBrowser(url, false, false);
+                browser = createdBrowser;
+                logger.debug("Browser created: {}", browser);
 
-            // Create browser directly with URL (like working jcef branch)
-            @SuppressWarnings("deprecation")
-            var createdBrowser = client.createBrowser(url, false, false);
-            browser = createdBrowser;
-            logger.debug("Browser created: {}", browser);
+                // Get the UI component and add it
+                var uiComponent = browser.getUIComponent();
+                logger.debug("UI component: {}", uiComponent.getClass().getName());
 
-            // Get the UI component and add it
-            var uiComponent = browser.getUIComponent();
-            logger.debug("UI component: {}", uiComponent.getClass().getName());
+                // Add browser directly - CEF requires component in displayable hierarchy to load
+                // Brief white flash is unavoidable JCEF limitation (native window ignores Swing overlays)
+                add(uiComponent, BorderLayout.CENTER);
+                revalidate();
+                repaint();
 
-            // Add browser directly - CEF requires component in displayable hierarchy to load
-            // Brief white flash is unavoidable JCEF limitation (native window ignores Swing overlays)
-            add(uiComponent, BorderLayout.CENTER);
-            revalidate();
-            repaint();
+                logger.info("JCEF browser created successfully");
 
-            logger.info("JCEF browser created successfully");
+                // Initial theme - queue until bridge ready
+                boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+                setInitialTheme(themeName, isDevMode, MainProject.getCodeBlockWrapMode());
 
-            // Initial theme - queue until bridge ready
-            boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-            setInitialTheme(themeName, isDevMode, MainProject.getCodeBlockWrapMode());
-
-        } catch (Exception e) {
-            logger.error("Failed to initialize JCEF via JBR", e);
-            System.err.println("*** JCEF initialization failed: " + e.getMessage() + " ***");
-            e.printStackTrace(System.err);
-            throw wrapWithDependencyHint(e);
-        }
+            } catch (Exception e) {
+                logger.error("Failed to initialize JCEF via JBR", e);
+                System.err.println("*** JCEF initialization failed: " + e.getMessage() + " ***");
+                e.printStackTrace(System.err);
+                // Note: can't rethrow from invokeLater, just log
+            }
+        });
     }
 
     private static RuntimeException wrapWithDependencyHint(Throwable e) {
