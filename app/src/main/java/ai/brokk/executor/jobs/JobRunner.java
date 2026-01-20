@@ -2020,6 +2020,35 @@ public final class JobRunner {
         finalVerificationPass.run();
     }
 
+    static void runIssueReviewTaskSequenceWithCancellation(
+            List<PrReviewService.InlineComment> inlineComments,
+            java.util.function.BooleanSupplier isCancelled,
+            Function<PrReviewService.InlineComment, String> commentToPrompt,
+            Consumer<String> taskRunner,
+            Runnable branchUpdateHook,
+            Runnable finalVerificationPass) {
+
+        for (var comment : inlineComments) {
+            if (isCancelled.getAsBoolean()) {
+                return;
+            }
+
+            String prompt = commentToPrompt.apply(comment);
+
+            taskRunner.accept(prompt);
+
+            // Even if cancellation flips during task execution, production semantics still require
+            // the per-task branch hook to run for the task that actually executed.
+            branchUpdateHook.run();
+        }
+
+        if (isCancelled.getAsBoolean()) {
+            return;
+        }
+
+        finalVerificationPass.run();
+    }
+
     List<PrReviewService.InlineComment> issueModeComputeInlineComments(
             String jobId,
             JobStore store,

@@ -318,6 +318,64 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void issueReviewTaskSequence_productionWiring_shortCircuitsOnCancellation_skipsRemainingTasksAndFinalVerification() {
+        var comments = List.of(
+                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL),
+                new PrReviewService.InlineComment("src/C.java", 30, "Third issue", PrReviewService.Severity.HIGH));
+
+        var cancelled = new AtomicBoolean(false);
+
+        var promptsBuilt = new AtomicInteger(0);
+        var tasksRun = new AtomicInteger(0);
+        var branchHooks = new AtomicInteger(0);
+        var finalVerificationCalls = new AtomicInteger(0);
+
+        var observed = new ArrayList<String>();
+
+        java.util.function.Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
+            promptsBuilt.incrementAndGet();
+            return JobRunner.buildInlineCommentFixPrompt(c);
+        };
+
+        java.util.function.Consumer<String> taskRunner = prompt -> {
+            int idx = tasksRun.incrementAndGet();
+            observed.add("task-" + idx);
+            if (idx == 1) {
+                cancelled.set(true);
+            }
+        };
+
+        Runnable branchUpdateHook = () -> {
+            branchHooks.incrementAndGet();
+            observed.add("branchHook-" + branchHooks.get());
+        };
+
+        Runnable finalVerification = () -> {
+            finalVerificationCalls.incrementAndGet();
+            observed.add("finalVerification");
+        };
+
+        JobRunner.runIssueReviewTaskSequenceWithCancellation(
+                comments, cancelled::get, commentToPrompt, taskRunner, branchUpdateHook, finalVerification);
+
+        assertTrue(cancelled.get(), "Test must trigger cancellation");
+        assertEquals(1, tasksRun.get(), "Only the first task should run after cancellation triggers");
+        assertEquals(1, branchHooks.get(), "Branch update hook must run only for executed tasks");
+        assertEquals(
+                0,
+                finalVerificationCalls.get(),
+                "Final verification must be skipped when cancellation is active");
+
+        assertEquals(List.of("task-1", "branchHook-1"), observed);
+
+        assertEquals(
+                1,
+                promptsBuilt.get(),
+                "Production wiring should avoid building prompts for comments that will be skipped due to cancellation");
+    }
+
+    @Test
     void issueReviewTaskSequence_noComments_stillRunsFinalVerification() {
         var observed = new ArrayList<String>();
         var branchHookCalls = new AtomicInteger(0);
