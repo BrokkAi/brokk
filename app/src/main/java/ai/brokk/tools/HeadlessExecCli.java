@@ -180,7 +180,8 @@ public class HeadlessExecCli {
             String cloneUrl = buildGitHubHttpsCloneUrl(repoOwner, repoName);
             Supplier<String> tokenSupplier = () -> githubToken;
 
-            Path cloneTarget = tempWorkspaceRoot.resolve(repoName).toAbsolutePath().normalize();
+            Path cloneTarget =
+                    tempWorkspaceRoot.resolve(repoName).toAbsolutePath().normalize();
             workspaceRoot = cloneTarget;
 
             logger.info("Using temp workspace root: {}", tempWorkspaceRoot);
@@ -444,7 +445,8 @@ public class HeadlessExecCli {
                                     }
                                 }
 
-                                String seqPrefix = seqNode != null && !seqNode.isNull() ? ("[" + seqNode.asLong() + "] ") : "";
+                                String seqPrefix =
+                                        seqNode != null && !seqNode.isNull() ? ("[" + seqNode.asLong() + "] ") : "";
                                 String line;
                                 if (dataNode != null && dataNode.isTextual()) {
                                     line = seqPrefix + type + ": " + dataText;
