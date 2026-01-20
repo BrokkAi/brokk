@@ -486,15 +486,42 @@ public class ReviewAgent {
             String resultText = currentResult.text();
             Map<Integer, RawExcerpt> newlyFixed = ReviewParser.instance.parseNumberedExcerpts(resultText);
 
-            // Update valid excerpts and remove pending errors
+            Set<Integer> unexpectedIndices = newlyFixed.keySet().stream()
+                    .filter(id -> !pendingFileErrors.containsKey(id))
+                    .collect(Collectors.toSet());
+            if (!unexpectedIndices.isEmpty()) {
+                logger.warn(
+                        "Discarding Stage 1 retry turn: unrequested excerpt corrections returned: {}",
+                        unexpectedIndices);
+                stage1Attempts++;
+                continue;
+            }
+
+            // Apply corrections to excerpts, but only commit if merging keeps excerpt structure stable.
+            Map<Integer, RawExcerpt> candidateValidPathExcerpts = new HashMap<>(validPathExcerpts);
             for (var entry : newlyFixed.entrySet()) {
                 int id = entry.getKey();
                 RawExcerpt fixed = entry.getValue();
                 if (pendingFileErrors.containsKey(id) && fileExists(fixed.file())) {
-                    validPathExcerpts.put(id, fixed);
-                    pendingFileErrors.remove(id);
+                    candidateValidPathExcerpts.put(id, fixed);
                 }
             }
+
+            String candidateMerged = buildMergedResponseText(textToValidate, candidateValidPathExcerpts);
+            if (ReviewParser.instance.parseExcerpts(candidateMerged).size() != parsedList.size()) {
+                logger.warn("Discarding Stage 1 retry turn: excerpt structure changed after applying LLM corrections");
+            } else {
+                validPathExcerpts = candidateValidPathExcerpts;
+                for (var entry : newlyFixed.entrySet()) {
+                    int id = entry.getKey();
+                    RawExcerpt fixed = entry.getValue();
+                    if (pendingFileErrors.containsKey(id) && fileExists(fixed.file())) {
+                        pendingFileErrors.remove(id);
+                    }
+                }
+                textToValidate = candidateMerged;
+            }
+
             stage1Attempts++;
         }
 
@@ -509,6 +536,10 @@ public class ReviewAgent {
 
         // Build merged text by replacing excerpts in current text with corrected versions
         String mergedResponseText = buildMergedResponseText(currentResponseText, validPathExcerpts);
+        if (ReviewParser.instance.parseExcerpts(mergedResponseText).size() != parsedList.size()) {
+            logger.warn("Discarding excerpt merge: excerpt structure changed after Stage 1 resolution");
+            mergedResponseText = currentResponseText;
+        }
 
         // Stage 2: Text Resolution (Validate excerpts match file content)
         Map<Integer, CodeExcerpt> matchedExcerpts = new ConcurrentHashMap<>();
@@ -593,7 +624,19 @@ public class ReviewAgent {
             String resultText = textResult.text();
             Map<Integer, RawExcerpt> newlyFixed = ReviewParser.instance.parseNumberedExcerpts(resultText);
 
-            // Attempt to resolve errors
+            Set<Integer> unexpectedIndices = newlyFixed.keySet().stream()
+                    .filter(id -> !pendingTextErrors.containsKey(id))
+                    .collect(Collectors.toSet());
+            if (!unexpectedIndices.isEmpty()) {
+                logger.warn(
+                        "Discarding Stage 2 retry turn: unrequested excerpt corrections returned: {}",
+                        unexpectedIndices);
+                stage2Attempts++;
+                continue;
+            }
+
+            // Apply excerpt corrections, but only commit if merging keeps excerpt structure stable.
+            Map<Integer, RawExcerpt> candidateValidPathExcerpts = new HashMap<>(validPathExcerpts);
             for (var entry : newlyFixed.entrySet()) {
                 int id = entry.getKey();
                 RawExcerpt fixed = entry.getValue();
@@ -603,9 +646,29 @@ public class ReviewAgent {
                 if (!fileExists(fixed.file())) {
                     continue;
                 }
+                candidateValidPathExcerpts.put(id, fixed);
+            }
 
-                // Update the validPathExcerpts with the fixed version
-                validPathExcerpts.put(id, fixed);
+            String candidateMerged = buildMergedResponseText(mergedResponseText, candidateValidPathExcerpts);
+            if (ReviewParser.instance.parseExcerpts(candidateMerged).size() != parsedList.size()) {
+                logger.warn("Discarding Stage 2 retry turn: excerpt structure changed after applying LLM corrections");
+                stage2Attempts++;
+                continue;
+            }
+
+            validPathExcerpts = candidateValidPathExcerpts;
+            mergedResponseText = candidateMerged;
+
+            // Attempt to resolve errors based on committed corrections
+            for (var entry : newlyFixed.entrySet()) {
+                int id = entry.getKey();
+                RawExcerpt fixed = entry.getValue();
+                if (!pendingTextErrors.containsKey(id)) {
+                    continue;
+                }
+                if (!fileExists(fixed.file())) {
+                    continue;
+                }
 
                 FileDiff fileDiff = findFileDiff(fixed.file(), changes.perFileChanges());
                 if (fileDiff == null) {
@@ -626,7 +689,6 @@ public class ReviewAgent {
             }
 
             stage2Attempts++;
-            mergedResponseText = buildMergedResponseText(mergedResponseText, validPathExcerpts);
         }
 
         // Log any remaining unresolved excerpts
