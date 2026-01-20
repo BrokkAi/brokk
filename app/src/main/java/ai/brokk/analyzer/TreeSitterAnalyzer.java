@@ -2100,12 +2100,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
 
+            // Handle ES6 import statements
             TSNode importNode =
                     capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
             if (importNode != null && !importNode.isNull()) {
                 String importText = sourceContent.substringFrom(importNode).strip();
                 if (!importText.isEmpty()) {
                     localImportStatements.add(importText);
+                }
+            }
+
+            // Handle CommonJS require calls - filter to only include actual require() calls
+            // since #eq? predicate doesn't work in JNI Tree-sitter
+            TSNode requireCallNode = capturedNodesForMatch.get("module.require_call");
+            TSNode requireFuncNode = capturedNodesForMatch.get("_require_func");
+            if (requireCallNode != null && !requireCallNode.isNull()
+                    && requireFuncNode != null && !requireFuncNode.isNull()) {
+                String funcName = sourceContent.substringFrom(requireFuncNode).strip();
+                if ("require".equals(funcName)) {
+                    String requireText = sourceContent.substringFrom(requireCallNode).strip();
+                    if (!requireText.isEmpty()) {
+                        localImportStatements.add(requireText);
+                    }
                 }
             }
 

@@ -294,9 +294,9 @@
 ; Note: TypeScript Tree-sitter grammar may use import_statement or import_declaration
 (import_statement) @module.import_statement
 
-; CommonJS require statements
+; CommonJS require statements - captured as call_expression, filtered in Java code
+; Note: #eq? predicate is not enforced by JNI Tree-sitter, so filtering is done in TypescriptAnalyzer
 (call_expression
-  function: (identifier) @_func_name
-  arguments: (arguments (string) @_path)
-  (#eq? @_func_name "require")
-) @module.import_statement
+  function: (identifier) @_require_func
+  arguments: (arguments (string) @_require_path)
+) @module.require_call

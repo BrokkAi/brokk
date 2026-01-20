@@ -35,5 +35,10 @@ public final class JavaScriptTreeSitterNodeTypes {
     // Capture name used in Tree-sitter queries for import statements
     public static final String IMPORT_CAPTURE_NAME = "module.import_statement";
 
+    // Capture name used in Tree-sitter queries for CommonJS require calls
+    // These need to be filtered in Java code since #eq? predicate doesn't work in JNI Tree-sitter
+    public static final String REQUIRE_CALL_CAPTURE_NAME = "module.require_call";
+    public static final String REQUIRE_FUNC_CAPTURE_NAME = "_require_func";
+
     private JavaScriptTreeSitterNodeTypes() {}
 }
