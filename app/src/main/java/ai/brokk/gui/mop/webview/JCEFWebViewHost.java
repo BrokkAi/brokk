@@ -8,6 +8,7 @@ import ai.brokk.gui.mop.ChunkMeta;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.mop.webview.cef.CefAppProvider;
 import ai.brokk.gui.mop.webview.cef.CefAppProviderFactory;
+import ai.brokk.gui.mop.webview.cef.MavenCefProvider;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -115,9 +116,14 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
     }
 
     private void initializeCef() {
+        // Use async initialization to avoid blocking AWT thread while waiting for CefApp INITIALIZED state
+        // This allows state callbacks (delivered on AWT) to fire properly
+        getOrCreateCefAppAsync(this::createBrowserWithCefApp);
+    }
+
+    private void createBrowserWithCefApp(CefApp cefApp) {
         try {
-            // Get the shared, fully-initialized CefApp
-            CefApp cefApp = getOrCreateCefApp();
+            logger.info("CefApp ready (state: {}), creating browser", cefApp.getState());
 
             // Create per-instance client and bridge
             client = cefApp.createClient();
@@ -324,16 +330,39 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 """;
     }
 
-    private static CefApp getOrCreateCefApp() {
+    /**
+     * Callback interface for deferred browser creation after CefApp is initialized.
+     */
+    private interface CefAppReadyCallback {
+        void onCefAppReady(CefApp app);
+    }
+
+    /**
+     * Gets or creates the shared CefApp instance, calling the callback when it's ready.
+     * If CefApp is already INITIALIZED, callback is invoked immediately.
+     * Otherwise, callback is invoked when INITIALIZED state is reached.
+     */
+    private static void getOrCreateCefAppAsync(CefAppReadyCallback callback) {
         CefApp existing = cefAppRef.get();
         if (existing != null) {
-            return existing;
+            if (existing.getState() == CefApp.CefAppState.INITIALIZED) {
+                callback.onCefAppReady(existing);
+            } else {
+                // Already created but not initialized - wait for callback
+                waitForInitialized(callback);
+            }
+            return;
         }
 
         synchronized (cefInitLock) {
             existing = cefAppRef.get();
             if (existing != null) {
-                return existing;
+                if (existing.getState() == CefApp.CefAppState.INITIALIZED) {
+                    callback.onCefAppReady(existing);
+                } else {
+                    waitForInitialized(callback);
+                }
+                return;
             }
 
             CefAppProvider provider = CefAppProviderFactory.getProvider();
@@ -345,6 +374,9 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                     @Override
                     public void stateHasChanged(CefApp.CefAppState state) {
                         logger.info("CefApp state changed: {}", state);
+                        if (state == CefApp.CefAppState.INITIALIZED) {
+                            notifyInitialized();
+                        }
                     }
                 });
             } catch (Exception e) {
@@ -352,8 +384,61 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             }
             cefAppRef.set(app);
 
-            logger.info("JCEF CefApp created (state: {})", app.getState());
-            return app;
+            // Log CEF/Chromium version info (may be null before initialization completes on JBR)
+            var version = app.getVersion();
+            if (version != null) {
+                logger.info("CEF version: {} (Chromium {})", version.getCefVersion(), version.getChromeVersion());
+            }
+
+            var currentState = app.getState();
+            logger.info("JCEF CefApp created (state: {})", currentState);
+
+            // MavenCefProvider's builder.build() blocks until fully initialized internally,
+            // even though state shows NEW. Invoke callback immediately for it.
+            // JbrCefProvider returns before initialization completes, so we wait for callback.
+            if (currentState == CefApp.CefAppState.INITIALIZED) {
+                logger.info("CefApp already INITIALIZED, invoking callback directly");
+                callback.onCefAppReady(app);
+            } else if (provider instanceof MavenCefProvider) {
+                logger.info("MavenCefProvider used, CefApp ready after build(), invoking callback directly");
+                callback.onCefAppReady(app);
+            } else {
+                logger.info("CefApp not yet INITIALIZED, queuing callback");
+                waitForInitialized(callback);
+            }
+        }
+    }
+
+    // Callbacks waiting for INITIALIZED state
+    private static final List<CefAppReadyCallback> pendingCallbacks = new CopyOnWriteArrayList<>();
+
+    private static void waitForInitialized(CefAppReadyCallback callback) {
+        logger.info("Queuing callback to wait for CefApp INITIALIZED state...");
+        pendingCallbacks.add(callback);
+    }
+
+    private static void notifyInitialized() {
+        CefApp app = cefAppRef.get();
+        if (app == null) return;
+
+        // Log version now that initialization is complete (for JBR)
+        var version = app.getVersion();
+        if (version != null) {
+            logger.info("CEF version: {} (Chromium {})", version.getCefVersion(), version.getChromeVersion());
+        }
+
+        logger.info("CefApp reached INITIALIZED state, notifying {} pending callbacks", pendingCallbacks.size());
+
+        // Copy and clear before iterating to avoid concurrent modification
+        var callbacks = new java.util.ArrayList<>(pendingCallbacks);
+        pendingCallbacks.clear();
+
+        for (var cb : callbacks) {
+            try {
+                cb.onCefAppReady(app);
+            } catch (Exception e) {
+                logger.error("Error notifying CefApp ready callback", e);
+            }
         }
     }
 

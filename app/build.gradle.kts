@@ -137,7 +137,7 @@ dependencies {
     // The jcef module is bundled with JBR and provides org.cef.* classes
     // jcefmaven is used for development (auto-downloads JCEF binaries)
     // In production jDeploy builds, jcefmaven is stripped via .jdpignore
-    implementation("me.friwi:jcefmaven:122.1.10")
+    implementation("me.friwi:jcefmaven:141.0.10")
 
     // Testing
     testImplementation(platform(libs.junit.bom))
