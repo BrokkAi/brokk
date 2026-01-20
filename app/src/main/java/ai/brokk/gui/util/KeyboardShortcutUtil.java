@@ -150,6 +150,16 @@ public class KeyboardShortcutUtil {
     }
 
     /**
+     * Canonical fallback default KeyStroke for the {@code instructions.submit} keybinding: Cmd/Ctrl+Enter.
+     *
+     * <p>All call sites that need a default/fallback for {@code instructions.submit} should use this method so the
+     * codebase has a single source of truth for the default submit shortcut.
+     */
+    public static KeyStroke defaultInstructionsSubmit() {
+        return createPlatformShortcut(KeyEvent.VK_ENTER);
+    }
+
+    /**
      * Registers a dialog escape key that disposes the dialog when pressed. This is a common pattern for modal dialogs.
      */
     public static void registerDialogEscapeKey(JComponent dialogRootPane, Runnable disposeAction) {
