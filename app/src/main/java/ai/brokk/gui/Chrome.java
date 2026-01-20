@@ -977,6 +977,8 @@ public class Chrome
         im.clear();
         am.clear();
         registerGlobalKeyboardShortcuts();
+
+        rightPanel.getInstructionsPanel().refreshPlaceholderTextIfShowing();
     }
 
     @Override
