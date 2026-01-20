@@ -929,7 +929,8 @@ public final class JobRunner {
                                                 } else {
                                                     var total = inlineComments.size();
                                                     var taskIndex = new AtomicInteger(0);
-                                                    var lastTaskDescription = new java.util.concurrent.atomic.AtomicReference<String>("");
+                                                    var lastTaskDescription =
+                                                            new java.util.concurrent.atomic.AtomicReference<String>("");
 
                                                     Function<PrReviewService.InlineComment, String> commentToPrompt =
                                                             JobRunner::buildInlineCommentFixPrompt;
@@ -952,7 +953,8 @@ public final class JobRunner {
                                                         String startMsg = "Review-fix task %d/%d starting: %s:%d"
                                                                 .formatted(idx, total, path, line);
                                                         try {
-                                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
+                                                            store.appendEvent(
+                                                                    jobId, JobEvent.of("NOTIFICATION", startMsg));
                                                         } catch (Exception e) {
                                                             logger.warn(
                                                                     "Failed to append review-fix start notification event for job {}: {}",
@@ -961,8 +963,8 @@ public final class JobRunner {
                                                                     e);
                                                         }
 
-                                                        String reviewFixTaskDescription =
-                                                                "Review-fix " + idx + "/" + total + ": " + path + ":" + line;
+                                                        String reviewFixTaskDescription = "Review-fix " + idx + "/"
+                                                                + total + ": " + path + ":" + line;
                                                         lastTaskDescription.set(reviewFixTaskDescription);
 
                                                         try {
@@ -979,12 +981,14 @@ public final class JobRunner {
                                                                 try {
                                                                     reviewFixAgent.callCodeAgent(prompt);
                                                                 } catch (InterruptedException ie) {
-                                                                    Thread.currentThread().interrupt();
+                                                                    Thread.currentThread()
+                                                                            .interrupt();
                                                                     throw new RuntimeException(ie);
                                                                 }
                                                             }
                                                         } catch (InterruptedException ie) {
-                                                            Thread.currentThread().interrupt();
+                                                            Thread.currentThread()
+                                                                    .interrupt();
                                                             throw new RuntimeException(ie);
                                                         } catch (RuntimeException re) {
                                                             if (re.getCause() instanceof InterruptedException) {
@@ -1005,7 +1009,8 @@ public final class JobRunner {
                                                         String doneMsg = "Review-fix task %d/%d complete: %s:%d"
                                                                 .formatted(idx, total, path, line);
                                                         try {
-                                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", doneMsg));
+                                                            store.appendEvent(
+                                                                    jobId, JobEvent.of("NOTIFICATION", doneMsg));
                                                         } catch (Exception e) {
                                                             logger.warn(
                                                                     "Failed to append review-fix completion notification event for job {}: {}",
@@ -1027,9 +1032,11 @@ public final class JobRunner {
                                                         String reviewFixTaskDescription = lastTaskDescription.get();
 
                                                         try {
-                                                            new GitWorkflow(cm).performAutoCommit(reviewFixTaskDescription);
+                                                            new GitWorkflow(cm)
+                                                                    .performAutoCommit(reviewFixTaskDescription);
                                                         } catch (InterruptedException ie) {
-                                                            Thread.currentThread().interrupt();
+                                                            Thread.currentThread()
+                                                                    .interrupt();
                                                             throw new RuntimeException(ie);
                                                         } catch (Exception e) {
                                                             logger.warn(
@@ -1042,14 +1049,15 @@ public final class JobRunner {
                                                         }
 
                                                         try {
-                                                            String pushMsg =
-                                                                    new GitWorkflow(cm).push(issueBranchName, githubToken);
+                                                            String pushMsg = new GitWorkflow(cm)
+                                                                    .push(issueBranchName, githubToken);
                                                             try {
                                                                 store.appendEvent(
                                                                         jobId,
                                                                         JobEvent.of(
                                                                                 "NOTIFICATION",
-                                                                                "Review-fix push succeeded: " + pushMsg));
+                                                                                "Review-fix push succeeded: "
+                                                                                        + pushMsg));
                                                             } catch (Exception e) {
                                                                 logger.warn(
                                                                         "Failed to append review-fix push success notification event for job {}: {}",
@@ -1072,7 +1080,8 @@ public final class JobRunner {
                                                                                 "NOTIFICATION",
                                                                                 "Review-fix push failed (continuing): "
                                                                                         + (e.getMessage() == null
-                                                                                                ? e.getClass().getSimpleName()
+                                                                                                ? e.getClass()
+                                                                                                        .getSimpleName()
                                                                                                 : e.getMessage())));
                                                             } catch (Exception e2) {
                                                                 logger.warn(
@@ -1087,57 +1096,73 @@ public final class JobRunner {
                                                     Runnable finalVerificationPass = () -> {
                                                         // After review-driven fixes complete, run a final end-of-run
                                                         // verification/fix pass using the single-fix helper.
-                                                        java.util.function.Function<String, String> commandRunner = cmd -> {
-                                                            try {
-                                                                return BuildAgent.runExplicitCommand(
-                                                                        cm, cmd, buildDetailsOverride);
-                                                            } catch (InterruptedException ie) {
-                                                                Thread.currentThread().interrupt();
-                                                                throw new RuntimeException(ie);
-                                                            }
-                                                        };
+                                                        java.util.function.Function<String, String> commandRunner =
+                                                                cmd -> {
+                                                                    try {
+                                                                        return BuildAgent.runExplicitCommand(
+                                                                                cm, cmd, buildDetailsOverride);
+                                                                    } catch (InterruptedException ie) {
+                                                                        Thread.currentThread()
+                                                                                .interrupt();
+                                                                        throw new RuntimeException(ie);
+                                                                    }
+                                                                };
 
-                                                        java.util.function.Supplier<String> finalVerificationRunner = () -> {
-                                                            // Run tests and lint once each and compose combined output if any
-                                                            // failed.
-                                                            String testCmd = buildDetailsOverride.testAllCommand();
-                                                            String lintCmd = buildDetailsOverride.buildLintCommand();
+                                                        java.util.function.Supplier<String> finalVerificationRunner =
+                                                                () -> {
+                                                                    // Run tests and lint once each and compose combined
+                                                                    // output if any
+                                                                    // failed.
+                                                                    String testCmd =
+                                                                            buildDetailsOverride.testAllCommand();
+                                                                    String lintCmd =
+                                                                            buildDetailsOverride.buildLintCommand();
 
-                                                            String testOut =
-                                                                    testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
-                                                            String lintOut =
-                                                                    lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
+                                                                    String testOut = testCmd.isBlank()
+                                                                            ? ""
+                                                                            : commandRunner.apply(testCmd);
+                                                                    String lintOut = lintCmd.isBlank()
+                                                                            ? ""
+                                                                            : commandRunner.apply(lintCmd);
 
-                                                            boolean testsPassed = testOut.isBlank();
-                                                            boolean lintPassed = lintOut.isBlank();
+                                                                    boolean testsPassed = testOut.isBlank();
+                                                                    boolean lintPassed = lintOut.isBlank();
 
-                                                            if (testsPassed && lintPassed) {
-                                                                return "";
-                                                            }
+                                                                    if (testsPassed && lintPassed) {
+                                                                        return "";
+                                                                    }
 
-                                                            var parts = new java.util.ArrayList<String>();
-                                                            if (!testsPassed) {
-                                                                parts.add("Tests failed (" + testCmd + "):\n" + testOut);
-                                                            }
-                                                            if (!lintPassed) {
-                                                                parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
-                                                            }
-                                                            return String.join("\n\n", parts);
-                                                        };
+                                                                    var parts = new java.util.ArrayList<String>();
+                                                                    if (!testsPassed) {
+                                                                        parts.add("Tests failed (" + testCmd + "):\n"
+                                                                                + testOut);
+                                                                    }
+                                                                    if (!lintPassed) {
+                                                                        parts.add("Lint failed (" + lintCmd + "):\n"
+                                                                                + lintOut);
+                                                                    }
+                                                                    return String.join("\n\n", parts);
+                                                                };
 
-                                                        java.util.function.Consumer<String> finalFixTaskRunner = prompt -> {
-                                                            String finalFixPrompt = "Final checks failed. Output:\n" + prompt
-                                                                    + "\n\nPlease make a single fix attempt to resolve these failures.";
-                                                            var finalFixTask = TaskList.TaskItem.createFixTask(finalFixPrompt);
-                                                            try {
-                                                                cm.executeTask(finalFixTask, issuePlannerModel, issueCodeModel);
-                                                            } catch (Exception e) {
-                                                                logger.warn(
-                                                                        "Final fix attempt failed for job {}: {}",
-                                                                        jobId,
-                                                                        e.getMessage());
-                                                            }
-                                                        };
+                                                        java.util.function.Consumer<String> finalFixTaskRunner =
+                                                                prompt -> {
+                                                                    String finalFixPrompt =
+                                                                            "Final checks failed. Output:\n" + prompt
+                                                                                    + "\n\nPlease make a single fix attempt to resolve these failures.";
+                                                                    var finalFixTask = TaskList.TaskItem.createFixTask(
+                                                                            finalFixPrompt);
+                                                                    try {
+                                                                        cm.executeTask(
+                                                                                finalFixTask,
+                                                                                issuePlannerModel,
+                                                                                issueCodeModel);
+                                                                    } catch (Exception e) {
+                                                                        logger.warn(
+                                                                                "Final fix attempt failed for job {}: {}",
+                                                                                jobId,
+                                                                                e.getMessage());
+                                                                    }
+                                                                };
 
                                                         runSingleFixVerificationGate(
                                                                 jobId,
@@ -2104,8 +2129,7 @@ public final class JobRunner {
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
                     if (reviewResponse == null) {
-                        String preview =
-                                reviewText.length() > 500 ? reviewText.substring(0, 500) + "..." : reviewText;
+                        String preview = reviewText.length() > 500 ? reviewText.substring(0, 500) + "..." : reviewText;
                         throw new IssueExecutionException(
                                 "Issue diff review response was not valid JSON. Response preview: " + preview);
                     }

@@ -318,7 +318,8 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void issueReviewTaskSequence_productionWiring_shortCircuitsOnCancellation_skipsRemainingTasksAndFinalVerification() {
+    void
+            issueReviewTaskSequence_productionWiring_shortCircuitsOnCancellation_skipsRemainingTasksAndFinalVerification() {
         var comments = List.of(
                 new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
                 new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL),
@@ -362,10 +363,7 @@ class JobRunnerIssueModeTest {
         assertTrue(cancelled.get(), "Test must trigger cancellation");
         assertEquals(1, tasksRun.get(), "Only the first task should run after cancellation triggers");
         assertEquals(1, branchHooks.get(), "Branch update hook must run only for executed tasks");
-        assertEquals(
-                0,
-                finalVerificationCalls.get(),
-                "Final verification must be skipped when cancellation is active");
+        assertEquals(0, finalVerificationCalls.get(), "Final verification must be skipped when cancellation is active");
 
         assertEquals(List.of("task-1", "branchHook-1"), observed);
 
@@ -584,12 +582,10 @@ class JobRunnerIssueModeTest {
 
         var reviewCalls = new AtomicInteger(0);
 
-        var comments = JobRunner.issueModeComputeInlineCommentsOrEmpty(
-                () -> "",
-                ignoredDiff -> {
-                    reviewCalls.incrementAndGet();
-                    return List.of();
-                });
+        var comments = JobRunner.issueModeComputeInlineCommentsOrEmpty(() -> "", ignoredDiff -> {
+            reviewCalls.incrementAndGet();
+            return List.of();
+        });
 
         assertTrue(comments.isEmpty(), "Empty diff must short-circuit to no inline comments");
         assertEquals(0, reviewCalls.get(), "Review callback must not be invoked when diff is blank");
