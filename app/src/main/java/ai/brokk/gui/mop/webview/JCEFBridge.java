@@ -767,7 +767,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
     private void sendEvent(CefBrowser browser, BrokkEvent event) {
         String json = toJson(event);
         String js = "if (window.brokk && window.brokk.onEvent) { window.brokk.onEvent(" + json + "); }";
-        logger.debug("Executing JS: {}", js);
+        logger.trace("Executing JS: {}", js);
         browser.executeJavaScript(js, browser.getURL(), 0);
     }
 
