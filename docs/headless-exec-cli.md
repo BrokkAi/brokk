@@ -33,13 +33,13 @@ Build the shadow JAR containing the CLI:
 Run directly:
 
 ```bash
-java -cp app/build/libs/brokk-<version>.jar ai.brokk.tools.HeadlessExecCli [options] <prompt>
+java -cp app/build/libs/brokk-<version>.jar ai.brokk.tools.HeadlessExecCli [options] [prompt]
 ```
 
 Or via Gradle:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "[options] <prompt>"
+./gradlew :app:runHeadlessCli --args "[options] [prompt]"
 ```
 
 ## Command-Line Options
@@ -67,7 +67,7 @@ Or via Gradle:
 | `--build-settings JSON` | String | No | N/A | JSON string describing build/test commands for `ISSUE` mode verification |
 | `--issue-delivery MODE` | String | No | N/A | Control PR creation in `ISSUE` mode. Set to `none` to disable PR creation. |
 | `--help` | Flag | No | N/A | Display usage information and exit |
-| `<prompt>` | Positional | **Yes** | N/A | The task or question to submit to the executor |
+| `<prompt>` | Positional | Conditional | N/A | The task or question to submit to the executor (optional in ISSUE/REVIEW mode, required otherwise) |
 
 ## Usage Examples
 
