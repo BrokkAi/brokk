@@ -7,11 +7,13 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -237,6 +239,100 @@ class JobRunnerIssueModeTest {
         assertEquals(2, verificationCalls.get(), "Verification should be called exactly twice");
         assertEquals(1, fixCalls.get(), "Fix runner should be called exactly once");
         assertTrue(ex.getMessage().contains("Verification failed after single fix attempt"));
+    }
+
+    @Test
+    void issueReviewTaskSequence_convertsCommentsToPrompts_andRunsInOrder_andCallsBranchHook_andFinalVerificationAfter()
+            throws Exception {
+        var comments = List.of(
+                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL),
+                new PrReviewService.InlineComment("src/C.java", 30, "Third issue", PrReviewService.Severity.HIGH));
+
+        var observed = new ArrayList<String>();
+        var prompts = new ArrayList<String>();
+        var taskIndex = new AtomicInteger(0);
+        var branchHookCalls = new AtomicInteger(0);
+
+        var currentPhase = new AtomicReference<String>("START");
+
+        java.util.function.Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
+            String prompt = JobRunner.buildInlineCommentFixPrompt(c);
+            prompts.add(prompt);
+            return prompt;
+        };
+
+        java.util.function.Consumer<String> taskRunner = prompt -> {
+            assertEquals("TASKS", currentPhase.get(), "Tasks must run during TASKS phase");
+            int idx = taskIndex.incrementAndGet();
+            observed.add("task-" + idx);
+            observed.add("prompt-" + idx + ":" + prompt);
+        };
+
+        Runnable branchUpdateHook = () -> {
+            assertEquals("TASKS", currentPhase.get(), "Branch update hook must run during TASKS phase");
+            int idx = branchHookCalls.incrementAndGet();
+            observed.add("branchHook-" + idx);
+        };
+
+        Runnable finalVerification = () -> {
+            assertEquals("FINAL_VERIFICATION", currentPhase.get(), "Final verification must run after tasks");
+            observed.add("finalVerification");
+        };
+
+        currentPhase.set("TASKS");
+        JobRunner.runIssueReviewTaskSequence(comments, commentToPrompt, taskRunner, branchUpdateHook, () -> {
+            currentPhase.set("FINAL_VERIFICATION");
+            finalVerification.run();
+        });
+
+        assertEquals(3, prompts.size(), "Each inline comment must be converted to a prompt");
+        assertTrue(prompts.get(0).contains("src/A.java"));
+        assertTrue(prompts.get(0).contains("line: 10"));
+        assertTrue(prompts.get(0).contains("First issue"));
+
+        assertTrue(prompts.get(1).contains("src/B.java"));
+        assertTrue(prompts.get(1).contains("line: 20"));
+        assertTrue(prompts.get(1).contains("Second issue"));
+
+        assertTrue(prompts.get(2).contains("src/C.java"));
+        assertTrue(prompts.get(2).contains("line: 30"));
+        assertTrue(prompts.get(2).contains("Third issue"));
+
+        assertEquals(3, taskIndex.get(), "Tasks must execute exactly once per comment");
+        assertEquals(3, branchHookCalls.get(), "Branch update hook must be called once per task");
+
+        assertEquals(
+                List.of(
+                        "task-1",
+                        "prompt-1:" + prompts.get(0),
+                        "branchHook-1",
+                        "task-2",
+                        "prompt-2:" + prompts.get(1),
+                        "branchHook-2",
+                        "task-3",
+                        "prompt-3:" + prompts.get(2),
+                        "branchHook-3",
+                        "finalVerification"),
+                observed,
+                "Sequence must be strictly serial and ordered: task -> branchHook after each task -> final verification");
+    }
+
+    @Test
+    void issueReviewTaskSequence_noComments_stillRunsFinalVerification() {
+        var observed = new ArrayList<String>();
+        var branchHookCalls = new AtomicInteger(0);
+
+        JobRunner.runIssueReviewTaskSequence(
+                List.of(),
+                JobRunner::buildInlineCommentFixPrompt,
+                prompt -> observed.add("task:" + prompt),
+                () -> branchHookCalls.incrementAndGet(),
+                () -> observed.add("finalVerification"));
+
+        assertTrue(observed.contains("finalVerification"));
+        assertEquals(1, observed.size(), "No tasks should run when comments list is empty");
+        assertEquals(0, branchHookCalls.get(), "Branch update hook must not run when there are no tasks");
     }
 
 

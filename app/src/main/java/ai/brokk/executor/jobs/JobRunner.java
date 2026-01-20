@@ -1963,6 +1963,39 @@ public final class JobRunner {
                 .formatted(path, line, severity, body.isEmpty() ? "(empty)" : body);
     }
 
+    /**
+     * Orchestrate ISSUE-mode "review-fix tasks" without requiring LLM/GitHub.
+     *
+     * <p>Contract:
+     * - Tasks execute serially and in-order.
+     * - Each comment becomes exactly one prompt via {@link #buildInlineCommentFixPrompt}.
+     * - {@code branchUpdateHook} is called after each task executes.
+     * - {@code finalVerificationPass} is invoked exactly once after all review tasks complete.
+     *
+     * <p>All side effects are injected via callbacks to keep tests deterministic.
+     */
+    static void runIssueReviewTaskSequence(
+            List<PrReviewService.InlineComment> inlineComments,
+            Function<PrReviewService.InlineComment, String> commentToPrompt,
+            Consumer<String> taskRunner,
+            Runnable branchUpdateHook,
+            Runnable finalVerificationPass) {
+
+        Objects.requireNonNull(inlineComments);
+        Objects.requireNonNull(commentToPrompt);
+        Objects.requireNonNull(taskRunner);
+        Objects.requireNonNull(branchUpdateHook);
+        Objects.requireNonNull(finalVerificationPass);
+
+        for (var comment : inlineComments) {
+            String prompt = commentToPrompt.apply(comment);
+            taskRunner.accept(prompt);
+            branchUpdateHook.run();
+        }
+
+        finalVerificationPass.run();
+    }
+
     List<PrReviewService.InlineComment> issueModeComputeInlineComments(
             String jobId,
             JobStore store,
