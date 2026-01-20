@@ -153,4 +153,39 @@ class HeadlessExecCliTest {
             System.setErr(originalErr);
         }
     }
+
+    @Test
+    void testParseArgs_ReviewMode_RequiredFields() {
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
+
+        try (PrintStream capturedErr = new PrintStream(errBytes, true, StandardCharsets.UTF_8)) {
+            System.setErr(capturedErr);
+
+            // Test missing --pr-number
+            String[] argsMissingPr = {"--planner-model", "gpt-5", "--mode", "REVIEW",
+                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo", "Review this"};
+            int exitCode = HeadlessExecCli.runCli(argsMissingPr);
+            capturedErr.flush();
+            String stderr = errBytes.toString(StandardCharsets.UTF_8);
+            assertEquals(1, exitCode);
+            assertTrue(stderr.contains("ERROR: --pr-number is required for REVIEW mode"), stderr);
+
+            // Reset
+            errBytes.reset();
+
+            // Test invalid --pr-number
+            String[] argsInvalidPr = {"--planner-model", "gpt-5", "--mode", "REVIEW",
+                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo",
+                    "--pr-number", "0", "Review this"};
+            exitCode = HeadlessExecCli.runCli(argsInvalidPr);
+            capturedErr.flush();
+            stderr = errBytes.toString(StandardCharsets.UTF_8);
+            assertEquals(1, exitCode);
+            assertTrue(stderr.contains("ERROR: --pr-number must be a positive integer"), stderr);
+
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
 }

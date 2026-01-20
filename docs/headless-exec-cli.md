@@ -60,8 +60,9 @@ Or via Gradle:
 | `--auto-compress` | Flag | No | `false` | Enable automatic context compression to reduce token usage |
 | `--github-token TOKEN` | String | See `ISSUE` | N/A | GitHub API token (required for `ISSUE` mode) |
 | `--repo-owner OWNER` | String | See `ISSUE` | N/A | GitHub repository owner (required for `ISSUE` mode) |
-| `--repo-name REPO` | String | See `ISSUE` | N/A | GitHub repository name (required for `ISSUE` mode) |
+| `--repo-name REPO` | String | See `ISSUE`/`REVIEW` | N/A | GitHub repository name (required for `ISSUE` and `REVIEW` modes) |
 | `--issue-number NUMBER` | Integer | See `ISSUE` | N/A | GitHub issue number (required for `ISSUE` mode) |
+| `--pr-number NUMBER` | Integer | See `REVIEW` | N/A | GitHub PR number (required for `REVIEW` mode) |
 | `--max-issue-fix-attempts N`| Integer | No | `5` | Maximum number of attempts to fix a failing build in `ISSUE` mode |
 | `--build-settings JSON` | String | No | N/A | JSON string describing build/test commands for `ISSUE` mode verification |
 | `--issue-delivery MODE` | String | No | N/A | Control PR creation in `ISSUE` mode. Set to `none` to disable PR creation. |
@@ -77,6 +78,7 @@ Or via Gradle:
 | CODE Mode: Single-Shot Code Generation | Use `--mode CODE` and provide `--code-model` for code generation |
 | ARCHITECT / LUTZ | Multi-step planning and execution flows |
 | ISSUE Mode: GitHub Issue Processing | Solve a GitHub issue, verify the fix, and optionally create a PR |
+| REVIEW Mode: Pull Request Review | Analyze a Pull Request and provide review comments |
 
 ### ASK Mode: Read-Only Codebase Search
 
@@ -188,6 +190,24 @@ Characteristics:
 - `--repo-owner`: The owner of the repository.
 - `--repo-name`: The name of the repository.
 - `--issue-number`: The numeric ID of the issue to process.
+
+### REVIEW Mode: Pull Request Review
+
+Analyzes a Pull Request by fetching the diff and providing review comments based on the provided prompt or standard review guidelines.
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode REVIEW --planner-model gpt-5 --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api --pr-number 101 'Review this PR for security vulnerabilities and performance bottlenecks'"
+```
+
+Characteristics:
+- **Automated Feedback**: Posts comments directly to the Pull Request.
+- **Context Aware**: Analyzes the specific changes introduced in the PR.
+
+**Required for REVIEW mode:**
+- `--github-token`: A valid GitHub PAT with repository access.
+- `--repo-owner`: The owner of the repository.
+- `--repo-name`: The name of the repository.
+- `--pr-number`: The numeric ID of the Pull Request to process.
 
 ## Authentication and Tokens
 

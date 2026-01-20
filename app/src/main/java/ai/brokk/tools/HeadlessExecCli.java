@@ -58,6 +58,7 @@ public class HeadlessExecCli {
     private String repoOwner = "";
     private String repoName = "";
     private int issueNumber = 0;
+    private int prNumber = 0;
     private @Nullable Integer maxIssueFixAttempts = null;
     private String buildSettings = "";
     private String issueDelivery = "";
@@ -254,7 +255,7 @@ public class HeadlessExecCli {
         var tags = mapper.createObjectNode();
         tags.put("mode", mode);
 
-        // Add ISSUE-specific tags and job spec fields
+        // Add Mode-specific tags and job spec fields
         if ("ISSUE".equals(mode)) {
             tags.put("github_token", githubToken);
             tags.put("repo_owner", repoOwner);
@@ -276,6 +277,11 @@ public class HeadlessExecCli {
                     jobSpec.put("buildSettings", buildSettings);
                 }
             }
+        } else if ("REVIEW".equals(mode)) {
+            tags.put("github_token", githubToken);
+            tags.put("repo_owner", repoOwner);
+            tags.put("repo_name", repoName);
+            tags.put("pr_number", String.valueOf(prNumber));
         }
         jobSpec.set("tags", tags);
 
@@ -489,11 +495,12 @@ public class HeadlessExecCli {
         System.out.println("  --auto-compress          Enable auto-compress of context");
         System.out.println("  --help                   Show this help message");
         System.out.println();
-        System.out.println("ISSUE Mode Options (required when --mode ISSUE):");
+        System.out.println("ISSUE/REVIEW Mode Options (required when --mode ISSUE or REVIEW):");
         System.out.println("  --github-token TOKEN     GitHub API token");
         System.out.println("  --repo-owner OWNER       Repository owner (user or organization)");
         System.out.println("  --repo-name REPO         Repository name");
-        System.out.println("  --issue-number NUMBER    GitHub issue number (positive integer)");
+        System.out.println("  --issue-number NUMBER    GitHub issue number (required for ISSUE mode)");
+        System.out.println("  --pr-number NUMBER       GitHub PR number (required for REVIEW mode)");
         System.out.println();
         System.out.println("ISSUE Mode Options (optional):");
         System.out.println("  --max-issue-fix-attempts NUMBER  Maximum fix attempts (default: 5)");
@@ -578,6 +585,26 @@ public class HeadlessExecCli {
             }
         }
 
+        // Validate REVIEW mode required fields
+        if ("REVIEW".equals(mode)) {
+            if (githubToken.isBlank()) {
+                System.err.println("ERROR: --github-token is required for REVIEW mode");
+                return false;
+            }
+            if (repoOwner.isBlank()) {
+                System.err.println("ERROR: --repo-owner is required for REVIEW mode");
+                return false;
+            }
+            if (repoName.isBlank()) {
+                System.err.println("ERROR: --repo-name is required for REVIEW mode");
+                return false;
+            }
+            if (prNumber <= 0) {
+                System.err.println("ERROR: --pr-number is required for REVIEW mode");
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -644,6 +671,22 @@ public class HeadlessExecCli {
                     }
                 } catch (NumberFormatException e) {
                     System.err.println("ERROR: Invalid --issue-number value: " + value);
+                    return false;
+                }
+            }
+            case "pr-number" -> {
+                if (value.isBlank()) {
+                    System.err.println("ERROR: --pr-number requires a value");
+                    return false;
+                }
+                try {
+                    prNumber = Integer.parseInt(value);
+                    if (prNumber <= 0) {
+                        System.err.println("ERROR: --pr-number must be a positive integer");
+                        return false;
+                    }
+                } catch (NumberFormatException e) {
+                    System.err.println("ERROR: Invalid --pr-number value: " + value);
                     return false;
                 }
             }
