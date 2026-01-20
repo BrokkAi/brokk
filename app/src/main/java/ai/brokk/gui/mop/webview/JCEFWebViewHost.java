@@ -16,9 +16,9 @@ import java.awt.*;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.swing.JComponent;
@@ -55,7 +55,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
     private @Nullable CefClient client;
     private @Nullable CefBrowser browser;
     private @Nullable JCEFBridge bridge;
-    private final List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
+    private final Queue<HostCommand> pendingCommands = new ConcurrentLinkedQueue<>();
     private volatile boolean bridgeReady = false;
 
     // Minimal command interface for buffering
@@ -461,8 +461,10 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         if (!bridgeReady || browser == null || bridge == null) {
             return;
         }
-        logger.info("Flushing {} pending commands", pendingCommands.size());
-        for (var cmd : pendingCommands) {
+        int count = 0;
+        HostCommand cmd;
+        while ((cmd = pendingCommands.poll()) != null) {
+            count++;
             switch (cmd) {
                 case HostCommand.Append a ->
                     bridge.sendAppend(browser, a.text(), a.msgType(), a.streaming(), a.chunkMeta());
@@ -481,7 +483,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 case HostCommand.ShowEmptyState ses -> bridge.setShowEmptyState(browser, ses.show());
             }
         }
-        pendingCommands.clear();
+        logger.info("Flushed {} pending commands", count);
     }
 
     // Public API methods (minimal for PoC)
