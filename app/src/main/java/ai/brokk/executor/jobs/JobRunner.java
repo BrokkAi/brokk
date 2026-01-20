@@ -973,7 +973,158 @@ public final class JobRunner {
                                                         jobId,
                                                         inlineComments.size());
 
-                                                // 6. Commit and Create Pull Request (conditional)
+                                                // 6. Apply review-bot inline comments as serial code-fix tasks on the
+                                                // current issue branch.
+                                                if (inlineComments.isEmpty()) {
+                                                    try {
+                                                        store.appendEvent(
+                                                                jobId,
+                                                                JobEvent.of(
+                                                                        "NOTIFICATION",
+                                                                        "Review-bot: no inline comments to fix; skipping review-fix stage."));
+                                                    } catch (Exception e) {
+                                                        logger.warn(
+                                                                "Failed to append review-fix skip notification event for job {}: {}",
+                                                                jobId,
+                                                                e.getMessage(),
+                                                                e);
+                                                    }
+                                                } else {
+                                                    int total = inlineComments.size();
+                                                    for (int i = 0; i < total; i++) {
+                                                        if (cancelled.get()) {
+                                                            logger.info(
+                                                                    "ISSUE job {} cancelled before starting review-fix task {}/{}",
+                                                                    jobId,
+                                                                    i + 1,
+                                                                    total);
+                                                            break;
+                                                        }
+
+                                                        var comment = inlineComments.get(i);
+                                                        String path = Objects.requireNonNullElse(comment.path(), "");
+                                                        int line = comment.line();
+
+                                                        String startMsg = "Review-fix task %d/%d starting: %s:%d"
+                                                                .formatted(i + 1, total, path, line);
+                                                        try {
+                                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
+                                                        } catch (Exception e) {
+                                                            logger.warn(
+                                                                    "Failed to append review-fix start notification event for job {}: {}",
+                                                                    jobId,
+                                                                    e.getMessage(),
+                                                                    e);
+                                                        }
+
+                                                        String prompt = buildInlineCommentFixPrompt(comment);
+                                                        String reviewFixTaskDescription = "Review-fix " + (i + 1) + "/" + total
+                                                                + ": " + path + ":" + line;
+
+                                                        try (var reviewFixScope =
+                                                                cm.beginTaskUngrouped(reviewFixTaskDescription)) {
+                                                            var liveCtx = cm.liveContext();
+                                                            var reviewFixAgent = new LutzAgent(
+                                                                    liveCtx,
+                                                                    reviewFixTaskDescription,
+                                                                    issuePlannerModel,
+                                                                    SearchPrompts.Objective.LUTZ,
+                                                                    reviewFixScope);
+
+                                                            try {
+                                                                reviewFixAgent.callCodeAgent(prompt);
+                                                            } catch (InterruptedException ie) {
+                                                                Thread.currentThread().interrupt();
+                                                                throw ie;
+                                                            } catch (Exception e) {
+                                                                logger.warn(
+                                                                        "ISSUE job {} review-fix task {}/{} failed for {}:{}: {}",
+                                                                        jobId,
+                                                                        i + 1,
+                                                                        total,
+                                                                        path,
+                                                                        line,
+                                                                        e.getMessage(),
+                                                                        e);
+                                                                throw e;
+                                                            }
+                                                        }
+
+                                                        String doneMsg = "Review-fix task %d/%d complete: %s:%d"
+                                                                .formatted(i + 1, total, path, line);
+                                                        try {
+                                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", doneMsg));
+                                                        } catch (Exception e) {
+                                                            logger.warn(
+                                                                    "Failed to append review-fix completion notification event for job {}: {}",
+                                                                    jobId,
+                                                                    e.getMessage(),
+                                                                    e);
+                                                        }
+
+                                                        // Ensure changes are committed (fallback; safe if no changes).
+                                                        try {
+                                                            new GitWorkflow(cm).performAutoCommit(reviewFixTaskDescription);
+                                                        } catch (InterruptedException ie) {
+                                                            Thread.currentThread().interrupt();
+                                                            throw ie;
+                                                        } catch (Exception e) {
+                                                            logger.warn(
+                                                                    "ISSUE job {} review-fix auto-commit fallback failed for task {}/{}: {}",
+                                                                    jobId,
+                                                                    i + 1,
+                                                                    total,
+                                                                    e.getMessage(),
+                                                                    e);
+                                                        }
+
+                                                        // Best-effort push; do not fail the job if push fails.
+                                                        try {
+                                                            String pushMsg =
+                                                                    new GitWorkflow(cm).push(issueBranchName, githubToken);
+                                                            try {
+                                                                store.appendEvent(
+                                                                        jobId,
+                                                                        JobEvent.of(
+                                                                                "NOTIFICATION",
+                                                                                "Review-fix push succeeded: " + pushMsg));
+                                                            } catch (Exception e) {
+                                                                logger.warn(
+                                                                        "Failed to append review-fix push success notification event for job {}: {}",
+                                                                        jobId,
+                                                                        e.getMessage(),
+                                                                        e);
+                                                            }
+                                                        } catch (Exception e) {
+                                                            logger.warn(
+                                                                    "ISSUE job {} review-fix push failed for task {}/{}: {}",
+                                                                    jobId,
+                                                                    i + 1,
+                                                                    total,
+                                                                    e.getMessage(),
+                                                                    e);
+                                                            try {
+                                                                store.appendEvent(
+                                                                        jobId,
+                                                                        JobEvent.of(
+                                                                                "NOTIFICATION",
+                                                                                "Review-fix push failed (continuing): "
+                                                                                        + (e.getMessage() == null
+                                                                                                ? e.getClass()
+                                                                                                        .getSimpleName()
+                                                                                                : e.getMessage())));
+                                                            } catch (Exception e2) {
+                                                                logger.warn(
+                                                                        "Failed to append review-fix push failure notification event for job {}: {}",
+                                                                        jobId,
+                                                                        e2.getMessage(),
+                                                                        e2);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // 7. Commit and Create Pull Request (conditional)
                                                 // Only create a PR if:
                                                 //  - delivery policy enables PR creation (issue_delivery != "none")
                                                 //  - final gate verification passed (we reached here only when
@@ -1780,6 +1931,36 @@ public final class JobRunner {
             return true;
         }
         return !raw.trim().equalsIgnoreCase("none");
+    }
+
+    static String buildInlineCommentFixPrompt(PrReviewService.InlineComment comment) {
+        Objects.requireNonNull(comment);
+
+        String path = Objects.requireNonNullElse(comment.path(), "");
+        int line = comment.line();
+
+        var sev = comment.severity();
+        String severity = (sev == null) ? "LOW" : Objects.requireNonNullElse(sev.name(), "LOW");
+
+        String body = Objects.requireNonNullElse(comment.bodyMarkdown(), "").trim();
+
+        return """
+                You are fixing a review inline comment on the CURRENT issue branch.
+
+                Inline comment details:
+                - path: %s
+                - line: %d
+                - severity: %s
+                - bodyMarkdown:
+                %s
+
+                Instructions:
+                - Implement the fix described above in the repository.
+                - Make the minimal correct change(s) to address the issue.
+                - Do NOT switch branches. Work only on the current issue branch.
+                - Ensure the code compiles and tests remain passing where applicable.
+                """
+                .formatted(path, line, severity, body.isEmpty() ? "(empty)" : body);
     }
 
     List<PrReviewService.InlineComment> issueModeComputeInlineComments(
