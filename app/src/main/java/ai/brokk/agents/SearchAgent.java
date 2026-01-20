@@ -546,7 +546,7 @@ public class SearchAgent {
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
         var aiMsg = result.aiMessage();
-        var enhAiMsg = AiMessage.from(label +"\n\n", aiMsg.reasoningContent(), aiMsg.toolExecutionRequests());
+        var enhAiMsg = AiMessage.from(label + "\n\n", aiMsg.reasoningContent(), aiMsg.toolExecutionRequests());
 
         conversation.append(enhAiMsg);
         if (result.error() != null || result.isEmpty()) {
@@ -618,7 +618,7 @@ public class SearchAgent {
                 : contextAgentResult.context();
 
         return context;
-        }
+    }
 
     protected StreamingChatModel getScanModel() {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();

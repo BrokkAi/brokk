@@ -1,6 +1,5 @@
 package ai.brokk.tools;
 
-import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.*;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
@@ -21,7 +20,6 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;

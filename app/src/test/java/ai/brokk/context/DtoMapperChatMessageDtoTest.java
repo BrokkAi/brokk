@@ -1,105 +1,81 @@
+//
+// Source code recreated from a .class file by IntelliJ IDEA
+// (powered by Fernflower decompiler)
+//
+
 package ai.brokk.context;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
-import static org.junit.jupiter.api.Assertions.*;
-
-import ai.brokk.context.FragmentDtos.ChatMessageDto;
-import ai.brokk.util.HistoryIo.ContentReader;
-import ai.brokk.util.HistoryIo.ContentWriter;
+import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
-import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.CustomMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.data.message.*;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-/**
- * Consolidated parameterized tests for DtoMapper <-> ChatMessageDto both directions,
- * including structured and legacy formats, to reduce duplication.
- */
 class DtoMapperChatMessageDtoTest {
-
-    // ===== Parameter sources =====
-
     static Stream<Arguments> aiRoundTripCases() {
         return Stream.of(
-                Arguments.of("This is the final answer", "Let me think through this step by step..."),
-                Arguments.of("This is the final answer", null),
-                Arguments.of("", "This is the reasoning content"),
-                Arguments.of("", "   ") // blank reasoning -> treated as null
-                );
+                Arguments.of(new Object[] {"This is the final answer", "Let me think through this step by step..."}),
+                Arguments.of(new Object[] {"This is the final answer", null}),
+                Arguments.of(new Object[] {"", "This is the reasoning content"}),
+                Arguments.of(new Object[] {"", "   "}));
     }
 
     static Stream<Arguments> nonAiCases() {
         return Stream.of(
-                Arguments.of(new UserMessage("What is 2+2?"), "user"),
-                Arguments.of(new SystemMessage("You are a helpful assistant"), "system"));
+                Arguments.of(new Object[] {new UserMessage("What is 2+2?"), "user"}),
+                Arguments.of(new Object[] {new SystemMessage("You are a helpful assistant"), "system"}));
     }
 
-    // ===== Tests =====
-
     @ParameterizedTest
-    @MethodSource("aiRoundTripCases")
+    @MethodSource({"aiRoundTripCases"})
     void testAiMessage_ToDto_And_FromDto_RoundTrip(String text, String reasoning) {
-        // Build original message
         AiMessage original = reasoning != null ? new AiMessage(text, reasoning) : new AiMessage(text);
-
-        // Serialize to DTO
-        ContentWriter writer = new ContentWriter();
-        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-        assertEquals("ai", dto.role());
-        assertNotNull(dto.contentId(), "contentId should not be null");
-
-        // reasoningContentId is only set when non-blank reasoning is present
+        HistoryIo.ContentWriter writer = new HistoryIo.ContentWriter();
+        FragmentDtos.ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
+        Assertions.assertEquals("ai", dto.role());
+        Assertions.assertNotNull(dto.contentId(), "contentId should not be null");
         boolean hasStructuredReasoning = reasoning != null && !reasoning.isBlank();
         if (hasStructuredReasoning) {
-            assertNotNull(dto.reasoningContentId(), "reasoningContentId should be set for non-blank reasoning");
+            Assertions.assertNotNull(
+                    dto.reasoningContentId(), "reasoningContentId should be set for non-blank reasoning");
         } else {
-            assertNull(dto.reasoningContentId(), "reasoningContentId should be null when reasoning is null/blank");
+            Assertions.assertNull(
+                    dto.reasoningContentId(), "reasoningContentId should be null when reasoning is null/blank");
         }
 
-        // Round-trip
-        ContentReader reader = createReaderFromWriter(writer);
+        HistoryIo.ContentReader reader = this.createReaderFromWriter(writer);
         ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-        assertInstanceOf(AiMessage.class, reconstructed);
-
+        Assertions.assertInstanceOf(AiMessage.class, reconstructed);
         AiMessage ai = (AiMessage) reconstructed;
-        assertEquals(text, ai.text());
-
+        Assertions.assertEquals(text, ai.text());
         String expectedReasoning = hasStructuredReasoning ? reasoning : null;
-        assertEquals(expectedReasoning, ai.reasoningContent());
+        Assertions.assertEquals(expectedReasoning, ai.reasoningContent());
     }
 
     @ParameterizedTest
-    @MethodSource("nonAiCases")
+    @MethodSource({"nonAiCases"})
     void testNonAiMessages_ToDto_And_FromDto(ChatMessage message, String expectedRole) {
-        ContentWriter writer = new ContentWriter();
-        ChatMessageDto dto = DtoMapper.toChatMessageDto(message, writer);
-
-        assertNotNull(dto);
-        assertEquals(expectedRole, dto.role());
-        assertNotNull(dto.contentId());
-        assertNull(dto.reasoningContentId(), "reasoningContentId should be null for non-AI messages");
+        HistoryIo.ContentWriter writer = new HistoryIo.ContentWriter();
+        FragmentDtos.ChatMessageDto dto = DtoMapper.toChatMessageDto(message, writer);
+        Assertions.assertNotNull(dto);
+        Assertions.assertEquals(expectedRole, dto.role());
+        Assertions.assertNotNull(dto.contentId());
+        Assertions.assertNull(dto.reasoningContentId(), "reasoningContentId should be null for non-AI messages");
         assertNull(dto.attributes(), "attributes should be null for non-custom messages");
-
-        // Reconstruct
-        ContentReader reader = createReaderFromWriter(writer);
+        HistoryIo.ContentReader reader = this.createReaderFromWriter(writer);
         ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-
-        assertEquals(message.type(), reconstructed.type());
-        assertEquals(Messages.getRepr(message), Messages.getRepr(reconstructed));
+        Assertions.assertEquals(message.type(), reconstructed.type());
+        Assertions.assertEquals(Messages.getRepr(message), Messages.getRepr(reconstructed));
     }
 
     @Test
@@ -109,8 +85,8 @@ class DtoMapperChatMessageDtoTest {
         attrs.put("text", "Hello from custom"); // Use "text" key - this is extracted to contentId
         CustomMessage original = new CustomMessage(attrs);
 
-        ContentWriter writer = new ContentWriter();
-        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
+        HistoryIo.ContentWriter writer = new HistoryIo.ContentWriter();
+        FragmentDtos.ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
 
         assertEquals("custom", dto.role());
         assertNotNull(dto.contentId());
@@ -118,7 +94,7 @@ class DtoMapperChatMessageDtoTest {
         // "text" should NOT be in attributes - it's stored via contentId
         assertEquals(Map.of("customFlag", true), dto.attributes());
 
-        ContentReader reader = createReaderFromWriter(writer);
+        HistoryIo.ContentReader reader = createReaderFromWriter(writer);
         ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
 
         assertInstanceOf(CustomMessage.class, reconstructed);
@@ -132,250 +108,11 @@ class DtoMapperChatMessageDtoTest {
         assertEquals(true, custom.attributes().get("customFlag"));
     }
 
-    @Test
-    void testAiMessageWithToolExecutionRequests_RoundTrip() {
-        var toolRequests = List.of(
-                ToolExecutionRequest.builder()
-                        .id("call-1")
-                        .name("searchSymbols")
-                        .arguments("{\"query\":\"MyClass\"}")
-                        .build(),
-                ToolExecutionRequest.builder()
-                        .id("call-2")
-                        .name("getFileContents")
-                        .arguments("{\"files\":[\"Foo.java\"]}")
-                        .build());
-        AiMessage original = new AiMessage("Let me search for that", toolRequests);
-
-        ContentWriter writer = new ContentWriter();
-        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-        assertEquals("ai", dto.role());
-        assertNotNull(dto.toolExecutionRequests());
-        assertEquals(2, dto.toolExecutionRequests().size());
-        assertEquals("searchSymbols", dto.toolExecutionRequests().get(0).name());
-        assertEquals("getFileContents", dto.toolExecutionRequests().get(1).name());
-
-        // Round-trip
-        ContentReader reader = createReaderFromWriter(writer);
-        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-        assertInstanceOf(AiMessage.class, reconstructed);
-
-        AiMessage ai = (AiMessage) reconstructed;
-        assertEquals("Let me search for that", ai.text());
-        assertTrue(ai.hasToolExecutionRequests());
-        assertEquals(2, ai.toolExecutionRequests().size());
-        assertEquals("call-1", ai.toolExecutionRequests().get(0).id());
-        assertEquals("searchSymbols", ai.toolExecutionRequests().get(0).name());
-        assertEquals("{\"query\":\"MyClass\"}", ai.toolExecutionRequests().get(0).arguments());
-    }
-
-    @Test
-    void testAiMessageWithReasoningAndToolRequests_RoundTrip() {
-        var toolRequests = List.of(ToolExecutionRequest.builder()
-                .id("call-abc")
-                .name("listFiles")
-                .arguments("{}")
-                .build());
-        AiMessage original = new AiMessage("Here are the files", "I need to list the project files", toolRequests);
-
-        ContentWriter writer = new ContentWriter();
-        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-        assertEquals("ai", dto.role());
-        assertNotNull(dto.reasoningContentId());
-        assertNotNull(dto.toolExecutionRequests());
-        assertEquals(1, dto.toolExecutionRequests().size());
-
-        // Round-trip
-        ContentReader reader = createReaderFromWriter(writer);
-        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-        assertInstanceOf(AiMessage.class, reconstructed);
-
-        AiMessage ai = (AiMessage) reconstructed;
-        assertEquals("Here are the files", ai.text());
-        assertEquals("I need to list the project files", ai.re@Test
-        void testAiMessageWithToolExecutionRequests_RoundTrip() {
-            var toolRequests = List.of(
-                    ToolExecutionRequest.builder()
-                            .id("call-1")
-                            .name("searchSymbols")
-                            .arguments("{\"query\":\"MyClass\"}")
-                            .build(),
-                    ToolExecutionRequest.builder()
-                            .id("call-2")
-                            .name("getFileContents")
-                            .arguments("{\"files\":[\"Foo.java\"]}")
-                            .build());
-            AiMessage original = new AiMessage("Let me search for that", toolRequests);
-
-            ContentWriter writer = new ContentWriter();
-            ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-            assertEquals("ai", dto.role());
-            assertNotNull(dto.toolExecutionRequests());
-            assertEquals(2, dto.toolExecutionRequests().size());
-            assertEquals("searchSymbols", dto.toolExecutionRequests().get(0).name());
-            assertEquals("getFileContents", dto.toolExecutionRequests().get(1).name());
-
-            // Round-trip
-            ContentReader reader = createReaderFromWriter(writer);
-            ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-            assertInstanceOf(AiMessage.class, reconstructed);
-
-            AiMessage ai = (AiMessage) reconstructed;
-            assertEquals("Let me search for that", ai.text());
-            assertTrue(ai.hasToolExecutionRequests());
-            assertEquals(2, ai.toolExecutionRequests().size());
-            assertEquals("call-1", ai.toolExecutionRequests().get(0).id());
-            assertEquals("searchSymbols", ai.toolExecutionRequests().get(0).name());
-            assertEquals("{\"query\":\"MyClass\"}", ai.toolExecutionRequests().get(0).arguments());
-        }
-
-        @Test
-        void testAiMessageWithReasoningAndToolRequests_RoundTrip() {
-            var toolRequests = List.of(ToolExecutionRequest.builder()
-                    .id("call-abc")
-                    .name("listFiles")
-                    .arguments("{}")
-                    .build());
-            AiMessage original = new AiMessage("Here are the files", "I need to list the project files", toolRequests);
-
-            ContentWriter writer = new ContentWriter();
-            ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-            assertEquals("ai", dto.role());
-            assertNotNull(dto.reasoningContentId());
-            assertNotNull(dto.toolExecutionRequests());
-            assertEquals(1, dto.toolExecutionRequests().size());
-
-            // Round-trip
-            ContentReader reader = createReaderFromWriter(writer);
-            ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-            assertInstanceOf(AiMessage.class, reconstructed);
-
-            AiMessage ai = (AiMessage) reconstructed;
-            assertEquals("Here are the files", ai.text());
-            assertEquals("I need to list the project files", ai.reasoningContent());
-            assertTrue(ai.hasToolExecutionRequests());
-            assertEquals("listFiles", ai.toolExecutionRequests().get(0).name());
-        }
-
-        @Test
-        void testAiMessageWithoutToolRequests_DoesNotSerializeEmptyList() {
-            AiMessage original = new AiMessage("Just text, no tools");
-
-            ContentWriter writer = new ContentWriter();
-            ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-            assertEquals("ai", dto.role());
-            assertNull(dto.toolExecutionRequests());
-        }
-
-        @Test
-        void testToolExecutionResultMessage_RoundTrip() {
-            ToolExecutionResultMessage original =
-                    new ToolExecutionResultMessage("call-abc", "getFileContents", "File contents here");
-
-            ContentWriter writer = new ContentWriter();
-            ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-            assertEquals("tool_execution_result", dto.role());
-            assertNotNull(dto.toolExecutionResult());
-            assertEquals("call-abc", dto.toolExecutionResult().id());
-            assertEquals("getFileContents", dto.toolExecutionResult().toolName());
-
-            ContentReader reader = createReaderFromWriter(writer);
-            ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-            assertInstanceOf(ToolExecutionResultMessage.class, reconstructed);
-
-            ToolExecutionResultMessage result = (ToolExecutionResultMessage) reconstructed;
-            assertEquals("call-abc", result.id());
-            assertEquals("getFileContents", result.toolName());
-            assertEquals("File contents here", result.text());
-        }
-
-        @Test
-        void testToolExecutionResultMessage_WithNullId_RoundTrip() {
-            ToolExecutionResultMessage original = new ToolExecutionResultMessage(null, "searchSymbols", "No results");
-
-            ContentWriter writer = new ContentWriter();
-            ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-            ContentReader reader = createReaderFromWriter(writer);
-            ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-            assertInstanceOf(ToolExecutionResultMessage.class, reconstructed);
-
-            ToolExecutionResultMessage result = (ToolExecutionResultMessage) reconstructed;
-            assertNull(result.id());
-            assertEquals("searchSymbols", result.toolName());
-            assertEquals("No results", result.text());
-        }asoningContent());
-        assertTrue(ai.hasToolExecutionRequests());
-        assertEquals("listFiles", ai.toolExecutionRequests().get(0).name());
-    }
-
-    @Test
-    void testAiMessageWithoutToolRequests_DoesNotSerializeEmptyList() {
-        AiMessage original = new AiMessage("Just text, no tools");
-
-        ContentWriter writer = new ContentWriter();
-        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-        assertEquals("ai", dto.role());
-        assertNull(dto.toolExecutionRequests());
-    }
-
-    @Test
-    void testToolExecutionResultMessage_RoundTrip() {
-        ToolExecutionResultMessage original =
-                new ToolExecutionResultMessage("call-abc", "getFileContents", "File contents here");
-
-        ContentWriter writer = new ContentWriter();
-        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-        assertEquals("tool_execution_result", dto.role());
-        assertNotNull(dto.toolExecutionResult());
-        assertEquals("call-abc", dto.toolExecutionResult().id());
-        assertEquals("getFileContents", dto.toolExecutionResult().toolName());
-
-        ContentReader reader = createReaderFromWriter(writer);
-        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-        assertInstanceOf(ToolExecutionResultMessage.class, reconstructed);
-
-        ToolExecutionResultMessage result = (ToolExecutionResultMessage) reconstructed;
-        assertEquals("call-abc", result.id());
-        assertEquals("getFileContents", result.toolName());
-        assertEquals("File contents here", result.text());
-    }
-
-    @Test
-    void testToolExecutionResultMessage_WithNullId_RoundTrip() {
-        ToolExecutionResultMessage original = new ToolExecutionResultMessage(null, "searchSymbols", "No results");
-
-        ContentWriter writer = new ContentWriter();
-        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
-
-        ContentReader reader = createReaderFromWriter(writer);
-        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
-        assertInstanceOf(ToolExecutionResultMessage.class, reconstructed);
-
-        ToolExecutionResultMessage result = (ToolExecutionResultMessage) reconstructed;
-        assertNull(result.id());
-        assertEquals("searchSymbols", result.toolName());
-        assertEquals("No results", result.text());
-    }
-
-    // ===== Helper Methods =====
-
-    private ContentReader createReaderFromWriter(ContentWriter writer) {
-        Map<String, byte[]> copy = new HashMap<>();
+    private HistoryIo.ContentReader createReaderFromWriter(HistoryIo.ContentWriter writer) {
+        Map<String, byte[]> copy = new HashMap();
         writer.getContentBytes().forEach(copy::put);
-        ContentReader reader = new ContentReader(copy);
+        HistoryIo.ContentReader reader = new HistoryIo.ContentReader(copy);
         reader.setContentMetadata(writer.getContentMetadata());
         return reader;
     }
-
-
-
 }

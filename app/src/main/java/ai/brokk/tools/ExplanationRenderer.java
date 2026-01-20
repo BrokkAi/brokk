@@ -54,11 +54,11 @@ public class ExplanationRenderer {
     public static String renderToolRequest(ToolExecutionRequest request) {
         // hide tool calls which are rendered in another way (directly as markdown or with own taskEntry)
         if (request.name().equals("answer")
-            || request.name().equals("abortSearch")
-            || request.name().equals("projectFinished")
-            || request.name().equals("callCodeAgent")
-            || request.name().equals("searchAgent")
-            || request.name().equals("createOrReplaceTaskList")) {
+                || request.name().equals("abortSearch")
+                || request.name().equals("projectFinished")
+                || request.name().equals("callCodeAgent")
+                || request.name().equals("searchAgent")
+                || request.name().equals("createOrReplaceTaskList")) {
             return "";
         }
 

@@ -559,8 +559,8 @@ public class DtoMapper {
         } else if (message instanceof ToolExecutionResultMessage toolResult) {
             String text = toolResult.text();
             contentId = writer.writeContent(text != null ? text : "", null);
-            toolResultDto =
-                    new FragmentDtos.ToolExecutionResultDto(toolResult.id(), toolResult.toolName(), text != null ? text : "");
+            toolResultDto = new FragmentDtos.ToolExecutionResultDto(
+                    toolResult.id(), toolResult.toolName(), text != null ? text : "");
         } else if (message instanceof CustomMessage customMessage) {
             Object rawText = customMessage.attributes().get("text");
             String text = rawText instanceof String s ? s : "";
@@ -574,7 +574,13 @@ public class DtoMapper {
             contentId = writer.writeContent(Messages.getRepr(message), null);
         }
 
-        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId,  toolDtos, toolResultDto, attributes);
+        return new ChatMessageDto(
+                message.type().name().toLowerCase(Locale.ROOT),
+                contentId,
+                reasoningContentId,
+                toolDtos,
+                toolResultDto,
+                attributes);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
@@ -591,7 +597,8 @@ public class DtoMapper {
             case "ai" -> {
                 // Reconstruct tool execution requests if present
                 List<ToolExecutionRequest> toolRequests = null;
-                if (dto.toolExecutionRequests() != null && !dto.toolExecutionRequests().isEmpty()) {
+                if (dto.toolExecutionRequests() != null
+                        && !dto.toolExecutionRequests().isEmpty()) {
                     toolRequests = dto.toolExecutionRequests().stream()
                             .map(tre -> ToolExecutionRequest.builder()
                                     .id(tre.id())
@@ -601,9 +608,8 @@ public class DtoMapper {
                             .toList();
                 }
 
-                String reasoning = dto.reasoningContentId() != null
-                        ? reader.readContent(dto.reasoningContentId())
-                        : null;
+                String reasoning =
+                        dto.reasoningContentId() != null ? reader.readContent(dto.reasoningContentId()) : null;
 
                 // Use the most complete constructor available
                 if (reasoning != null && toolRequests != null) {

@@ -7,7 +7,6 @@ import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.tools.ExplanationRenderer;
-import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
@@ -195,7 +194,6 @@ public class Messages {
     public static boolean isTerminalMessage(ChatMessage message) {
         return message instanceof CustomMessage cm && cm.attributes().get("isTerminal") != null;
     }
-
 
     /**
      * Determines if a message should be displayed in the MOP (Markdown Output Panel).

@@ -30,7 +30,7 @@ class ChatMessageDtoSerializationTest {
 
     @Test
     void testSerializeAndDeserializeWithReasoningContentId() throws Exception {
-        ChatMessageDto original = new ChatMessageDto("ai", "content-123", "reasoning-456", null);
+        ChatMessageDto original = new ChatMessageDto("ai", "content-123", "reasoning-456", null, null, null);
 
         String json = objectMapper.writeValueAsString(original);
         ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
@@ -68,7 +68,8 @@ class ChatMessageDtoSerializationTest {
     @Test
     void testSerializeAndDeserializeWithAttributes() throws Exception {
         // Use Boolean value since attributes is now Map<String, Object>
-        ChatMessageDto original = new ChatMessageDto("custom", "content-123", null, Map.of("terminal", true));
+        ChatMessageDto original =
+                new ChatMessageDto("custom", "content-123", null, null, null, Map.of("terminal", true));
 
         String json = objectMapper.writeValueAsString(original);
         ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
@@ -119,7 +120,7 @@ class ChatMessageDtoSerializationTest {
         var toolRequests = List.of(
                 new ToolExecutionRequestDto("id-1", "searchSymbols", "{\"query\":\"foo\"}"),
                 new ToolExecutionRequestDto(null, "getFileContents", "{\"files\":[\"bar.java\"]}"));
-        ChatMessageDto original = new ChatMessageDto("ai", "content-123", "reasoning-456", toolRequests);
+        ChatMessageDto original = new ChatMessageDto("ai", "content-123", "reasoning-456", toolRequests, null, null);
 
         String json = objectMapper.writeValueAsString(original);
         ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
@@ -156,7 +157,7 @@ class ChatMessageDtoSerializationTest {
     @Test
     void testThreeArgConstructorBackwardCompatibility() {
         // Verify the 3-arg constructor still works (no tool requests)
-        ChatMessageDto dto = new ChatMessageDto("ai", "content-xyz", "reasoning-xyz");
+        ChatMessageDto dto = new ChatMessageDto("ai", "content-xyz", "reasoning-xyz", null, null, null);
 
         assertEquals("ai", dto.role());
         assertEquals("content-xyz", dto.contentId());
@@ -167,7 +168,7 @@ class ChatMessageDtoSerializationTest {
     @Test
     void testEmptyToolExecutionRequestsNormalizedToNull() {
         // Empty list should be normalized to null for cleaner JSON
-        ChatMessageDto dto = new ChatMessageDto("ai", "content-123", null, List.of());
+        ChatMessageDto dto = new ChatMessageDto("ai", "content-123", null, List.of(), null, null);
 
         assertNull(dto.toolExecutionRequests());
     }
@@ -175,7 +176,8 @@ class ChatMessageDtoSerializationTest {
     @Test
     void testSerializeAndDeserializeToolExecutionResult() throws Exception {
         var toolResult = new ToolExecutionResultDto("call-123", "searchSymbols", "Found 5 matches");
-        ChatMessageDto original = new ChatMessageDto("tool_execution_result", "content-abc", null, null, toolResult);
+        ChatMessageDto original =
+                new ChatMessageDto("tool_execution_result", "content-abc", null, null, toolResult, null);
 
         String json = objectMapper.writeValueAsString(original);
         ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);

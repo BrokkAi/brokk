@@ -2,7 +2,6 @@ package ai.brokk.agents;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.git.GitWorkflow;

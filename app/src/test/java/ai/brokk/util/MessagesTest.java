@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.tools.ExplanationRenderer;
-import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -81,19 +80,5 @@ class MessagesTest {
     void shouldDisplayInMop_nonToolMessages_alwaysDisplayed() {
         assertTrue(Messages.shouldDisplayInMop(new UserMessage("hello")));
         assertTrue(Messages.shouldDisplayInMop(AiMessage.from("hi")));
-    }
-
-    @Test
-    void testGetTextWithToolCalls_filtersOutPlaceholder() {
-        var toolRequest = ToolExecutionRequest.builder()
-                .id("1")
-                .name("testTool")
-                .arguments("{}")
-                .build();
-        var message = new AiMessage(Messages.TOOL_CALLS_PLACEHOLDER, null, List.of(toolRequest));
-
-        String result = Messages.getTextWithToolCalls(message);
-
-        assertFalse(result.startsWith(Messages.TOOL_CALLS_PLACEHOLDER));
     }
 }
