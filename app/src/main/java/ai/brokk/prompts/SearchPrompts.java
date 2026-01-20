@@ -171,6 +171,13 @@ public class SearchPrompts {
                          - Behavior/implementation: method source > class source > full file.
 
                   2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                     - Search tool selection:
+                          Definitions / declarations only?
+                          → searchSymbols
+                          How is something used, accessed, obtained, injected, or called?
+                          → addSymbolUsagesToWorkspace
+                          Strings, configs, markdown, comments, reflection, or unknown names?
+                          → searchSubstrings
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
                   4) Group related lookups into a single tool call when possible.

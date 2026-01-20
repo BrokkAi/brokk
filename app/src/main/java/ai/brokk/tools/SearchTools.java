@@ -165,6 +165,8 @@ public class SearchTools {
     @Tool(
             """
                     Search for symbols (class/function/field/module definitions) using static analysis.
+                    ONLY returns symbol definitions (declarations).
+                    DO NOT use for usages/call sites/instantiation/access patterns — use addSymbolUsagesToWorkspace or searchSubstrings.
                     Output is grouped by file, then by symbol kind within each file.
 
                     - kinds: CLASS, FUNCTION, FIELD, MODULE
@@ -248,6 +250,8 @@ public class SearchTools {
     @Tool(
             """
                     Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
+                    Use this for questions like “how is X used/accessed/obtained/wired”.
+                    If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
                     """)
     public String getUsages(
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")
