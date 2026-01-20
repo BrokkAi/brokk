@@ -495,16 +495,22 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        return resolveJavaScriptLikeImports(this, file, importStatements);
+    }
+
+    public static Set<CodeUnit> resolveJavaScriptLikeImports(
+            IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
+        Path root = analyzer.getProject().getRoot();
         return importStatements.stream()
-                .map(this::extractModulePath)
+                .map(JavascriptAnalyzer::extractModulePathFromImport)
                 .flatMap(Optional::stream)
-                .map(path -> resolveModulePath(file, path))
+                .map(path -> resolveJavaScriptLikeModulePath(root, file, path))
                 .filter(Objects::nonNull)
-                .flatMap(resolvedFile -> getDeclarations(resolvedFile).stream())
+                .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
                 .collect(Collectors.toSet());
     }
 
-    private Optional<String> extractModulePath(String importStatement) {
+    public static Optional<String> extractModulePathFromImport(String importStatement) {
         // Try ES6 pattern first
         Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
         if (es6Matcher.find()) {
@@ -520,7 +526,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         return Optional.empty();
     }
 
-    private @Nullable ProjectFile resolveModulePath(ProjectFile importingFile, String modulePath) {
+    public static @Nullable ProjectFile resolveJavaScriptLikeModulePath(
+            Path projectRoot, ProjectFile importingFile, String modulePath) {
         if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
             return null;
         }
@@ -531,7 +538,6 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         Path resolvedPath = parentDir.resolve(modulePath).normalize();
-        Path root = getProject().getRoot();
 
         // 1. Try direct file path and file extensions
         List<String> fileExtensions = List.of("", ".js", ".jsx", ".ts", ".tsx");
@@ -540,8 +546,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                     ? resolvedPath
                     : resolvedPath.resolveSibling(resolvedPath.getFileName().toString() + ext);
 
-            if (Files.exists(candidatePath) && candidatePath.startsWith(root)) {
-                return new ProjectFile(root, root.relativize(candidatePath));
+            if (Files.exists(candidatePath) && candidatePath.startsWith(projectRoot)) {
+                return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
             }
         }
 
@@ -549,8 +555,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         List<String> indexFiles = List.of("index.js", "index.jsx", "index.ts", "index.tsx");
         for (String indexFile : indexFiles) {
             Path candidatePath = resolvedPath.resolve(indexFile);
-            if (Files.exists(candidatePath) && candidatePath.startsWith(root)) {
-                return new ProjectFile(root, root.relativize(candidatePath));
+            if (Files.exists(candidatePath) && candidatePath.startsWith(projectRoot)) {
+                return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
             }
         }
 
