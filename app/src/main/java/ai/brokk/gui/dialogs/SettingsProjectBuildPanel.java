@@ -471,7 +471,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
                     try {
-                        var execCfg = ShellConfig.fromProject(project);
+                        var execCfg = project.getShellConfig();
                         var envVars = computeEnvFromUi();
                         Environment.instance.runShellCommand(
                                 buildCmd,
@@ -497,7 +497,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                     publish("--- Verifying Test All Command ---\n");
                     publish("$ " + testAllCmd + "\n");
                     try {
-                        var execCfg = ShellConfig.fromProject(project);
+                        var execCfg = project.getShellConfig();
                         var envVars = computeEnvFromUi();
                         Environment.instance.runShellCommand(
                                 testAllCmd,
@@ -550,7 +550,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
                     publish("$ " + interpolatedCmd + "\n");
                     try {
-                        var execCfg = ShellConfig.fromProject(project);
+                        var execCfg = project.getShellConfig();
                         var envVars = computeEnvFromUi();
                         Environment.instance.runShellCommand(
                                 interpolatedCmd,
@@ -760,12 +760,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         // Load executor configuration
-        ShellConfig shellConfig;
-        if (project instanceof ai.brokk.project.AbstractProject ap) {
-            shellConfig = ap.getShellConfig();
-        } else {
-            shellConfig = ShellConfig.basic();
-        }
+        ShellConfig shellConfig = project.getShellConfig();
         String executorPath = shellConfig.executable();
         String executorArgs = String.join(" ", shellConfig.args());
 
@@ -848,16 +843,14 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         // Apply executor configuration
-        if (project instanceof ai.brokk.project.AbstractProject ap) {
-            var currentShellConfig = ap.getShellConfig();
-            String newExecutorArgs = executorArgsField.getText().trim();
-            List<String> argsList = Arrays.asList(newExecutorArgs.split("\\s+"));
-            var newShellConfig = new ShellConfig(newExecutorPath, argsList);
+        var currentShellConfig = project.getShellConfig();
+        String newExecutorArgs = executorArgsField.getText().trim();
+        List<String> argsList = Arrays.asList(newExecutorArgs.split("\\s+"));
+        var newShellConfig = new ShellConfig(newExecutorPath, argsList);
 
-            if (!Objects.equals(currentShellConfig, newShellConfig)) {
-                ap.setShellConfig(newShellConfig);
-                logger.debug("Applied Shell Configuration: {}", newShellConfig);
-            }
+        if (!Objects.equals(currentShellConfig, newShellConfig)) {
+            project.setShellConfig(newShellConfig);
+            logger.debug("Applied Shell Configuration: {}", newShellConfig);
         }
 
         return true;
@@ -977,9 +970,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     private void resetExecutor() {
         var defaultConfig = ShellConfig.basic();
         executorArgsField.setText(String.join(" ", defaultConfig.args()));
-        if (project instanceof ai.brokk.project.AbstractProject ap) {
-            ap.setShellConfig(null);
-        }
+        project.setShellConfig(null);
 
         for (int i = 0; i < commonExecutorsComboBox.getItemCount(); i++) {
             Object item = commonExecutorsComboBox.getItemAt(i);

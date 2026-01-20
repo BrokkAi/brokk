@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /** Configuration for a custom command executor (shell, interpreter, etc.) */
 public record ShellConfig(String executable, List<String> args) {
@@ -29,10 +30,7 @@ public record ShellConfig(String executable, List<String> args) {
         }
     }
 
-    public static ShellConfig fromProject(IProject project) {
-        String executor = project.getCommandShell();
-        String argsStr = project.getShellArgs();
-
+    public static ShellConfig fromConfig(@Nullable String executor, @Nullable String argsStr) {
         if (executor == null || executor.isBlank()) {
             return basic();
         }
@@ -87,6 +85,7 @@ public record ShellConfig(String executable, List<String> args) {
             logger.debug("IOException during executor validation", e);
             return new ValidationResult(false, "Failed to start process: " + e.getMessage());
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
     }
@@ -242,7 +241,7 @@ public record ShellConfig(String executable, List<String> args) {
 
     /** Get shell language name for Markdown code blocks from project configuration */
     public static String getShellLanguageFromProject(IProject project) {
-        ShellConfig config = ShellConfig.fromProject(project);
+        ShellConfig config = project.getShellConfig();
         if (config.isValid()) {
             return config.getMarkdownLanguage();
         }
@@ -288,7 +287,7 @@ public record ShellConfig(String executable, List<String> args) {
     public static ShellConfig[] getCommonExecutors() {
         List<ShellConfig> baseExecutors = Environment.isWindows() ? WINDOWS_COMMON_SHELLS : UNIX_COMMON_SHELLS;
         return baseExecutors.stream()
-                .filter(cfg -> Files.exists(Path.of(cfg.executable())))
+                .filter(ShellConfig::isValid)
                 .distinct()
                 .toArray(ShellConfig[]::new);
     }

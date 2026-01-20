@@ -943,7 +943,7 @@ public class BuildAgent {
         try {
             var details = cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
-            var execCfg = ShellConfig.fromProject(cm.getProject());
+            var execCfg = cm.getProject().getShellConfig();
 
             long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
             Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;

@@ -12,6 +12,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.Environment;
+import ai.brokk.util.ShellConfig;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.awt.Rectangle;
 import java.io.IOException;
@@ -318,17 +319,11 @@ public interface IProject extends AutoCloseable {
     }
 
     // Command executor configuration: custom shell/interpreter for command execution
-    default @Nullable String getCommandShell() {
-        return null;
+    default ShellConfig getShellConfig() {
+        return ShellConfig.basic();
     }
 
-    default void setCommandShell(@Nullable String executor) {}
-
-    default @Nullable String getShellArgs() {
-        return null;
-    }
-
-    default void setShellArgs(@Nullable String args) {}
+    default void setShellConfig(@Nullable ShellConfig config) {}
 
     /** Gets a UI filter property for persistence across sessions (e.g., "issues.status"). */
     default @Nullable String getUiFilterProperty(String key) {

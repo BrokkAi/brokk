@@ -2,7 +2,6 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,43 +43,38 @@ class ShellConfigTest {
     }
 
     @Test
-    void testFromProjectWithNullExecutor() {
-        var mockProject = new TestProject(null, null);
-        var config = ShellConfig.fromProject(mockProject);
+    void testFromConfigWithNullExecutor() {
+        var config = ShellConfig.fromConfig(null, null);
         assertNotNull(config);
         assertEquals(ShellConfig.basic().executable(), config.executable());
     }
 
     @Test
-    void testFromProjectWithBlankExecutor() {
-        var mockProject = new TestProject("  ", null);
-        var config = ShellConfig.fromProject(mockProject);
+    void testFromConfigWithBlankExecutor() {
+        var config = ShellConfig.fromConfig("  ", null);
         assertNotNull(config);
         assertEquals(ShellConfig.basic().executable(), config.executable());
     }
 
     @Test
-    void testFromProjectWithValidExecutor() {
-        var mockProject = new TestProject("/bin/bash", null);
-        var config = ShellConfig.fromProject(mockProject);
+    void testFromConfigWithValidExecutor() {
+        var config = ShellConfig.fromConfig("/bin/bash", null);
         assertNotNull(config);
         assertEquals("/bin/bash", config.executable());
         assertEquals(List.of("-lc"), config.args());
     }
 
     @Test
-    void testFromProjectWithCustomArgs() {
-        var mockProject = new TestProject("/bin/zsh", "-x -c");
-        var config = ShellConfig.fromProject(mockProject);
+    void testFromConfigWithCustomArgs() {
+        var config = ShellConfig.fromConfig("/bin/zsh", "-x -c");
         assertNotNull(config);
         assertEquals("/bin/zsh", config.executable());
         assertEquals(List.of("-x", "-c"), config.args());
     }
 
     @Test
-    void testFromProjectWithBlankArgs() {
-        var mockProject = new TestProject("/bin/bash", "  ");
-        var config = ShellConfig.fromProject(mockProject);
+    void testFromConfigWithBlankArgs() {
+        var config = ShellConfig.fromConfig("/bin/bash", "  ");
         assertNotNull(config);
         assertEquals("/bin/bash", config.executable());
         assertEquals(List.of("-lc"), config.args());
@@ -176,29 +170,13 @@ class ShellConfigTest {
         assertFalse(config.isValid());
     }
 
-    /** Mock project implementation for testing */
-    private static class TestProject implements IProject {
-        private final String executor;
-        private final String args;
+    @Test
+    void testGetCommonExecutorsReturnsValidExecutables() {
+        ShellConfig[] executors = ShellConfig.getCommonExecutors();
+        assertNotNull(executors);
 
-        public TestProject(String executor, String args) {
-            this.executor = executor;
-            this.args = args;
-        }
-
-        @Override
-        public String getCommandShell() {
-            return executor;
-        }
-
-        @Override
-        public String getShellArgs() {
-            return args;
-        }
-
-        @Override
-        public void close() {
-            // No-op for testing
+        for (ShellConfig executor : executors) {
+            assertTrue(executor.isValid(), "Executor " + executor.executable() + " should be valid");
         }
     }
 }

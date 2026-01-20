@@ -825,7 +825,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         cm.submitBackgroundTask("Running tests", () -> {
             int exitCode = -1;
             try {
-                ShellConfig execCfg = ShellConfig.fromProject(project);
+                ShellConfig execCfg = project.getShellConfig();
 
                 Environment.instance.runShellCommand(
                         command,
