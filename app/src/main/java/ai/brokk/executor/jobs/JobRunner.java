@@ -1939,13 +1939,11 @@ public final class JobRunner {
     }
 
     static String buildInlineCommentFixPrompt(PrReviewService.InlineComment comment) {
-        Objects.requireNonNull(comment);
-
         String path = Objects.requireNonNullElse(comment.path(), "");
         int line = comment.line();
 
         var sev = comment.severity();
-        String severity = (sev == null) ? "LOW" : Objects.requireNonNullElse(sev.name(), "LOW");
+        String severity = sev.name();
 
         String body = Objects.requireNonNullElse(comment.bodyMarkdown(), "").trim();
 
@@ -1986,12 +1984,6 @@ public final class JobRunner {
             Runnable branchUpdateHook,
             Runnable finalVerificationPass) {
 
-        Objects.requireNonNull(inlineComments);
-        Objects.requireNonNull(commentToPrompt);
-        Objects.requireNonNull(taskRunner);
-        Objects.requireNonNull(branchUpdateHook);
-        Objects.requireNonNull(finalVerificationPass);
-
         for (var comment : inlineComments) {
             String prompt = commentToPrompt.apply(comment);
             taskRunner.accept(prompt);
@@ -2010,15 +2002,6 @@ public final class JobRunner {
             StreamingChatModel reviewModel,
             String githubToken,
             String baseBranch) {
-
-        Objects.requireNonNull(jobId);
-        Objects.requireNonNull(store);
-        Objects.requireNonNull(io);
-        Objects.requireNonNull(gitRepo);
-        Objects.requireNonNull(ctx);
-        Objects.requireNonNull(reviewModel);
-        Objects.requireNonNull(githubToken);
-        Objects.requireNonNull(baseBranch);
 
         String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
         if (remoteName != null) {
