@@ -534,7 +534,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         Path root = getProject().getRoot();
 
         List<String> extensions = List.of(
-                ".js", ".jsx", ".ts", ".tsx",
+                "", ".js", ".jsx", ".ts", ".tsx",
                 "/index.js", "/index.jsx", "/index.ts", "/index.tsx");
 
         for (String ext : extensions) {
