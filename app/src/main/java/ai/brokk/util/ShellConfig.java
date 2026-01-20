@@ -17,7 +17,7 @@ import org.jetbrains.annotations.Nullable;
 
 /** Configuration for a custom command executor (shell, interpreter, etc.) */
 public record ShellConfig(String executable, List<String> args) {
-    private static final int TEST_TIMEOUT_SECONDS = 1;
+    private static final int TEST_TIMEOUT_SECONDS = 5;
     private static final Logger logger = LogManager.getLogger(ShellConfig.class);
 
     /** Get the system default shell configuration based on the current OS */
