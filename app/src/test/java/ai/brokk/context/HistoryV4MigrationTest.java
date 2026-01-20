@@ -221,10 +221,7 @@ class HistoryV4MigrationTest {
         } else if ("v3-callgraph-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
-            assertEquals(1, ctx.allFragments().count());
-            var uf = findFragment(ctx, ContextFragments.UsageFragment.class, f -> true);
-            assertNotNull(uf);
-            assertEquals("com.example.MyClass.doStuff", uf.targetIdentifier());
+            assertEquals(0, ctx.allFragments().count());
         } else if ("v3-history-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();

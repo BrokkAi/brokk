@@ -31,7 +31,7 @@ import org.jetbrains.annotations.Nullable;
  * Mapper for legacy V3 DTOs.
  *
  * <p>Note: References to {@link ai.brokk.context.FragmentDtos.CallGraphFragmentDto} are for migration only.
- * CallGraphFragment is no longer used for new code and is converted to UsageFragment during deserialization.
+ * CallGraphFragment is no longer supported and is dropped during deserialization.
  */
 @SuppressWarnings("deprecation")
 public class V3_DtoMapper {
@@ -273,15 +273,8 @@ public class V3_DtoMapper {
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
                         "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
-                    var methodName = meta.get("methodName");
-                    if (methodName == null) {
-                        throw new IllegalArgumentException("Missing 'methodName' for CallGraphFragment");
-                    }
-                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
-                            ? reader.readContent(ffd.contentId())
-                            : null;
-                    // Migrate to UsageFragment
-                    return new ContextFragments.UsageFragment(ffd.id(), mgr, methodName, true, snapshot);
+                    logger.warn("CallGraph fragments are no longer supported, dropping fragment");
+                    return null;
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {
@@ -386,9 +379,9 @@ public class V3_DtoMapper {
                         stDto.exception(),
                         reader.readContent(stDto.codeContentId()));
             }
-            case V3_FragmentDtos.CallGraphFragmentDto callGraphDto -> {
-                // CallGraphFragment is deprecated and migrated to UsageFragment for backward compatibility
-                yield new ContextFragments.UsageFragment(callGraphDto.id(), mgr, callGraphDto.methodName(), true);
+            case V3_FragmentDtos.CallGraphFragmentDto ignored -> {
+                logger.warn("CallGraph fragments are no longer supported, dropping fragment");
+                yield null;
             }
             case V3_FragmentDtos.CodeFragmentDto codeDto -> {
                 // Extract fully qualified name from the V3 CodeUnitDto and preserve the ID
