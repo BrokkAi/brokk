@@ -28,7 +28,7 @@ public class AnalyzerUtil {
             var source = analyzer.getSource(cu, true);
             if (source.isPresent()) {
                 results.add(new CodeWithSource(source.get(), cu));
-            } else {
+            } else if (!(analyzer instanceof DisabledAnalyzer)) {
                 logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
             }
         }
@@ -52,7 +52,7 @@ public class AnalyzerUtil {
                     var parentClass = analyzer.sortDefinitions(parentClasses).getFirst();
                     var skeletonHeader = analyzer.getSkeletonHeader(parentClass);
                     skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, parentClass)));
-                } else {
+                } else if (!(analyzer instanceof DisabledAnalyzer)) {
                     logger.warn("Unable to find parent class {} for field {}", parentClassName, field.fqName());
                 }
             } else {
