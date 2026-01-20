@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 class HeadlessExecCliTest {
@@ -256,24 +257,43 @@ class HeadlessExecCliTest {
                 "Review this"
             };
 
-            // We don't want to actually run the executor (which involves networking/startup),
-            // but runCli returns 1 if parseArgs fails. 
-            // Since we aren't mocking the network, run() might fail later, but here we 
-            // mainly care that it doesn't fail with exit code 1 due to validation.
-            // However, HeadlessExecCli constructor starts an executor and creates a temp dir.
-            // For a pure parsing test, we verify it gets past the validation stage.
-            
             HeadlessExecCli cli = new HeadlessExecCli();
             java.lang.reflect.Method parseArgs = HeadlessExecCli.class.getDeclaredMethod("parseArgs", String[].class);
             parseArgs.setAccessible(true);
-            
+
             boolean result = (boolean) parseArgs.invoke(cli, (Object) args);
             assertTrue(result, "Parsing should succeed for valid REVIEW mode arguments");
-            
+
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
             System.setErr(originalErr);
         }
+    }
+
+    @Test
+    void chooseWorkspaceRootForMode_nonIssueReview_usesCwd() {
+        Path expected = Path.of("").toAbsolutePath().normalize();
+        var selection = HeadlessExecCli.chooseWorkspaceRootForMode("ASK", "", "");
+        assertEquals(expected, selection.root());
+        assertFalse(selection.isTemporary());
+    }
+
+    @Test
+    void chooseWorkspaceRootForMode_issue_usesTemp_notCwd() {
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        var selection = HeadlessExecCli.chooseWorkspaceRootForMode("ISSUE", "owner", "repo");
+        assertTrue(selection.isTemporary());
+        assertTrue(selection.root().isAbsolute());
+        assertFalse(selection.root().equals(cwd), "ISSUE workspace should not be CWD");
+    }
+
+    @Test
+    void chooseWorkspaceRootForMode_review_usesTemp_notCwd() {
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        var selection = HeadlessExecCli.chooseWorkspaceRootForMode("REVIEW", "owner", "repo");
+        assertTrue(selection.isTemporary());
+        assertTrue(selection.root().isAbsolute());
+        assertFalse(selection.root().equals(cwd), "REVIEW workspace should not be CWD");
     }
 }

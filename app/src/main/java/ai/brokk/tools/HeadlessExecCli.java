@@ -2,7 +2,9 @@ package ai.brokk.tools;
 
 import ai.brokk.ContextManager;
 import ai.brokk.executor.HeadlessExecutorMain;
+import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.CloneOperationTracker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Ascii;
 import java.io.IOException;
@@ -11,12 +13,14 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -63,8 +67,9 @@ public class HeadlessExecCli {
     private String buildSettings = "";
     private String issueDelivery = "";
 
-    private HeadlessExecutorMain executor;
-    private Path tempWorkspace;
+    private @Nullable HeadlessExecutorMain executor;
+    private @Nullable Path tempWorkspace;
+    private boolean createdTempWorkspace = false;
     private OkHttpClient httpClient;
 
     public HeadlessExecCli() {
@@ -80,29 +85,16 @@ public class HeadlessExecCli {
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build();
-
-        // Create temporary workspace
-        try {
-            tempWorkspace = Files.createTempDirectory("brokk-headless-");
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to create temp workspace", e);
-        }
-        logger.info("Created temp workspace: {}", tempWorkspace);
-        // Start executor in-process on random port
-        var execId = UUID.randomUUID();
-        var project = new MainProject(tempWorkspace);
-        var contextManager = new ContextManager(project);
-        try {
-            executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to initialize HeadlessExecutorMain", e);
-        }
     }
 
     private int run() {
         try {
-            executor.start();
-            int port = executor.getPort();
+            initializeExecutorAndWorkspaceIfNeeded();
+
+            HeadlessExecutorMain executorLocal = requireInitializedExecutor();
+
+            executorLocal.start();
+            int port = executorLocal.getPort();
             var baseUrl = "http://127.0.0.1:" + port;
             logger.info("Executor started on port {}", port);
 
@@ -137,9 +129,81 @@ public class HeadlessExecCli {
             System.err.println("ERROR: " + e.getMessage());
             return 1;
         } finally {
-            // Cleanup
             cleanup();
         }
+    }
+
+    record WorkspaceSelection(Path root, boolean isTemporary) {
+        WorkspaceSelection {
+            root = root.toAbsolutePath().normalize();
+        }
+    }
+
+    WorkspaceSelection chooseWorkspaceRootForMode() {
+        return chooseWorkspaceRootForMode(mode, repoOwner, repoName);
+    }
+
+    static WorkspaceSelection chooseWorkspaceRootForMode(String mode, String repoOwner, String repoName) {
+        String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
+        if ("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode)) {
+            Path tempRoot;
+            try {
+                tempRoot = Files.createTempDirectory("brokk-headless-").toAbsolutePath().normalize();
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to create temp workspace", e);
+            }
+            return new WorkspaceSelection(tempRoot, true);
+        }
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        return new WorkspaceSelection(cwd, false);
+    }
+
+    private static String buildGitHubHttpsCloneUrl(String owner, String repo) {
+        return "https://github.com/" + owner + "/" + repo + ".git";
+    }
+
+    private void initializeExecutorAndWorkspaceIfNeeded() throws IOException, GitAPIException {
+        if (executor != null) {
+            return;
+        }
+
+        WorkspaceSelection selection = chooseWorkspaceRootForMode();
+        if (selection.isTemporary()) {
+            tempWorkspace = selection.root();
+            createdTempWorkspace = true;
+
+            String cloneUrl = buildGitHubHttpsCloneUrl(repoOwner, repoName);
+            Supplier<String> tokenSupplier = () -> githubToken;
+
+            CloneOperationTracker.registerCloneOperation(tempWorkspace);
+            try {
+                Files.createDirectories(tempWorkspace);
+                CloneOperationTracker.createInProgressMarker(tempWorkspace, cloneUrl, "");
+                GitRepoFactory.cloneRepo(tokenSupplier, cloneUrl, tempWorkspace, 0);
+                CloneOperationTracker.createCompleteMarker(tempWorkspace, cloneUrl, "");
+            } finally {
+                CloneOperationTracker.unregisterCloneOperation(tempWorkspace);
+            }
+
+            logger.info("Cloned {} into temp workspace: {}", cloneUrl, tempWorkspace);
+        } else {
+            tempWorkspace = selection.root();
+            createdTempWorkspace = false;
+            logger.info("Using current working directory as workspace: {}", tempWorkspace);
+        }
+
+        var execId = UUID.randomUUID();
+        var project = new MainProject(tempWorkspace);
+        var contextManager = new ContextManager(project);
+        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
+    }
+
+    private HeadlessExecutorMain requireInitializedExecutor() {
+        HeadlessExecutorMain ex = executor;
+        if (ex == null) {
+            throw new IllegalStateException("Executor not initialized");
+        }
+        return ex;
     }
 
     /**
@@ -400,15 +464,19 @@ public class HeadlessExecCli {
      */
     private void cleanup() {
         try {
-            executor.stop(0);
-            logger.info("Executor stopped");
+            if (executor != null) {
+                executor.stop(0);
+                logger.info("Executor stopped");
+            }
         } catch (Exception e) {
             logger.warn("Error stopping executor", e);
         }
 
         try {
-            recursiveDelete(tempWorkspace);
-            logger.info("Deleted temp workspace: {}", tempWorkspace);
+            if (createdTempWorkspace && tempWorkspace != null) {
+                recursiveDelete(tempWorkspace);
+                logger.info("Deleted temp workspace: {}", tempWorkspace);
+            }
         } catch (IOException e) {
             logger.warn("Error deleting temp workspace", e);
         }
