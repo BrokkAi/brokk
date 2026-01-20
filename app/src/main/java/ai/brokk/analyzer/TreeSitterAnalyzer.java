@@ -2110,20 +2110,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 }
             }
 
-            // Handle CommonJS require calls - filter to only include actual require() calls
-            // since #eq? predicate doesn't work in JNI Tree-sitter
-            TSNode requireCallNode = capturedNodesForMatch.get("module.require_call");
-            TSNode requireFuncNode = capturedNodesForMatch.get("_require_func");
-            if (requireCallNode != null && !requireCallNode.isNull()
-                    && requireFuncNode != null && !requireFuncNode.isNull()) {
-                String funcName = sourceContent.substringFrom(requireFuncNode).strip();
-                if ("require".equals(funcName)) {
-                    String requireText = sourceContent.substringFrom(requireCallNode).strip();
-                    if (!requireText.isEmpty()) {
-                        localImportStatements.add(requireText);
-                    }
-                }
-            }
+            extractAdditionalImports(capturedNodesForMatch, sourceContent, localImportStatements);
 
             for (var captureEntry : capturedNodesForMatch.entrySet()) {
                 String captureName = captureEntry.getKey();
@@ -3904,6 +3891,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
         return List.of();
+    }
+
+    /**
+     * Hook for language-specific analyzers to extract additional import statements from query captures.
+     * Called during file analysis for each query match. Override in subclasses to handle language-specific
+     * import patterns (e.g., CommonJS require calls in JavaScript/TypeScript).
+     *
+     * @param capturedNodesForMatch map of capture names to captured nodes for the current match
+     * @param sourceContent the source code content
+     * @param localImportStatements list to add extracted import statements to
+     */
+    protected void extractAdditionalImports(
+            Map<String, TSNode> capturedNodesForMatch,
+            SourceContent sourceContent,
+            List<String> localImportStatements) {
+        // Default: no additional imports
     }
 
     /**

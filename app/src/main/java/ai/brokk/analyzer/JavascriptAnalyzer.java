@@ -564,6 +564,29 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected void extractAdditionalImports(
+            Map<String, TSNode> capturedNodesForMatch,
+            SourceContent sourceContent,
+            List<String> localImportStatements) {
+        // Handle CommonJS require calls - filter to only include actual require() calls
+        // since #eq? predicate doesn't work in JNI Tree-sitter
+        TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
+        TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
+        if (requireCallNode != null
+                && !requireCallNode.isNull()
+                && requireFuncNode != null
+                && !requireFuncNode.isNull()) {
+            String funcName = sourceContent.substringFrom(requireFuncNode).strip();
+            if ("require".equals(funcName)) {
+                String requireText = sourceContent.substringFrom(requireCallNode).strip();
+                if (!requireText.isEmpty()) {
+                    localImportStatements.add(requireText);
+                }
+            }
+        }
+    }
+
+    @Override
     protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
