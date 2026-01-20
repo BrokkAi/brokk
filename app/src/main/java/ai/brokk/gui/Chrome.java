@@ -658,13 +658,11 @@ public class Chrome
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
         // Submit action (configurable; default Cmd/Ctrl+Enter) - only when instructions area is focused
-        KeyStroke submitKeyStroke = GlobalUiSettings.getKeybinding(
-                "instructions.submit",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        // Bind directly to instructions area instead of globally to avoid interfering with other components
         var ip = rightPanel.getInstructionsPanel();
-        ip.getInstructionsArea().getInputMap(JComponent.WHEN_FOCUSED).put(submitKeyStroke, "submitAction");
+        KeyStroke submitKeyStroke =
+                GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
+        // Bind directly to instructions area instead of globally to avoid interfering with other components
+        bindKey(ip.getInstructionsArea().getInputMap(JComponent.WHEN_FOCUSED), submitKeyStroke, "submitAction");
         ip.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -717,8 +715,12 @@ public class Chrome
         }
 
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
+        @Nullable
         KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.closeWindow", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        if (closeWindowKeyStroke == null) {
+            closeWindowKeyStroke = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+        }
         if (closeWindowKeyStroke.getKeyCode() == KeyEvent.VK_ESCAPE && closeWindowKeyStroke.getModifiers() == 0) {
             closeWindowKeyStroke = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
         }
@@ -944,17 +946,45 @@ public class Chrome
         });
     }
 
-    private static void bindKey(JRootPane rootPane, KeyStroke stroke, String actionKey) {
+    private static void bindKey(JRootPane rootPane, @Nullable KeyStroke stroke, String actionKey) {
         // Remove any previous stroke bound to this actionKey to avoid duplicates
         var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        // Remove all existing inputs mapping to actionKey
-        for (KeyStroke ks : im.allKeys() == null ? new KeyStroke[0] : im.allKeys()) {
+
+        // Only clean up bindings owned by this InputMap (not inherited from parents)
+        KeyStroke[] localKeys = im.keys();
+        if (localKeys == null) {
+            localKeys = new KeyStroke[0];
+        }
+        for (KeyStroke ks : localKeys) {
             Object val = im.get(ks);
             if (actionKey.equals(val)) {
                 im.remove(ks);
             }
         }
+
+        if (stroke == null) {
+            return;
+        }
         im.put(stroke, actionKey);
+    }
+
+    private static void bindKey(InputMap inputMap, @Nullable KeyStroke stroke, String actionKey) {
+        // Only clean up bindings owned by this InputMap (not inherited from parents)
+        KeyStroke[] localKeys = inputMap.keys();
+        if (localKeys == null) {
+            localKeys = new KeyStroke[0];
+        }
+        for (KeyStroke ks : localKeys) {
+            Object val = inputMap.get(ks);
+            if (actionKey.equals(val)) {
+                inputMap.remove(ks);
+            }
+        }
+
+        if (stroke == null) {
+            return;
+        }
+        inputMap.put(stroke, actionKey);
     }
 
     /** Re-registers global keyboard shortcuts from current GlobalUiSettings. */
@@ -969,6 +999,8 @@ public class Chrome
         im.clear();
         am.clear();
         registerGlobalKeyboardShortcuts();
+
+        rightPanel.getInstructionsPanel().refreshPlaceholderTextIfShowing();
     }
 
     @Override

@@ -96,11 +96,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_LUTZ = "Lutz Mode";
     public static final String ACTION_PLAN = "Plan";
 
-    private static final String PLACEHOLDER_TEXT =
-            """
-                    Type your prompt here. (Shift+Enter for a new line)
-                    """
-                    .stripIndent();
+    private static final String PLACEHOLDER_PREFIX = "Type your prompt here. ";
+    private static final String PLACEHOLDER_NEWLINE_HINT = "Shift+Enter = newline.";
+
+    private boolean placeholderActive = false;
+    private String currentPlaceholderText = "";
 
     private static final ImageIcon BROKK_ICON_16 = loadBrokkIcon();
 
@@ -645,7 +645,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setRows(3); // Initial rows
         area.setMinimumSize(new Dimension(100, 80));
         area.setEnabled(false); // Start disabled
-        area.setText(PLACEHOLDER_TEXT); // Keep placeholder, will be cleared on activation
+        showPlaceholder(area);
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
 
         // Add focus listener to restore placeholder when focus is lost with empty text
@@ -1321,8 +1321,54 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
+    private String buildPlaceholderTextFromCurrentKeybindings() {
+        KeyStroke submitKs =
+                GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
+        String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
+        String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
+
+        String base = PLACEHOLDER_PREFIX + PLACEHOLDER_NEWLINE_HINT;
+        if (submitHint.isBlank()) {
+            return (base + "\n").stripIndent();
+        }
+        return (base + " " + submitHint + "\n").stripIndent();
+    }
+
+    private void showPlaceholder(JTextArea area) {
+        assert SwingUtilities.isEventDispatchThread();
+        currentPlaceholderText = buildPlaceholderTextFromCurrentKeybindings();
+        placeholderActive = true;
+        area.setText(currentPlaceholderText);
+    }
+
     private boolean isPlaceholderText(String text) {
-        return PLACEHOLDER_TEXT.equals(text);
+        if (!placeholderActive) {
+            return false;
+        }
+        return Objects.equals(text, currentPlaceholderText);
+    }
+
+    /**
+     * Refreshes the placeholder text to reflect current keybindings, but only if the placeholder is currently showing.
+     * Safe to call from any thread.
+     */
+    public void refreshPlaceholderTextIfShowing() {
+        Runnable r = () -> {
+            assert SwingUtilities.isEventDispatchThread();
+            if (!placeholderActive) {
+                return;
+            }
+            // Only update if the field is still in placeholder state; never overwrite user text.
+            if (!isPlaceholderText(instructionsArea.getText())) {
+                placeholderActive = false;
+                return;
+            }
+            showPlaceholder(instructionsArea);
+            // Keep undo clean while placeholder is showing.
+            commandInputUndoManager.discardAllEdits();
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeLater(r);
     }
 
     public void refreshBranchUi(String branchName) {
@@ -1604,6 +1650,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     public void clearCommandInput() {
         SwingUtilities.invokeLater(() -> {
+            placeholderActive = false;
             instructionsArea.setText("");
             commandInputUndoManager.discardAllEdits(); // Clear undo history as well
         });
@@ -2261,6 +2308,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         instructionsArea.setEnabled(true);
         // Clear placeholder only if it's still present (inline to avoid invokeLater race)
         if (isPlaceholderText(instructionsArea.getText())) {
+            placeholderActive = false;
             instructionsArea.setText("");
             commandInputUndoManager.discardAllEdits();
         }
@@ -2278,11 +2326,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         String currentText = instructionsArea.getText();
         // Only restore placeholder if text is empty or whitespace-only
         if (currentText == null || currentText.trim().isEmpty()) {
-            instructionsArea.setText(PLACEHOLDER_TEXT);
+            showPlaceholder(instructionsArea);
             instructionsArea.setEnabled(false);
             commandInputOverlay.showOverlay();
             // Disable undo listener while placeholder is showing
             disableUndoListener();
+        } else {
+            placeholderActive = false;
         }
         // If user typed something, leave it as-is (don't restore placeholder)
     }
@@ -2505,7 +2555,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Switch placeholder only if currently showing a placeholder
             String currentText = instructionsArea.getText();
             if (isPlaceholderText(currentText)) {
-                instructionsArea.setText(PLACEHOLDER_TEXT);
+                showPlaceholder(instructionsArea);
             }
 
             // Toggle ModelSelector visibility based on Advanced Mode
@@ -2633,9 +2683,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String submitLine = "";
             try {
                 var submitKs = GlobalUiSettings.getKeybinding(
-                        "instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
+                        "instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
                 var submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-                if (submitStr == null || submitStr.isBlank()) {
+                if (submitStr.isBlank()) {
                     submitStr = "(unbound)";
                 }
                 submitLine = "<div>" + baseTooltip + "<b>" + htmlEscape(submitStr) + "</b></div>";
@@ -2649,7 +2699,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     var toggleKs = GlobalUiSettings.getKeybinding(
                             "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
                     var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                    if (toggleStr == null || toggleStr.isBlank()) {
+                    if (toggleStr.isBlank()) {
                         toggleStr = "(unbound)";
                     }
                     toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
@@ -3061,7 +3111,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         var toggleKs = GlobalUiSettings.getKeybinding(
                                 "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
                         var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                        if (toggleStr == null || toggleStr.isBlank()) {
+                        if (toggleStr.isBlank()) {
                             toggleStr = "(unbound)";
                         }
                         toggleLine = "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: "
