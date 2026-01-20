@@ -949,13 +949,19 @@ public class Chrome
     private static void bindKey(JRootPane rootPane, @Nullable KeyStroke stroke, String actionKey) {
         // Remove any previous stroke bound to this actionKey to avoid duplicates
         var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        // Remove all existing inputs mapping to actionKey
-        for (KeyStroke ks : im.allKeys() == null ? new KeyStroke[0] : im.allKeys()) {
+
+        // Only clean up bindings owned by this InputMap (not inherited from parents)
+        KeyStroke[] localKeys = im.keys();
+        if (localKeys == null) {
+            localKeys = new KeyStroke[0];
+        }
+        for (KeyStroke ks : localKeys) {
             Object val = im.get(ks);
             if (actionKey.equals(val)) {
                 im.remove(ks);
             }
         }
+
         if (stroke == null) {
             return;
         }
@@ -963,12 +969,18 @@ public class Chrome
     }
 
     private static void bindKey(InputMap inputMap, @Nullable KeyStroke stroke, String actionKey) {
-        for (KeyStroke ks : inputMap.allKeys() == null ? new KeyStroke[0] : inputMap.allKeys()) {
+        // Only clean up bindings owned by this InputMap (not inherited from parents)
+        KeyStroke[] localKeys = inputMap.keys();
+        if (localKeys == null) {
+            localKeys = new KeyStroke[0];
+        }
+        for (KeyStroke ks : localKeys) {
             Object val = inputMap.get(ks);
             if (actionKey.equals(val)) {
                 inputMap.remove(ks);
             }
         }
+
         if (stroke == null) {
             return;
         }
