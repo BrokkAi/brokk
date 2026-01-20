@@ -7,3 +7,4 @@
 1. **Dialog Utilities**: use MaterialOptionPane.showOptionDialog as a drop-in replacement for JOptionPane.showOptionDialog, and IConsoleIo::showConfirmDialog instead of JOptionPane.showOptionDialog.
 1. **Dialogs**: When building dialogs, place buttons on the bottom. Start with a primary action button such as Ok or Done. It should have the following function applied to it ai.brokk.gui.SwingUtil.applyPrimaryButtonStyle(javax.swing.AbstractButton b). Next it should have a cancel button which is a normal ai.brokk.gui.components.MaterialButton with the text Cancel.
 1. **Buttons**: Use ai.brokk.gui.components.MaterialButton instead of JButton. Use ai.brokk.gui.components.MaterialToggleButton instead of JToggleButton.
+1. **Tables**: When adding context menus, right-click should select the row under the cursor iff none is already selected.
