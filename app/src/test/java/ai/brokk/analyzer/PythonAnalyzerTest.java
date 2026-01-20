@@ -925,9 +925,6 @@ public final class PythonAnalyzerTest {
     }
 
 
-    // Note: Type hierarchy and inheritance tests (testPythonTypeHierarchy, testRelativeImport*,
-    // testDiamondInheritance*, testPackaged*) have been moved to PythonTypeHierarchyTest.
-
     @Test
     public void testCodeUnitsAreDeduplicated() {
         // getAllDeclarations should not contain duplicate FQNs even if multiple capture paths produce same logical unit
