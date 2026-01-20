@@ -546,26 +546,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return performImportedCodeUnitsOf(file);
-    }
-
-    @Override
-    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return performReferencingFilesOf(file);
-    }
-
-    @Override
-    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        return performGetDirectAncestors(cu);
-    }
-
-    @Override
-    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
-        return performGetDirectDescendants(cu);
-    }
-
-    @Override
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 

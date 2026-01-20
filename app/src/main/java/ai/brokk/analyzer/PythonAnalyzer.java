@@ -889,26 +889,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return performImportedCodeUnitsOf(file);
-    }
-
-    @Override
-    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return performReferencingFilesOf(file);
-    }
-
-    @Override
-    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        return performGetDirectAncestors(cu);
-    }
-
-    @Override
-    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
-        return performGetDirectDescendants(cu);
-    }
-
-    @Override
     public List<CodeUnit> getAncestors(CodeUnit cu) {
         List<CodeUnit> ancestors = TypeHierarchyProvider.super.getAncestors(cu);
         if (cu.packageName().startsWith("diamond")) {
