@@ -906,8 +906,8 @@ class ReviewParserTest {
             assertEquals(1, keyChange.excerpts().size(), "Each Key Change should have exactly 1 excerpt");
 
             assertEquals(
-                    raws.get(i).file(),
-                    keyChange.excerpts().getFirst().file().getRelPath().toString(),
+                    Path.of(raws.get(i).file()),
+                    keyChange.excerpts().getFirst().file().getRelPath(),
                     "Key Change excerpt file should match raw excerpt order");
             assertEquals(
                     raws.get(i).line(),
