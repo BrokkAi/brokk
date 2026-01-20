@@ -159,11 +159,11 @@ public class DtoMapper {
                 })
                 .toList();
 
-        var editableIds = ctx.allFragments()
+        var pathFragmentIds = ctx.allFragments()
                 .filter(f -> f.getType().isPath())
                 .map(ContextFragment::id)
                 .toList();
-        var virtualIds = ctx.allFragments()
+        var nonPathFragmentIds = ctx.allFragments()
                 .filter(f -> !f.getType().isPath())
                 .map(ContextFragment::id)
                 .toList();
@@ -176,9 +176,9 @@ public class DtoMapper {
 
         return new CompactContextDto(
                 ctx.id().toString(),
-                editableIds,
+                pathFragmentIds,
                 readonlyIds,
-                virtualIds,
+                nonPathFragmentIds,
                 pinnedIds,
                 taskEntryRefs,
                 ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null);
