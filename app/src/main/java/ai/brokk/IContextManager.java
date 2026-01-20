@@ -147,7 +147,8 @@ public interface IContextManager {
     @Blocking
     default Set<ProjectFile> getFilesInContext() {
         return liveContext()
-                .fileFragments()
+                .allFragments()
+                .filter(f -> f.getType().isPath())
                 .flatMap(cf -> cf.files().join().stream())
                 .collect(Collectors.toSet());
     }

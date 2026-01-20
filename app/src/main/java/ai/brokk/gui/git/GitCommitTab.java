@@ -684,7 +684,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 // These fragments were just created by `editFiles`.
                 var fragmentsForNewFiles = contextManager
                         .liveContext()
-                        .fileFragments()
+                        .allFragments()
                         .filter(f ->
                                 f instanceof ContextFragments.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
                         .toList();
@@ -739,7 +739,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 if (!otherFilesToDrop.isEmpty()) {
                     var fragmentsToDrop = contextManager
                             .liveContext()
-                            .fileFragments()
+                            .allFragments()
                             .filter(f -> f instanceof ContextFragments.ProjectPathFragment ppf
                                     && otherFilesToDrop.contains(ppf.file()))
                             .toList();

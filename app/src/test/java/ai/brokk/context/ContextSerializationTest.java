@@ -171,7 +171,7 @@ public class ContextSerializationTest {
 
         // Verify image content from the image fragment in loadedCtx2
         var loadedImageFragmentOpt = loadedCtx2
-                .virtualFragments()
+                .allFragments()
                 .filter(f ->
                         !f.isText() && "Pasted Red Image".equals(f.description().join()))
                 .findFirst();
@@ -360,14 +360,14 @@ public class ContextSerializationTest {
 
         // Find the image fragments in each context
         var fragment1 = loadedCtx1
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> !f.isText()
                         && "Shared Blue Image".equals(f.description().join()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 1"));
 
         var fragment2 = loadedCtx2
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> !f.isText()
                         && "Shared Blue Image".equals(f.description().join()))
                 .findFirst()
@@ -580,7 +580,7 @@ public class ContextSerializationTest {
 
         // Verify StringFragment (which remains StringFragment, non-dynamic, content-hashed ID)
         var loadedStringFrag1 = loadedCtx1
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment
                         && Objects.equals(f.id(), stringFragmentContentHashId))
                 .map(f -> (ContextFragments.StringFragment) f)
@@ -588,7 +588,7 @@ public class ContextSerializationTest {
                 .orElseThrow(() -> new AssertionError("Shared StringFragment not found in loadedCtx1"));
 
         var loadedStringFrag2 = loadedCtx2
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment
                         && Objects.equals(f.id(), stringFragmentContentHashId))
                 .map(f -> (ContextFragments.StringFragment) f)
@@ -770,7 +770,7 @@ public class ContextSerializationTest {
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedRawFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.USAGE)
                 .findFirst()
                 .orElseThrow();
@@ -795,7 +795,7 @@ public class ContextSerializationTest {
 
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedRawFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.USAGE)
                 .findFirst()
                 .orElseThrow();
@@ -824,7 +824,7 @@ public class ContextSerializationTest {
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedRawFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.CALL_GRAPH)
                 .findFirst()
                 .orElseThrow();
@@ -920,7 +920,7 @@ public class ContextSerializationTest {
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedFragment = (ContextFragments.StacktraceFragment) loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.STACKTRACE)
                 .findFirst()
                 .orElseThrow();
@@ -981,9 +981,9 @@ public class ContextSerializationTest {
         assertEquals(1, loadedHistory.getHistory().size());
         Context deserializedContext = loadedHistory.getHistory().get(0);
 
-        // Verify deduplication behavior of virtualFragments()
+        // Verify deduplication behavior
         List<ContextFragment> deduplicatedFragments =
-                deserializedContext.virtualFragments().toList();
+                deserializedContext.allFragments().toList();
 
         // Expected: 5 unique fragments based on text content, common description should not result in being treated as
         // duplicates
@@ -1065,7 +1065,7 @@ public class ContextSerializationTest {
         // assertContextsEqual(originalCtx, loadedCtx);
 
         var loadedRawFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.CODE)
                 .findFirst()
                 .orElseThrow();
@@ -1096,7 +1096,7 @@ public class ContextSerializationTest {
 
         Context loadedCtx1 = loadedHistory1.getHistory().get(0);
         var loadedRawFragment1 = loadedCtx1
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
                 .findFirst()
                 .orElseThrow();
@@ -1129,7 +1129,7 @@ public class ContextSerializationTest {
 
         Context loadedCtx2 = loadedHistory2.getHistory().get(0);
         var loadedRawFragment2 = loadedCtx2
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
                 .findFirst()
                 .orElseThrow();
@@ -1187,7 +1187,7 @@ public class ContextSerializationTest {
         Context loadedCtx = loaded.getHistory().getFirst();
 
         var loadedSf = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.description().join().equals("Pinned Desc"))
                 .findFirst()
                 .orElseThrow();
@@ -1206,7 +1206,7 @@ public class ContextSerializationTest {
         ContextHistory loaded2 = HistoryIo.readZip(zipFile2, mockContextManager);
         Context loadedCtx2 = loaded2.getHistory().getFirst();
         var loadedSf2 = loadedCtx2
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.description().join().equals("Unpinned Desc"))
                 .findFirst()
                 .orElseThrow();
@@ -1253,7 +1253,7 @@ public class ContextSerializationTest {
         var loadedCtx = loaded.getHistory().getFirst();
 
         var loadedPpf = loadedCtx
-                .fileFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
                 .map(f -> (ContextFragments.ProjectPathFragment) f)
                 .findFirst()
@@ -1261,7 +1261,7 @@ public class ContextSerializationTest {
         assertTrue(loadedCtx.isMarkedReadonly(loadedPpf), "Loaded ProjectPathFragment should be read-only");
 
         var loadedCode = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.CodeFragment)
                 .map(f -> (ContextFragments.CodeFragment) f)
                 .findFirst()
@@ -1514,7 +1514,7 @@ public class ContextSerializationTest {
         var loadedPpf = loadedLonger
                 .getHistory()
                 .getFirst()
-                .fileFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
                 .map(f -> (ContextFragments.ProjectPathFragment) f)
                 .findFirst()
@@ -1550,7 +1550,7 @@ public class ContextSerializationTest {
         var loadedPpf2 = loadedShorter
                 .getHistory()
                 .getFirst()
-                .fileFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
                 .map(f -> (ContextFragments.ProjectPathFragment) f)
                 .findFirst()
@@ -1762,7 +1762,7 @@ public class ContextSerializationTest {
         Context loadedCtx = loadedHistory.getHistory().get(0);
 
         var loadedFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment)
                 .map(f -> (ContextFragments.StringFragment) f)
                 .findFirst()
@@ -1809,7 +1809,8 @@ public class ContextSerializationTest {
 
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
+                .filter(f -> !f.getType().isPath())
                 .filter(f -> f instanceof ContextFragments.StringFragment)
                 .map(f -> (ContextFragments.StringFragment) f)
                 .findFirst()
@@ -1866,7 +1867,7 @@ public class ContextSerializationTest {
 
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment)
                 .map(f -> (ContextFragments.StringFragment) f)
                 .findFirst()
@@ -1913,7 +1914,7 @@ public class ContextSerializationTest {
 
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment)
                 .map(f -> (ContextFragments.StringFragment) f)
                 .findFirst()
@@ -1967,7 +1968,7 @@ public class ContextSerializationTest {
 
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment)
                 .map(f -> (ContextFragments.StringFragment) f)
                 .findFirst()
@@ -1998,7 +1999,7 @@ public class ContextSerializationTest {
 
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedFragment = loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment)
                 .map(f -> (ContextFragments.StringFragment) f)
                 .findFirst()

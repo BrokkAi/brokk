@@ -542,7 +542,7 @@ public class WorkspaceTools {
     }
 
     private Set<ProjectFile> currentWorkspaceFiles() {
-        return context.fileFragments()
+        return context.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .flatMap(f -> f.files().join().stream())
                 .collect(Collectors.toSet());
