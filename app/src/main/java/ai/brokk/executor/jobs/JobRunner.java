@@ -894,67 +894,6 @@ public final class JobRunner {
                                                             fixTaskRunner);
                                                 }
 
-                                                // After all tasks completed, run the end-of-run final gate using the
-                                                // single-fix helper.
-                                                java.util.function.Function<String, String> commandRunner = cmd -> {
-                                                    try {
-                                                        return BuildAgent.runExplicitCommand(
-                                                                cm, cmd, buildDetailsOverride);
-                                                    } catch (InterruptedException ie) {
-                                                        Thread.currentThread().interrupt();
-                                                        throw new RuntimeException(ie);
-                                                    }
-                                                };
-
-                                                java.util.function.Supplier<String> finalVerificationRunner = () -> {
-                                                    // Run tests and lint once each and compose combined output if any
-                                                    // failed.
-                                                    String testCmd = buildDetailsOverride.testAllCommand();
-                                                    String lintCmd = buildDetailsOverride.buildLintCommand();
-
-                                                    String testOut =
-                                                            testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
-                                                    String lintOut =
-                                                            lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
-
-                                                    boolean testsPassed = testOut.isBlank();
-                                                    boolean lintPassed = lintOut.isBlank();
-
-                                                    if (testsPassed && lintPassed) {
-                                                        return "";
-                                                    }
-
-                                                    var parts = new java.util.ArrayList<String>();
-                                                    if (!testsPassed)
-                                                        parts.add("Tests failed (" + testCmd + "):\n" + testOut);
-                                                    if (!lintPassed)
-                                                        parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
-                                                    return String.join("\n\n", parts);
-                                                };
-
-                                                java.util.function.Consumer<String> finalFixTaskRunner = prompt -> {
-                                                    String finalFixPrompt = "Final checks failed. Output:\n" + prompt
-                                                            + "\n\nPlease make a single fix attempt to resolve these failures.";
-                                                    var finalFixTask = TaskList.TaskItem.createFixTask(finalFixPrompt);
-                                                    try {
-                                                        cm.executeTask(finalFixTask, issuePlannerModel, issueCodeModel);
-                                                    } catch (Exception e) {
-                                                        logger.warn(
-                                                                "Final fix attempt failed for job {}: {}",
-                                                                jobId,
-                                                                e.getMessage());
-                                                    }
-                                                };
-
-                                                // Delegate to single-shot gate helper which will throw on persistent
-                                                // failure.
-                                                runSingleFixVerificationGate(
-                                                        jobId,
-                                                        store,
-                                                        console != null ? console : cm.getIo(),
-                                                        finalVerificationRunner,
-                                                        finalFixTaskRunner);
-
                                                 // 5. ISSUE-mode review-bot: compute diff vs default branch and
                                                 // generate structured inline comments AFTER we have a passing build
                                                 // and BEFORE PR creation.
@@ -1123,6 +1062,67 @@ public final class JobRunner {
                                                         }
                                                     }
                                                 }
+
+                                                // After review-driven fixes complete, run a final end-of-run
+                                                // verification/fix pass using the single-fix helper.
+                                                java.util.function.Function<String, String> commandRunner = cmd -> {
+                                                    try {
+                                                        return BuildAgent.runExplicitCommand(
+                                                                cm, cmd, buildDetailsOverride);
+                                                    } catch (InterruptedException ie) {
+                                                        Thread.currentThread().interrupt();
+                                                        throw new RuntimeException(ie);
+                                                    }
+                                                };
+
+                                                java.util.function.Supplier<String> finalVerificationRunner = () -> {
+                                                    // Run tests and lint once each and compose combined output if any
+                                                    // failed.
+                                                    String testCmd = buildDetailsOverride.testAllCommand();
+                                                    String lintCmd = buildDetailsOverride.buildLintCommand();
+
+                                                    String testOut =
+                                                            testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
+                                                    String lintOut =
+                                                            lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
+
+                                                    boolean testsPassed = testOut.isBlank();
+                                                    boolean lintPassed = lintOut.isBlank();
+
+                                                    if (testsPassed && lintPassed) {
+                                                        return "";
+                                                    }
+
+                                                    var parts = new java.util.ArrayList<String>();
+                                                    if (!testsPassed) {
+                                                        parts.add("Tests failed (" + testCmd + "):\n" + testOut);
+                                                    }
+                                                    if (!lintPassed) {
+                                                        parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
+                                                    }
+                                                    return String.join("\n\n", parts);
+                                                };
+
+                                                java.util.function.Consumer<String> finalFixTaskRunner = prompt -> {
+                                                    String finalFixPrompt = "Final checks failed. Output:\n" + prompt
+                                                            + "\n\nPlease make a single fix attempt to resolve these failures.";
+                                                    var finalFixTask = TaskList.TaskItem.createFixTask(finalFixPrompt);
+                                                    try {
+                                                        cm.executeTask(finalFixTask, issuePlannerModel, issueCodeModel);
+                                                    } catch (Exception e) {
+                                                        logger.warn(
+                                                                "Final fix attempt failed for job {}: {}",
+                                                                jobId,
+                                                                e.getMessage());
+                                                    }
+                                                };
+
+                                                runSingleFixVerificationGate(
+                                                        jobId,
+                                                        store,
+                                                        console != null ? console : cm.getIo(),
+                                                        finalVerificationRunner,
+                                                        finalFixTaskRunner);
 
                                                 // 7. Commit and Create Pull Request (conditional)
                                                 // Only create a PR if:
