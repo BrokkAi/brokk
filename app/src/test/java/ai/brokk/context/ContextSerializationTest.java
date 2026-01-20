@@ -982,9 +982,8 @@ public class ContextSerializationTest {
         Context deserializedContext = loadedHistory.getHistory().get(0);
 
         // Verify deduplication behavior
-        List<ContextFragment> deduplicatedFragments = deserializedContext
-                .allFragments()
-                .toList();
+        List<ContextFragment> deduplicatedFragments =
+                deserializedContext.allFragments().toList();
 
         // Expected: 5 unique fragments based on text content, common description should not result in being treated as
         // duplicates
