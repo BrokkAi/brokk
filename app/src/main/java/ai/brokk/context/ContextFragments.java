@@ -7,11 +7,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
-import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.ExternalFile;
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
@@ -82,11 +78,12 @@ public class ContextFragments {
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         return units.stream()
                 .filter(CodeUnit::isClass)
-                .flatMap(cu -> analyzer
-                        .as(ai.brokk.analyzer.TypeHierarchyProvider.class)
-                        .map(p -> p.getAncestors(cu))
-                        .orElse(List.of())
-                        .stream())
+                .flatMap(cu ->
+                        analyzer
+                                .as(TypeHierarchyProvider.class)
+                                .map(p -> p.getDirectAncestors(cu))
+                                .orElse(List.of())
+                                .stream())
                 .filter(anc -> !anc.isAnonymous())
                 .distinct()
                 .map(anc -> new SummaryFragment(
