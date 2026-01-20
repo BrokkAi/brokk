@@ -421,14 +421,47 @@ public class HeadlessExecCli {
 
                         if (events != null && events.isArray()) {
                             for (var event : events) {
-                                var data = event.get("data");
-                                if (data != null) {
-                                    System.out.println(data.asText());
-                                    System.out.flush();
+                                var seqNode = event.get("seq");
+                                if (seqNode != null) {
+                                    afterSeq = seqNode.asLong();
                                 }
-                                var seq = event.get("seq");
-                                if (seq != null) {
-                                    afterSeq = seq.asLong();
+
+                                var typeNode = event.get("type");
+                                var dataNode = event.get("data");
+
+                                String type = typeNode != null && !typeNode.isNull() ? typeNode.asText() : "event";
+
+                                String dataText = "";
+                                if (dataNode == null || dataNode.isNull()) {
+                                    dataText = "null";
+                                } else if (dataNode.isTextual()) {
+                                    dataText = dataNode.asText();
+                                } else {
+                                    try {
+                                        dataText = mapper.writeValueAsString(dataNode);
+                                    } catch (Exception e) {
+                                        dataText = dataNode.toString();
+                                    }
+                                }
+
+                                String seqPrefix = seqNode != null && !seqNode.isNull() ? ("[" + seqNode.asLong() + "] ") : "";
+                                String line;
+                                if (dataNode != null && dataNode.isTextual()) {
+                                    line = seqPrefix + type + ": " + dataText;
+                                } else {
+                                    line = seqPrefix + type + " " + dataText;
+                                }
+
+                                if (!line.isBlank()) {
+                                    System.out.println(line);
+                                    System.out.flush();
+                                } else {
+                                    try {
+                                        System.out.println(seqPrefix + type + " " + event.toString());
+                                    } catch (Exception e) {
+                                        System.out.println(seqPrefix + type);
+                                    }
+                                    System.out.flush();
                                 }
                             }
                         }
