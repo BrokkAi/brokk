@@ -73,4 +73,41 @@ public class JavaScriptImportTest {
             assertTrue(foundHelper, "Should have resolved 'helper' function from utils/helper.js");
         }
     }
+
+    @Test
+    public void testResolveImportsFromNestedDirectoryToParent() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export class BaseService {
+                    getData() { return []; }
+                }
+                """,
+                        "src/some/BaseService.js")
+                .addFileContents(
+                        """
+                import { BaseService } from '../BaseService';
+
+                export class ChildService extends BaseService {
+                    process() { return this.getData().map(x => x * 2); }
+                }
+                """,
+                        "src/some/dir/ChildService.js")
+                .build()) {
+
+            var analyzer = createAnalyzer(testProject);
+            var childFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("ChildService.js"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits = analyzer.importedCodeUnitsOf(childFile);
+
+            boolean foundBaseService = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("BaseService")
+                            && cu.isClass()
+                            && cu.source().getRelPath().toString().contains("src/some/BaseService.js"));
+
+            assertTrue(foundBaseService, "Should have resolved 'BaseService' class from src/some/BaseService.js");
+        }
+    }
 }
