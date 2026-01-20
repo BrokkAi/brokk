@@ -9,7 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepoData.FileDiff;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -760,6 +763,36 @@ class ReviewParserTest {
     }
 
     @Test
+    void testParseMarkdownReview_PreservesOrphanedCodeBlocks() {
+        String markdown =
+                """
+                ## Design Notes
+                ### Code Example
+                Check out this code:
+                ```java
+                int x = 1;
+                ```
+                **Recommendation:** Use this:
+                ```java
+                int x = 2;
+                ```
+                """
+                        .stripIndent();
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        assertEquals(1, review.designNotes().size());
+        ReviewParser.DesignFeedback note = review.designNotes().get(0);
+
+        // Description should contain the first code block
+        assertTrue(note.description().contains("```java\nint x = 1;\n```"));
+        // Recommendation should contain the second code block
+        assertTrue(note.recommendation().contains("```java\nint x = 2;\n```"));
+        // No excerpts should be created
+        assertTrue(note.excerpts().isEmpty());
+    }
+
+    @Test
     void testSectionRoundTrip() {
         String markdown =
                 """
@@ -839,7 +872,90 @@ class ReviewParserTest {
         assertEquals("code 2", results.get(2).excerpt());
     }
 
-    // testParseLutzReviewLog removed - test resource file uses legacy format
+    @Test
+    void testParseLiveReviewLog() throws IOException {
+        Path resourcePath = Path.of("src/test/resources/reviews/jbe2.log");
+        String markdown = Files.readString(resourcePath);
+
+        List<ReviewParser.RawExcerpt> raws = ReviewParser.instance.parseExcerpts(markdown);
+        assertEquals(7, raws.size(), "jbe2.log should contain 7 excerpts");
+
+        // Spot check a few stable excerpt headers to ensure ordering and parsing are correct.
+        assertEquals(
+                Path.of("errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java"),
+                Path.of(raws.get(0).file()));
+        assertEquals(47, raws.get(0).line());
+
+        assertEquals(
+                Path.of("errorprone-checks/src/main/java/ai/brokk/errorprone/TypeHierarchyUtils.java"),
+                Path.of(raws.get(1).file()));
+        assertEquals(35, raws.get(1).line());
+
+        assertEquals(
+                Path.of("errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java"),
+                Path.of(raws.get(2).file()));
+        assertEquals(83, raws.get(2).line());
+
+        // Later excerpts are more likely to change ordering as the log evolves; avoid brittle index checks.
+        var chromeExcerpt = raws.stream()
+                .filter(r -> Path.of(r.file()).equals(Path.of("app/src/main/java/ai/brokk/gui/Chrome.java")))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(2493, chromeExcerpt.line());
+
+        // "resolve" the raw excerpts by assuming their file and line information are correct
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        Map<Integer, ReviewParser.CodeExcerpt> resolved = new HashMap<>();
+        for (int i = 0; i < raws.size(); i++) {
+            ReviewParser.RawExcerpt raw = raws.get(i);
+            resolved.put(
+                    i,
+                    new ReviewParser.CodeExcerpt(
+                            new ProjectFile(root, raw.file()),
+                            null,
+                            raw.line(),
+                            ReviewParser.DiffSide.NEW,
+                            raw.excerpt()));
+        }
+
+        ReviewParser.GuidedReview review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+
+        assertFalse(review.overview().isBlank(), "Overview should not be blank");
+        assertTrue(
+                review.overview().contains("BlockingOperationChecker"),
+                "Overview should mention BlockingOperationChecker");
+
+        assertEquals(3, review.keyChanges().size(), "Key Changes should have 3 notes");
+        assertEquals(1, review.designNotes().size(), "Design Notes should have 1 note");
+        assertEquals(2, review.tacticalNotes().size(), "Tactical Notes should have 2 notes");
+        assertEquals(2, review.additionalTests().size(), "Additional Tests should have 2 items");
+
+        // Key Changes: exactly 1 excerpt per note, and wired up via resolved map.
+        for (int i = 0; i < review.keyChanges().size(); i++) {
+            var keyChange = review.keyChanges().get(i);
+            assertEquals(1, keyChange.excerpts().size(), "Each Key Change should have exactly 1 excerpt");
+
+            assertEquals(
+                    Path.of(raws.get(i).file()),
+                    keyChange.excerpts().getFirst().file().getRelPath(),
+                    "Key Change excerpt file should match raw excerpt order");
+            assertEquals(
+                    raws.get(i).line(),
+                    keyChange.excerpts().getFirst().line(),
+                    "Key Change excerpt line should match raw excerpt order");
+        }
+
+        // Design Notes: the single note in jbe2.log has two excerpts.
+        assertEquals(2, review.designNotes().getFirst().excerpts().size(), "Design note should have 2 excerpts");
+
+        // Spot check that recommendations were parsed.
+        assertTrue(
+                review.designNotes().getFirst().recommendation().contains("Remove"),
+                "Design note recommendation should be parsed");
+        assertTrue(
+                review.additionalTests().getFirst().recommendation().contains("Add a test"),
+                "Additional test recommendation should be parsed");
+    }
 
     @Test
     void testValidateParsedNotes() {

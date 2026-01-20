@@ -631,7 +631,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Invalidate caches
             project.getRepo().invalidateCaches();
             project.invalidateAllFiles();
-            io.updateCommitPanel();
 
             // Phase 6 optimization: Only check for context file changes if we have specific changed files
             boolean contextFilesChanged = false;
@@ -1007,6 +1006,79 @@ public class ContextManager implements IContextManager, AutoCloseable {
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Reset workspace to historical state");
+        });
+    }
+
+    /**
+     * Copies fragments from a historical context to the current live context.
+     * For HistoryFragment items, appends their task entries to the current live history.
+     * For other fragments, adds them via addFragments.
+     *
+     * @param fragments The fragments to copy to the current context.
+     * @return A Future representing the completion of the task.
+     */
+    public Future<?> copyFragmentsToCurrentContextAsync(List<ContextFragment> fragments) {
+        if (fragments.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        return submitExclusiveAction(() -> {
+            // Separate history fragments from other fragments
+            List<ContextFragments.HistoryFragment> historyFragments = new ArrayList<>();
+            List<ContextFragment> otherFragments = new ArrayList<>();
+
+            for (var fragment : fragments) {
+                if (fragment instanceof ContextFragments.HistoryFragment historyFragment) {
+                    historyFragments.add(historyFragment);
+                } else {
+                    otherFragments.add(fragment);
+                }
+            }
+
+            // Build new history if history fragments were collected
+            List<TaskEntry> newHistory = List.of();
+            if (!historyFragments.isEmpty()) {
+                List<TaskEntry> currentHistory = new ArrayList<>(liveContext().getTaskHistory());
+                Set<TaskEntry> existingEntries = new HashSet<>(currentHistory);
+
+                for (var historyFragment : historyFragments) {
+                    for (TaskEntry entry : historyFragment.entries()) {
+                        if (existingEntries.add(entry)) {
+                            currentHistory.add(entry);
+                        }
+                    }
+                }
+                currentHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
+                newHistory = List.copyOf(currentHistory);
+            }
+
+            // Single atomic context update combining both history and other fragments
+            final List<TaskEntry> finalNewHistory = newHistory;
+            pushContext(currentLiveCtx -> {
+                Context updated = currentLiveCtx;
+                if (!finalNewHistory.isEmpty()) {
+                    updated = updated.withHistory(finalNewHistory);
+                }
+                if (!otherFragments.isEmpty()) {
+                    updated = updated.addFragments(otherFragments);
+                }
+                return updated;
+            });
+
+            // Build notification message
+            String actionMessage;
+            if (fragments.size() == 1) {
+                String shortDesc = fragments.getFirst().shortDescription().renderNowOr("fragment");
+                actionMessage = "Copy to current context: " + shortDesc;
+            } else if (fragments.size() == 2) {
+                String desc1 = fragments.get(0).shortDescription().renderNowOr("fragment");
+                String desc2 = fragments.get(1).shortDescription().renderNowOr("fragment");
+                actionMessage = "Copy to current context: " + desc1 + ", " + desc2;
+            } else {
+                actionMessage = "Copy to current context: " + fragments.size() + " fragments";
+            }
+
+            io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
         });
     }
 

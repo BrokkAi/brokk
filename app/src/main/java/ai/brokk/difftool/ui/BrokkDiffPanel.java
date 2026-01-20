@@ -527,9 +527,8 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public boolean hasUnsavedChanges() {
         if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
-        for (int i = 0; i < getFileComparisonCount(); i++) {
-            var p = core.getCachedPanel(i);
-            if (p != null && p.hasUnsavedChanges()) return true;
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
+            if (p.hasUnsavedChanges()) return true;
         }
         return false;
     }
@@ -549,7 +548,7 @@ public class BrokkDiffPanel extends JPanel
         if (currentBufferPanel != null) {
             visited.add(currentBufferPanel);
         }
-        for (var p : core.getCachedPanels()) {
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
             if (p instanceof BufferDiffPanel bufferPanel) {
                 visited.add(bufferPanel);
             }
@@ -574,8 +573,8 @@ public class BrokkDiffPanel extends JPanel
             var panelFiles = p.getFilesBeingSaved();
             for (var file : panelFiles) {
                 // Check if this file is already in the current workspace context
-                var editableFilesList = currentContext.fileFragments().toList();
-                boolean inWorkspace = editableFilesList.stream()
+                boolean inWorkspace = currentContext
+                        .allFragments()
                         .anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment ppf
                                 && ppf.file().equals(file));
                 if (!inWorkspace) {
@@ -1131,7 +1130,9 @@ public class BrokkDiffPanel extends JPanel
     private void refreshAllDiffPanels() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Refresh existing cached panels (preserves cache for performance)
-        core.getCachedPanels().forEach(panel -> panel.diff(true)); // Scroll to selection for user-initiated refresh
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
+            p.diff(true); // Scroll to selection for user-initiated refresh
+        }
         // Refresh current panel if it's not cached
         var current = getBufferDiffPanel();
         if (current != null) {
@@ -1836,7 +1837,7 @@ public class BrokkDiffPanel extends JPanel
             }
         }
 
-        for (var p : core.getCachedPanels()) {
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
             if (visited.add(p) && p.hasUnsavedChanges()) {
                 count++;
             }
@@ -1854,7 +1855,7 @@ public class BrokkDiffPanel extends JPanel
                 return true;
             }
         }
-        for (var p : core.getCachedPanels()) {
+        for (AbstractDiffPanel p : core.getCachedPanels()) {
             if (visited.add(p) && p.hasUnsavedChanges() && p.atLeastOneSideEditable()) {
                 return true;
             }

@@ -392,13 +392,13 @@ When you submit an ISSUE job, the system follows these steps:
 3. **Task Planning**: Uses the `plannerModel` to decompose the issue into a series of actionable tasks.
 4. **Execution & Verification Loop**: For each generated task:
     - **Implementation**: ArchitectAgent implements the task using `plannerModel` and `codeModel`.
-    - **Build Verification**: Runs the project's build/lint command.
-    - **Self-Correction**: If the build fails, the system automatically attempts to fix the errors (up to `buildSettings.maxBuildAttempts` attempts per task) before proceeding.
-5. **Completion & PR**: Upon successful verification of all tasks, the system:
-    - Commits the changes with an automated message (e.g., `Resolves #42: ...`).
-    - Pushes the branch to the remote.
-    - Automatically generates a Pull Request title and description. The PR description is generated from a summary of the merge-base diff (i.e., a concise summary of the changes introduced by the issue branch) and the system automatically appends a "Fixes #<issueNumber>" line so the issue will be closed when the PR is merged.
-    - Creates the Pull Request on GitHub.
+    - **Build Verification**: Runs the project's build/lint command once per task.
+    - **Self-Correction (single fix attempt)**: If verification fails, the executor performs exactly one fix attempt and then re-runs verification once.
+    - **Failure behavior**: If verification still fails after the single fix attempt, the job stops and reports failure (there is no per-task multi-retry loop in headless runs).
+5. **Final Gate & Delivery**: After all tasks verify, the executor runs final checks (full tests + lint) and then—by default—creates a commit and opens a Pull Request on GitHub. PR creation can be disabled via the `issue_delivery` tag (see below).
+6. **Cleanup**: The executor attempts to restore the original branch and remove temporary issue branches when appropriate (best-effort).
+
+Note: By default ISSUE mode creates a Pull Request (the recommended end-to-end contract). To override this behavior for special headless runs, set the `issue_delivery` tag to `none` in the job payload or tags to skip commit+PR creation while still running planning, task execution, verification, and cleanup.
 
 Example Pull Request description produced by ISSUE mode:
 

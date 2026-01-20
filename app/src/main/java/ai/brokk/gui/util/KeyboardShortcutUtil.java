@@ -1,6 +1,8 @@
 package ai.brokk.gui.util;
 
 import com.formdev.flatlaf.util.SystemInfo;
+import java.awt.GraphicsEnvironment;
+import java.awt.HeadlessException;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
@@ -18,15 +20,30 @@ import javax.swing.KeyStroke;
  */
 public class KeyboardShortcutUtil {
 
+    private static int safeMenuShortcutMaskEx() {
+        int deterministicFallback = SystemInfo.isMacOS ? KeyEvent.META_DOWN_MASK : KeyEvent.CTRL_DOWN_MASK;
+
+        if (GraphicsEnvironment.isHeadless()) {
+            return deterministicFallback;
+        }
+
+        try {
+            return Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        } catch (HeadlessException e) {
+            return deterministicFallback;
+        } catch (RuntimeException e) {
+            return deterministicFallback;
+        }
+    }
+
     /** Creates a platform-appropriate shortcut using Cmd (Mac) or Ctrl (Windows/Linux). */
     public static KeyStroke createPlatformShortcut(int keyCode) {
-        return KeyStroke.getKeyStroke(keyCode, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        return KeyStroke.getKeyStroke(keyCode, safeMenuShortcutMaskEx());
     }
 
     /** Creates a platform-appropriate shortcut with Shift modifier. */
     public static KeyStroke createPlatformShiftShortcut(int keyCode) {
-        return KeyStroke.getKeyStroke(
-                keyCode, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+        return KeyStroke.getKeyStroke(keyCode, safeMenuShortcutMaskEx() | InputEvent.SHIFT_DOWN_MASK);
     }
 
     /** Creates an Alt (Windows/Linux) or Cmd (Mac) shortcut for panel navigation. */
@@ -147,6 +164,16 @@ public class KeyboardShortcutUtil {
     /** Creates Escape key shortcut */
     public static KeyStroke createEscape() {
         return createSimpleShortcut(KeyEvent.VK_ESCAPE);
+    }
+
+    /**
+     * Canonical fallback default KeyStroke for the {@code instructions.submit} keybinding: Cmd/Ctrl+Enter.
+     *
+     * <p>All call sites that need a default/fallback for {@code instructions.submit} should use this method so the
+     * codebase has a single source of truth for the default submit shortcut.
+     */
+    public static KeyStroke defaultInstructionsSubmit() {
+        return createPlatformShortcut(KeyEvent.VK_ENTER);
     }
 
     /**

@@ -40,15 +40,14 @@ public class GuiTheme {
     public static final String THEME_DARK_PLUS = "dark-plus";
     public static final String THEME_LIGHT_PLUS = "light-plus";
 
+    public static final String THEME_CLIENT_PROPERTY = "brokk.theme";
+
     private final JFrame frame;
 
     @Nullable
     private JScrollPane mainScrollPane;
 
     private final Chrome chrome;
-
-    // Track registered popup menus that need theme updates
-    private final List<JPopupMenu> popupMenus = new ArrayList<>();
 
     /**
      * Creates a new theme manager
@@ -176,11 +175,6 @@ public class GuiTheme {
             ThemeTitleBarManager.updateTitleBarStyling(frame);
         });
 
-        // Update registered popup menus
-        for (JPopupMenu menu : popupMenus) {
-            SwingUtilities.updateComponentTreeUI(menu);
-        }
-
         // Make sure scroll panes update properly
         if (mainScrollPane != null) {
             mainScrollPane.revalidate();
@@ -214,11 +208,6 @@ public class GuiTheme {
                 if (w instanceof JDialog d && d.isDisplayable()) {
                     recurse.accept(d.getContentPane());
                 }
-            }
-
-            // Apply to tracked popup menus as well
-            for (JPopupMenu menu : popupMenus) {
-                recurse.accept(menu);
             }
         });
     }
@@ -430,20 +419,6 @@ public class GuiTheme {
         return THEME_DARK.equalsIgnoreCase(theme)
                 || THEME_DARK_PLUS.equalsIgnoreCase(theme)
                 || THEME_HIGH_CONTRAST.equalsIgnoreCase(theme);
-    }
-
-    /**
-     * Registers a popup menu to receive theme updates
-     *
-     * @param menu The popup menu to register
-     */
-    public void registerPopupMenu(JPopupMenu menu) {
-        if (!popupMenus.contains(menu)) {
-            popupMenus.add(menu);
-
-            // Apply current theme immediately if already initialized
-            SwingUtilities.invokeLater(() -> SwingUtilities.updateComponentTreeUI(menu));
-        }
     }
 
     /**

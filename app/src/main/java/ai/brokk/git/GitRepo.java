@@ -696,7 +696,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Produces a combined diff of staged + unstaged changes, restricted to the given files. */
     @Override
-    public synchronized String diffFiles(List<ProjectFile> files) throws GitAPIException {
+    public synchronized String diffFiles(Collection<ProjectFile> files) throws GitAPIException {
         return data.diffFiles(files);
     }
 
@@ -773,7 +773,7 @@ public class GitRepo implements Closeable, IGitRepo {
      *
      * @return The commit ID of the new commit
      */
-    public String commitFiles(List<ProjectFile> files, String message) throws GitAPIException {
+    public String commitFiles(Collection<ProjectFile> files, String message) throws GitAPIException {
         add(files);
 
         var commitCommand = commitCommand().setMessage(message);
@@ -1726,10 +1726,9 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         // Files NOT to stash
-        var filesToKeep = allUncommittedFilesWithStatus.stream()
-                .map(ModifiedFile::file)
+        var filesToKeep = allUncommittedProjectFiles.stream()
                 .filter(file -> !filesToStash.contains(file))
-                .collect(Collectors.toList());
+                .toList();
 
         if (filesToKeep.isEmpty()) {
             // If all changed files are selected for stashing, just do a regular stash

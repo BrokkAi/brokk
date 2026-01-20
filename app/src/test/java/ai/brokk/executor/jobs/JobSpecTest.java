@@ -123,4 +123,58 @@ class JobSpecTest {
         assertEquals("rlc-xyz", spec.reasoningLevelCode());
         assertEquals(0.2, spec.temperature());
     }
+
+    @Test
+    void testTagsNullNormalizedByCanonicalConstructor() {
+        // Construct a JobSpec directly with tags == null to simulate deserialization/caller passing null.
+        var spec = new JobSpec(
+                "task-input",
+                true,
+                true,
+                "planner-model",
+                null,
+                null,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+
+        // tags() must never be null; canonical constructor should normalize to empty immutable map.
+        assertTrue(
+                spec.tags() != null && spec.tags().isEmpty(),
+                "tags() must be non-null and empty when constructed with null");
+        // redactedTags should not throw and should be empty
+        var redacted = spec.redactedTags();
+        assertTrue(
+                redacted != null && redacted.isEmpty(),
+                "redactedTags() must be non-null and empty when tags() was null");
+    }
+
+    @Test
+    void testIssueDeliveryEnabledHandlesNullTags() {
+        var spec = new JobSpec(
+                "task-input",
+                true,
+                true,
+                "planner-model",
+                null,
+                null,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+
+        // Should not throw and default to true when no tag is provided.
+        assertTrue(JobRunner.issueDeliveryEnabled(spec));
+    }
 }

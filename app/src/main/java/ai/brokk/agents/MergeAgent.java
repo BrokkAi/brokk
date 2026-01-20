@@ -729,7 +729,8 @@ public class MergeAgent {
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
-        var existingEditableFiles = top.fileFragments()
+        var existingEditableFiles = top.allFragments()
+                .filter(f -> f.getType().isPath())
                 .filter(cf -> cf.getType().isEditable())
                 .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());

@@ -44,7 +44,6 @@ public class ContextMenuBuilder {
     private ContextMenuBuilder(MenuContext context) {
         this.context = context;
         this.menu = new JPopupMenu();
-        context.chrome().getTheme().registerPopupMenu(menu);
     }
 
     /** Creates a context menu for symbols */

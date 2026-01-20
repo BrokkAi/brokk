@@ -278,7 +278,9 @@ public class WorkspaceTools {
 
     @Tool(
             """
-                  Finds usages of a specific symbol (class, method, field) and adds the full source of the calling methods to the Workspace. Only call when you have identified specific symbols.")
+                  Finds usages of a specific symbol (class, method, field) and adds the full source of the calling methods to the Workspace. Only call when you have identified specific symbols.
+                  Use this for questions like “how is X used/accessed/obtained/wired”.
+                  If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
                   """)
     public String addSymbolUsagesToWorkspace(
             @P(
@@ -540,7 +542,7 @@ public class WorkspaceTools {
     }
 
     private Set<ProjectFile> currentWorkspaceFiles() {
-        return context.fileFragments()
+        return context.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .flatMap(f -> f.files().join().stream())
                 .collect(Collectors.toSet());

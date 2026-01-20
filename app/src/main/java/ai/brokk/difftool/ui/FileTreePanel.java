@@ -5,6 +5,8 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
@@ -25,6 +27,12 @@ import org.jetbrains.annotations.Nullable;
 public class FileTreePanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(FileTreePanel.class);
 
+    @FunctionalInterface
+    public interface FileTreeContextMenuProvider {
+        @Nullable
+        JPopupMenu createContextMenu(List<ProjectFile> selectedFiles);
+    }
+
     private final JTree fileTree;
     private final DefaultTreeModel treeModel;
     private final DefaultMutableTreeNode rootNode;
@@ -39,6 +47,9 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private DiffProjectFileNavigationTarget selectionListener;
 
     private final AtomicBoolean suppressSelectionEvents = new AtomicBoolean(false);
+
+    @Nullable
+    private FileTreeContextMenuProvider contextMenuProvider;
 
     // Indices of files that currently have unsaved changes
     private final Set<Integer> dirtyIndices = new HashSet<>();
@@ -85,7 +96,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private void setupTree() {
-        fileTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
+        fileTree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         fileTree.setRootVisible(true);
         fileTree.setShowsRootHandles(true);
         fileTree.setCellRenderer(new FileTreeCellRenderer());
@@ -108,6 +119,18 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                         }
                     }
                 }
+            }
+        });
+
+        fileTree.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleContextMenu(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                handleContextMenu(e);
             }
         });
     }
@@ -420,6 +443,10 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         this.selectionListener = listener;
     }
 
+    public void setContextMenuProvider(@Nullable FileTreeContextMenuProvider provider) {
+        this.contextMenuProvider = provider;
+    }
+
     /** Clear the tree selection without triggering navigation events. */
     public void clearSelection() {
         suppressSelectionEvents.set(true);
@@ -428,6 +455,44 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         } finally {
             suppressSelectionEvents.set(false);
         }
+    }
+
+    private void handleContextMenu(MouseEvent e) {
+        if (!e.isPopupTrigger() || contextMenuProvider == null) return;
+
+        var path = fileTree.getPathForLocation(e.getX(), e.getY());
+        if (path == null) return;
+
+        if (!fileTree.isPathSelected(path)) {
+            fileTree.setSelectionPath(path);
+        }
+
+        List<ProjectFile> selectedFiles = getSelectedProjectFiles();
+        if (selectedFiles.isEmpty()) return;
+
+        var menu = contextMenuProvider.createContextMenu(selectedFiles);
+        if (menu == null || menu.getComponentCount() == 0) return;
+
+        menu.show(fileTree, e.getX(), e.getY());
+    }
+
+    private List<ProjectFile> getSelectedProjectFiles() {
+        TreePath[] paths = fileTree.getSelectionPaths();
+        if (paths == null || paths.length == 0) return List.of();
+
+        return Arrays.stream(paths)
+                .map(p -> (DefaultMutableTreeNode) p.getLastPathComponent())
+                .map(DefaultMutableTreeNode::getUserObject)
+                .map(uo -> {
+                    if (uo instanceof FileInfo fi) {
+                        if (fi.index() < 0 || fi.index() >= fileComparisons.size()) return null;
+                        return fileComparisons.get(fi.index()).file();
+                    }
+                    return null;
+                })
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     public void selectFile(int fileIndex) {

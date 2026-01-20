@@ -321,12 +321,12 @@ public final class HistoryIo {
         var pastedImageFragments = new HashSet<ContextFragments.AnonymousImageFragment>();
 
         for (Context ctx : ch.getHistory()) {
-            ctx.fileFragments().forEach(fragment -> {
+            ctx.allFragments().filter(f -> f.getType().isPath()).forEach(fragment -> {
                 if (!collectedReferencedDtos.containsKey(fragment.id())) {
                     collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
                 }
             });
-            ctx.virtualFragments().forEach(vf -> {
+            ctx.allFragments().filter(f -> !f.getType().isPath()).forEach(vf -> {
                 if (vf instanceof ContextFragments.TaskFragment taskFragment) {
                     if (!collectedTaskDtos.containsKey(taskFragment.id())) {
                         collectedTaskDtos.put(taskFragment.id(), DtoMapper.toTaskFragmentDto(taskFragment, writer));

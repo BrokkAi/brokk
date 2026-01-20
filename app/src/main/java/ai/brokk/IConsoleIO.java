@@ -139,10 +139,6 @@ public interface IConsoleIO {
         // pass
     }
 
-    default void updateCommitPanel() {
-        // pass
-    }
-
     default void updateGitRepo() {
         // pass
     }

@@ -131,11 +131,6 @@ public class WorkspaceChip extends JPanel {
     }
 
     private void handlePopup(MouseEvent e) {
-        if (isPanelReadOnly()) {
-            chrome.systemNotify(WorkspaceItemsChipPanel.READ_ONLY_TIP, "Workspace", JOptionPane.INFORMATION_MESSAGE);
-            e.consume();
-            return;
-        }
         JPopupMenu menu = createContextMenu();
         if (menu != null) {
             SwingUtilities.invokeLater(() -> menu.show(materialChip, e.getX(), e.getY()));
@@ -275,11 +270,11 @@ public class WorkspaceChip extends JPanel {
         return ctx != null && ctx.isMarkedReadonly(fragment);
     }
 
-    private boolean isPanelReadOnly() {
+    protected boolean isPanelReadOnly() {
         return readOnlySupplier.get();
     }
 
-    private boolean isOnLatestContext() {
+    protected boolean isOnLatestContext() {
         return Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
     }
 
@@ -364,12 +359,20 @@ public class WorkspaceChip extends JPanel {
         ContextFragment fragment = getPrimaryFragment();
         JPopupMenu menu = new JPopupMenu();
 
+        // Add "Copy to Current Context" when viewing historical context (not on latest, or panel is read-only)
+        if (!isOnLatestContext() || isPanelReadOnly()) {
+            JMenuItem copyToCurrentItem = new JMenuItem("Copy to Current Context");
+            copyToCurrentItem.addActionListener(e -> {
+                contextManager.copyFragmentsToCurrentContextAsync(List.of(getPrimaryFragment()));
+            });
+            menu.add(copyToCurrentItem);
+            return menu;
+        }
+
         if (GlobalUiSettings.isAdvancedMode()) {
-            boolean onLatest = isOnLatestContext();
             var ctx = contextManager.selectedContext();
             boolean isPinned = ctx != null && ctx.isPinned(fragment);
             JMenuItem togglePin = new JMenuItem(isPinned ? "Unpin" : "Pin", Icons.PUSH_PIN);
-            togglePin.setEnabled(onLatest && !isPanelReadOnly());
             togglePin.addActionListener(e -> {
                 if (!ensureMutatingAllowed()) return;
                 contextManager.pushContext(curr -> curr.withPinned(fragment, !curr.isPinned(fragment)));
@@ -379,7 +382,6 @@ public class WorkspaceChip extends JPanel {
             if (fragment.getType().isEditable()) {
                 String labelText = isFragmentReadOnly(fragment) ? "Unset Read-Only" : "Set Read-Only";
                 JMenuItem toggleRo = new JMenuItem(labelText, Icons.EDIT_OFF);
-                toggleRo.setEnabled(onLatest && !isPanelReadOnly());
                 toggleRo.addActionListener(e -> {
                     if (!ensureMutatingAllowed()) return;
                     contextManager.pushContext(curr -> curr.setReadonly(fragment, !curr.isMarkedReadonly(fragment)));
@@ -423,7 +425,6 @@ public class WorkspaceChip extends JPanel {
 
         safeAddSeparator(menu);
         menu.add(dropOther);
-        chrome.getThemeManager().registerPopupMenu(menu);
         return menu;
     }
 
@@ -668,6 +669,17 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected JPopupMenu createContextMenu() {
             JPopupMenu menu = new JPopupMenu();
+
+            // Add "Copy to Current Context" when viewing historical context (not on latest, or panel is read-only)
+            if (!isOnLatestContext() || isPanelReadOnly()) {
+                JMenuItem copyToCurrentItem = new JMenuItem("Copy to Current Context");
+                copyToCurrentItem.addActionListener(e -> {
+                    contextManager.copyFragmentsToCurrentContextAsync(summaryFragments);
+                });
+                menu.add(copyToCurrentItem);
+                return menu;
+            }
+
             var scenario = new ContextActionsHandler.MultiFragment(summaryFragments);
             var actions = scenario.getActions(chrome.getContextActionsHandler());
 
@@ -711,7 +723,6 @@ public class WorkspaceChip extends JPanel {
                 menu.add(item);
             });
 
-            chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
         }
     }
@@ -800,7 +811,6 @@ public class WorkspaceChip extends JPanel {
                 }
                 menu.add(action);
             }
-            chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
         }
 

@@ -46,14 +46,6 @@ with try/catch is unnecessary and futile; don't do that.
 
 1. **Use ProjectFile to represent files**. String and File and Path all have issues that ProjectFile resolves. If you're dealing with files but you don't have the ProjectFile API available, stop and ask the user to provide it. DO NOT write code that reads from a File or Path unless explicitly instructed to do so.
 
-## Testing
-
-1. Prefer `ai.brokk.testutil.AssertionHelperUtil` methods when writing analyzer tests that compare multi-block code strings.
-   - Use `assertCodeEquals`/`assertCodeStartsWith`/`assertCodeEndsWith`/`assertCodeContains` for code string comparisons.
-   - These helpers normalize line endings and trim outer whitespace, making tests stable across platforms and editors.
-   - Avoid direct assertEquals on raw multi-line code output.
-2. We have standard mock versions of common interfaces: TestAnalyzer, TestConsoleIO, TestContextManager, TestGitRepo, TestProject. Ask the user to add these to the Workspace rather than rolling your own.
-
 ## Concurrency
 
 1. Always use utility classes that log exceptions appropriately. If you create an ExecutorService, you

@@ -1,7 +1,5 @@
 package ai.brokk.concurrent;
 
-import org.jetbrains.annotations.Blocking;
-
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.StringWriter;
@@ -11,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Properties;
+import org.jetbrains.annotations.Blocking;
 
 public class AtomicWrites {
 

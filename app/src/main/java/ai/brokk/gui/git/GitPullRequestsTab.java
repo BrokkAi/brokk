@@ -555,7 +555,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private void setupPrTableContextMenu() {
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(contextMenu);
 
         viewPrDiffMenuItem = new JMenuItem("View Diff");
         viewPrDiffMenuItem.addActionListener(e -> viewFullPrDiff());
@@ -615,7 +614,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private void setupPrCommitsTableContextMenu() {
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(contextMenu);
 
         capturePrCommitDiffMenuItem = new JMenuItem("Capture Diff");
         capturePrCommitDiffMenuItem.addActionListener(e -> {

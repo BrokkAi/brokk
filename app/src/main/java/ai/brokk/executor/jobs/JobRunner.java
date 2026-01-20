@@ -50,7 +50,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class JobRunner {
     private static final Logger logger = LogManager.getLogger(JobRunner.class);
-    private static final int DEFAULT_MAX_BUILD_ATTEMPTS = 3;
 
     private static final PrReviewService.Severity DEFAULT_REVIEW_SEVERITY_THRESHOLD = PrReviewService.Severity.HIGH;
     private static final int DEFAULT_REVIEW_MAX_INLINE_COMMENTS = 5;
@@ -812,25 +811,21 @@ public final class JobRunner {
 
                                         // 3. Branch management
                                         var gitRepo = (GitRepo) cm.getProject().getRepo();
+
+                                        // Capture original branch best-effort
                                         String originalBranch = gitRepo.getCurrentBranch();
-                                        String originalCommitId = null;
 
                                         String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
 
+                                        // Run the ISSUE work inside a try/finally to guarantee cleanup, including
+                                        // branch creation/check-out.
                                         try {
-                                            originalCommitId = gitRepo.getCurrentCommitId();
-                                        } catch (GitAPIException e) {
-                                            logger.warn("Failed to capture current commit ID for job {}", jobId, e);
-                                        }
-
-                                        logger.info(
-                                                "ISSUE job {}: Creating branch {} from {}",
-                                                jobId,
-                                                issueBranchName,
-                                                originalBranch);
-                                        gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
-
-                                        try {
+                                            logger.info(
+                                                    "ISSUE job {}: Creating branch {} from {}",
+                                                    jobId,
+                                                    issueBranchName,
+                                                    originalBranch);
+                                            gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
                                             String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
                                                     .formatted(issueNumber, details.title(), details.body());
 
@@ -859,163 +854,208 @@ public final class JobRunner {
                                                     // Execute task with ArchitectAgent
                                                     cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
-                                                    // 4. Verification loop: run build and retry on failure
-                                                    int buildAttempts = 0;
-                                                    int maxBuildAttempts = Objects.requireNonNullElse(
-                                                            buildDetailsOverride.maxBuildAttempts(),
-                                                            DEFAULT_MAX_BUILD_ATTEMPTS);
-
-                                                    boolean verified = false;
-
-                                                    while (!verified && buildAttempts < maxBuildAttempts) {
-                                                        buildAttempts++;
-                                                        String buildError =
-                                                                BuildAgent.runVerification(cm, buildDetailsOverride);
-                                                        if (buildError.isBlank()) {
-                                                            verified = true;
-                                                            logger.info(
-                                                                    "ISSUE job {} task '{}' verified successfully",
-                                                                    jobId,
-                                                                    generatedTask.text());
-                                                        } else {
-                                                            logger.warn(
-                                                                    "ISSUE job {} task '{}' build failed (attempt {}/{}): {}",
-                                                                    jobId,
-                                                                    generatedTask.text(),
-                                                                    buildAttempts,
-                                                                    maxBuildAttempts,
-                                                                    buildError);
-
-                                                            if (buildAttempts < maxBuildAttempts) {
-                                                                // Ask architect to fix the build error
-                                                                String fixPrompt =
-                                                                        "The build failed after the last task '"
-                                                                                + generatedTask.text()
-                                                                                + "'. Please fix the following error:\n\n"
-                                                                                + buildError;
-                                                                cm.executeTask(
-                                                                        TaskList.TaskItem.createFixTask(fixPrompt),
-                                                                        issuePlannerModel,
-                                                                        issueCodeModel);
-                                                            } else {
-                                                                throw new IssueExecutionException(
-                                                                        "Failed to pass build verification after "
-                                                                                + maxBuildAttempts + " attempts: "
-                                                                                + buildError);
-                                                            }
+                                                    // Per-task verification: enforce single-fix semantics via helper.
+                                                    java.util.function.Supplier<String> verificationRunner = () -> {
+                                                        try {
+                                                            return BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                        } catch (InterruptedException ie) {
+                                                            Thread.currentThread()
+                                                                    .interrupt();
+                                                            throw new RuntimeException(ie);
                                                         }
-                                                    }
+                                                    };
+
+                                                    java.util.function.Consumer<String> fixTaskRunner = prompt -> {
+                                                        String taskLabel = Objects.requireNonNullElse(
+                                                                generatedTask.text(), "(unnamed task)");
+                                                        String fixPrompt = "Verification failed for task: " + taskLabel
+                                                                + "\n\nOutput:\n" + prompt
+                                                                + "\n\nPlease make a single fix attempt to resolve this verification failure.";
+                                                        var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
+                                                        try {
+                                                            cm.executeTask(fixTask, issuePlannerModel, issueCodeModel);
+                                                        } catch (Exception e) {
+                                                            logger.warn(
+                                                                    "Fix attempt failed for job {} task {}: {}",
+                                                                    jobId,
+                                                                    taskLabel,
+                                                                    e.getMessage());
+                                                        }
+                                                    };
+
+                                                    // Delegate to single-shot gate helper which will append
+                                                    // notifications/events.
+                                                    runSingleFixVerificationGate(
+                                                            jobId,
+                                                            store,
+                                                            console != null ? console : cm.getIo(),
+                                                            verificationRunner,
+                                                            fixTaskRunner);
                                                 }
 
-                                                runPrePrGateWithFixRetryLoop(
+                                                // After all tasks completed, run the end-of-run final gate using the
+                                                // single-fix helper.
+                                                java.util.function.Function<String, String> commandRunner = cmd -> {
+                                                    try {
+                                                        return BuildAgent.runExplicitCommand(
+                                                                cm, cmd, buildDetailsOverride);
+                                                    } catch (InterruptedException ie) {
+                                                        Thread.currentThread().interrupt();
+                                                        throw new RuntimeException(ie);
+                                                    }
+                                                };
+
+                                                java.util.function.Supplier<String> finalVerificationRunner = () -> {
+                                                    // Run tests and lint once each and compose combined output if any
+                                                    // failed.
+                                                    String testCmd = buildDetailsOverride.testAllCommand();
+                                                    String lintCmd = buildDetailsOverride.buildLintCommand();
+
+                                                    String testOut =
+                                                            testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
+                                                    String lintOut =
+                                                            lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
+
+                                                    boolean testsPassed = testOut.isBlank();
+                                                    boolean lintPassed = lintOut.isBlank();
+
+                                                    if (testsPassed && lintPassed) {
+                                                        return "";
+                                                    }
+
+                                                    var parts = new java.util.ArrayList<String>();
+                                                    if (!testsPassed)
+                                                        parts.add("Tests failed (" + testCmd + "):\n" + testOut);
+                                                    if (!lintPassed)
+                                                        parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
+                                                    return String.join("\n\n", parts);
+                                                };
+
+                                                java.util.function.Consumer<String> finalFixTaskRunner = prompt -> {
+                                                    String finalFixPrompt = "Final checks failed. Output:\n" + prompt
+                                                            + "\n\nPlease make a single fix attempt to resolve these failures.";
+                                                    var finalFixTask = TaskList.TaskItem.createFixTask(finalFixPrompt);
+                                                    try {
+                                                        cm.executeTask(finalFixTask, issuePlannerModel, issueCodeModel);
+                                                    } catch (Exception e) {
+                                                        logger.warn(
+                                                                "Final fix attempt failed for job {}: {}",
+                                                                jobId,
+                                                                e.getMessage());
+                                                    }
+                                                };
+
+                                                // Delegate to single-shot gate helper which will throw on persistent
+                                                // failure.
+                                                runSingleFixVerificationGate(
                                                         jobId,
                                                         store,
-                                                        cm.getIo(),
-                                                        buildDetailsOverride,
-                                                        spec.effectiveMaxIssueFixAttempts(),
-                                                        cmd -> {
+                                                        console != null ? console : cm.getIo(),
+                                                        finalVerificationRunner,
+                                                        finalFixTaskRunner);
+
+                                                // 5. Commit and Create Pull Request (conditional)
+                                                // Only create a PR if:
+                                                //  - delivery policy enables PR creation (issue_delivery != "none")
+                                                //  - final gate verification passed (we reached here only when
+                                                // tests/lint passed)
+                                                if (issueDeliveryEnabled(spec)) {
+                                                    try {
+                                                        var workflow = new GitWorkflow(cm);
+
+                                                        // Commit any remaining changes before creating the PR.
+                                                        // performAutoCommit returns Optional<CommitResult> in
+                                                        // GitWorkflow.
+                                                        workflow.performAutoCommit(
+                                                                "Resolves #" + issueNumber + ": " + details.title());
+
+                                                        String targetBranch = gitHubAuth.getDefaultBranch();
+                                                        var suggestion = workflow.suggestPullRequestDetails(
+                                                                issueBranchName, targetBranch, cm.getIo());
+
+                                                        String prBody = IssueService.buildPrDescription(
+                                                                suggestion.description(), issueNumber);
+
+                                                        var prUri = workflow.createPullRequest(
+                                                                issueBranchName,
+                                                                targetBranch,
+                                                                suggestion.title(),
+                                                                prBody,
+                                                                githubToken);
+
+                                                        logger.info("ISSUE job {} created PR: {}", jobId, prUri);
+                                                        if (console != null) {
+                                                            console.showNotification(
+                                                                    IConsoleIO.NotificationRole.INFO,
+                                                                    "Created Pull Request: " + prUri);
+                                                        }
+                                                    } catch (Exception e) {
+                                                        // Surface the error to logs and headless console / events
+                                                        // (best-effort)
+                                                        logger.warn(
+                                                                "ISSUE job {}: failed to create PR: {}",
+                                                                jobId,
+                                                                e.getMessage(),
+                                                                e);
+                                                        if (console != null) {
                                                             try {
-                                                                return BuildAgent.runExplicitCommand(
-                                                                        cm, cmd, buildDetailsOverride);
-                                                            } catch (InterruptedException e) {
-                                                                Thread.currentThread()
-                                                                        .interrupt();
-                                                                return "Interrupted while running command: " + cmd;
+                                                                console.toolError(
+                                                                        "Failed to create PR: " + e.getMessage(),
+                                                                        "PR creation error");
+                                                            } catch (Throwable ignore) {
+                                                                // best-effort only
                                                             }
-                                                        },
-                                                        prompt -> {
+                                                        } else {
                                                             try {
-                                                                cm.executeTask(
-                                                                        TaskList.TaskItem.createFixTask(prompt),
-                                                                        issuePlannerModel,
-                                                                        issueCodeModel);
-                                                            } catch (InterruptedException e) {
-                                                                Thread.currentThread()
-                                                                        .interrupt();
-                                                                throw new IssueExecutionException(
-                                                                        "Interrupted while attempting to fix pre-PR gate failure",
-                                                                        e);
+                                                                cm.getIo()
+                                                                        .toolError(
+                                                                                "Failed to create PR: "
+                                                                                        + e.getMessage(),
+                                                                                "PR creation error");
+                                                            } catch (Throwable ignore) {
+                                                                // best-effort only
                                                             }
-                                                        });
+                                                        }
+                                                        try {
+                                                            store.appendEvent(
+                                                                    jobId,
+                                                                    JobEvent.of(
+                                                                            "NOTIFICATION",
+                                                                            "Failed to create PR: " + e.getMessage()));
+                                                        } catch (Exception ignore) {
+                                                            // best-effort only
+                                                        }
 
-                                                // 5. Commit and Create Pull Request
-                                                var workflow = new GitWorkflow(cm);
-                                                workflow.performAutoCommit(
-                                                        "Resolves #" + issueNumber + ": " + details.title());
-
-                                                String targetBranch = gitHubAuth.getDefaultBranch();
-                                                var suggestion = workflow.suggestPullRequestDetails(
-                                                        issueBranchName, targetBranch, cm.getIo());
-
-                                                String prBody = IssueService.buildPrDescription(
-                                                        suggestion.description(), issueNumber);
-
-                                                var prUri = workflow.createPullRequest(
-                                                        issueBranchName,
-                                                        targetBranch,
-                                                        suggestion.title(),
-                                                        prBody,
-                                                        githubToken);
-
-                                                logger.info("ISSUE job {} created PR: {}", jobId, prUri);
-                                                if (console != null) {
-                                                    console.showNotification(
-                                                            IConsoleIO.NotificationRole.INFO,
-                                                            "Created Pull Request: " + prUri);
+                                                        // Delivery was enabled but creation failed — fail the job to
+                                                        // preserve contract.
+                                                        throw new IssueExecutionException(
+                                                                "Failed to create PR: " + e.getMessage(), e);
+                                                    }
+                                                } else {
+                                                    // Delivery disabled by policy: inform console but continue cleanup.
+                                                    String msg = "PR creation skipped due to issue_delivery policy";
+                                                    logger.info("ISSUE job {}: {}", jobId, msg);
+                                                    try {
+                                                        if (console != null) {
+                                                            console.showNotification(
+                                                                    IConsoleIO.NotificationRole.INFO, msg);
+                                                        } else {
+                                                            cm.getIo()
+                                                                    .showNotification(
+                                                                            IConsoleIO.NotificationRole.INFO, msg);
+                                                        }
+                                                        store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
+                                                    } catch (Exception ignore) {
+                                                        // best-effort only
+                                                    }
                                                 }
                                             }
                                         } finally {
-                                            // Ensure we roll back to the original branch on failure or cancellation
-                                            try {
-                                                if (!gitRepo.getCurrentBranch().equals(originalBranch)) {
-                                                    // Count commits on issue branch before switching away
-                                                    int issueBranchCommits = originalCommitId != null
-                                                            ? gitRepo.countCommitsSince(originalCommitId)
-                                                            : 0;
-
-                                                    // Stash any uncommitted changes to ensure checkout of original
-                                                    // branch succeeds
-                                                    if (!gitRepo.getModifiedFiles()
-                                                            .isEmpty()) {
-                                                        logger.info(
-                                                                "ISSUE job {}: Stashing uncommitted changes before branch restoration",
-                                                                jobId);
-                                                        gitRepo.createStash("Brokk ISSUE job " + jobId + " cleanup");
-                                                    }
-
-                                                    logger.info(
-                                                            "ISSUE job {}: Restoring original branch {}",
-                                                            jobId,
-                                                            originalBranch);
-                                                    gitRepo.checkout(originalBranch);
-
-                                                    // If the issue branch was never committed to, delete it to avoid
-                                                    // orphans
-                                                    boolean noCommitsSince = issueBranchCommits == 0;
-
-                                                    if (gitRepo.isBranchMerged(issueBranchName) || noCommitsSince) {
-                                                        try {
-                                                            gitRepo.deleteBranch(issueBranchName);
-                                                            logger.info(
-                                                                    "ISSUE job {}: Deleted empty issue branch {}",
-                                                                    jobId,
-                                                                    issueBranchName);
-                                                        } catch (Exception e) {
-                                                            logger.warn(
-                                                                    "ISSUE job {}: Failed to delete temporary branch {}",
-                                                                    jobId,
-                                                                    issueBranchName,
-                                                                    e);
-                                                        }
-                                                    }
-                                                }
-                                            } catch (Exception e) {
-                                                logger.error(
-                                                        "ISSUE job {}: Failed to restore original branch {}",
-                                                        jobId,
-                                                        originalBranch,
-                                                        e);
-                                            }
+                                            boolean forceDelete = "always"
+                                                    .equalsIgnoreCase(
+                                                            spec.tags().getOrDefault("issue_branch_cleanup", ""));
+                                            cleanupIssueBranch(
+                                                    jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
@@ -1395,7 +1435,213 @@ public final class JobRunner {
         return throwable.getClass().getSimpleName() + ": " + message;
     }
 
-    static void runPrePrGateWithFixRetryLoop(
+    static void cleanupIssueBranch(
+            String jobId, GitRepo gitRepo, String originalBranch, String issueBranchName, boolean forceDelete) {
+
+        // Cleanup semantics (linear and auditable):
+        // 1) Attempt to checkout originalBranch once.
+        // 2) If checkout fails and there are modified files in the working tree, create a stash and retry checkout
+        // once.
+        // 3) After attempting to restore the original branch, attempt to delete the issue branch:
+        //    - Try normal delete once.
+        //    - If normal delete fails and forceDelete==true, attempt force delete once.
+        // All steps are best-effort and errors are logged; we avoid duplicate/overlapping heuristics.
+        try {
+            String currentBranch = null;
+            try {
+                currentBranch = gitRepo.getCurrentBranch();
+            } catch (Exception e) {
+                logger.warn("ISSUE job {}: Unable to determine current branch during cleanup", jobId, e);
+            }
+
+            if (!Objects.equals(currentBranch, originalBranch)) {
+                try {
+                    gitRepo.checkout(originalBranch);
+                } catch (Exception checkoutEx) {
+                    logger.warn(
+                            "ISSUE job {}: Initial checkout to '{}' failed during cleanup: {}",
+                            jobId,
+                            originalBranch,
+                            checkoutEx.getMessage(),
+                            checkoutEx);
+
+                    // If there are local modifications, attempt a best-effort stash and retry once.
+                    try {
+                        var modified = gitRepo.getModifiedFiles().stream()
+                                .map(GitRepo.ModifiedFile::file)
+                                .collect(java.util.stream.Collectors.toSet());
+                        if (!modified.isEmpty()) {
+                            try {
+                                var stash = gitRepo.createStash("brokk-autostash-for-cleanup");
+                                if (stash != null) {
+                                    logger.debug(
+                                            "ISSUE job {}: Created stash {} to allow checkout retry",
+                                            jobId,
+                                            stash.getName());
+                                }
+                            } catch (Exception stashEx) {
+                                logger.warn(
+                                        "ISSUE job {}: Failed to create stash during cleanup: {}",
+                                        jobId,
+                                        stashEx.getMessage(),
+                                        stashEx);
+                            }
+
+                            // Retry checkout once
+                            try {
+                                gitRepo.checkout(originalBranch);
+                            } catch (Exception retryEx) {
+                                logger.warn(
+                                        "ISSUE job {}: Retry checkout to '{}' failed during cleanup: {}",
+                                        jobId,
+                                        originalBranch,
+                                        retryEx.getMessage(),
+                                        retryEx);
+                            }
+                        } else {
+                            logger.debug(
+                                    "ISSUE job {}: No modified files detected; not attempting stash before retrying checkout",
+                                    jobId);
+                        }
+                    } catch (Exception modEx) {
+                        logger.warn(
+                                "ISSUE job {}: Unable to determine modified files during cleanup: {}",
+                                jobId,
+                                modEx.getMessage(),
+                                modEx);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn(
+                    "ISSUE job {}: Unexpected error while attempting to restore original branch '{}': {}",
+                    jobId,
+                    originalBranch,
+                    e.getMessage(),
+                    e);
+        }
+
+        // Attempt to delete the created issue branch.
+        try {
+            try {
+                gitRepo.deleteBranch(issueBranchName);
+            } catch (Exception delEx) {
+                logger.warn(
+                        "ISSUE job {}: Normal delete failed for branch '{}': {}",
+                        jobId,
+                        issueBranchName,
+                        delEx.getMessage(),
+                        delEx);
+                // Honor the forceDelete flag: only attempt force-delete when explicitly requested.
+                if (forceDelete) {
+                    try {
+                        gitRepo.forceDeleteBranch(issueBranchName);
+                    } catch (Exception forceEx) {
+                        logger.warn(
+                                "ISSUE job {}: Failed to force-delete branch '{}' during cleanup: {}",
+                                jobId,
+                                issueBranchName,
+                                forceEx.getMessage(),
+                                forceEx);
+                    }
+                } else {
+                    // Do not force-delete; log that we are leaving the branch in place.
+                    logger.info(
+                            "ISSUE job {}: Not force-deleting branch '{}' because forceDelete=false; leaving branch for manual inspection",
+                            jobId,
+                            issueBranchName);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn(
+                    "ISSUE job {}: Failed to delete issue branch '{}' during cleanup: {}",
+                    jobId,
+                    issueBranchName,
+                    e.getMessage(),
+                    e);
+        }
+    }
+
+    // The retry-loop helpers (runVerificationRetryLoop, runFinalGateRetryLoop) were intentionally removed
+    // to ensure ISSUE mode uses single-attempt semantics via runSingleFixVerificationGate only.
+
+    /**
+     * Simplified helper that enforces "verify once, optional single fix attempt, verify once".
+     * Calls verificationRunner once; if it returns non-blank, calls fixTaskRunner once and
+     * then calls verificationRunner a second time. Throws IssueExecutionException if still failing.
+     *
+     * Package-private for unit testing.
+     */
+    static void runSingleFixVerificationGate(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            java.util.function.Supplier<String> verificationRunner,
+            java.util.function.Consumer<String> fixTaskRunner) {
+        // First verification
+        String firstOut;
+        try {
+            firstOut = verificationRunner.get();
+        } catch (RuntimeException re) {
+            throw new IssueExecutionException("Verification runner failed: " + re.getMessage(), re);
+        }
+
+        boolean passedFirst = firstOut == null || firstOut.isBlank();
+        try {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Verification: " + (passedFirst ? "PASS" : "FAIL"));
+        } catch (Throwable ignore) {
+            // best-effort
+        }
+        try {
+            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Verification: " + (passedFirst ? "PASS" : "FAIL")));
+        } catch (IOException ioe) {
+            logger.warn(
+                    "Failed to append verification notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
+        }
+
+        if (passedFirst) {
+            return;
+        }
+
+        // Perform exactly one fix attempt
+        String prompt = "Verification failed. Output:\n" + firstOut + "\n\nPlease make a single fix attempt.";
+        fixTaskRunner.accept(prompt);
+
+        // Re-run verification exactly once
+        String secondOut;
+        try {
+            secondOut = verificationRunner.get();
+        } catch (RuntimeException re) {
+            throw new IssueExecutionException("Verification runner failed after fix: " + re.getMessage(), re);
+        }
+
+        boolean passedSecond = secondOut == null || secondOut.isBlank();
+        try {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
+        } catch (Throwable ignore) {
+            // best-effort
+        }
+        try {
+            store.appendEvent(
+                    jobId, JobEvent.of("NOTIFICATION", "Verification after fix: " + (passedSecond ? "PASS" : "FAIL")));
+        } catch (IOException ioe) {
+            logger.warn(
+                    "Failed to append verification-after-fix notification event for job {}: {}",
+                    jobId,
+                    ioe.getMessage(),
+                    ioe);
+        }
+
+        if (passedSecond) {
+            return;
+        }
+
+        throw new IssueExecutionException("Verification failed after single fix attempt:\n\n" + secondOut);
+    }
+
+    // Retry loop for the final gate (tests/lint) with a bounded number of fix attempts.
+    static void runFinalGateRetryLoop(
             String jobId,
             JobStore store,
             IConsoleIO io,
@@ -1403,7 +1649,20 @@ public final class JobRunner {
             int maxAttempts,
             Function<String, String> commandRunner,
             Consumer<String> fixTaskRunner) {
-        if (maxAttempts < 1) {
+        java.util.concurrent.atomic.AtomicInteger attemptsLeft =
+                new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
+        runFinalGateRetryLoop(jobId, store, io, buildDetailsOverride, attemptsLeft, commandRunner, fixTaskRunner);
+    }
+
+    static void runFinalGateRetryLoop(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            java.util.concurrent.atomic.AtomicInteger attemptsLeft,
+            Function<String, String> commandRunner,
+            Consumer<String> fixTaskRunner) {
+        if (attemptsLeft.get() < 1) {
             throw new IssueExecutionException("maxIssueFixAttempts must be >= 1");
         }
 
@@ -1413,9 +1672,11 @@ public final class JobRunner {
         boolean testsSkipped = testCmd.isBlank();
         boolean lintSkipped = lintCmd.isBlank();
 
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            String startMsg = "Pre-PR gate attempt %d/%d: tests=%s, lint=%s"
-                    .formatted(attempt, maxAttempts, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
+        int attemptNumber = 1;
+        while (attemptsLeft.get() > 0) {
+            int maxAttempts = attemptNumber + attemptsLeft.get() - 1;
+            String startMsg = "Final gate attempt %d/%d: tests=%s, lint=%s"
+                    .formatted(attemptNumber, maxAttempts, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
             } catch (Throwable ignore) {
@@ -1425,7 +1686,7 @@ public final class JobRunner {
                 store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
             } catch (IOException ioe) {
                 logger.warn(
-                        "Failed to append pre-PR gate start notification event for job {}: {}",
+                        "Failed to append final gate start notification event for job {}: {}",
                         jobId,
                         ioe.getMessage(),
                         ioe);
@@ -1437,7 +1698,7 @@ public final class JobRunner {
             boolean testsPassed = testsSkipped || testOut.isBlank();
             boolean lintPassed = lintSkipped || lintOut.isBlank();
 
-            var resultMsg = "Pre-PR gate attempt " + attempt + "/" + maxAttempts + " results: tests="
+            var resultMsg = "Final gate attempt " + attemptNumber + "/" + maxAttempts + " results: tests="
                     + (testsSkipped ? "SKIP" : (testsPassed ? "PASS" : "FAIL")) + ", lint="
                     + (lintSkipped ? "SKIP" : (lintPassed ? "PASS" : "FAIL"));
             try {
@@ -1449,7 +1710,7 @@ public final class JobRunner {
                 store.appendEvent(jobId, JobEvent.of("NOTIFICATION", resultMsg));
             } catch (IOException ioe) {
                 logger.warn(
-                        "Failed to append pre-PR gate results notification event for job {}: {}",
+                        "Failed to append final gate results notification event for job {}: {}",
                         jobId,
                         ioe.getMessage(),
                         ioe);
@@ -1459,7 +1720,9 @@ public final class JobRunner {
                 return;
             }
 
-            if (attempt == maxAttempts) {
+            // consume one attempt and either fail or request a fix
+            attemptsLeft.decrementAndGet();
+            if (attemptsLeft.get() <= 0) {
                 var failureParts = new java.util.ArrayList<String>();
                 if (!testsPassed) {
                     failureParts.add("Tests failed (" + testCmd + "):\n" + testOut);
@@ -1469,10 +1732,10 @@ public final class JobRunner {
                 }
 
                 String failedDetails =
-                        failureParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", failureParts);
+                        failureParts.isEmpty() ? "Unknown final gate failure" : String.join("\n\n", failureParts);
 
                 throw new IssueExecutionException(
-                        "Pre-PR gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
+                        "Final gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
             }
 
             var fixParts = new java.util.ArrayList<String>();
@@ -1483,14 +1746,23 @@ public final class JobRunner {
                 fixParts.add("Lint failed when running:\n" + lintCmd + "\n\nOutput:\n" + lintOut);
             }
 
-            String fixPrompt = fixParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", fixParts);
+            String fixPrompt = fixParts.isEmpty() ? "Unknown final gate failure" : String.join("\n\n", fixParts);
 
-            String fullFixPrompt = "Pre-PR gate failed (attempt " + attempt + "/" + maxAttempts + ").\n\n" + fixPrompt
-                    + "\n\nPlease fix the issues so that BOTH full tests and full lint pass.";
+            String fullFixPrompt = "Final gate failed (attempt " + attemptNumber + "/" + maxAttempts + ").\n\n"
+                    + fixPrompt + "\n\nPlease fix the issues so that BOTH full tests and full lint pass.";
 
             fixTaskRunner.accept(fullFixPrompt);
+            attemptNumber++;
         }
 
-        throw new IssueExecutionException("Pre-PR gate failed unexpectedly");
+        throw new IssueExecutionException("Final gate failed unexpectedly");
+    }
+
+    static boolean issueDeliveryEnabled(JobSpec spec) {
+        String raw = spec.tags().get("issue_delivery");
+        if (raw == null || raw.isBlank()) {
+            return true;
+        }
+        return !raw.trim().equalsIgnoreCase("none");
     }
 }

@@ -9,11 +9,15 @@ import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.util.ReviewParser;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -21,6 +25,7 @@ import org.jetbrains.annotations.Nullable;
  * and a sliding cache of diff panels.
  */
 public class DiffDisplayCore {
+    private static final Logger logger = LogManager.getLogger(DiffDisplayCore.class);
 
     private final BrokkDiffPanel mainPanel;
     private final ContextManager contextManager;
@@ -72,12 +77,14 @@ public class DiffDisplayCore {
     }
 
     public void showFile(int index) {
+        assert SwingUtilities.isEventDispatchThread() : "showFile must be called on EDT";
         if (index < 0 || index >= fileComparisons.size()) return;
         currentIndex = index;
         updateCacheAndDisplay(-1, ReviewParser.DiffSide.NEW);
     }
 
     public void showFile(ProjectFile file) {
+        assert SwingUtilities.isEventDispatchThread() : "showFile must be called on EDT";
         int index = findIndex(file);
         if (index != -1) {
             showFile(index);
@@ -89,6 +96,7 @@ public class DiffDisplayCore {
     }
 
     public void showLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
+        assert SwingUtilities.isEventDispatchThread() : "showLocation must be called on EDT";
         int index = findIndex(file);
         if (index != -1) {
             currentIndex = index;
@@ -122,28 +130,49 @@ public class DiffDisplayCore {
     }
 
     private void updateCacheAndDisplay(int targetLine, ReviewParser.DiffSide targetSide) {
-        // Simple cache of {prev, current, next}
-        List<Integer> keep = List.of(currentIndex - 1, currentIndex, currentIndex + 1);
-
-        // Evict
+        assert SwingUtilities.isEventDispatchThread() : "updateCacheAndDisplay must be called on EDT";
+        // Evict panels outside the cache radius
         var it = panelCache.entrySet().iterator();
+        List<Integer> retainedIndices = new ArrayList<>();
+
         while (it.hasNext()) {
             var entry = it.next();
-            if (!keep.contains(entry.getKey())) {
-                entry.getValue().dispose();
-                it.remove();
+            int index = entry.getKey();
+            AbstractDiffPanel panel = entry.getValue();
+
+            if (!isWithinCacheWindow(index)) {
+                if (panel.hasUnsavedChanges()) {
+                    retainedIndices.add(index);
+                } else {
+                    panel.dispose();
+                    it.remove();
+                }
             }
+        }
+
+        if (!retainedIndices.isEmpty()) {
+            logger.warn(
+                    "Memory usage increased: retaining {} edited files outside sliding window", retainedIndices.size());
         }
 
         // Ensure current is loading/loaded
         ensurePanel(currentIndex, targetLine, targetSide);
 
-        // Background preload adjacent
-        if (currentIndex > 0) ensurePanel(currentIndex - 1, -1, ReviewParser.DiffSide.NEW);
-        if (currentIndex < fileComparisons.size() - 1) ensurePanel(currentIndex + 1, -1, ReviewParser.DiffSide.NEW);
+        // Background preload adjacent panels within the radius
+        int radius = PerformanceConstants.DIFF_PANEL_CACHE_RADIUS;
+        for (int i = 1; i <= radius; i++) {
+            ensurePanel(currentIndex - i, -1, ReviewParser.DiffSide.NEW);
+            ensurePanel(currentIndex + i, -1, ReviewParser.DiffSide.NEW);
+        }
+    }
+
+    private boolean isWithinCacheWindow(int index) {
+        int radius = PerformanceConstants.DIFF_PANEL_CACHE_RADIUS;
+        return index >= currentIndex - radius && index <= currentIndex + radius;
     }
 
     private void ensurePanel(int index, int targetLine, ReviewParser.DiffSide targetSide) {
+        assert SwingUtilities.isEventDispatchThread() : "ensurePanel must be called on EDT";
         if (index < 0 || index >= fileComparisons.size()) return;
         if (panelCache.containsKey(index)) {
             if (index == currentIndex) {
@@ -164,6 +193,9 @@ public class DiffDisplayCore {
     }
 
     private void createSync(int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
+        assert SwingUtilities.isEventDispatchThread() : "createSync must be called on EDT";
+        // Note: createDiffNode is @Blocking but for small files (checked via size thresholds in ensurePanel)
+        // the overhead is minimal and worth the immediate UI response.
         var diffNode = FileComparisonHelper.createDiffNode(
                 info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
 
@@ -174,17 +206,37 @@ public class DiffDisplayCore {
         }
     }
 
-    private void createAsync(int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
+    private void createAsync(
+            int index, FileComparisonInfo expectedInfo, int targetLine, ReviewParser.DiffSide targetSide) {
         int generation = updateGeneration.get();
-        contextManager.submitBackgroundTask("Computing diff: " + info.getDisplayName(), () -> {
+        contextManager.submitBackgroundTask("Computing diff: " + expectedInfo.getDisplayName(), () -> {
+            // Expensive I/O and CPU work (diffing) happens here on a virtual thread
             var diffNode = FileComparisonHelper.createDiffNode(
-                    info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
+                    expectedInfo.leftSource(), expectedInfo.rightSource(), contextManager, isMultipleCommitsContext);
             diffNode.diff();
 
             SwingUtilities.invokeLater(() -> {
+                // RACE CONDITION GUARDS:
+                // 1. Generation check: if the entire file list was refreshed, this result is stale.
                 if (generation != updateGeneration.get()) return;
+
+                // 2. Index bounds check: ensure index is still valid for the current list.
+                if (index < 0 || index >= fileComparisons.size()) return;
+
+                // 3. Identity check: Ensure the file at this index is still the one we computed.
+                // This handles cases where the user navigated away and back quickly.
+                if (!fileComparisons.get(index).equals(expectedInfo)) return;
+
+                // 4. Cache window check: if user scrolled far away, don't waste memory caching this.
+                if (!isWithinCacheWindow(index)) return;
+
+                // 5. Concurrent task check: if another creation task finished first, don't overwrite.
+                if (panelCache.containsKey(index)) return;
+
                 AbstractDiffPanel panel = createPanel(index, diffNode);
                 panelCache.put(index, panel);
+
+                // Only display if the user is still waiting for this specific file
                 if (index == currentIndex) {
                     displayPanel(index, panel, targetLine, targetSide);
                 }
@@ -217,6 +269,7 @@ public class DiffDisplayCore {
     }
 
     public void clearCache() {
+        assert SwingUtilities.isEventDispatchThread() : "clearCache must be called on EDT";
         panelCache.values().forEach(AbstractDiffPanel::dispose);
         panelCache.clear();
     }
@@ -225,7 +278,7 @@ public class DiffDisplayCore {
         return panelCache.get(index);
     }
 
-    public Iterable<AbstractDiffPanel> getCachedPanels() {
+    public Collection<AbstractDiffPanel> getCachedPanels() {
         return panelCache.values();
     }
 

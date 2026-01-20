@@ -525,7 +525,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void setupCommitContextMenu() {
         var commitsContextMenu = new JPopupMenu();
-        registerMenu(commitsContextMenu);
 
         addToContextItem = new JMenuItem("Capture Diff");
         reviewCommitsItem = new JMenuItem("Review Commits");
@@ -825,7 +824,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                             IConsoleIO.NotificationRole.INFO,
                             "Cherry-picked " + finalApplied + " commit(s) into '" + branchLabel + "'.");
                     refreshCurrentViewAfterGitOp();
-                    chrome.updateCommitPanel();
                 });
             });
         });
@@ -933,7 +931,11 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void showCommitDialogAndThen(Runnable continuation) {
         var dialog = new CommitDialog(
-                chrome.getFrame(), chrome, chrome.getContextManager(), chrome.getModifiedFiles(), commitResult -> {
+                chrome.getFrame(),
+                chrome,
+                chrome.getContextManager(),
+                new ArrayList<>(getRepo().getModifiedProjectFiles()),
+                commitResult -> {
                     try {
                         if (getRepo().getModifiedFiles().isEmpty()) {
                             continuation.run();
@@ -959,7 +961,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void setupChangesTreeContextMenu() {
         var changesContextMenu = new JPopupMenu();
-        registerMenu(changesContextMenu);
 
         var addFileToContextItem = new JMenuItem("Capture Diff");
         var compareFileWithLocalItem = new JMenuItem("Compare with Local");
@@ -1625,7 +1626,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 SwingUtil.runOnEdt(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
                     refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
-                    chrome.updateCommitPanel(); // For uncommitted changes
+                    // For uncommitted changes
                 });
             } catch (GitAPIException ex) {
                 logger.error("Error pulling {}: {}", branchName, ex.getMessage());
@@ -1950,10 +1951,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 button.addActionListener(listener);
             }
         }
-    }
-
-    private void registerMenu(JPopupMenu menu) {
-        chrome.getTheme().registerPopupMenu(menu);
     }
 
     @Override

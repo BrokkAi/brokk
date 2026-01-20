@@ -1,5 +1,6 @@
 package ai.brokk;
 
+import static ai.brokk.gui.theme.GuiTheme.THEME_CLIENT_PROPERTY;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
@@ -27,6 +28,7 @@ import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.google.common.base.Splitter;
 import java.awt.*;
+import java.awt.event.HierarchyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
@@ -225,6 +227,39 @@ public class Brokk {
 
         // set this globally since (so far) we never want a file chooser to make changes
         UIManager.put("FileChooser.readOnly", true);
+    }
+
+    private static void addPopupMenusThemeChangeListener() {
+        SwingUtilities.invokeLater(() -> {
+            Toolkit.getDefaultToolkit()
+                    .addAWTEventListener(
+                            event -> {
+                                HierarchyEvent he = (HierarchyEvent) event;
+                                if (he.getComponent() instanceof JPopupMenu popupMenu) {
+                                    if ((he.getChangeFlags() & HierarchyEvent.PARENT_CHANGED) != 0) {
+                                        if (popupMenu.getParent() != null) {
+                                            String currentTheme = MainProject.getTheme();
+                                            if (!Objects.equals(
+                                                    currentTheme, popupMenu.getClientProperty(THEME_CLIENT_PROPERTY))) {
+                                                popupMenu.putClientProperty(THEME_CLIENT_PROPERTY, currentTheme);
+                                                SwingUtilities.updateComponentTreeUI(popupMenu);
+                                            }
+                                        }
+                                    }
+                                    if ((he.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
+                                        if (popupMenu.isShowing()) {
+                                            String currentTheme = MainProject.getTheme();
+                                            if (!Objects.equals(
+                                                    currentTheme, popupMenu.getClientProperty(THEME_CLIENT_PROPERTY))) {
+                                                popupMenu.putClientProperty(THEME_CLIENT_PROPERTY, currentTheme);
+                                                SwingUtilities.updateComponentTreeUI(popupMenu);
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            AWTEvent.HIERARCHY_EVENT_MASK);
+        });
     }
 
     private static ParsedArgs parseArguments(String[] args) {
@@ -450,6 +485,7 @@ public class Brokk {
 
         String themeName = MainProject.getTheme();
         initializeLookAndFeelAndSplashScreen(themeName);
+        addPopupMenusThemeChangeListener();
 
         // Initialize theme border manager with current theme state
         ThemeBorderManager.getInstance().init();

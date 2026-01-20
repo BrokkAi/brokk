@@ -70,7 +70,10 @@ class ContextTest {
         var ctx = originalCtx.addFragments(List.of(p1, p2));
 
         // Dedup: only one path fragment
-        assertEquals(1, ctx.fileFragments().count(), "Duplicate path fragments should be deduped");
+        assertEquals(
+                1,
+                ctx.allFragments().filter(f -> f.getType().isPath()).count(),
+                "Duplicate path fragments should be deduped");
     }
 
     @Test
@@ -85,7 +88,10 @@ class ContextTest {
         ctx = ctx.addFragments(v1);
         ctx = ctx.addFragments(v2);
 
-        assertEquals(1, ctx.virtualFragments().count(), "Duplicate virtual fragments should be deduped by id/source");
+        assertEquals(
+                1,
+                ctx.allFragments().filter(f -> !f.getType().isPath()).count(),
+                "Duplicate virtual fragments should be deduped by id/source");
     }
 
     @Test
@@ -151,11 +157,13 @@ class ContextTest {
 
         // Remove fragment
         var ctxRemoved = ctx.removeFragments(List.of(ppf));
-        assertEquals(0, ctxRemoved.fileFragments().count(), "Fragment should be removed");
+        assertEquals(
+                0, ctxRemoved.allFragments().filter(f -> f.getType().isPath()).count(), "Fragment should be removed");
 
         // Re-add the same instance; read-only should not persist
         var ctxReadded = ctxRemoved.addFragments(List.of(ppf));
-        assertEquals(1, ctxReadded.fileFragments().count());
+        assertEquals(
+                1, ctxReadded.allFragments().filter(f -> f.getType().isPath()).count());
         assertFalse(ctxReadded.isMarkedReadonly(ppf), "Read-only should be cleared after removal");
     }
 
@@ -217,13 +225,18 @@ class ContextTest {
         var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
         // ProjectPathFragment should be replaced (new instance), StringFragment should be reused (same instance)
-        var oldPpf = ctx.fileFragments().findFirst().orElseThrow();
-        var newPpf = refreshed.fileFragments().findFirst().orElseThrow();
+        var oldPpf =
+                ctx.allFragments().filter(f -> f.getType().isPath()).findFirst().orElseThrow();
+        var newPpf = refreshed
+                .allFragments()
+                .filter(f -> f.getType().isPath())
+                .findFirst()
+                .orElseThrow();
         assertNotSame(oldPpf, newPpf, "Computed project fragment should be refreshed");
         assertSame(
                 sf,
                 refreshed
-                        .virtualFragments()
+                        .allFragments()
                         .filter(f -> f instanceof ContextFragments.StringFragment)
                         .findFirst()
                         .orElseThrow(),
@@ -245,7 +258,11 @@ class ContextTest {
         pf.write("class RefreshR0 { public static void main() {} }");
         var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
-        var newFrag = refreshed.fileFragments().findFirst().orElseThrow();
+        var newFrag = refreshed
+                .allFragments()
+                .filter(f -> f.getType().isPath())
+                .findFirst()
+                .orElseThrow();
         assertNotSame(ppf, newFrag, "Project fragment should be refreshed to a new instance");
 
         // Verify read-only state is preserved on the refreshed fragment
@@ -268,8 +285,8 @@ class ContextTest {
         var merged = ctx1.union(ctx2);
 
         // One path (dedup), two unique virtuals
-        assertEquals(1, merged.fileFragments().count());
-        assertEquals(2, merged.virtualFragments().count());
+        assertEquals(1, merged.allFragments().filter(f -> f.getType().isPath()).count());
+        assertEquals(2, merged.allFragments().filter(f -> !f.getType().isPath()).count());
     }
 
     @Test
@@ -322,7 +339,7 @@ class ContextTest {
         ctx = Context.withAddedClasses(
                 ctx, List.of("com.example.CodeFragmentTarget", "com.example.AnotherClass"), analyzer);
 
-        var virtuals = ctx.virtualFragments().toList();
+        var virtuals = ctx.allFragments().filter(f -> !f.getType().isPath()).toList();
         assertEquals(1, virtuals.size(), "Only non-workspace class should be added");
         assertTrue(virtuals.get(0) instanceof ContextFragments.CodeFragment);
         var codeFrag = (ContextFragments.CodeFragment) virtuals.get(0);
@@ -416,7 +433,10 @@ class ContextTest {
         // Expectation: addFragments deduplicates by source and PRESERVES the existing fragment (p1).
         // Therefore, the content in context remains "v1".
         var ctx2 = ctx.addFragments(List.of(p2));
-        var fragmentInContext = ctx2.fileFragments().findFirst().orElseThrow();
+        var fragmentInContext = ctx2.allFragments()
+                .filter(f -> f.getType().isPath())
+                .findFirst()
+                .orElseThrow();
 
         assertEquals(
                 "v1",
@@ -463,7 +483,11 @@ class ContextTest {
 
         // 3. Call copyAndRefresh
         var refreshedCtx = ctx.copyAndRefresh(Set.of(pf));
-        var fragmentInContext = refreshedCtx.fileFragments().findFirst().orElseThrow();
+        var fragmentInContext = refreshedCtx
+                .allFragments()
+                .filter(f -> f.getType().isPath())
+                .findFirst()
+                .orElseThrow();
 
         // Expectation: copyAndRefresh should re-read from disk
         assertEquals("v2", fragmentInContext.text().join(), "copyAndRefresh should update fragment content from disk");

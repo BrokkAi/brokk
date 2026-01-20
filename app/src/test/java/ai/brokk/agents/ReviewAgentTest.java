@@ -501,6 +501,76 @@ class ReviewAgentTest {
         assertEquals(1, retryResult.retryCount());
     }
 
+    @Test
+    void testRetryInStages_excerptsStructureIsStable_rejectsUnrequestedIndexChangeInStage1()
+            throws InterruptedException, IOException, ReviewGenerationException {
+        Files.writeString(tempDir.resolve("file1.java"), "content1");
+        Files.writeString(tempDir.resolve("file2.java"), "content2");
+        TestProject project = new TestProject(tempDir);
+        IContextManager cm = new TestContextManager(project);
+
+        ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
+        ProjectFile f2 = new ProjectFile(tempDir, "file2.java");
+        var d1 = new FileDiff(f1, f1, "content1", "content1");
+        var d2 = new FileDiff(f2, f2, "content2", "content2");
+
+        var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
+
+        // Turn 1: excerpt 0 good, excerpt 1 has bad path -> triggers Stage 1 retry for index 1 only.
+        String resp1 =
+                """
+                At `file1.java` line 1:
+                ```java
+                content1
+                ```
+
+                At `missing.java` line 1:
+                ```java
+                content2
+                ```
+                """;
+
+        // Turn 2: LLM fixes excerpt 1, but also (incorrectly) provides an "Excerpt 0" correction
+        // that changes index 0 even though it was not requested. This should be rejected and discarded.
+        String resp2 =
+                """
+                Excerpt 1:
+                At `file2.java` line 1:
+                ```java
+                content2
+                ```
+
+                Excerpt 0:
+                At `file2.java` line 1:
+                ```java
+                content2
+                ```
+                """;
+
+        // Turn 3: correct fix with no unrequested changes.
+        String resp3 =
+                """
+                Excerpt 1:
+                At `file2.java` line 1:
+                ```java
+                content2
+                ```
+                """;
+
+        var stubModel = new TestScriptedLanguageModel(resp1, resp2, resp3);
+        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
+
+        ReviewAgent.RetryResult retryResult = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
+
+        assertEquals(2, retryResult.retryCount(), "Discarded turn should still count toward retry budget");
+        assertEquals(2, retryResult.resolvedExcerpts().size(), "Should still resolve both excerpts after a good turn");
+
+        assertEquals("file1.java", retryResult.resolvedExcerpts().get(0).file().toString());
+        assertEquals("file2.java", retryResult.resolvedExcerpts().get(1).file().toString());
+    }
+
     private static class TestScriptedLanguageModel implements StreamingChatModel {
         private final List<String> responses;
         private final AtomicInteger index = new AtomicInteger(0);
