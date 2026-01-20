@@ -375,8 +375,10 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                             if (cefApp != null) {
                                 var version = cefApp.getVersion();
                                 if (version != null) {
-                                    logger.info("CEF version: {} (Chromium {})",
-                                                version.getCefVersion(), version.getChromeVersion());
+                                    logger.info(
+                                            "CEF version: {} (Chromium {})",
+                                            version.getCefVersion(),
+                                            version.getChromeVersion());
                                 }
                                 cefAppFuture.complete(cefApp);
                             }
@@ -644,6 +646,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
      * @deprecated Not implemented in JCEF backend; kept for API compatibility.
      */
     @Deprecated
+    @SuppressWarnings("InlineMeSuggester")
     @Override
     public CompletableFuture<Void> flushAsync() {
         return CompletableFuture.completedFuture(null);
@@ -653,6 +656,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
      * @deprecated Not implemented in JCEF backend; kept for API compatibility.
      */
     @Deprecated
+    @SuppressWarnings("InlineMeSuggester")
     @Override
     public CompletableFuture<String> getSelectedText() {
         return CompletableFuture.completedFuture("");
