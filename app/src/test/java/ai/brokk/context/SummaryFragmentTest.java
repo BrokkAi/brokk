@@ -346,6 +346,55 @@ public class SummaryFragmentTest {
     }
 
     @Test
+    public void supportingFragments_fileSkeletonsResolvesAncestors() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "public class Base1 {}\npublic class Base2 {}", "Bases.java")
+                .addFileContents(
+                        """
+                        class Child1 extends Base1 {}
+                        class Child2 extends Base2 {}
+                        """,
+                        "Children.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            ProjectFile childrenFile = testProject.getAllFiles().stream()
+                    .filter(pf -> pf.getFileName().equals("Children.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            // 1. Create FILE_SKELETONS fragment
+            var fileFragment = new SummaryFragment(cm, childrenFile.toString(), SummaryType.FILE_SKELETONS);
+
+            // 2. Call supportingFragments()
+            var supporting = fileFragment.supportingFragments();
+
+            // 3. Verify returned set contains non-anonymous ancestors of TLDs
+            var targetIds = supporting.stream()
+                    .filter(f -> f instanceof SummaryFragment)
+                    .map(f -> ((SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+
+            assertEquals(Set.of("Base1", "Base2"), targetIds, "FILE_SKELETONS should return ancestors for all TLDs");
+
+            // 4. Compare behavior against CODEUNIT_SKELETON for consistency
+            var cuFragment = new SummaryFragment(cm, "Child1", SummaryType.CODEUNIT_SKELETON);
+            var cuSupporting = cuFragment.supportingFragments();
+            var cuTargetIds = cuSupporting.stream()
+                    .filter(f -> f instanceof SummaryFragment)
+                    .map(f -> ((SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+
+            assertEquals(
+                    Set.of("Base1"), cuTargetIds, "CODEUNIT_SKELETON should return ancestors for the specific unit");
+            assertTrue(
+                    targetIds.containsAll(cuTargetIds),
+                    "FILE_SKELETONS ancestors should be a superset of individual units");
+        }
+    }
+
+    @Test
     public void combinedTextDeduplicatesSharedAncestors() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
