@@ -30,39 +30,7 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
      * - Cycles are handled gracefully via a visited set.
      */
     default List<CodeUnit> getAncestors(CodeUnit cu) {
-        // Seed with direct ancestors
-        List<CodeUnit> direct = getDirectAncestors(cu);
-        if (direct.isEmpty()) {
-            return List.of();
-        }
-
-        // Fixed-point traversal: BFS over direct ancestors
-        var result = new ArrayList<CodeUnit>(direct.size());
-        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
-        var queue = new ArrayDeque<CodeUnit>(direct.size());
-
-        for (var d : direct) {
-            if (visited.add(d.fqName())) {
-                result.add(d);
-                queue.add(d);
-            }
-        }
-
-        while (!queue.isEmpty()) {
-            var current = queue.removeFirst();
-            List<CodeUnit> parents = getDirectAncestors(current);
-            if (parents.isEmpty()) continue;
-
-            for (var p : parents) {
-                String key = p.fqName();
-                if (visited.add(key)) {
-                    result.add(p);
-                    queue.addLast(p);
-                }
-            }
-        }
-
-        return result;
+        return traverseHierarchy(cu, this::getDirectAncestors);
     }
 
     /**
@@ -73,13 +41,26 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
      * - Cycles are handled gracefully via a visited set.
      */
     default List<CodeUnit> getDescendants(CodeUnit cu) {
-        // Seed with direct descendants
-        Set<CodeUnit> direct = getDirectDescendants(cu);
+        return traverseHierarchy(cu, this::getDirectDescendants);
+    }
+
+    /**
+     * Helper method to perform BFS traversal of a code unit hierarchy in either direction.
+     *
+     * @param cu the starting code unit
+     * @param directionFn a function that returns the next level of related code units
+     *                     (either direct ancestors or direct descendants)
+     * @return a list of transitive related code units, ordered by discovery (BFS),
+     *         with duplicates removed by fqName and cycles handled gracefully
+     */
+    private List<CodeUnit> traverseHierarchy(CodeUnit cu, java.util.function.Function<CodeUnit, ? extends java.util.Collection<CodeUnit>> directionFn) {
+        // Seed with initial direction
+        var direct = directionFn.apply(cu);
         if (direct.isEmpty()) {
             return List.of();
         }
 
-        // Fixed-point traversal: BFS over direct descendants
+        // Fixed-point traversal: BFS
         var result = new ArrayList<CodeUnit>(direct.size());
         var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
         var queue = new ArrayDeque<CodeUnit>(direct.size());
@@ -93,14 +74,14 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
 
         while (!queue.isEmpty()) {
             var current = queue.removeFirst();
-            Set<CodeUnit> children = getDirectDescendants(current);
-            if (children.isEmpty()) continue;
+            var next = directionFn.apply(current);
+            if (next.isEmpty()) continue;
 
-            for (var child : children) {
-                String key = child.fqName();
+            for (var item : next) {
+                String key = item.fqName();
                 if (visited.add(key)) {
-                    result.add(child);
-                    queue.addLast(child);
+                    result.add(item);
+                    queue.addLast(item);
                 }
             }
         }
