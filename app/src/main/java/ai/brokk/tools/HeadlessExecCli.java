@@ -147,21 +147,25 @@ public class HeadlessExecCli {
     }
 
     static WorkspaceSelection chooseWorkspaceRootForMode(String mode, String repoOwner, String repoName) {
-        String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
-        if ("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode)) {
-            Path tempRoot;
-            try {
-                tempRoot = Files.createTempDirectory("brokk-headless-")
-                        .toAbsolutePath()
-                        .normalize();
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to create temp workspace", e);
+            String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
+            if ("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode)) {
+                String safeOwner = repoOwner.isBlank() ? "unknown-owner" : repoOwner.replaceAll("[^A-Za-z0-9._-]", "-");
+                String safeRepo = repoName.isBlank() ? "unknown-repo" : repoName.replaceAll("[^A-Za-z0-9._-]", "-");
+                String prefix = "brokk-headless-" + safeOwner + "-" + safeRepo + "-";
+
+                Path tempRoot;
+                try {
+                    tempRoot = Files.createTempDirectory(prefix)
+                            .toAbsolutePath()
+                            .normalize();
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to create temp workspace", e);
+                }
+                return new WorkspaceSelection(tempRoot, true);
             }
-            return new WorkspaceSelection(tempRoot, true);
+            Path cwd = Path.of("").toAbsolutePath().normalize();
+            return new WorkspaceSelection(cwd, false);
         }
-        Path cwd = Path.of("").toAbsolutePath().normalize();
-        return new WorkspaceSelection(cwd, false);
-    }
 
     private static String buildGitHubHttpsCloneUrl(String owner, String repo) {
         return "https://github.com/" + owner + "/" + repo + ".git";

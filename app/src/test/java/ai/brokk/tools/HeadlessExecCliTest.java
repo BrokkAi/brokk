@@ -472,20 +472,26 @@ class HeadlessExecCliTest {
     }
 
     @Test
-    void chooseWorkspaceRootForMode_issue_usesTemp_notCwd() {
-        Path cwd = Path.of("").toAbsolutePath().normalize();
-        var selection = HeadlessExecCli.chooseWorkspaceRootForMode("ISSUE", "owner", "repo");
-        assertTrue(selection.isTemporary());
-        assertTrue(selection.root().isAbsolute());
-        assertFalse(selection.root().equals(cwd), "ISSUE workspace should not be CWD");
-    }
+        void chooseWorkspaceRootForMode_issue_usesTemp_notCwd() {
+            Path cwd = Path.of("").toAbsolutePath().normalize();
+            var selection = HeadlessExecCli.chooseWorkspaceRootForMode("ISSUE", "owner", "repo");
+            assertTrue(selection.isTemporary());
+            assertTrue(selection.root().isAbsolute());
+            assertTrue(
+                    selection.root().getFileName().toString().startsWith("brokk-headless-owner-repo-"),
+                    "Temp dir name should include owner/repo prefix");
+            assertFalse(selection.root().equals(cwd), "ISSUE workspace should not be CWD");
+        }
 
     @Test
-    void chooseWorkspaceRootForMode_review_usesTemp_notCwd() {
-        Path cwd = Path.of("").toAbsolutePath().normalize();
-        var selection = HeadlessExecCli.chooseWorkspaceRootForMode("REVIEW", "owner", "repo");
-        assertTrue(selection.isTemporary());
-        assertTrue(selection.root().isAbsolute());
-        assertFalse(selection.root().equals(cwd), "REVIEW workspace should not be CWD");
-    }
+        void chooseWorkspaceRootForMode_review_usesTemp_notCwd() {
+            Path cwd = Path.of("").toAbsolutePath().normalize();
+            var selection = HeadlessExecCli.chooseWorkspaceRootForMode("REVIEW", "owner", "repo");
+            assertTrue(selection.isTemporary());
+            assertTrue(selection.root().isAbsolute());
+            assertTrue(
+                    selection.root().getFileName().toString().startsWith("brokk-headless-owner-repo-"),
+                    "Temp dir name should include owner/repo prefix");
+            assertFalse(selection.root().equals(cwd), "REVIEW workspace should not be CWD");
+        }
 }
