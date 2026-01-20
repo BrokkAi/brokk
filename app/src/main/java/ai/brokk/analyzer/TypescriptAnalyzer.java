@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes;
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
@@ -67,8 +68,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
             // decoratorNodeTypes
             Set.of(DECORATOR),
-            // imports
-            IMPORT_DECLARATION,
+            // imports - capture name must match query pattern @module.import_statement
+            JavaScriptTreeSitterNodeTypes.IMPORT_CAPTURE_NAME,
             // identifierFieldName
             "name",
             // bodyFieldName

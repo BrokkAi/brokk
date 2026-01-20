@@ -291,4 +291,12 @@
 ; ============================================================================
 
 ; ES6 import statements
+; Note: TypeScript Tree-sitter grammar may use import_statement or import_declaration
 (import_statement) @module.import_statement
+
+; CommonJS require statements
+(call_expression
+  function: (identifier) @_func_name
+  arguments: (arguments (string) @_path)
+  (#eq? @_func_name "require")
+) @module.import_statement

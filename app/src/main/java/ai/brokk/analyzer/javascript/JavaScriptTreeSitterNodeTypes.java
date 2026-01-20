@@ -32,5 +32,8 @@ public final class JavaScriptTreeSitterNodeTypes {
 
     public static final String IMPORT_DECLARATION = "module.import_statement";
 
+    // Capture name used in Tree-sitter queries for import statements
+    public static final String IMPORT_CAPTURE_NAME = "module.import_statement";
+
     private JavaScriptTreeSitterNodeTypes() {}
 }
