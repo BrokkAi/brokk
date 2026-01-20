@@ -1,6 +1,7 @@
 package ai.brokk.gui.mop.webview.cef;
 
 import ai.brokk.util.Environment;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -31,6 +32,9 @@ import org.jetbrains.annotations.Nullable;
 public class MavenCefProvider implements CefAppProvider {
 
     private static final Logger logger = LogManager.getLogger(MavenCefProvider.class);
+
+    // Must match version in build.gradle.kts
+    private static final String JCEFMAVEN_VERSION = "127.3.1";
 
     /**
      * Checks if jcefmaven can be used.
@@ -114,9 +118,17 @@ public class MavenCefProvider implements CefAppProvider {
 
     /**
      * Returns the directory where jcefmaven should install/find JCEF binaries.
+     * Uses ~/.gradle/jcef-{version}/ to keep binaries alongside gradle cache
+     * and avoid conflicts between different jcefmaven versions.
      */
     private Path getJcefDir() {
-        // Development mode - use local jcef-bundle directory
-        return Paths.get("./jcef-bundle");
+        String userHome = System.getProperty("user.home");
+        Path dir = Paths.get(userHome, ".gradle", "caches", "jcef-" + JCEFMAVEN_VERSION);
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            logger.warn("Failed to create JCEF directory: {}", dir, e);
+        }
+        return dir;
     }
 }
