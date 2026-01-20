@@ -14,6 +14,7 @@ import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
+import java.util.ArrayList;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -954,7 +955,25 @@ public final class JobRunner {
                                                         finalVerificationRunner,
                                                         finalFixTaskRunner);
 
-                                                // 5. Commit and Create Pull Request (conditional)
+                                                // 5. ISSUE-mode review-bot: compute diff vs default branch and
+                                                // generate structured inline comments AFTER we have a passing build
+                                                // and BEFORE PR creation.
+                                                String targetBranch = gitHubAuth.getDefaultBranch();
+                                                var inlineComments = issueModeComputeInlineComments(
+                                                        jobId,
+                                                        store,
+                                                        console != null ? console : cm.getIo(),
+                                                        gitRepo,
+                                                        context,
+                                                        issuePlannerModel,
+                                                        githubToken,
+                                                        targetBranch);
+                                                logger.info(
+                                                        "ISSUE job {} review-bot produced {} inline comment(s)",
+                                                        jobId,
+                                                        inlineComments.size());
+
+                                                // 6. Commit and Create Pull Request (conditional)
                                                 // Only create a PR if:
                                                 //  - delivery policy enables PR creation (issue_delivery != "none")
                                                 //  - final gate verification passed (we reached here only when
@@ -969,7 +988,6 @@ public final class JobRunner {
                                                         workflow.performAutoCommit(
                                                                 "Resolves #" + issueNumber + ": " + details.title());
 
-                                                        String targetBranch = gitHubAuth.getDefaultBranch();
                                                         var suggestion = workflow.suggestPullRequestDetails(
                                                                 issueBranchName, targetBranch, cm.getIo());
 
@@ -1762,5 +1780,87 @@ public final class JobRunner {
             return true;
         }
         return !raw.trim().equalsIgnoreCase("none");
+    }
+
+    List<PrReviewService.InlineComment> issueModeComputeInlineComments(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            GitRepo gitRepo,
+            Context ctx,
+            StreamingChatModel reviewModel,
+            String githubToken,
+            String baseBranch) {
+
+        Objects.requireNonNull(jobId);
+        Objects.requireNonNull(store);
+        Objects.requireNonNull(io);
+        Objects.requireNonNull(gitRepo);
+        Objects.requireNonNull(ctx);
+        Objects.requireNonNull(reviewModel);
+        Objects.requireNonNull(githubToken);
+        Objects.requireNonNull(baseBranch);
+
+        String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
+        if (remoteName != null) {
+            try {
+                gitRepo.remote().fetchBranch(remoteName, baseBranch, githubToken);
+            } catch (GitAPIException e) {
+                logger.warn(
+                        "ISSUE job {}: failed to fetch base branch '{}' from remote '{}': {}",
+                        jobId,
+                        baseBranch,
+                        remoteName,
+                        e.getMessage());
+            }
+        }
+
+        String baseRef = remoteName != null ? remoteName + "/" + baseBranch : baseBranch;
+
+        String diff;
+        try {
+            diff = PrReviewService.computePrDiff(gitRepo, baseRef, "HEAD");
+        } catch (GitAPIException e) {
+            throw new IssueExecutionException(
+                    "Failed to compute diff for issue review (baseRef=" + baseRef + "): " + e.getMessage(), e);
+        }
+
+        if (diff.isBlank()) {
+            return List.of();
+        }
+
+        String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);
+        if (annotatedDiff.isBlank()) {
+            return List.of();
+        }
+
+        TaskResult reviewResult = reviewDiff(ctx, reviewModel, annotatedDiff);
+        String reviewText = reviewResult.output().text().join();
+
+        var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
+        if (reviewResponse == null) {
+            String preview = reviewText.length() > 500 ? reviewText.substring(0, 500) + "..." : reviewText;
+            throw new IssueExecutionException(
+                    "Issue diff review response was not valid JSON. Response preview: " + preview);
+        }
+
+        var filtered = PrReviewService.filterInlineComments(
+                reviewResponse.comments(), DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+
+        if (!filtered.isEmpty()) {
+            try {
+                store.appendEvent(
+                        jobId,
+                        JobEvent.of(
+                                "NOTIFICATION",
+                                "Review-bot: generated " + filtered.size() + " inline comment(s) (severity >= "
+                                        + DEFAULT_REVIEW_SEVERITY_THRESHOLD + ")"));
+            } catch (IOException e) {
+                logger.warn(
+                        "Failed to append review-bot notification event for job {}: {}", jobId, e.getMessage(), e);
+            }
+        }
+
+        return filtered;
     }
 }

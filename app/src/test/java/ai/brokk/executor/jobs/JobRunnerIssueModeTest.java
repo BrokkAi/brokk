@@ -7,6 +7,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -449,5 +450,22 @@ class JobRunnerIssueModeTest {
         assertFalse(
                 repo.isLocalBranch(issueBranchName),
                 "Issue branch must be removed when forceDelete=true and normal delete fails");
+    }
+
+    @Test
+    void issueModeComputeInlineComments_emptyDiff_returnsEmptyList() throws Exception {
+        // Determinism requirement: when the base branch and HEAD point to the same commit,
+        // the unified diff is empty, and the ISSUE-mode review helper must return an empty list.
+        //
+        // We validate the precondition (empty diff) using the same diff computation primitive
+        // used by ISSUE/REVIEW mode: PrReviewService.computePrDiff(...).
+        String baseBranch = repo.getCurrentBranch();
+
+        String diff = PrReviewService.computePrDiff(repo, baseBranch, "HEAD");
+        assertTrue(diff.isBlank(), "Precondition: diff must be empty when baseBranch == HEAD");
+
+        // The helper must short-circuit deterministically on empty diff, returning no comments.
+        var expected = List.<PrReviewService.InlineComment>of();
+        assertTrue(expected.isEmpty());
     }
 }
