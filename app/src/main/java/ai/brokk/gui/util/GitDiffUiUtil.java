@@ -651,7 +651,6 @@ public interface GitDiffUiUtil {
                             String.format(
                                     "Successfully rolled back %d file(s) to commit %s", files.size(), shortCommitId));
                     // Refresh Git panels to show the changed files
-                    chrome.updateCommitPanel();
                 });
             } catch (Exception e) {
                 logger.error("Error rolling back files", e);

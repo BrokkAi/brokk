@@ -15,7 +15,6 @@ import ai.brokk.gui.dialogs.BlitzForgeDialog;
 import ai.brokk.gui.dialogs.FeedbackDialog;
 import ai.brokk.gui.dialogs.SessionsDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitIssuesTab;
 import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.git.GitWorktreeTab;
@@ -553,16 +552,6 @@ public class MenuBar {
         });
         gitMenu.add(logItem);
 
-        // Changes (Git Commit tab)
-        var commitItem = new JMenuItem("Changes");
-        commitItem.addActionListener(e -> {
-            var content = new GitCommitTab(chrome, chrome.getContextManager());
-            // Start an initial refresh so the dialog is populated with repository status
-            content.requestUpdate();
-            showDialog(chrome, "Changes", content, null);
-        });
-        gitMenu.add(commitItem);
-
         // Worktrees
         var worktreesItem = new JMenuItem("Worktrees");
         worktreesItem.addActionListener(e -> {
@@ -613,14 +602,6 @@ public class MenuBar {
                 boolean advanced = GlobalUiSettings.isAdvancedMode();
 
                 if (advanced && chrome.getProject().hasGit()) {
-                    var changesItem = new JMenuItem("Changes");
-                    changesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-                    changesItem.addActionListener(actionEvent -> {
-                        var idx = chrome.getToolsPane().indexOfComponent(chrome.getGitCommitTab());
-                        if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
-                    });
-                    windowMenu.add(changesItem);
-
                     var logItem = new JMenuItem("Log");
                     logItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
                     logItem.addActionListener(actionEvent -> {

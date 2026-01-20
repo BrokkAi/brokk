@@ -18,11 +18,11 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -57,7 +57,7 @@ public final class GitWorkflow {
     }
 
     /** Synchronously commit the given files. If {@code files} is empty, commit all modified files. */
-    public CommitResult commit(List<ProjectFile> files, String msg) throws GitAPIException {
+    public CommitResult commit(Collection<ProjectFile> files, String msg) throws GitAPIException {
         assert !files.isEmpty();
         assert !msg.isBlank();
 
@@ -109,7 +109,8 @@ public final class GitWorkflow {
      * Streaming variant of suggestCommitMessage. Streams tokens to the provided IConsoleIO while the LLM runs.
      * Blocks and should be executed off the EDT. Throws RuntimeException on LLM errors.
      */
-    public String suggestCommitMessageStreaming(List<ProjectFile> files, boolean oneLine, IConsoleIO streamingOutput)
+    public String suggestCommitMessageStreaming(
+            Collection<ProjectFile> files, boolean oneLine, IConsoleIO streamingOutput)
             throws GitAPIException, InterruptedException {
         logger.debug("Suggesting commit message (streaming) for {} files (oneLine={})", files.size(), oneLine);
 
@@ -348,7 +349,7 @@ public final class GitWorkflow {
             return Optional.empty();
         }
 
-        var filesToCommit = modified.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
+        var filesToCommit = modified.stream().map(GitRepo.ModifiedFile::file).toList();
 
         // For auto-commit we prefer a concise one-line subject
         var message = suggestCommitMessage(filesToCommit, true).orElse(taskDescription);
@@ -359,7 +360,6 @@ public final class GitWorkflow {
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Committed " + repo.shortHash(commitResult.commitId()) + ": " + commitResult.firstLine());
-        io.updateCommitPanel();
         return Optional.of(commitResult);
     }
 }

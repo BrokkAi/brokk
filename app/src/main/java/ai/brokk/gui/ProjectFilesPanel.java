@@ -406,7 +406,6 @@ public class ProjectFilesPanel extends JPanel {
     private void refreshProjectFiles() {
         projectTree.onFilesChanged(new AbstractWatchService.EventBatch());
         updateBorderTitle(); // Refresh title in case branch changed
-        chrome.updateCommitPanel();
     }
 
     /** Updates the panel to reflect the current project state, including branch name in title.

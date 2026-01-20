@@ -631,7 +631,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Invalidate caches
             project.getRepo().invalidateCaches();
             project.invalidateAllFiles();
-            io.updateCommitPanel();
 
             // Phase 6 optimization: Only check for context file changes if we have specific changed files
             boolean contextFilesChanged = false;

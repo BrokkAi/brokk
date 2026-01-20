@@ -18,7 +18,6 @@ import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
 import ai.brokk.gui.git.GitIssuesTab;
 import ai.brokk.gui.git.GitLogTab;
@@ -495,9 +494,6 @@ public class Chrome
             disableHistoryPanel();
             rightPanel.getInstructionsPanel().disableButtons();
             rightPanel.getTaskListPanel().disablePlay();
-            if (toolsPane.getGitCommitTab() != null) {
-                toolsPane.getGitCommitTab().disableButtons();
-            }
             blitzForgeMenuItem.setEnabled(false);
         });
     }
@@ -507,18 +503,8 @@ public class Chrome
         SwingUtil.runOnEdt(() -> {
             rightPanel.getInstructionsPanel().enableButtons();
             rightPanel.getTaskListPanel().enablePlay();
-            if (toolsPane.getGitCommitTab() != null) {
-                toolsPane.getGitCommitTab().enableButtons();
-            }
             blitzForgeMenuItem.setEnabled(true);
         });
-    }
-
-    @Override
-    public void updateCommitPanel() {
-        if (toolsPane.getGitCommitTab() != null) {
-            toolsPane.getGitCommitTab().requestUpdate();
-        }
     }
 
     @Override
@@ -566,12 +552,6 @@ public class Chrome
                 logger.trace("updateGitRepo: branch unchanged ({}), skipping branch UI refresh", display);
             }
             // Continue to update git panels even if branch unchanged (e.g., new commits)
-        }
-
-        // Update individual Git-related panels and log what is being updated
-        if (toolsPane.getGitCommitTab() != null) {
-            logger.trace("updateGitRepo: updating GitCommitTab");
-            toolsPane.getGitCommitTab().requestUpdate();
         }
 
         if (toolsPane.getGitLogTab() != null) {
@@ -758,25 +738,10 @@ public class Chrome
             }
         });
 
-        // Alt/Cmd+3 for Changes (GitCommitTab)
-        if (toolsPane.getGitCommitTab() != null) {
-            KeyStroke switchToChanges = GlobalUiSettings.getKeybinding(
-                    "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-            bindKey(rootPane, switchToChanges, "switchToChanges");
-            rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getGitCommitTab());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Alt/Cmd+4 for Log
+        // Alt/Cmd+3 for Log
         if (toolsPane.getGitLogTab() != null) {
             KeyStroke switchToLog = GlobalUiSettings.getKeybinding(
-                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
             bindKey(rootPane, switchToLog, "switchToLog");
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
                 @Override
@@ -788,10 +753,10 @@ public class Chrome
             });
         }
 
-        // Alt/Cmd+5 for Worktrees
+        // Alt/Cmd+4 for Worktrees
         if (toolsPane.getGitWorktreeTab() != null) {
             KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
             bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
             rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
                 @Override
@@ -803,10 +768,10 @@ public class Chrome
             });
         }
 
-        // Alt/Cmd+6 for Pull Requests panel (if available)
+        // Alt/Cmd+5 for Pull Requests panel (if available)
         if (toolsPane.getPullRequestsPanel() != null) {
             KeyStroke switchToPR = GlobalUiSettings.getKeybinding(
-                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
+                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
             bindKey(rootPane, switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
@@ -818,10 +783,10 @@ public class Chrome
             });
         }
 
-        // Alt/Cmd+7 for Issues panel (if available)
+        // Alt/Cmd+6 for Issues panel (if available)
         if (toolsPane.getIssuesPanel() != null) {
             KeyStroke switchToIssues = GlobalUiSettings.getKeybinding(
-                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
             bindKey(rootPane, switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
@@ -1678,11 +1643,6 @@ public class Chrome
     }
 
     @Nullable
-    public GitCommitTab getGitCommitTab() {
-        return toolsPane.getGitCommitTab();
-    }
-
-    @Nullable
     public GitLogTab getGitLogTab() {
         return toolsPane.getGitLogTab();
     }
@@ -1733,7 +1693,8 @@ public class Chrome
         SwingUtilities.invokeLater(() -> {
             rightPanel.applyAdvancedModeVisibility();
             toolsPane.applyAdvancedModeVisibility();
-            updateGitTabBadge(getModifiedFiles().size());
+            contextManager.getProject().getRepo().getModifiedProjectFiles();
+            assert SwingUtilities.isEventDispatchThread() : "updateGitTabBadge(int) must be called on EDT";
             refreshKeybindings();
         });
     }
@@ -2488,15 +2449,6 @@ public class Chrome
         }
     }
 
-    /**
-     * Updates the git tab badge with the current number of modified files. Should be called whenever the git status
-     * changes
-     */
-    public void updateGitTabBadge(int modifiedCount) {
-        assert SwingUtilities.isEventDispatchThread() : "updateGitTabBadge(int) must be called on EDT";
-        toolsPane.updateGitTabBadge(modifiedCount);
-    }
-
     public void refreshBranchUi(@Nullable String branchName) {
         SwingUtilities.invokeLater(() -> {
             rightPanel.setBranchLabel(branchName);
@@ -2565,18 +2517,6 @@ public class Chrome
         int frameWidth = frame.getWidth();
         int byFraction = (int) (frameWidth * MIN_SIDEBAR_WIDTH_FRACTION);
         return Math.max(MIN_SIDEBAR_WIDTH_PX, byFraction);
-    }
-
-    /**
-     * Get the list of uncommitted modified files from GCT's cache.
-     * No repo call needed—uses the already-computed list from GitCommitTab.
-     * Safe to call from any thread.
-     */
-    public List<ProjectFile> getModifiedFiles() {
-        if (toolsPane.getGitCommitTab() == null) {
-            return List.of();
-        }
-        return toolsPane.getGitCommitTab().getModifiedFiles();
     }
 
     /**
