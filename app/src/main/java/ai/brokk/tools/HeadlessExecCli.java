@@ -68,8 +68,11 @@ public class HeadlessExecCli {
     private String issueDelivery = "";
 
     private @Nullable HeadlessExecutorMain executor;
-    private @Nullable Path tempWorkspace;
+
+    private @Nullable Path tempWorkspaceRoot;
+    private @Nullable Path workspaceRoot;
     private boolean createdTempWorkspace = false;
+
     private OkHttpClient httpClient;
 
     public HeadlessExecCli() {
@@ -171,31 +174,36 @@ public class HeadlessExecCli {
 
         WorkspaceSelection selection = chooseWorkspaceRootForMode();
         if (selection.isTemporary()) {
-            tempWorkspace = selection.root();
+            tempWorkspaceRoot = selection.root();
             createdTempWorkspace = true;
 
             String cloneUrl = buildGitHubHttpsCloneUrl(repoOwner, repoName);
             Supplier<String> tokenSupplier = () -> githubToken;
 
-            CloneOperationTracker.registerCloneOperation(tempWorkspace);
-            try {
-                Files.createDirectories(tempWorkspace);
-                CloneOperationTracker.createInProgressMarker(tempWorkspace, cloneUrl, "");
-                GitRepoFactory.cloneRepo(tokenSupplier, cloneUrl, tempWorkspace, 0);
-                CloneOperationTracker.createCompleteMarker(tempWorkspace, cloneUrl, "");
-            } finally {
-                CloneOperationTracker.unregisterCloneOperation(tempWorkspace);
-            }
+            Path cloneTarget = tempWorkspaceRoot.resolve(repoName).toAbsolutePath().normalize();
+            workspaceRoot = cloneTarget;
 
-            logger.info("Cloned {} into temp workspace: {}", cloneUrl, tempWorkspace);
+            logger.info("Using temp workspace root: {}", tempWorkspaceRoot);
+            logger.info("Cloning {} into: {}", cloneUrl, cloneTarget);
+
+            CloneOperationTracker.registerCloneOperation(tempWorkspaceRoot);
+            try {
+                Files.createDirectories(tempWorkspaceRoot);
+                CloneOperationTracker.createInProgressMarker(tempWorkspaceRoot, cloneUrl, "");
+                GitRepoFactory.cloneRepo(tokenSupplier, cloneUrl, cloneTarget, 0);
+                CloneOperationTracker.createCompleteMarker(tempWorkspaceRoot, cloneUrl, "");
+            } finally {
+                CloneOperationTracker.unregisterCloneOperation(tempWorkspaceRoot);
+            }
         } else {
-            tempWorkspace = selection.root();
+            tempWorkspaceRoot = selection.root();
+            workspaceRoot = tempWorkspaceRoot;
             createdTempWorkspace = false;
-            logger.info("Using current working directory as workspace: {}", tempWorkspace);
+            logger.info("Using current working directory as workspace: {}", workspaceRoot);
         }
 
         var execId = UUID.randomUUID();
-        var project = new MainProject(tempWorkspace);
+        var project = new MainProject(workspaceRoot);
         var contextManager = new ContextManager(project);
         executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
     }
@@ -475,12 +483,12 @@ public class HeadlessExecCli {
         }
 
         try {
-            if (createdTempWorkspace && tempWorkspace != null) {
-                recursiveDelete(tempWorkspace);
-                logger.info("Deleted temp workspace: {}", tempWorkspace);
+            if (createdTempWorkspace && tempWorkspaceRoot != null) {
+                recursiveDelete(tempWorkspaceRoot);
+                logger.info("Deleted temp workspace root: {}", tempWorkspaceRoot);
             }
         } catch (IOException e) {
-            logger.warn("Error deleting temp workspace", e);
+            logger.warn("Error deleting temp workspace root", e);
         }
 
         httpClient.dispatcher().executorService().shutdown();
