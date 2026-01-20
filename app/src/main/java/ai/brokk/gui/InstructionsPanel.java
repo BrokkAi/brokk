@@ -1325,7 +1325,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         KeyStroke submitKs =
                 GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
         String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-        String submitHint = (submitStr == null || submitStr.isBlank()) ? "" : submitStr + " = submit.";
+        String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
 
         String base = PLACEHOLDER_PREFIX + PLACEHOLDER_NEWLINE_HINT;
         if (submitHint.isBlank()) {
@@ -2685,7 +2685,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var submitKs = GlobalUiSettings.getKeybinding(
                         "instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
                 var submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-                if (submitStr == null || submitStr.isBlank()) {
+                if (submitStr.isBlank()) {
                     submitStr = "(unbound)";
                 }
                 submitLine = "<div>" + baseTooltip + "<b>" + htmlEscape(submitStr) + "</b></div>";
@@ -2699,7 +2699,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     var toggleKs = GlobalUiSettings.getKeybinding(
                             "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
                     var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                    if (toggleStr == null || toggleStr.isBlank()) {
+                    if (toggleStr.isBlank()) {
                         toggleStr = "(unbound)";
                     }
                     toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
@@ -3111,7 +3111,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         var toggleKs = GlobalUiSettings.getKeybinding(
                                 "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
                         var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                        if (toggleStr == null || toggleStr.isBlank()) {
+                        if (toggleStr.isBlank()) {
                             toggleStr = "(unbound)";
                         }
                         toggleLine = "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: "
