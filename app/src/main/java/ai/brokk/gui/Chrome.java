@@ -352,6 +352,8 @@ public class Chrome
 
         // Now show the window with complete layout
         frame.setVisible(true);
+        frame.toFront();
+        frame.requestFocus();
 
         // Defer .gitignore check until initialization completes
         scheduleGitConfigurationAfterInit();

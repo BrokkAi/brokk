@@ -450,6 +450,15 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         logger.info("Bridge ready, flushing {} pending commands", pendingCommands.size());
         bridgeReady = true;
         flushPendingCommands();
+
+        // Restore focus to parent window (JCEF native browser may have stolen it)
+        SwingUtilities.invokeLater(() -> {
+            var window = SwingUtilities.getWindowAncestor(this);
+            if (window != null) {
+                window.toFront();
+                window.requestFocus();
+            }
+        });
     }
 
     private void flushPendingCommands() {
