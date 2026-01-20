@@ -422,6 +422,16 @@ public class GuiTheme {
     }
 
     /**
+     * Checks if the given theme name represents a light theme variant.
+     *
+     * @param themeName the theme name to check
+     * @return true if the theme is light or light-plus
+     */
+    public static boolean isLightThemeName(String themeName) {
+        return THEME_LIGHT.equalsIgnoreCase(themeName) || THEME_LIGHT_PLUS.equalsIgnoreCase(themeName);
+    }
+
+    /**
      * Applies the current RSyntaxTextArea theme to the supplied component.
      *
      * @param textArea The text area to apply theme to

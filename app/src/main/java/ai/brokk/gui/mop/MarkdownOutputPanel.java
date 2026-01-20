@@ -86,7 +86,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
         // Set background to match theme to avoid white flash while JCEF loads
         String themeName = MainProject.getTheme();
-        boolean isDark = !"BrokkLight".equals(themeName) && !"BrokkLightPlus".equals(themeName);
+        boolean isDark = !GuiTheme.isLightThemeName(themeName);
         setOpaque(true);
         setBackground(ThemeColors.getColor(isDark, ThemeColors.CHAT_BACKGROUND));
 

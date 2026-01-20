@@ -93,7 +93,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
         // Set initial background color to avoid white flash while loading
         String themeName = MainProject.getTheme();
-        boolean isDark = !GuiTheme.THEME_LIGHT.equals(themeName) && !"BrokkLightPlus".equals(themeName);
+        boolean isDark = !GuiTheme.isLightThemeName(themeName);
         var bgColor = ThemeColors.getColor(isDark, "chat_background");
         setOpaque(true);
         setBackground(bgColor);

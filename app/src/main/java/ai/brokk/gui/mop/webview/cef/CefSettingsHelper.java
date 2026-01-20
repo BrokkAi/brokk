@@ -1,6 +1,7 @@
 package ai.brokk.gui.mop.webview.cef;
 
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.project.MainProject;
 import java.awt.Color;
 import java.nio.file.Path;
@@ -49,7 +50,7 @@ public final class CefSettingsHelper {
      */
     public static void configureThemeBackground(CefSettings settings) {
         String themeName = MainProject.getTheme();
-        boolean isDark = !"BrokkLight".equals(themeName) && !"BrokkLightPlus".equals(themeName);
+        boolean isDark = !GuiTheme.isLightThemeName(themeName);
         Color bgColor = ThemeColors.getColor(isDark, ThemeColors.CHAT_BACKGROUND);
         settings.background_color =
                 settings.new ColorType(0xFF, bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue());
