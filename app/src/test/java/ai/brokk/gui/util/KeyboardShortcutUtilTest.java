@@ -199,27 +199,33 @@ public class KeyboardShortcutUtilTest {
 
     @Test
     void testDefaultInstructionsSubmit_CurrentOS() {
-        if (GraphicsEnvironment.isHeadless()) {
-            // HeadlessToolkit#getMenuShortcutKeyMaskEx throws in headless environments (no DISPLAY).
-            return;
-        }
-
-        KeyStroke ks = KeyboardShortcutUtil.defaultInstructionsSubmit();
+        KeyStroke ks = assertDoesNotThrow(KeyboardShortcutUtil::defaultInstructionsSubmit);
         assertNotNull(ks);
         assertEquals(KeyEvent.VK_ENTER, ks.getKeyCode());
 
-        int expectedMenuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
-        assertEquals(
-                expectedMenuMask,
-                ks.getModifiers(),
-                "defaultInstructionsSubmit() modifiers should match Toolkit menu shortcut mask");
+        int modifiers = ks.getModifiers();
+        int expectedPlatformMask = SystemInfo.isMacOS ? KeyEvent.META_DOWN_MASK : KeyEvent.CTRL_DOWN_MASK;
+        int unexpectedPlatformMask = SystemInfo.isMacOS ? KeyEvent.CTRL_DOWN_MASK : KeyEvent.META_DOWN_MASK;
 
-        if (SystemInfo.isMacOS) {
-            assertTrue((ks.getModifiers() & KeyEvent.META_DOWN_MASK) != 0, "macOS should include META");
-            assertTrue((ks.getModifiers() & KeyEvent.CTRL_DOWN_MASK) == 0, "macOS should not include CTRL");
+        assertTrue(
+                (modifiers & expectedPlatformMask) != 0,
+                "defaultInstructionsSubmit() should include the platform modifier");
+        assertEquals(
+                0,
+                modifiers & unexpectedPlatformMask,
+                "defaultInstructionsSubmit() should not include the non-platform modifier");
+
+        if (GraphicsEnvironment.isHeadless()) {
+            assertEquals(
+                    expectedPlatformMask,
+                    modifiers & expectedPlatformMask,
+                    "defaultInstructionsSubmit() modifiers should use deterministic fallback in headless mode");
         } else {
-            assertTrue((ks.getModifiers() & KeyEvent.CTRL_DOWN_MASK) != 0, "non-macOS should include CTRL");
-            assertTrue((ks.getModifiers() & KeyEvent.META_DOWN_MASK) == 0, "non-macOS should not include META");
+            int expectedMenuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+            assertEquals(
+                    expectedMenuMask,
+                    modifiers & expectedMenuMask,
+                    "defaultInstructionsSubmit() modifiers should match platform menu shortcut");
         }
     }
 }
