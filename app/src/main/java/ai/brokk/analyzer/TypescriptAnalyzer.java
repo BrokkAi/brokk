@@ -1039,22 +1039,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
             List<String> localImportStatements) {
-        // Handle CommonJS require calls - reuse JavaScript logic
-        // Since TS grammar often includes these captures for compatibility
-        TSNode requireCallNode = capturedNodesForMatch.get(JavaScriptTreeSitterNodeTypes.REQUIRE_CALL_CAPTURE_NAME);
-        TSNode requireFuncNode = capturedNodesForMatch.get(JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME);
-        if (requireCallNode != null
-                && !requireCallNode.isNull()
-                && requireFuncNode != null
-                && !requireFuncNode.isNull()) {
-            String funcName = sourceContent.substringFrom(requireFuncNode).strip();
-            if ("require".equals(funcName)) {
-                String requireText = sourceContent.substringFrom(requireCallNode).strip();
-                if (!requireText.isEmpty()) {
-                    localImportStatements.add(requireText);
-                }
-            }
-        }
+        JavascriptAnalyzer.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
     }
 
     @Override
