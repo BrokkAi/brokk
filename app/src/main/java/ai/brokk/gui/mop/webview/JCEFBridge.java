@@ -10,6 +10,7 @@ import ai.brokk.gui.mop.ChunkMeta;
 import ai.brokk.gui.mop.FilePathLookupService;
 import ai.brokk.gui.mop.SymbolLookupService;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -185,11 +186,8 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
 
     private void openExternalLink(String url) {
         logger.info("Opening external link: {}", url);
-        try {
-            java.awt.Desktop.getDesktop().browse(java.net.URI.create(url));
-        } catch (Exception e) {
-            logger.error("Failed to open URL: {}", url, e);
-        }
+        var ancestor = hostComponent != null ? SwingUtilities.getWindowAncestor(hostComponent) : null;
+        Environment.openInBrowser(url, ancestor);
     }
 
     private void dismissPopups() {

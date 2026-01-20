@@ -210,9 +210,9 @@ public class Brokk {
             // This early call is primarily to set up Xlib multithreading on Linux.
             logger.warn("Unexpected exception during CEF early startup: {}", e.getMessage(), e);
         } catch (NoClassDefFoundError | UnsatisfiedLinkError e) {
-            // These are expected if JCEF is not in the initial classpath or native libs
-            // are missing yet; they will be handled by jcefmaven during later initialization.
-            logger.debug("CEF early startup (expected link error/missing class): {}", e.getMessage());
+            // Expected if JBR JCEF not available; jcefmaven will handle initialization later.
+            // Log at INFO with class name to help diagnose packaging issues in production.
+            logger.info("CEF early startup skipped ({}: {})", e.getClass().getSimpleName(), e.getMessage());
         }
     }
 
