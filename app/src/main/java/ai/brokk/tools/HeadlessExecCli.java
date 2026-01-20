@@ -699,8 +699,8 @@ public class HeadlessExecCli {
                 return false;
             }
             if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
-                System.err.println("ERROR: Invalid --repo-name '" + repoName
-                        + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
+                System.err.println(
+                        "ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
                 return false;
             }
             if (issueNumber <= 0) {
@@ -724,8 +724,8 @@ public class HeadlessExecCli {
                 return false;
             }
             if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
-                System.err.println("ERROR: Invalid --repo-name '" + repoName
-                        + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
+                System.err.println(
+                        "ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
                 return false;
             }
             if (prNumber <= 0) {
