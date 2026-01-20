@@ -75,6 +75,47 @@ public class JavaScriptImportTest {
     }
 
     @Test
+    public void testResolveWildcardImport() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export function add(a, b) { return a + b; }
+                export function subtract(a, b) { return a - b; }
+                export const PI = 3.14159;
+                """,
+                        "math/operations.js")
+                .addFileContents(
+                        """
+                import * as MathOps from './math/operations';
+
+                function calculate() {
+                    return MathOps.add(1, 2) + MathOps.PI;
+                }
+                """,
+                        "calculator.js")
+                .build()) {
+
+            var analyzer = createAnalyzer(testProject);
+            var calculatorFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("calculator.js"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits = analyzer.importedCodeUnitsOf(calculatorFile);
+
+            boolean foundAdd = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("add") && cu.isFunction());
+            boolean foundSubtract = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("subtract") && cu.isFunction());
+            boolean foundPI = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().contains("PI") && cu.isField());
+
+            assertTrue(foundAdd, "Should have resolved 'add' function from wildcard import");
+            assertTrue(foundSubtract, "Should have resolved 'subtract' function from wildcard import");
+            assertTrue(foundPI, "Should have resolved 'PI' constant from wildcard import");
+        }
+    }
+
+    @Test
     public void testResolveImportsFromNestedDirectoryToParent() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
