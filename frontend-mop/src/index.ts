@@ -225,6 +225,8 @@ function clearChat(): void {
 }
 
 function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {
+    console.info('setTheme executed: themeName=' + themeName + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode + ', zoom=' + zoom);
+
     // Store dark mode status for backward compatibility with components that use themeStore
     const isDark = themeName !== 'light';
     themeStore.set(isDark);
@@ -262,8 +264,10 @@ function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean,
     const shouldWrap = wrapMode !== undefined ? wrapMode : true;
     if (shouldWrap) {
         html.classList.add('code-wrap-mode');
+        console.info('Applied code-wrap-mode class');
     } else {
         html.classList.remove('code-wrap-mode');
+        console.info('Removed code-wrap-mode class');
     }
 
     // Trigger status update for debug display

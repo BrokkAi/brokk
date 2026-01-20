@@ -98,7 +98,6 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         setOpaque(true);
         setBackground(bgColor);
 
-        // Initialize directly - macOS with -XstartOnFirstThread needs main thread for AWT
         initializeCef();
     }
 
