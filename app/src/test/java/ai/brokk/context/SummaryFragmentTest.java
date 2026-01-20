@@ -386,8 +386,11 @@ public class SummaryFragmentTest {
                     .map(f -> ((SummaryFragment) f).getTargetIdentifier())
                     .collect(Collectors.toSet());
 
-            assertEquals(Set.of("Base1"), cuTargetIds, "CODEUNIT_SKELETON should return ancestors for the specific unit");
-            assertTrue(targetIds.containsAll(cuTargetIds), "FILE_SKELETONS ancestors should be a superset of individual units");
+            assertEquals(
+                    Set.of("Base1"), cuTargetIds, "CODEUNIT_SKELETON should return ancestors for the specific unit");
+            assertTrue(
+                    targetIds.containsAll(cuTargetIds),
+                    "FILE_SKELETONS ancestors should be a superset of individual units");
         }
     }
 
