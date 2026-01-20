@@ -852,23 +852,23 @@ class ReviewParserTest {
 
         // Spot check a few stable excerpt headers to ensure ordering and parsing are correct.
         assertEquals(
-                "errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java",
-                raws.get(0).file());
+                Path.of("errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java"),
+                Path.of(raws.get(0).file()));
         assertEquals(47, raws.get(0).line());
 
         assertEquals(
-                "errorprone-checks/src/main/java/ai/brokk/errorprone/TypeHierarchyUtils.java",
-                raws.get(1).file());
+                Path.of("errorprone-checks/src/main/java/ai/brokk/errorprone/TypeHierarchyUtils.java"),
+                Path.of(raws.get(1).file()));
         assertEquals(35, raws.get(1).line());
 
         assertEquals(
-                "errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java",
-                raws.get(2).file());
+                Path.of("errorprone-checks/src/main/java/ai/brokk/errorprone/BlockingOperationChecker.java"),
+                Path.of(raws.get(2).file()));
         assertEquals(83, raws.get(2).line());
 
         // Later excerpts are more likely to change ordering as the log evolves; avoid brittle index checks.
         var chromeExcerpt = raws.stream()
-                .filter(r -> r.file().equals("app/src/main/java/ai/brokk/gui/Chrome.java"))
+                .filter(r -> Path.of(r.file()).equals(Path.of("app/src/main/java/ai/brokk/gui/Chrome.java")))
                 .findFirst()
                 .orElseThrow();
         assertEquals(2493, chromeExcerpt.line());
@@ -906,8 +906,8 @@ class ReviewParserTest {
             assertEquals(1, keyChange.excerpts().size(), "Each Key Change should have exactly 1 excerpt");
 
             assertEquals(
-                    raws.get(i).file(),
-                    keyChange.excerpts().getFirst().file().getRelPath().toString(),
+                    Path.of(raws.get(i).file()),
+                    keyChange.excerpts().getFirst().file().getRelPath(),
                     "Key Change excerpt file should match raw excerpt order");
             assertEquals(
                     raws.get(i).line(),
