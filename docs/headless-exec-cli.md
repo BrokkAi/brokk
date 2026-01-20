@@ -58,8 +58,8 @@ Or via Gradle:
 | `--token TOKEN` | String | No | Random UUID | Authentication token for the executor (defaults to a randomly generated UUID if not provided) |
 | `--auto-commit` | Flag | No | `false` | Enable automatic git commits after task completion |
 | `--auto-compress` | Flag | No | `false` | Enable automatic context compression to reduce token usage |
-| `--github-token TOKEN` | String | See `ISSUE` | N/A | GitHub API token (required for `ISSUE` mode) |
-| `--repo-owner OWNER` | String | See `ISSUE` | N/A | GitHub repository owner (required for `ISSUE` mode) |
+| `--github-token TOKEN` | String | See `ISSUE`/`REVIEW` | N/A | GitHub API token (required for `ISSUE` and `REVIEW` modes) |
+| `--repo-owner OWNER` | String | See `ISSUE`/`REVIEW` | N/A | GitHub repository owner (required for `ISSUE` and `REVIEW` modes) |
 | `--repo-name REPO` | String | See `ISSUE`/`REVIEW` | N/A | GitHub repository name (required for `ISSUE` and `REVIEW` modes) |
 | `--issue-number NUMBER` | Integer | See `ISSUE` | N/A | GitHub issue number (required for `ISSUE` mode) |
 | `--pr-number NUMBER` | Integer | See `REVIEW` | N/A | GitHub PR number (required for `REVIEW` mode) |
@@ -193,15 +193,17 @@ Characteristics:
 
 ### REVIEW Mode: Pull Request Review
 
-Analyzes a Pull Request by fetching the diff and providing review comments based on the provided prompt or standard review guidelines.
+Analyzes a GitHub Pull Request by fetching the diff and providing automated review feedback in the form of inline comments.
 
 ```bash
 ./gradlew :app:runHeadlessCli --args "--mode REVIEW --planner-model gpt-5 --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api --pr-number 101 'Review this PR for security vulnerabilities and performance bottlenecks'"
 ```
 
 Characteristics:
-- **Automated Feedback**: Posts comments directly to the Pull Request.
-- **Context Aware**: Analyzes the specific changes introduced in the PR.
+- **Read-only**: Does not modify the source code in the repository.
+- **Automated Feedback**: Posts inline comments directly to the Pull Request on GitHub.
+- **Uses Planner Model**: Utilizes the `--planner-model` for analyzing the diff and generating review feedback.
+- **Context Aware**: Analyzes the specific changes introduced in the PR compared to the base branch.
 
 **Required for REVIEW mode:**
 - `--github-token`: A valid GitHub PAT with repository access.
@@ -365,6 +367,12 @@ Optimize cost and performance by using different models:
 **Cause:** One or more required fields for `ISSUE` mode (`--github-token`, `--repo-owner`, `--repo-name`, or `--issue-number`) were omitted while using `--mode ISSUE`.
 
 **Solution:** Ensure all four required GitHub parameters are provided when running in `ISSUE` mode.
+
+### Issue: "REVIEW mode required fields missing"
+
+**Cause:** One or more required fields for `REVIEW` mode (`--github-token`, `--repo-owner`, `--repo-name`, or `--pr-number`) were omitted while using `--mode REVIEW`.
+
+**Solution:** Ensure all four required GitHub parameters are provided when running in `REVIEW` mode.
 
 ### Issue: "Job streaming timeout"
 
