@@ -533,12 +533,22 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         Path resolvedPath = parentDir.resolve(modulePath).normalize();
         Path root = getProject().getRoot();
 
-        List<String> extensions = List.of(
-                "", ".js", ".jsx", ".ts", ".tsx",
-                "/index.js", "/index.jsx", "/index.ts", "/index.tsx");
+        // 1. Try direct file path and file extensions
+        List<String> fileExtensions = List.of("", ".js", ".jsx", ".ts", ".tsx");
+        for (String ext : fileExtensions) {
+            Path candidatePath = ext.isEmpty()
+                    ? resolvedPath
+                    : resolvedPath.resolveSibling(resolvedPath.getFileName().toString() + ext);
 
-        for (String ext : extensions) {
-            Path candidatePath = Path.of(resolvedPath.toString() + ext);
+            if (Files.exists(candidatePath) && candidatePath.startsWith(root)) {
+                return new ProjectFile(root, root.relativize(candidatePath));
+            }
+        }
+
+        // 2. Try directory index files
+        List<String> indexFiles = List.of("index.js", "index.jsx", "index.ts", "index.tsx");
+        for (String indexFile : indexFiles) {
+            Path candidatePath = resolvedPath.resolve(indexFile);
             if (Files.exists(candidatePath) && candidatePath.startsWith(root)) {
                 return new ProjectFile(root, root.relativize(candidatePath));
             }
