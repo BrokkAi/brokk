@@ -290,9 +290,5 @@
 ; IMPORTS
 ; ============================================================================
 
-; CommonJS require statements
-(call_expression
-  function: (identifier) @_func_name
-  arguments: (arguments (string) @_path)
-  (#eq? @_func_name "require")
-) @module.import_statement
+; ES6 import statements
+(import_statement) @module.import_statement

@@ -3,7 +3,6 @@ package ai.brokk.analyzer.imports;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
@@ -13,7 +12,7 @@ import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-public class JavaScriptImportTest {
+public class TypeScriptImportTest {
 
     private TreeSitterAnalyzer createAnalyzer(IProject project) {
         return (TreeSitterAnalyzer) project.getBuildLanguage().createAnalyzer(project);
@@ -28,12 +27,15 @@ public class JavaScriptImportTest {
                 import * as AllThings from './all-the-things';
                 import DefaultThing from './default-thing';
 
-                function foo() {};
+                function foo(): void {};
                 """,
-                        "foo.js")
+                        "foo.ts")
                 .build()) {
             var analyzer = createAnalyzer(testProject);
-            var file = AnalyzerUtil.getFileFor(analyzer, "foo").get();
+            var file = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().equals("foo.ts"))
+                    .findFirst()
+                    .get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of(
                     "import { Something, AnotherThing as AT } from './another-module';",
@@ -48,20 +50,20 @@ public class JavaScriptImportTest {
     public void testResolveImports() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                export function helper() { return 42; }
+                export function helper(): number { return 42; }
                 """,
-                        "utils/helper.js")
+                        "utils/helper.ts")
                 .addFileContents(
                         """
                 import { helper } from './utils/helper';
-                function main() { return helper(); }
+                function main(): number { return helper(); }
                 """,
-                        "main.js")
+                        "main.ts")
                 .build()) {
 
             var analyzer = createAnalyzer(testProject);
             var mainFile = testProject.getAllFiles().stream()
-                    .filter(f -> f.getRelPath().toString().endsWith("main.js"))
+                    .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
                     .findFirst()
                     .get();
 
@@ -69,9 +71,9 @@ public class JavaScriptImportTest {
 
             boolean foundHelper = importedUnits.stream()
                     .anyMatch(cu -> cu.shortName().equals("helper")
-                            && cu.source().getRelPath().toString().contains("helper.js"));
+                            && cu.source().getRelPath().toString().contains("helper.ts"));
 
-            assertTrue(foundHelper, "Should have resolved 'helper' function from utils/helper.js");
+            assertTrue(foundHelper, "Should have resolved 'helper' function from utils/helper.ts");
         }
     }
 
@@ -79,25 +81,25 @@ public class JavaScriptImportTest {
     public void testResolveWildcardImport() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                export function add(a, b) { return a + b; }
-                export function subtract(a, b) { return a - b; }
-                export const PI = 3.14159;
+                export function add(a: number, b: number): number { return a + b; }
+                export function subtract(a: number, b: number): number { return a - b; }
+                export const PI: number = 3.14159;
                 """,
-                        "math/operations.js")
+                        "math/operations.ts")
                 .addFileContents(
                         """
                 import * as MathOps from './math/operations';
 
-                function calculate() {
+                function calculate(): number {
                     return MathOps.add(1, 2) + MathOps.PI;
                 }
                 """,
-                        "calculator.js")
+                        "calculator.ts")
                 .build()) {
 
             var analyzer = createAnalyzer(testProject);
             var calculatorFile = testProject.getAllFiles().stream()
-                    .filter(f -> f.getRelPath().toString().endsWith("calculator.js"))
+                    .filter(f -> f.getRelPath().toString().endsWith("calculator.ts"))
                     .findFirst()
                     .get();
 
@@ -121,24 +123,24 @@ public class JavaScriptImportTest {
         try (var testProject = InlineTestProjectCreator.code(
                         """
                 export class BaseService {
-                    getData() { return []; }
+                    getData(): any[] { return []; }
                 }
                 """,
-                        "src/some/BaseService.js")
+                        "src/some/BaseService.ts")
                 .addFileContents(
                         """
                 import { BaseService } from '../BaseService';
 
                 export class ChildService extends BaseService {
-                    process() { return this.getData().map(x => x * 2); }
+                    process(): number[] { return this.getData().map(x => x * 2); }
                 }
                 """,
-                        "src/some/dir/ChildService.js")
+                        "src/some/dir/ChildService.ts")
                 .build()) {
 
             var analyzer = createAnalyzer(testProject);
             var childFile = testProject.getAllFiles().stream()
-                    .filter(f -> f.getRelPath().toString().endsWith("ChildService.js"))
+                    .filter(f -> f.getRelPath().toString().endsWith("ChildService.ts"))
                     .findFirst()
                     .get();
 
@@ -147,9 +149,9 @@ public class JavaScriptImportTest {
             boolean foundBaseService = importedUnits.stream()
                     .anyMatch(cu -> cu.shortName().equals("BaseService")
                             && cu.isClass()
-                            && cu.source().getRelPath().toString().contains("src/some/BaseService.js"));
+                            && cu.source().getRelPath().toString().contains("src/some/BaseService.ts"));
 
-            assertTrue(foundBaseService, "Should have resolved 'BaseService' class from src/some/BaseService.js");
+            assertTrue(foundBaseService, "Should have resolved 'BaseService' class from src/some/BaseService.ts");
         }
     }
 
@@ -162,12 +164,15 @@ public class JavaScriptImportTest {
                 const local = require('./local-module');
                 const { func } = require('../other');
 
-                function app() {}
+                function app(): void {}
                 """,
-                        "app.js")
+                        "app.ts")
                 .build()) {
             var analyzer = createAnalyzer(testProject);
-            var file = AnalyzerUtil.getFileFor(analyzer, "app").get();
+            var file = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().equals("app.ts"))
+                    .findFirst()
+                    .get();
             var imports = analyzer.importStatementsOf(file);
 
             assertTrue(imports.stream().anyMatch(s -> s.contains("require('path')")));
@@ -182,19 +187,20 @@ public class JavaScriptImportTest {
     public void testResolveRequireImport() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                export function shared() { return 1; }
-                """, "lib/shared.js")
+                export function shared(): number { return 1; }
+                """,
+                        "lib/shared.ts")
                 .addFileContents(
                         """
                 const { shared } = require('./lib/shared');
                 shared();
                 """,
-                        "index.js")
+                        "index.ts")
                 .build()) {
 
             var analyzer = createAnalyzer(testProject);
             var indexFile = testProject.getAllFiles().stream()
-                    .filter(f -> f.getRelPath().toString().endsWith("index.js"))
+                    .filter(f -> f.getRelPath().toString().endsWith("index.ts"))
                     .findFirst()
                     .get();
 
@@ -202,7 +208,7 @@ public class JavaScriptImportTest {
 
             boolean foundShared = importedUnits.stream()
                     .anyMatch(cu -> cu.shortName().equals("shared")
-                            && cu.source().getRelPath().toString().contains("shared.js"));
+                            && cu.source().getRelPath().toString().contains("shared.ts"));
 
             assertTrue(foundShared, "Should have resolved 'shared' function from require call");
         }
@@ -212,22 +218,23 @@ public class JavaScriptImportTest {
     public void testMixedImportAndRequire() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                export const val = 100;
-                """, "mod1.js")
-                .addFileContents("""
-                export const otherVal = 200;
-                """, "mod2.js")
+                export const val: number = 100;
+                """, "mod1.ts")
+                .addFileContents(
+                        """
+                export const otherVal: number = 200;
+                """, "mod2.ts")
                 .addFileContents(
                         """
                 import { val } from './mod1';
                 const { otherVal } = require('./mod2');
                 """,
-                        "mixed.js")
+                        "mixed.ts")
                 .build()) {
 
             var analyzer = createAnalyzer(testProject);
             var mixedFile = testProject.getAllFiles().stream()
-                    .filter(f -> f.getRelPath().toString().endsWith("mixed.js"))
+                    .filter(f -> f.getRelPath().toString().endsWith("mixed.ts"))
                     .findFirst()
                     .get();
 
