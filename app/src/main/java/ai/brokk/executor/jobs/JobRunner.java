@@ -1032,7 +1032,8 @@ public final class JobRunner {
                                                             return;
                                                         }
 
-                                                        String reviewFixTaskDescription = lastTaskDescription.get();
+                                                        String reviewFixTaskDescription =
+                                                                Objects.requireNonNull(lastTaskDescription.get());
 
                                                         try {
                                                             new GitWorkflow(cm)
