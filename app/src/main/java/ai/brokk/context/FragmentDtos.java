@@ -44,7 +44,6 @@ public class FragmentDtos {
                     PasteTextFragmentDto,
                     PasteImageFragmentDto,
                     StacktraceFragmentDto,
-                    CallGraphFragmentDto,
                     CodeFragmentDto,
                     HistoryFragmentDto,
                     BuildFragmentDto,
@@ -229,24 +228,6 @@ public class FragmentDtos {
         }
     }
 
-    /**
-     * DTO for CallGraphFragment - contains method name, depth, and graph type (callee/caller).
-     * @deprecated Legacy support only. Use {@link UsageFragmentDto} for new code.
-     * This record is retained only for backward compatibility with saved contexts and is migrated
-     * to UsageFragment during deserialization.
-     */
-    @Deprecated
-    public record CallGraphFragmentDto(String id, String methodName, int depth, boolean isCalleeGraph)
-            implements VirtualFragmentDto { // id changed to String
-        public CallGraphFragmentDto {
-            if (methodName.isEmpty()) {
-                throw new IllegalArgumentException("methodName cannot be null or empty");
-            }
-            if (depth <= 0) {
-                throw new IllegalArgumentException("depth must be positive");
-            }
-        }
-    }
 
     /** DTO for CodeFragment - contains the fully qualified name of the code unit. */
     public record CodeFragmentDto(String id, String fullyQualifiedName, @Nullable String snapshotText)

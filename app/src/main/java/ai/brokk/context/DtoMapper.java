@@ -41,15 +41,6 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Mapper to convert between Context domain objects and DTO representations.
  */
-/**
- * Migration support for legacy CallGraphFragmentDto:
- *
- * CallGraphFragmentDto is retained in {@link FragmentDtos} for backward compatibility with
- * saved contexts that contain serialized CallGraphFragment instances. During deserialization,
- * legacy CallGraphFragmentDto objects are automatically migrated to UsageFragment.
- * This ensures old sessions can be loaded without data loss, but new code should not use
- * CallGraphFragmentDto directly—it is for deserialization only.
- */
 public class DtoMapper {
     private static final Logger logger = LogManager.getLogger(DtoMapper.class);
 
@@ -264,7 +255,6 @@ public class DtoMapper {
         return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.taskDescription());
     }
 
-    @SuppressWarnings("deprecation")
     private static @Nullable ContextFragment _buildVirtualFragment(
             @Nullable VirtualFragmentDto dto,
             IContextManager mgr,
@@ -346,8 +336,6 @@ public class DtoMapper {
                         stDto.exception(),
                         reader.readContent(stDto.codeContentId()));
             }
-            case CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.UsageFragment(callGraphDto.id(), mgr, callGraphDto.methodName(), true);
             case CodeFragmentDto codeDto -> {
                 String snapshot = codeDto.snapshotText() != null ? reader.readContent(codeDto.snapshotText()) : null;
                 yield new ContextFragments.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);
