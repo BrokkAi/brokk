@@ -1507,7 +1507,7 @@ public class Chrome
 
     @Override
     public void updateWorkspace() {
-        // No-op for now; WorkspaceItemsChipPanel updates via ContextListener
+        rightPanel.requestReviewUpdate();
     }
 
     public ContextManager getContextManager() {
