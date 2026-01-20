@@ -37,9 +37,8 @@ public final class CefAppProviderFactory {
             if (new MavenCefProvider().isAvailable()) {
                 return "Maven";
             }
-            System.out.println("[CEF DEBUG] MavenCefProvider.isAvailable() returned false");
         } catch (NoClassDefFoundError e) {
-            System.out.println("[CEF DEBUG] MavenCefProvider dependencies not available: " + e.getMessage());
+            // MavenCefProvider dependencies not available
         }
         return "none";
     }

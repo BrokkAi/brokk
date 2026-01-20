@@ -39,6 +39,25 @@ public final class CefSettingsHelper {
     public static void configureCommonSettings(CefSettings settings) {
         settings.windowless_rendering_enabled = false;
         configureThemeBackground(settings);
+        configureLogging(settings);
+    }
+
+    /**
+     * Configures CEF logging to redirect to Brokk's debug log file.
+     *
+     * @param settings the CefSettings to configure
+     */
+    public static void configureLogging(CefSettings settings) {
+        String userHome = System.getProperty("user.home");
+        if (userHome == null) {
+            logger.warn("user.home not set, cannot configure CEF log path");
+            return;
+        }
+
+        Path logFile = Paths.get(userHome, ".brokk", "cef.log");
+        settings.log_file = logFile.toString();
+        settings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_WARNING;
+        logger.debug("Set CEF log file to: {}", logFile);
     }
 
     /**
