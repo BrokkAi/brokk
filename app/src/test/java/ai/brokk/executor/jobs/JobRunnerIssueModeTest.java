@@ -576,18 +576,22 @@ class JobRunnerIssueModeTest {
 
     @Test
     void issueModeComputeInlineComments_emptyDiff_returnsEmptyList() throws Exception {
-        // Determinism requirement: when the base branch and HEAD point to the same commit,
-        // the unified diff is empty, and the ISSUE-mode review helper must return an empty list.
-        //
-        // We validate the precondition (empty diff) using the same diff computation primitive
-        // used by ISSUE/REVIEW mode: PrReviewService.computePrDiff(...).
+        // Precondition (optional): when the base branch and HEAD point to the same commit, the unified diff is empty.
         String baseBranch = repo.getCurrentBranch();
 
         String diff = PrReviewService.computePrDiff(repo, baseBranch, "HEAD");
         assertTrue(diff.isBlank(), "Precondition: diff must be empty when baseBranch == HEAD");
 
-        // The helper must short-circuit deterministically on empty diff, returning no comments.
-        var expected = List.<PrReviewService.InlineComment>of();
-        assertTrue(expected.isEmpty());
+        var reviewCalls = new AtomicInteger(0);
+
+        var comments = JobRunner.issueModeComputeInlineCommentsOrEmpty(
+                () -> "",
+                ignoredDiff -> {
+                    reviewCalls.incrementAndGet();
+                    return List.of();
+                });
+
+        assertTrue(comments.isEmpty(), "Empty diff must short-circuit to no inline comments");
+        assertEquals(0, reviewCalls.get(), "Review callback must not be invoked when diff is blank");
     }
 }

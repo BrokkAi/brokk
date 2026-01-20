@@ -2049,6 +2049,16 @@ public final class JobRunner {
         finalVerificationPass.run();
     }
 
+    static List<PrReviewService.InlineComment> issueModeComputeInlineCommentsOrEmpty(
+            java.util.function.Supplier<String> diffSupplier,
+            java.util.function.Function<String, List<PrReviewService.InlineComment>> reviewAndParse) {
+        String diff = diffSupplier.get();
+        if (diff.isBlank()) {
+            return List.of();
+        }
+        return reviewAndParse.apply(diff);
+    }
+
     List<PrReviewService.InlineComment> issueModeComputeInlineComments(
             String jobId,
             JobStore store,
@@ -2075,49 +2085,57 @@ public final class JobRunner {
 
         String baseRef = remoteName != null ? remoteName + "/" + baseBranch : baseBranch;
 
-        String diff;
-        try {
-            diff = PrReviewService.computePrDiff(gitRepo, baseRef, "HEAD");
-        } catch (GitAPIException e) {
-            throw new IssueExecutionException(
-                    "Failed to compute diff for issue review (baseRef=" + baseRef + "): " + e.getMessage(), e);
-        }
+        return issueModeComputeInlineCommentsOrEmpty(
+                () -> {
+                    try {
+                        return PrReviewService.computePrDiff(gitRepo, baseRef, "HEAD");
+                    } catch (GitAPIException e) {
+                        throw new IssueExecutionException(
+                                "Failed to compute diff for issue review (baseRef=" + baseRef + "): " + e.getMessage(),
+                                e);
+                    }
+                },
+                diff -> {
+                    String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);
+                    if (annotatedDiff.isBlank()) {
+                        return List.of();
+                    }
 
-        if (diff.isBlank()) {
-            return List.of();
-        }
+                    TaskResult reviewResult = reviewDiff(ctx, reviewModel, annotatedDiff);
+                    String reviewText = reviewResult.output().text().join();
 
-        String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);
-        if (annotatedDiff.isBlank()) {
-            return List.of();
-        }
+                    var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
+                    if (reviewResponse == null) {
+                        String preview =
+                                reviewText.length() > 500 ? reviewText.substring(0, 500) + "..." : reviewText;
+                        throw new IssueExecutionException(
+                                "Issue diff review response was not valid JSON. Response preview: " + preview);
+                    }
 
-        TaskResult reviewResult = reviewDiff(ctx, reviewModel, annotatedDiff);
-        String reviewText = reviewResult.output().text().join();
+                    var filtered = PrReviewService.filterInlineComments(
+                            reviewResponse.comments(),
+                            DEFAULT_REVIEW_SEVERITY_THRESHOLD,
+                            DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
 
-        var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
-        if (reviewResponse == null) {
-            String preview = reviewText.length() > 500 ? reviewText.substring(0, 500) + "..." : reviewText;
-            throw new IssueExecutionException(
-                    "Issue diff review response was not valid JSON. Response preview: " + preview);
-        }
+                    if (!filtered.isEmpty()) {
+                        try {
+                            store.appendEvent(
+                                    jobId,
+                                    JobEvent.of(
+                                            "NOTIFICATION",
+                                            "Review-bot: generated " + filtered.size()
+                                                    + " inline comment(s) (severity >= "
+                                                    + DEFAULT_REVIEW_SEVERITY_THRESHOLD + ")"));
+                        } catch (IOException e) {
+                            logger.warn(
+                                    "Failed to append review-bot notification event for job {}: {}",
+                                    jobId,
+                                    e.getMessage(),
+                                    e);
+                        }
+                    }
 
-        var filtered = PrReviewService.filterInlineComments(
-                reviewResponse.comments(), DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
-
-        if (!filtered.isEmpty()) {
-            try {
-                store.appendEvent(
-                        jobId,
-                        JobEvent.of(
-                                "NOTIFICATION",
-                                "Review-bot: generated " + filtered.size() + " inline comment(s) (severity >= "
-                                        + DEFAULT_REVIEW_SEVERITY_THRESHOLD + ")"));
-            } catch (IOException e) {
-                logger.warn("Failed to append review-bot notification event for job {}: {}", jobId, e.getMessage(), e);
-            }
-        }
-
-        return filtered;
+                    return filtered;
+                });
     }
 }
