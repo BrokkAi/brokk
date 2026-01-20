@@ -3,6 +3,7 @@ package ai.brokk.gui.mop.webview;
 import ai.brokk.ContextManager;
 import ai.brokk.DependencyException;
 import ai.brokk.TaskEntry;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ChunkMeta;
 import ai.brokk.gui.mop.ThemeColors;
@@ -19,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.swing.JComponent;
@@ -168,15 +170,8 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                                         || errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_RESET)) {
                             logger.info("Retrying load after connection error...");
                             // Retry after a short delay
-                            new Thread(() -> {
-                                        try {
-                                            Thread.sleep(500);
-                                            browser.reload();
-                                        } catch (InterruptedException e) {
-                                            Thread.currentThread().interrupt();
-                                        }
-                                    })
-                                    .start();
+                            var delayedExecutor = CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS);
+                            LoggingFuture.supplyAsync(browser::reload, delayedExecutor);
                         }
                     }
                 });
