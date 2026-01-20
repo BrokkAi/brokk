@@ -46,7 +46,7 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
      */
     private static final Map<String, List<String>> SAFE_BACKGROUND_CONTEXTS = Map.of(
             "ai.brokk.IContextManager", List.of("submitBackgroundTask"),
-            "ai.brokk.concurrent.LoggingFuture", List.of("supplyAsync", "supplyCallableAsync", "allOf", "anyOf"));
+            "ai.brokk.concurrent.LoggingFuture", List.of("supplyAsync", "supplyCallableAsync"));
 
     private static boolean hasDirectAnnotation(Symbol sym, String fqcn) {
         for (var a : sym.getAnnotationMirrors()) {
