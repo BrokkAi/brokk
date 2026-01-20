@@ -715,7 +715,8 @@ public class Chrome
         }
 
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
-        @Nullable KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
+        @Nullable
+        KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.closeWindow", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
         if (closeWindowKeyStroke == null) {
             closeWindowKeyStroke = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
