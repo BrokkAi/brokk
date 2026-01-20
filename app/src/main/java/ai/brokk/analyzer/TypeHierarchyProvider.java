@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * Capability provider for analyzers that support type hierarchy resolution.
@@ -53,7 +54,8 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
      * @return a list of transitive related code units, ordered by discovery (BFS),
      *         with duplicates removed by fqName and cycles handled gracefully
      */
-    private List<CodeUnit> traverseHierarchy(CodeUnit cu, java.util.function.Function<CodeUnit, ? extends java.util.Collection<CodeUnit>> directionFn) {
+    private List<CodeUnit> traverseHierarchy(
+            CodeUnit cu, Function<CodeUnit, ? extends Collection<CodeUnit>> directionFn) {
         // Seed with initial direction
         var direct = directionFn.apply(cu);
         if (direct.isEmpty()) {

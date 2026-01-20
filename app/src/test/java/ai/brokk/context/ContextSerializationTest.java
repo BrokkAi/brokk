@@ -2123,20 +2123,13 @@ public class ContextSerializationTest {
     @Test
     void testCallGraphFragmentDtoDeserializationReturnsNull() {
         // CallGraph fragments are no longer supported and should be dropped (return null) during V3 migration
-        var dto = new V3_FragmentDtos.CallGraphFragmentDto(
-                "test-id", "com.example.MyClass.myMethod", 1, true);
+        var dto = new V3_FragmentDtos.CallGraphFragmentDto("test-id", "com.example.MyClass.myMethod", 1, true);
 
         var virtualDtos = Map.of(dto.id(), (V3_FragmentDtos.VirtualFragmentDto) dto);
         var contentReader = new V3_HistoryIo.ContentReader(Map.of());
 
         ContextFragment result = V3_DtoMapper.resolveAndBuildFragment(
-                dto.id(),
-                Map.of(),
-                virtualDtos,
-                Map.of(),
-                mockContextManager,
-                new HashMap<>(),
-                contentReader);
+                dto.id(), Map.of(), virtualDtos, Map.of(), mockContextManager, new HashMap<>(), contentReader);
 
         assertNull(result, "CallGraphFragmentDto should resolve to null (dropped)");
     }
@@ -2207,5 +2200,4 @@ public class ContextSerializationTest {
         assertEquals("Group A Label", loadedLabels.get(groupA));
         assertEquals("Group B Label", loadedLabels.get(groupB));
     }
-
 }

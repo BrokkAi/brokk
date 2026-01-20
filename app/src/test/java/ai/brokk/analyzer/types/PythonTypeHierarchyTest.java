@@ -17,7 +17,6 @@ import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
@@ -59,21 +58,28 @@ public final class PythonTypeHierarchyTest {
         ProjectFile simplePy = new ProjectFile(testProject.getRoot(), "inheritance/simple.py");
         Set<CodeUnit> simpleDecls = testAnalyzer.getDeclarations(simplePy);
 
-        var dogClass = simpleDecls.stream().filter(cu -> cu.identifier().equals("Dog")).findFirst();
+        var dogClass =
+                simpleDecls.stream().filter(cu -> cu.identifier().equals("Dog")).findFirst();
         assertTrue(dogClass.isPresent(), "Dog class should be found");
 
-        var animalClass = simpleDecls.stream().filter(cu -> cu.identifier().equals("Animal")).findFirst();
+        var animalClass = simpleDecls.stream()
+                .filter(cu -> cu.identifier().equals("Animal"))
+                .findFirst();
         assertTrue(animalClass.isPresent(), "Animal class should be found");
 
         var dogAncestors = testAnalyzer.getDirectAncestors(dogClass.get());
         assertEquals(1, dogAncestors.size(), "Dog should have exactly 1 direct ancestor (Animal)");
-        assertTrue(dogAncestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")), "Dog's ancestor should be Animal");
+        assertTrue(
+                dogAncestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
+                "Dog's ancestor should be Animal");
 
         // Test 2: Multi-level inheritance
         ProjectFile multilevelPy = new ProjectFile(testProject.getRoot(), "inheritance/multilevel.py");
         Set<CodeUnit> multilevelDecls = testAnalyzer.getDeclarations(multilevelPy);
 
-        var childClass = multilevelDecls.stream().filter(cu -> cu.identifier().equals("Child")).findFirst();
+        var childClass = multilevelDecls.stream()
+                .filter(cu -> cu.identifier().equals("Child"))
+                .findFirst();
         assertTrue(childClass.isPresent(), "Child class should be found");
 
         var childDirectAncestors = testAnalyzer.getDirectAncestors(childClass.get());
@@ -86,7 +92,9 @@ public final class PythonTypeHierarchyTest {
         ProjectFile childPy = new ProjectFile(testProject.getRoot(), "inheritance/child.py");
         Set<CodeUnit> childFileDecls = testAnalyzer.getDeclarations(childPy);
 
-        var birdClass = childFileDecls.stream().filter(cu -> cu.identifier().equals("Bird")).findFirst();
+        var birdClass = childFileDecls.stream()
+                .filter(cu -> cu.identifier().equals("Bird"))
+                .findFirst();
         assertTrue(birdClass.isPresent(), "Bird class should be found");
 
         var birdAncestors = testAnalyzer.getDirectAncestors(birdClass.get());
@@ -96,7 +104,9 @@ public final class PythonTypeHierarchyTest {
         ProjectFile multiplePy = new ProjectFile(testProject.getRoot(), "inheritance/multiple.py");
         Set<CodeUnit> multipleDecls = testAnalyzer.getDeclarations(multiplePy);
 
-        var duckClass = multipleDecls.stream().filter(cu -> cu.identifier().equals("Duck")).findFirst();
+        var duckClass = multipleDecls.stream()
+                .filter(cu -> cu.identifier().equals("Duck"))
+                .findFirst();
         assertTrue(duckClass.isPresent(), "Duck class should be found");
 
         var duckAncestors = testAnalyzer.getDirectAncestors(duckClass.get());
@@ -108,24 +118,30 @@ public final class PythonTypeHierarchyTest {
     @Test
     void testRelativeImportSameDirectory() throws Exception {
         var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
-                .addFileContents("""
+                .addFileContents(
+                        """
                 class ChildClass:
                     def child_method(self):
                         pass
-                """, "mypackage/child.py");
+                """,
+                        "mypackage/child.py");
 
-        try (var testProject = builder.addFileContents("""
+        try (var testProject = builder.addFileContents(
+                        """
                 from .child import ChildClass
 
                 class SiblingClass:
                     def __init__(self):
                         self.child = ChildClass()
-                """, "mypackage/sibling.py").build()) {
+                """,
+                        "mypackage/sibling.py")
+                .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var siblingFile = new ProjectFile(testProject.getRoot(), "mypackage/sibling.py");
             var imports = analyzer.importedCodeUnitsOf(siblingFile);
 
-            assertTrue(imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.child.ChildClass")),
+            assertTrue(
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.child.ChildClass")),
                     "Should resolve 'from .child import ChildClass' to mypackage.child.ChildClass");
         }
     }
@@ -134,24 +150,30 @@ public final class PythonTypeHierarchyTest {
     void testRelativeImportParentDirectory() throws Exception {
         var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
                 .addFileContents("# Subpackage marker\n", "mypackage/subdir/__init__.py")
-                .addFileContents("""
+                .addFileContents(
+                        """
                 class BaseClass:
                     def base_method(self):
                         pass
-                """, "mypackage/base.py");
+                """,
+                        "mypackage/base.py");
 
-        try (var testProject = builder.addFileContents("""
+        try (var testProject = builder.addFileContents(
+                        """
                 from ..base import BaseClass
 
                 class ChildClass(BaseClass):
                     def child_method(self):
                         pass
-                """, "mypackage/subdir/child.py").build()) {
+                """,
+                        "mypackage/subdir/child.py")
+                .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var childFile = new ProjectFile(testProject.getRoot(), "mypackage/subdir/child.py");
             var imports = analyzer.importedCodeUnitsOf(childFile);
 
-            assertTrue(imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.base.BaseClass")),
+            assertTrue(
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.base.BaseClass")),
                     "Should resolve 'from ..base import BaseClass' to mypackage.base.BaseClass");
         }
     }
@@ -161,24 +183,30 @@ public final class PythonTypeHierarchyTest {
         var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
                 .addFileContents("# Subpackage marker\n", "mypackage/subdir/__init__.py")
                 .addFileContents("# Deep package marker\n", "mypackage/subdir/deep/__init__.py")
-                .addFileContents("""
+                .addFileContents(
+                        """
                 class TopClass:
                     def top_method(self):
                         pass
-                """, "mypackage/top.py");
+                """,
+                        "mypackage/top.py");
 
-        try (var testProject = builder.addFileContents("""
+        try (var testProject = builder.addFileContents(
+                        """
                 from ...top import TopClass
 
                 class DeepClass(TopClass):
                     def deep_method(self):
                         pass
-                """, "mypackage/subdir/deep/nested.py").build()) {
+                """,
+                        "mypackage/subdir/deep/nested.py")
+                .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var nestedFile = new ProjectFile(testProject.getRoot(), "mypackage/subdir/deep/nested.py");
             var imports = analyzer.importedCodeUnitsOf(nestedFile);
 
-            assertTrue(imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.top.TopClass")),
+            assertTrue(
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.top.TopClass")),
                     "Should resolve 'from ...top import TopClass' to mypackage.top.TopClass");
         }
     }
@@ -187,29 +215,38 @@ public final class PythonTypeHierarchyTest {
     void testRelativeImportInheritance() throws Exception {
         var builder = InlineTestProjectCreator.code("# Package marker\n", "zoo/__init__.py")
                 .addFileContents("# Subpackage marker\n", "zoo/mammals/__init__.py")
-                .addFileContents("""
+                .addFileContents(
+                        """
                 class Animal:
                     def speak(self):
                         pass
-                """, "zoo/animal.py");
+                """,
+                        "zoo/animal.py");
 
-        try (var testProject = builder.addFileContents("""
+        try (var testProject = builder.addFileContents(
+                        """
                 from ..animal import Animal
 
                 class Dog(Animal):
                     def bark(self):
                         return "woof"
-                """, "zoo/mammals/dog.py").build()) {
+                """,
+                        "zoo/mammals/dog.py")
+                .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var dogFile = new ProjectFile(testProject.getRoot(), "zoo/mammals/dog.py");
             var dogDecls = analyzer.getDeclarations(dogFile);
 
-            var dogClass = dogDecls.stream().filter(cu -> cu.identifier().equals("Dog")).findFirst();
+            var dogClass = dogDecls.stream()
+                    .filter(cu -> cu.identifier().equals("Dog"))
+                    .findFirst();
             assertTrue(dogClass.isPresent(), "Dog class should be found");
 
-            var ancestors = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(dogClass.get());
+            var ancestors =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(dogClass.get());
             assertEquals(1, ancestors.size(), "Dog should have exactly 1 direct ancestor (Animal)");
-            assertTrue(ancestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
+            assertTrue(
+                    ancestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
                     "Dog should extend Animal via relative import");
         }
     }
@@ -217,11 +254,13 @@ public final class PythonTypeHierarchyTest {
     @Test
     void testPackagedFunctionLocalClasses() throws Exception {
         var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
-                .addFileContents("""
+                .addFileContents(
+                        """
                 def my_function():
                     class LocalClass:
                         pass
-                """, "mypackage/packaged_functions.py");
+                """,
+                        "mypackage/packaged_functions.py");
 
         try (var testProject = builder.build()) {
             var analyzer = new PythonAnalyzer(testProject);
@@ -241,7 +280,8 @@ public final class PythonTypeHierarchyTest {
             CodeUnit localClass = localClasses.getFirst();
 
             var functionChildren = analyzer.getDirectChildren(myFunction);
-            assertTrue(functionChildren.stream().anyMatch(cu -> cu.equals(localClass)),
+            assertTrue(
+                    functionChildren.stream().anyMatch(cu -> cu.equals(localClass)),
                     "LocalClass should be a child of my_function");
         }
     }
@@ -260,41 +300,51 @@ public final class PythonTypeHierarchyTest {
                 .filter(cu -> !cu.fqName().contains(".test_backend_variable_cls$"))
                 .collect(Collectors.toList());
 
-        assertTrue(topLevelClasses.stream().anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.ExampleTestState")));
-        assertTrue(topLevelClasses.stream().anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.DataFrame")));
+        assertTrue(topLevelClasses.stream()
+                .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.ExampleTestState")));
+        assertTrue(
+                topLevelClasses.stream().anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.DataFrame")));
 
         project.close();
     }
 
     @Test
     void testDiamondInheritanceSupportingFragments() throws Exception {
-        var builder = InlineTestProjectCreator.code("""
+        var builder = InlineTestProjectCreator.code(
+                        """
                 class A:
                     def method_a(self):
                         pass
-                """, "diamond/a.py")
-                .addFileContents("""
+                """,
+                        "diamond/a.py")
+                .addFileContents(
+                        """
                 from .a import A
 
                 class B(A):
                     def method_b(self):
                         pass
-                """, "diamond/b.py")
-                .addFileContents("""
+                """,
+                        "diamond/b.py")
+                .addFileContents(
+                        """
                 from .a import A
 
                 class C(A):
                     def method_c(self):
                         pass
-                """, "diamond/c.py")
-                .addFileContents("""
+                """,
+                        "diamond/c.py")
+                .addFileContents(
+                        """
                 from .b import B
                 from .c import C
 
                 class D(B, C):
                     def method_d(self):
                         pass
-                """, "diamond/d.py")
+                """,
+                        "diamond/d.py")
                 .addFileContents("# Package marker\n", "diamond/__init__.py");
 
         try (var testProject = builder.build()) {

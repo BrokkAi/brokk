@@ -7,12 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestConsoleIO;
-import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -924,7 +919,6 @@ public final class PythonAnalyzerTest {
                 "UniqueInner class should exist");
     }
 
-
     @Test
     public void testCodeUnitsAreDeduplicated() {
         // getAllDeclarations should not contain duplicate FQNs even if multiple capture paths produce same logical unit
@@ -1111,7 +1105,6 @@ public final class PythonAnalyzerTest {
         testProject.close();
     }
 
-
     @Test
     void testAnnotatedAndTupleAssignments() {
         // Test capture of various Python assignment patterns:
@@ -1194,7 +1187,6 @@ public final class PythonAnalyzerTest {
 
         testProject.close();
     }
-
 
     @Test
     void testNonStandardNamingConventions() {
@@ -1486,7 +1478,6 @@ public final class PythonAnalyzerTest {
             assertEquals(0, oldFormat.size(), "Old __init__ FQN format should not work anymore");
         }
     }
-
 
     @Test
     public void getUsesClassComprehensivePatternsTest() {
