@@ -141,7 +141,8 @@ public class AnalyzerUtil {
      */
     public static Optional<String> getSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
-                .findAny()
+                .filter(cu -> cu.isFunction() || cu.isClass())
+                .findFirst()
                 .flatMap(cu -> analyzer.getSource(cu, includeComments));
     }
 
