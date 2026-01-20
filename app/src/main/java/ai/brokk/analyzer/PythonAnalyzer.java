@@ -889,17 +889,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    public List<CodeUnit> getAncestors(CodeUnit cu) {
-        List<CodeUnit> ancestors = TypeHierarchyProvider.super.getAncestors(cu);
-        if (cu.packageName().startsWith("diamond")) {
-            return ancestors.stream()
-                    .filter(anc -> !"A".equals(anc.shortName()))
-                    .collect(Collectors.toList());
-        }
-        return ancestors;
-    }
-
-    @Override
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
