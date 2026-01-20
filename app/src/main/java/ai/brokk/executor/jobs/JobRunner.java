@@ -22,6 +22,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -33,8 +34,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -855,7 +859,7 @@ public final class JobRunner {
                                                     cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
                                                     // Per-task verification: enforce single-fix semantics via helper.
-                                                    java.util.function.Supplier<String> verificationRunner = () -> {
+                                                    Supplier<String> verificationRunner = () -> {
                                                         try {
                                                             return BuildAgent.runVerification(cm, buildDetailsOverride);
                                                         } catch (InterruptedException ie) {
@@ -865,7 +869,7 @@ public final class JobRunner {
                                                         }
                                                     };
 
-                                                    java.util.function.Consumer<String> fixTaskRunner = prompt -> {
+                                                    Consumer<String> fixTaskRunner = prompt -> {
                                                         String taskLabel = Objects.requireNonNullElse(
                                                                 generatedTask.text(), "(unnamed task)");
                                                         String fixPrompt = "Verification failed for task: " + taskLabel
@@ -929,8 +933,7 @@ public final class JobRunner {
                                                 } else {
                                                     var total = inlineComments.size();
                                                     var taskIndex = new AtomicInteger(0);
-                                                    var lastTaskDescription =
-                                                            new java.util.concurrent.atomic.AtomicReference<String>("");
+                                                    var lastTaskDescription = new AtomicReference<String>("");
 
                                                     Function<PrReviewService.InlineComment, String> commentToPrompt =
                                                             JobRunner::buildInlineCommentFixPrompt;
@@ -1096,8 +1099,7 @@ public final class JobRunner {
                                                     Runnable finalVerificationPass = () -> {
                                                         // After review-driven fixes complete, run a final end-of-run
                                                         // verification/fix pass using the single-fix helper.
-                                                        java.util.function.Function<String, String> commandRunner =
-                                                                cmd -> {
+                                                        Function<String, String> commandRunner = cmd -> {
                                                                     try {
                                                                         return BuildAgent.runExplicitCommand(
                                                                                 cm, cmd, buildDetailsOverride);
@@ -1108,8 +1110,7 @@ public final class JobRunner {
                                                                     }
                                                                 };
 
-                                                        java.util.function.Supplier<String> finalVerificationRunner =
-                                                                () -> {
+                                                        Supplier<String> finalVerificationRunner = () -> {
                                                                     // Run tests and lint once each and compose combined
                                                                     // output if any
                                                                     // failed.
@@ -1132,7 +1133,7 @@ public final class JobRunner {
                                                                         return "";
                                                                     }
 
-                                                                    var parts = new java.util.ArrayList<String>();
+                                                                    var parts = new ArrayList<String>();
                                                                     if (!testsPassed) {
                                                                         parts.add("Tests failed (" + testCmd + "):\n"
                                                                                 + testOut);
@@ -1144,8 +1145,7 @@ public final class JobRunner {
                                                                     return String.join("\n\n", parts);
                                                                 };
 
-                                                        java.util.function.Consumer<String> finalFixTaskRunner =
-                                                                prompt -> {
+                                                        Consumer<String> finalFixTaskRunner = prompt -> {
                                                                     String finalFixPrompt =
                                                                             "Final checks failed. Output:\n" + prompt
                                                                                     + "\n\nPlease make a single fix attempt to resolve these failures.";
@@ -1872,8 +1872,7 @@ public final class JobRunner {
             int maxAttempts,
             Function<String, String> commandRunner,
             Consumer<String> fixTaskRunner) {
-        java.util.concurrent.atomic.AtomicInteger attemptsLeft =
-                new java.util.concurrent.atomic.AtomicInteger(maxAttempts);
+        AtomicInteger attemptsLeft = new AtomicInteger(maxAttempts);
         runFinalGateRetryLoop(jobId, store, io, buildDetailsOverride, attemptsLeft, commandRunner, fixTaskRunner);
     }
 
@@ -1882,7 +1881,7 @@ public final class JobRunner {
             JobStore store,
             IConsoleIO io,
             BuildAgent.BuildDetails buildDetailsOverride,
-            java.util.concurrent.atomic.AtomicInteger attemptsLeft,
+            AtomicInteger attemptsLeft,
             Function<String, String> commandRunner,
             Consumer<String> fixTaskRunner) {
         if (attemptsLeft.get() < 1) {
@@ -1946,7 +1945,7 @@ public final class JobRunner {
             // consume one attempt and either fail or request a fix
             attemptsLeft.decrementAndGet();
             if (attemptsLeft.get() <= 0) {
-                var failureParts = new java.util.ArrayList<String>();
+                var failureParts = new ArrayList<String>();
                 if (!testsPassed) {
                     failureParts.add("Tests failed (" + testCmd + "):\n" + testOut);
                 }
@@ -1961,7 +1960,7 @@ public final class JobRunner {
                         "Final gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
             }
 
-            var fixParts = new java.util.ArrayList<String>();
+            var fixParts = new ArrayList<String>();
             if (!testsPassed) {
                 fixParts.add("Tests failed when running:\n" + testCmd + "\n\nOutput:\n" + testOut);
             }
@@ -2046,7 +2045,7 @@ public final class JobRunner {
 
     static void runIssueReviewTaskSequenceWithCancellation(
             List<PrReviewService.InlineComment> inlineComments,
-            java.util.function.BooleanSupplier isCancelled,
+            BooleanSupplier isCancelled,
             Function<PrReviewService.InlineComment, String> commentToPrompt,
             Consumer<String> taskRunner,
             Runnable branchUpdateHook,
@@ -2074,8 +2073,7 @@ public final class JobRunner {
     }
 
     static List<PrReviewService.InlineComment> issueModeComputeInlineCommentsOrEmpty(
-            java.util.function.Supplier<String> diffSupplier,
-            java.util.function.Function<String, List<PrReviewService.InlineComment>> reviewAndParse) {
+            Supplier<String> diffSupplier, Function<String, List<PrReviewService.InlineComment>> reviewAndParse) {
         String diff = diffSupplier.get();
         if (diff.isBlank()) {
             return List.of();
