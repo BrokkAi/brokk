@@ -3,6 +3,8 @@ package ai.brokk.gui.util;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.formdev.flatlaf.util.SystemInfo;
+import java.awt.GraphicsEnvironment;
+import java.awt.Toolkit;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import javax.swing.KeyStroke;
@@ -193,5 +195,31 @@ public class KeyboardShortcutUtilTest {
 
         // All should have the same modifier bits
         assertEquals(ks1.getModifiers(), ks2.getModifiers());
+    }
+
+    @Test
+    void testDefaultInstructionsSubmit_CurrentOS() {
+        if (GraphicsEnvironment.isHeadless()) {
+            // HeadlessToolkit#getMenuShortcutKeyMaskEx throws in headless environments (no DISPLAY).
+            return;
+        }
+
+        KeyStroke ks = KeyboardShortcutUtil.defaultInstructionsSubmit();
+        assertNotNull(ks);
+        assertEquals(KeyEvent.VK_ENTER, ks.getKeyCode());
+
+        int expectedMenuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        assertEquals(
+                expectedMenuMask,
+                ks.getModifiers(),
+                "defaultInstructionsSubmit() modifiers should match Toolkit menu shortcut mask");
+
+        if (SystemInfo.isMacOS) {
+            assertTrue((ks.getModifiers() & KeyEvent.META_DOWN_MASK) != 0, "macOS should include META");
+            assertTrue((ks.getModifiers() & KeyEvent.CTRL_DOWN_MASK) == 0, "macOS should not include CTRL");
+        } else {
+            assertTrue((ks.getModifiers() & KeyEvent.CTRL_DOWN_MASK) != 0, "non-macOS should include CTRL");
+            assertTrue((ks.getModifiers() & KeyEvent.META_DOWN_MASK) == 0, "non-macOS should not include META");
+        }
     }
 }
