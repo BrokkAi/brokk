@@ -663,7 +663,7 @@ public class Context {
         }
 
         var idsToDrop = allFragments()
-                .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
+                .filter(f -> f instanceof ContextFragments.StringFragment sf
                         && desc.equals(sf.description().renderNowOrNull()))
                 .map(ContextFragment::id)
                 .toList();
