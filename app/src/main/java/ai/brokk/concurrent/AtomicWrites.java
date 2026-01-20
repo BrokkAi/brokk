@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Properties;
+import org.jetbrains.annotations.Blocking;
 
 public class AtomicWrites {
 
@@ -28,13 +29,30 @@ public class AtomicWrites {
      * @param content the text content to write.
      * @throws IOException if an I/O error occurs during writing or moving the file.
      */
-    public static void atomicOverwrite(Path targetPath, String content) throws IOException {
+    @Blocking
+    public static void save(Path targetPath, String content) throws IOException {
+        save(targetPath, content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Overwrites the content of a file with the provided data.
+     *
+     * <p>This method writes the new content to a temporary file in the same directory as the target file, then attempts
+     * to atomically move the temporary file to the target file location. If the atomic move is not supported by the
+     * underlying filesystem, it falls back to a non-atomic move.
+     *
+     * @param targetPath the path to the target file that will be overwritten.
+     * @param content the text content to write.
+     * @throws IOException if an I/O error occurs during writing or moving the file.
+     */
+    @Blocking
+    public static void save(Path targetPath, byte[] content) throws IOException {
         // Create a temporary file in the same directory as the target file.
         Path tempFile = Files.createTempFile(targetPath.getParent(), "temp-", ".tmp");
 
         try {
             // Write the content to the temporary file using UTF-8 encoding.
-            Files.write(tempFile, content.getBytes(StandardCharsets.UTF_8));
+            Files.write(tempFile, content);
 
             try {
                 // Try to atomically move the temporary file to the target location.
@@ -61,17 +79,15 @@ public class AtomicWrites {
      * @param comment optional comment for the properties file
      * @throws IOException if an I/O error occurs
      */
-    public static void atomicSaveProperties(Path path, Properties properties, String comment) throws IOException {
-        // Create parent directories if they don't exist
-        Files.createDirectories(path.getParent());
-
+    @Blocking
+    public static void save(Path path, Properties properties, String comment) throws IOException {
         // Serialize the properties to a string
         StringWriter writer = new StringWriter();
         properties.store(writer, comment);
         String content = writer.toString();
 
         // Atomically write the content to the file
-        atomicOverwrite(path, content);
+        save(path, content);
     }
 
     /**
@@ -85,10 +101,8 @@ public class AtomicWrites {
      * @param writerAction the action that writes content to the output stream of the temporary file.
      * @throws IOException if an I/O error occurs during writing or moving the file.
      */
-    public static void atomicSave(Path targetPath, WriterAction writerAction) throws IOException {
-        // Create parent directories if they don't exist
-        Files.createDirectories(targetPath.getParent());
-
+    @Blocking
+    public static void save(Path targetPath, WriterAction writerAction) throws IOException {
         // Create a temporary file in the same directory as the target file.
         Path tempFile = Files.createTempFile(targetPath.getParent(), "temp-", ".tmp");
 

@@ -1434,23 +1434,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private void syncSessionsAndWait(long awaitMillis) {
-        Thread syncThread = Thread.ofVirtual().start(() -> {
-            try {
-                new SessionSynchronizer(this).synchronize();
-            } catch (Exception e) {
-                logger.warn("Failed to synchronize sessions during close: {}", e.getMessage());
-            }
-        });
+        var future = syncSessionsAsync();
         try {
-            syncThread.join(awaitMillis);
-            if (syncThread.isAlive()) {
-                logger.warn("Session sync timed out after {} ms, interrupting", awaitMillis);
-                syncThread.interrupt();
-            }
+            future.get(awaitMillis, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            syncThread.interrupt();
+            future.cancel(true);
             Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            logger.warn("Session sync failed during shutdown", e);
+        } catch (TimeoutException e) {
+            logger.warn("Session sync timed out after {} ms, cancelling", awaitMillis);
+            future.cancel(true);
         }
+    }
+
+    public CompletableFuture<Void> syncSessionsAsync() {
+        return LoggingFuture.supplyCallableVirtual(() -> {
+            new SessionSynchronizer(this).synchronize();
+            return null;
+        });
     }
 
     public boolean isLlmTaskInProgress() {

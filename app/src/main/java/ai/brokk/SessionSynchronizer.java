@@ -2,6 +2,7 @@ package ai.brokk;
 
 import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.project.IProject;
 import ai.brokk.util.HistoryIo;
@@ -390,6 +391,10 @@ class SessionSynchronizer {
         int iteration = 0;
 
         do {
+            if (Thread.interrupted()) {
+                throw new InterruptedException();
+            }
+
             iteration++;
             if (iteration > 10) {
                 logger.warn("Sync loop iteration limit reached, stopping.");
@@ -471,7 +476,7 @@ class SessionSynchronizer {
     private void saveRemoteSession(UUID id, byte[] content) throws IOException {
         Path localPath = sessionManager.getSessionHistoryPath(id);
         Files.createDirectories(localPath.getParent());
-        Files.write(localPath, content);
+        AtomicWrites.save(localPath, content);
         sessionManager.readSessionInfoFromZip(localPath).ifPresent(si -> {
             sessionManager.getSessionsCache().put(si.id(), si);
             logger.info("Downloaded session {} from remote", id);
@@ -490,7 +495,7 @@ class SessionSynchronizer {
         Path tmpDir = sessionsDir.resolve(TMP_DIR);
         Files.createDirectories(tmpDir);
         Path remoteZipPath = Files.createTempFile(tmpDir, "remote-" + id, ".zip");
-        Files.write(remoteZipPath, remoteContent);
+        AtomicWrites.save(remoteZipPath, remoteContent);
 
         try {
             ContextHistory remoteHistory = HistoryIo.readZip(remoteZipPath, contextManager);

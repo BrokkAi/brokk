@@ -651,6 +651,32 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         }
     }
 
+    public static RemoteSessionMeta updateSessionSharing(UUID id, String sharing) throws IOException {
+        var builder = BrokkHttp.sessionServiceRequest();
+        if (builder == null) {
+            throw new IOException("Missing auth for updateRemoteSessionSharing");
+        }
+        if (sharing.isBlank()) {
+            throw new IllegalArgumentException("sharing must not be blank");
+        }
+
+        String url = MainProject.getServiceUrl() + "/api/sessions";
+        var body = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("id", id.toString())
+                .addFormDataPart("sharing", sharing)
+                .build();
+
+        Request request = builder.url(url).post(body).build();
+        try (Response response = BrokkHttp.execute(request)) {
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) {
+                throw new IOException("updateRemoteSessionSharing failed: " + response.code() + " - " + respBody);
+            }
+            return SESSION_OBJECT_MAPPER.readValue(respBody, RemoteSessionMeta.class);
+        }
+    }
+
     public static void deleteRemoteSession(UUID id) throws IOException {
         var builder = BrokkHttp.sessionServiceRequest();
         if (builder == null) {

@@ -1,7 +1,7 @@
 package ai.brokk.util;
 
+import ai.brokk.concurrent.AtomicWrites;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
@@ -66,7 +66,7 @@ public class CloneOperationTracker {
     private static void cleanupActiveClones() {
         for (Path targetPath : activeClones) {
             try {
-                if (Files.exists(targetPath)) {
+                if (java.nio.file.Files.exists(targetPath)) {
                     logger.info("Cleaning up partial clone on shutdown: {}", targetPath);
                     FileUtil.deleteRecursively(targetPath);
                 }
@@ -78,18 +78,18 @@ public class CloneOperationTracker {
 
     /** Clean up orphaned clone operations from previous application runs. Call this during application startup. */
     public static void cleanupOrphanedClones(Path dependenciesRoot) {
-        if (!Files.exists(dependenciesRoot)) {
+        if (!java.nio.file.Files.exists(dependenciesRoot)) {
             return;
         }
 
         logger.debug("Scanning for orphaned clone operations in: {}", dependenciesRoot);
 
-        try (var stream = Files.list(dependenciesRoot)) {
-            stream.filter(Files::isDirectory).forEach(dir -> {
+        try (var stream = java.nio.file.Files.list(dependenciesRoot)) {
+            stream.filter(java.nio.file.Files::isDirectory).forEach(dir -> {
                 Path inProgressMarker = dir.resolve(CLONE_IN_PROGRESS_MARKER);
                 Path completeMarker = dir.resolve(CLONE_COMPLETE_MARKER);
 
-                if (Files.exists(inProgressMarker) && !Files.exists(completeMarker)) {
+                if (java.nio.file.Files.exists(inProgressMarker) && !java.nio.file.Files.exists(completeMarker)) {
                     try {
                         logger.info("Found orphaned clone operation from previous session: {}", dir);
                         FileUtil.deleteRecursively(dir);
@@ -107,17 +107,17 @@ public class CloneOperationTracker {
     public static void createInProgressMarker(Path targetPath, String repoUrl, String branch) throws IOException {
         Path marker = targetPath.resolve(CLONE_IN_PROGRESS_MARKER);
         String content = String.format("%s%n%d%n%s", repoUrl, System.currentTimeMillis(), branch);
-        Files.writeString(marker, content);
+        AtomicWrites.save(marker, content);
     }
 
     /** Create marker file indicating clone operation completed successfully. */
     public static void createCompleteMarker(Path targetPath, String repoUrl, String branch) throws IOException {
         // Remove in-progress marker
-        Files.deleteIfExists(targetPath.resolve(CLONE_IN_PROGRESS_MARKER));
+        java.nio.file.Files.deleteIfExists(targetPath.resolve(CLONE_IN_PROGRESS_MARKER));
 
         // Create complete marker
         Path marker = targetPath.resolve(CLONE_COMPLETE_MARKER);
         String content = String.format("%s%n%d%n%s", repoUrl, System.currentTimeMillis(), branch);
-        Files.writeString(marker, content);
+        AtomicWrites.save(marker, content);
     }
 }

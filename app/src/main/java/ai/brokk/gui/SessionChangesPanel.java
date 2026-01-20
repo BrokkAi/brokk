@@ -1390,7 +1390,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      * This allows callers to provide their own computed data rather than relying on cached state.
      */
     private void generateGuidedReviewAsync(ReviewScope scope) {
-        LoggingFuture.supplyAsync(() -> {
+        LoggingFuture.runAsync(() -> {
             // these are broken out separately to avoid deadlock (they both want to run on the exclusive UAM thread)
             ensureReviewSession(scope);
             generateGuidedReviewInternal(scope);
@@ -1401,6 +1401,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         cm.submitLlmAction(() -> {
             chrome.showOutputSpinner("Generating guided review...");
             try {
+                // Wait for any pending session downloads (e.g. from PR checkout) before proceeding
+                cm.getProject().getSessionManager().awaitForeignDownloads();
                 var agent = new ReviewAgent(scope, cm.getProject().getModelConfig(ModelType.ARCHITECT), true, cm);
 
                 agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
@@ -1466,7 +1468,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      * This parses the markdown as a GuidedReview and displays it in the review panels.
      */
     public void loadExternalReviewAsync(String markdown, Context context) {
-        LoggingFuture.supplyAsync(() -> {
+        LoggingFuture.runAsync(() -> {
             ReviewScope scope;
             try {
                 scope = ReviewScope.fromContext(cm, context);

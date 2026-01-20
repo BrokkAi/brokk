@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.project.IProject;
 import java.io.IOException;
@@ -665,7 +666,7 @@ public class ContextHistory {
             try {
                 byte[] currentBytes = Files.exists(pf.absPath()) ? Files.readAllBytes(pf.absPath()) : null;
                 if (currentBytes == null || !Arrays.equals(currentBytes, bytes)) {
-                    Files.write(pf.absPath(), bytes);
+                    AtomicWrites.save(pf.absPath(), bytes);
                     changedFiles.add(pf);
                 }
             } catch (IOException e) {
