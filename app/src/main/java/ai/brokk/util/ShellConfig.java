@@ -286,9 +286,6 @@ public record ShellConfig(String executable, List<String> args) {
     /** Suggests common executor paths based on the system, filtered by existence on disk */
     public static ShellConfig[] getCommonExecutors() {
         List<ShellConfig> baseExecutors = Environment.isWindows() ? WINDOWS_COMMON_SHELLS : UNIX_COMMON_SHELLS;
-        return baseExecutors.stream()
-                .filter(ShellConfig::isValid)
-                .distinct()
-                .toArray(ShellConfig[]::new);
+        return baseExecutors.stream().filter(ShellConfig::isValid).distinct().toArray(ShellConfig[]::new);
     }
 }
