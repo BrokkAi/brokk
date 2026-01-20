@@ -317,8 +317,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         sourceBranchComboBox.setSelectionChangeListener(branchChangedListener);
     }
 
-    private void updateCommitRelatedUI(
-            List<CommitInfo> newCommits, List<GitRepo.ModifiedFile> newFiles, String commitPanelMessage) {
+    private void updateCommitRelatedUI(List<CommitInfo> newCommits) {
         Collections.reverse(newCommits);
         this.currentCommits = newCommits;
         this.flowUpdater.run();
@@ -331,14 +330,14 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         var targetBranch = targetBranchComboBox.getSelectedItem();
 
         if (sourceBranch == null || targetBranch == null) {
-            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Select branches");
+            updateCommitRelatedUI(Collections.emptyList());
             return;
         }
 
         var contextName = targetBranch + " ← " + sourceBranch;
 
         if (sourceBranch.equals(targetBranch)) {
-            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName);
+            updateCommitRelatedUI(Collections.emptyList());
             return;
         }
 
@@ -346,11 +345,10 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             try {
                 var repo = contextManager.getProject().getRepo();
                 if (!(repo instanceof GitRepo gitRepo)) {
-                    String nonGitMessage = "Project is not a Git repository.";
                     SwingUtilities.invokeLater(() -> {
                         this.sourceBranchNeedsPush = false;
                         this.unpushedCommitCount = 0;
-                        updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), nonGitMessage);
+                        updateCommitRelatedUI(Collections.emptyList());
                     });
                     return Collections.emptyList();
                 }
@@ -377,7 +375,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 SwingUtilities.invokeLater(() -> {
                     this.sourceBranchNeedsPush = needsPush;
                     this.unpushedCommitCount = unpushedCount;
-                    updateCommitRelatedUI(branchDiff.commits(), branchDiff.files(), contextName);
+                    updateCommitRelatedUI(branchDiff.commits());
                 });
                 return branchDiff.commits();
             } catch (Exception e) {
@@ -385,7 +383,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 SwingUtilities.invokeLater(() -> {
                     this.sourceBranchNeedsPush = false; // Reset on error
                     this.unpushedCommitCount = 0;
-                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName + " (error)");
+                    updateCommitRelatedUI(Collections.emptyList());
                     cancelGenerationWorkersAndClearFields(); // Also clear fields on error
                     descriptionArea.setText("(Could not generate PR details due to error)");
                     titleField.setText("");
@@ -541,8 +539,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                         // update button state
                     } catch (GitAPIException e) {
                         logger.error("Error setting default branch selections", e);
-                        updateCommitRelatedUI(
-                                Collections.emptyList(), Collections.emptyList(), "Error setting default branches");
+                        updateCommitRelatedUI(Collections.emptyList());
                     }
                 });
             } catch (GitAPIException e) {
@@ -552,7 +549,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                     sourceBranchComboBox.setItems(List.of("(Error loading branches)"));
                     targetBranchComboBox.setEnabled(false);
                     sourceBranchComboBox.setEnabled(false);
-                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches");
+                    updateCommitRelatedUI(Collections.emptyList());
                 });
             }
         });
