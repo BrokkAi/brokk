@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.util.sandbox.Platform;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -117,6 +118,47 @@ public class ExecutorValidator {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
     }
 
+    /**
+     * Validates that sandbox runtime dependencies are available on the current platform. On Linux, checks for bwrap
+     * (bubblewrap). On macOS, checks for sandbox-exec. On Windows, sandbox is not supported.
+     *
+     * @return ValidationResult with success status and details about missing dependencies
+     */
+    public static ValidationResult validateSandboxAvailable() {
+        Platform platform = Platform.getPlatform();
+
+        if (platform == Platform.WINDOWS) {
+            return new ValidationResult(false, "Sandbox is not supported on Windows");
+        }
+
+        if (platform == Platform.UNKNOWN) {
+            return new ValidationResult(false, "Sandbox is not supported on this platform");
+        }
+
+        try {
+            SandboxBridge bridge = new SandboxBridge(Path.of("."), false, null);
+            boolean available = bridge.isAvailable();
+
+            if (available) {
+                return new ValidationResult(true, "Sandbox runtime is available");
+            }
+
+            if (platform == Platform.LINUX) {
+                return new ValidationResult(
+                        false,
+                        "Sandbox not available: bwrap (bubblewrap) is not installed or user namespaces are disabled. "
+                                + "Install with: apt install bubblewrap (Debian/Ubuntu) or dnf install bubblewrap (Fedora)");
+            } else if (platform == Platform.MACOS) {
+                return new ValidationResult(false, "Sandbox not available: sandbox-exec is missing or not accessible");
+            } else {
+                return new ValidationResult(false, "Sandbox runtime is not available");
+            }
+        } catch (Exception e) {
+            logger.debug("Exception during sandbox availability check", e);
+            return new ValidationResult(false, "Sandbox availability check failed: " + e.getMessage());
+        }
+    }
+
     /** Get an appropriate test command for the given executor */
     private static String getTestCommandForExecutor(ExecutorConfig config) {
         String displayName = config.getDisplayName().toLowerCase(Locale.ROOT);
@@ -135,8 +177,9 @@ public class ExecutorValidator {
     }
 
     /**
-     * Determines if an executor is approved for use in macOS sandbox mode. Only allows common, trusted shell
-     * executables in standard system locations.
+     * Determines if an executor is approved for use in sandbox mode AND sandbox runtime is available. Returns true
+     * only if both the executor is a trusted shell in standard system locations AND the sandbox runtime (bwrap on
+     * Linux, sandbox-exec on macOS) is available.
      */
     public static boolean isApprovedForSandbox(@Nullable ExecutorConfig config) {
         if (config == null) {
@@ -145,8 +188,13 @@ public class ExecutorValidator {
 
         String executable = config.executable();
 
-        // Check against approved sandbox executors list
-        return Arrays.asList(getApprovedSandboxExecutors()).contains(executable);
+        boolean inApprovedList = Arrays.asList(getApprovedSandboxExecutors()).contains(executable);
+        if (!inApprovedList) {
+            return false;
+        }
+
+        ValidationResult sandboxCheck = validateSandboxAvailable();
+        return sandboxCheck.success();
     }
 
     /**
@@ -175,16 +223,25 @@ public class ExecutorValidator {
 
     /** Gets a user-friendly message explaining sandbox executor limitations */
     public static String getSandboxLimitation(@Nullable ExecutorConfig config) {
-        if (config == null) {
-            return "No custom executor configured for sandbox use.";
+        ValidationResult sandboxCheck = validateSandboxAvailable();
+        if (!sandboxCheck.success()) {
+            return sandboxCheck.message();
         }
 
-        if (isApprovedForSandbox(config)) {
+        if (config == null) {
+            return "No custom executor configured. Default shell will be used for sandboxed execution.";
+        }
+
+        String executable = config.executable();
+        boolean inApprovedList = Arrays.asList(getApprovedSandboxExecutors()).contains(executable);
+
+        if (inApprovedList) {
             return String.format("Custom executor '%s' is approved for sandbox use.", config.getDisplayName());
         }
 
         return String.format(
-                "Custom executor '%s' is not approved for sandbox use. " + "Sandbox mode will use /bin/sh instead. "
+                "Custom executor '%s' is not approved for sandbox use. "
+                        + "Sandbox mode will use /bin/sh instead. "
                         + "Approved executors: %s",
                 config.getDisplayName(), String.join(", ", getApprovedSandboxExecutors()));
     }
