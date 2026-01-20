@@ -148,7 +148,9 @@ public class HeadlessExecCli {
         if ("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode)) {
             Path tempRoot;
             try {
-                tempRoot = Files.createTempDirectory("brokk-headless-").toAbsolutePath().normalize();
+                tempRoot = Files.createTempDirectory("brokk-headless-")
+                        .toAbsolutePath()
+                        .normalize();
             } catch (IOException e) {
                 throw new RuntimeException("Failed to create temp workspace", e);
             }
@@ -685,8 +687,8 @@ public class HeadlessExecCli {
                 }
                 mode = Ascii.toUpperCase(value);
                 if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE)$")) {
-                    System.err.println(
-                            "ERROR: Invalid mode: " + value + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, or ISSUE");
+                    System.err.println("ERROR: Invalid mode: " + value
+                            + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, or ISSUE");
                     return false;
                 }
             }

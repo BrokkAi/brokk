@@ -44,8 +44,19 @@ class HeadlessExecCliTest {
             System.setErr(capturedErr);
 
             // Test missing --github-token
-            String[] argsMissingToken = {"--planner-model", "gpt-5", "--mode", "ISSUE",
-                    "--repo-owner", "owner", "--repo-name", "repo", "--issue-number", "123", "Fix bug"};
+            String[] argsMissingToken = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "--issue-number",
+                "123",
+                "Fix bug"
+            };
             int exitCode = HeadlessExecCli.runCli(argsMissingToken);
             capturedErr.flush();
             String stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -56,8 +67,19 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test missing --repo-owner
-            String[] argsMissingOwner = {"--planner-model", "gpt-5", "--mode", "ISSUE",
-                    "--github-token", "token123", "--repo-name", "repo", "--issue-number", "123", "Fix bug"};
+            String[] argsMissingOwner = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--github-token",
+                "token123",
+                "--repo-name",
+                "repo",
+                "--issue-number",
+                "123",
+                "Fix bug"
+            };
             exitCode = HeadlessExecCli.runCli(argsMissingOwner);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -68,8 +90,19 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test missing --repo-name
-            String[] argsMissingRepo = {"--planner-model", "gpt-5", "--mode", "ISSUE",
-                    "--github-token", "token123", "--repo-owner", "owner", "--issue-number", "123", "Fix bug"};
+            String[] argsMissingRepo = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--issue-number",
+                "123",
+                "Fix bug"
+            };
             exitCode = HeadlessExecCli.runCli(argsMissingRepo);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -80,8 +113,19 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test missing --issue-number
-            String[] argsMissingIssue = {"--planner-model", "gpt-5", "--mode", "ISSUE",
-                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo", "Fix bug"};
+            String[] argsMissingIssue = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "Fix bug"
+            };
             exitCode = HeadlessExecCli.runCli(argsMissingIssue);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -92,9 +136,21 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test invalid --issue-number (not positive)
-            String[] argsInvalidIssue = {"--planner-model", "gpt-5", "--mode", "ISSUE",
-                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo",
-                    "--issue-number", "0", "Fix bug"};
+            String[] argsInvalidIssue = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "--issue-number",
+                "0",
+                "Fix bug"
+            };
             exitCode = HeadlessExecCli.runCli(argsInvalidIssue);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -105,9 +161,21 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test invalid --issue-number (not a number)
-            String[] argsNonNumericIssue = {"--planner-model", "gpt-5", "--mode", "ISSUE",
-                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo",
-                    "--issue-number", "abc", "Fix bug"};
+            String[] argsNonNumericIssue = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "--issue-number",
+                "abc",
+                "Fix bug"
+            };
             exitCode = HeadlessExecCli.runCli(argsNonNumericIssue);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -128,9 +196,23 @@ class HeadlessExecCliTest {
             System.setErr(capturedErr);
 
             // Test invalid --max-issue-fix-attempts (not positive)
-            String[] argsInvalidAttempts = {"--planner-model", "gpt-5", "--mode", "ISSUE",
-                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo",
-                    "--issue-number", "123", "--max-issue-fix-attempts", "0", "Fix bug"};
+            String[] argsInvalidAttempts = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "--issue-number",
+                "123",
+                "--max-issue-fix-attempts",
+                "0",
+                "Fix bug"
+            };
             int exitCode = HeadlessExecCli.runCli(argsInvalidAttempts);
             capturedErr.flush();
             String stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -141,9 +223,23 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test invalid --max-issue-fix-attempts (not a number)
-            String[] argsNonNumericAttempts = {"--planner-model", "gpt-5", "--mode", "ISSUE",
-                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo",
-                    "--issue-number", "123", "--max-issue-fix-attempts", "abc", "Fix bug"};
+            String[] argsNonNumericAttempts = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "--issue-number",
+                "123",
+                "--max-issue-fix-attempts",
+                "abc",
+                "Fix bug"
+            };
             exitCode = HeadlessExecCli.runCli(argsNonNumericAttempts);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -164,8 +260,19 @@ class HeadlessExecCliTest {
             System.setErr(capturedErr);
 
             // Test missing --github-token
-            String[] argsMissingToken = {"--planner-model", "gpt-5", "--mode", "REVIEW",
-                    "--repo-owner", "owner", "--repo-name", "repo", "--pr-number", "101", "Review this"};
+            String[] argsMissingToken = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "REVIEW",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "--pr-number",
+                "101",
+                "Review this"
+            };
             int exitCode = HeadlessExecCli.runCli(argsMissingToken);
             capturedErr.flush();
             String stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -176,8 +283,19 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test missing --repo-owner
-            String[] argsMissingOwner = {"--planner-model", "gpt-5", "--mode", "REVIEW",
-                    "--github-token", "token123", "--repo-name", "repo", "--pr-number", "101", "Review this"};
+            String[] argsMissingOwner = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "REVIEW",
+                "--github-token",
+                "token123",
+                "--repo-name",
+                "repo",
+                "--pr-number",
+                "101",
+                "Review this"
+            };
             exitCode = HeadlessExecCli.runCli(argsMissingOwner);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -188,8 +306,19 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test missing --repo-name
-            String[] argsMissingRepo = {"--planner-model", "gpt-5", "--mode", "REVIEW",
-                    "--github-token", "token123", "--repo-owner", "owner", "--pr-number", "101", "Review this"};
+            String[] argsMissingRepo = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "REVIEW",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--pr-number",
+                "101",
+                "Review this"
+            };
             exitCode = HeadlessExecCli.runCli(argsMissingRepo);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -200,8 +329,19 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test missing --pr-number
-            String[] argsMissingPr = {"--planner-model", "gpt-5", "--mode", "REVIEW",
-                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo", "Review this"};
+            String[] argsMissingPr = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "REVIEW",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "Review this"
+            };
             exitCode = HeadlessExecCli.runCli(argsMissingPr);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -212,9 +352,21 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test invalid --pr-number (0)
-            String[] argsInvalidPr = {"--planner-model", "gpt-5", "--mode", "REVIEW",
-                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo",
-                    "--pr-number", "0", "Review this"};
+            String[] argsInvalidPr = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "REVIEW",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "--pr-number",
+                "0",
+                "Review this"
+            };
             exitCode = HeadlessExecCli.runCli(argsInvalidPr);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
@@ -225,9 +377,21 @@ class HeadlessExecCliTest {
             errBytes.reset();
 
             // Test non-numeric --pr-number
-            String[] argsNonNumericPr = {"--planner-model", "gpt-5", "--mode", "REVIEW",
-                    "--github-token", "token123", "--repo-owner", "owner", "--repo-name", "repo",
-                    "--pr-number", "abc", "Review this"};
+            String[] argsNonNumericPr = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "REVIEW",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "--pr-number",
+                "abc",
+                "Review this"
+            };
             exitCode = HeadlessExecCli.runCli(argsNonNumericPr);
             capturedErr.flush();
             stderr = errBytes.toString(StandardCharsets.UTF_8);
