@@ -1055,6 +1055,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        return JavascriptAnalyzer.resolveJavaScriptLikeImports(this, file, importStatements);
+    }
+
+    @Override
     protected @Nullable String extractSignature(
             String captureName, TSNode definitionNode, SourceContent sourceContent) {
         // TypeScript uses signature merging for overloads (shouldMergeSignaturesForSameFqn = true).
