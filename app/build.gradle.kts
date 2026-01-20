@@ -77,6 +77,9 @@ val errorproneCompile by configurations.creating {
     isCanBeConsumed = false
 }
 
+// jcefmaven version from version catalog - used for development builds
+val jcefmavenVersion = libs.versions.jcefmaven.get()
+
 dependencies {
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
@@ -135,9 +138,7 @@ dependencies {
 
     // JCEF is provided by JBR (JetBrains Runtime) with JCEF variant
     // The jcef module is bundled with JBR and provides org.cef.* classes
-    // jcefmaven is used for development (auto-downloads JCEF binaries)
-    // In production jDeploy builds, jcefmaven is stripped via .jdpignore
-    implementation("me.friwi:jcefmaven:122.1.10")
+    implementation(libs.jcefmaven)
 
     // Testing
     testImplementation(platform(libs.junit.bom))
@@ -168,6 +169,7 @@ val actualVersion = project.rootProject.version.toString().ifEmpty {
 
 buildConfig {
     buildConfigField("String", "version", "\"$actualVersion\"")
+    buildConfigField("String", "jcefmavenVersion", "\"$jcefmavenVersion\"")
     packageName("ai.brokk")
     className("BuildInfo")
 }

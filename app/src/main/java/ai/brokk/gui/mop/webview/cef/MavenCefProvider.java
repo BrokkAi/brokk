@@ -1,5 +1,6 @@
 package ai.brokk.gui.mop.webview.cef;
 
+import ai.brokk.BuildInfo;
 import ai.brokk.util.Environment;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -32,9 +33,6 @@ import org.jetbrains.annotations.Nullable;
 public class MavenCefProvider implements CefAppProvider {
 
     private static final Logger logger = LogManager.getLogger(MavenCefProvider.class);
-
-    // Must match version in build.gradle.kts
-    private static final String JCEFMAVEN_VERSION = "127.3.1";
 
     /**
      * Checks if jcefmaven can be used.
@@ -123,7 +121,7 @@ public class MavenCefProvider implements CefAppProvider {
      */
     private Path getJcefDir() {
         String userHome = System.getProperty("user.home");
-        Path dir = Paths.get(userHome, ".gradle", "caches", "jcef-" + JCEFMAVEN_VERSION);
+        Path dir = Paths.get(userHome, ".gradle", "caches", "jcef-" + BuildInfo.jcefmavenVersion);
         try {
             Files.createDirectories(dir);
         } catch (IOException e) {
