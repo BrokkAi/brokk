@@ -14,7 +14,6 @@ import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
-import java.util.ArrayList;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -947,7 +946,8 @@ public final class JobRunner {
                                                         String startMsg = "Review-fix task %d/%d starting: %s:%d"
                                                                 .formatted(i + 1, total, path, line);
                                                         try {
-                                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
+                                                            store.appendEvent(
+                                                                    jobId, JobEvent.of("NOTIFICATION", startMsg));
                                                         } catch (Exception e) {
                                                             logger.warn(
                                                                     "Failed to append review-fix start notification event for job {}: {}",
@@ -957,8 +957,8 @@ public final class JobRunner {
                                                         }
 
                                                         String prompt = buildInlineCommentFixPrompt(comment);
-                                                        String reviewFixTaskDescription = "Review-fix " + (i + 1) + "/" + total
-                                                                + ": " + path + ":" + line;
+                                                        String reviewFixTaskDescription = "Review-fix " + (i + 1) + "/"
+                                                                + total + ": " + path + ":" + line;
 
                                                         try (var reviewFixScope =
                                                                 cm.beginTaskUngrouped(reviewFixTaskDescription)) {
@@ -973,7 +973,8 @@ public final class JobRunner {
                                                             try {
                                                                 reviewFixAgent.callCodeAgent(prompt);
                                                             } catch (InterruptedException ie) {
-                                                                Thread.currentThread().interrupt();
+                                                                Thread.currentThread()
+                                                                        .interrupt();
                                                                 throw ie;
                                                             } catch (Exception e) {
                                                                 logger.warn(
@@ -992,7 +993,8 @@ public final class JobRunner {
                                                         String doneMsg = "Review-fix task %d/%d complete: %s:%d"
                                                                 .formatted(i + 1, total, path, line);
                                                         try {
-                                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", doneMsg));
+                                                            store.appendEvent(
+                                                                    jobId, JobEvent.of("NOTIFICATION", doneMsg));
                                                         } catch (Exception e) {
                                                             logger.warn(
                                                                     "Failed to append review-fix completion notification event for job {}: {}",
@@ -1003,9 +1005,11 @@ public final class JobRunner {
 
                                                         // Ensure changes are committed (fallback; safe if no changes).
                                                         try {
-                                                            new GitWorkflow(cm).performAutoCommit(reviewFixTaskDescription);
+                                                            new GitWorkflow(cm)
+                                                                    .performAutoCommit(reviewFixTaskDescription);
                                                         } catch (InterruptedException ie) {
-                                                            Thread.currentThread().interrupt();
+                                                            Thread.currentThread()
+                                                                    .interrupt();
                                                             throw ie;
                                                         } catch (Exception e) {
                                                             logger.warn(
@@ -1019,14 +1023,15 @@ public final class JobRunner {
 
                                                         // Best-effort push; do not fail the job if push fails.
                                                         try {
-                                                            String pushMsg =
-                                                                    new GitWorkflow(cm).push(issueBranchName, githubToken);
+                                                            String pushMsg = new GitWorkflow(cm)
+                                                                    .push(issueBranchName, githubToken);
                                                             try {
                                                                 store.appendEvent(
                                                                         jobId,
                                                                         JobEvent.of(
                                                                                 "NOTIFICATION",
-                                                                                "Review-fix push succeeded: " + pushMsg));
+                                                                                "Review-fix push succeeded: "
+                                                                                        + pushMsg));
                                                             } catch (Exception e) {
                                                                 logger.warn(
                                                                         "Failed to append review-fix push success notification event for job {}: {}",
@@ -2070,8 +2075,7 @@ public final class JobRunner {
                                 "Review-bot: generated " + filtered.size() + " inline comment(s) (severity >= "
                                         + DEFAULT_REVIEW_SEVERITY_THRESHOLD + ")"));
             } catch (IOException e) {
-                logger.warn(
-                        "Failed to append review-bot notification event for job {}: {}", jobId, e.getMessage(), e);
+                logger.warn("Failed to append review-bot notification event for job {}: {}", jobId, e.getMessage(), e);
             }
         }
 

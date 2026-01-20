@@ -10,7 +10,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -334,7 +333,6 @@ class JobRunnerIssueModeTest {
         assertEquals(1, observed.size(), "No tasks should run when comments list is empty");
         assertEquals(0, branchHookCalls.get(), "Branch update hook must not run when there are no tasks");
     }
-
 
     @Test
     void testPrSkippedWhenFinalVerificationStillFails() {
