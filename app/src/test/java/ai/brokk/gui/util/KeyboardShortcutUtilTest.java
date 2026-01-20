@@ -194,4 +194,23 @@ public class KeyboardShortcutUtilTest {
         // All should have the same modifier bits
         assertEquals(ks1.getModifiers(), ks2.getModifiers());
     }
+
+    @Test
+    void removeAllKeyStrokesMappedToAction_removesOnlyMatchingMappings() {
+        var im = new javax.swing.InputMap();
+
+        KeyStroke ks1 = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
+        KeyStroke ks2 = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+        KeyStroke ks3 = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+
+        im.put(ks1, "submitAction");
+        im.put(ks2, "submitAction");
+        im.put(ks3, "otherAction");
+
+        KeyboardShortcutUtil.removeAllKeyStrokesMappedToAction(im, "submitAction");
+
+        assertNull(im.get(ks1));
+        assertNull(im.get(ks2));
+        assertEquals("otherAction", im.get(ks3));
+    }
 }

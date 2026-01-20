@@ -72,6 +72,18 @@ public class KeyboardShortcutUtil {
         });
     }
 
+    public static void removeAllKeyStrokesMappedToAction(javax.swing.InputMap inputMap, String actionName) {
+        KeyStroke[] keys = inputMap.allKeys();
+        if (keys == null) return;
+
+        for (KeyStroke ks : keys) {
+            Object mapped = inputMap.get(ks);
+            if (actionName.equals(mapped)) {
+                inputMap.remove(ks);
+            }
+        }
+    }
+
     /**
      * Registers the standard Ctrl/Cmd+F shortcut to focus a search field. This is the most common search-related
      * shortcut across the application.

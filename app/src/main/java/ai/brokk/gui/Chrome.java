@@ -658,14 +658,20 @@ public class Chrome
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
         // Submit action (configurable; default Cmd/Ctrl+Enter) - only when instructions area is focused
+        // Bind directly to instructions area instead of globally to avoid interfering with other components
+        var ip = rightPanel.getInstructionsPanel();
+        var instructionsArea = ip.getInstructionsArea();
+
         KeyStroke submitKeyStroke = GlobalUiSettings.getKeybinding(
                 "instructions.submit",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        // Bind directly to instructions area instead of globally to avoid interfering with other components
-        var ip = rightPanel.getInstructionsPanel();
-        ip.getInstructionsArea().getInputMap(JComponent.WHEN_FOCUSED).put(submitKeyStroke, "submitAction");
-        ip.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
+
+        var focusedIm = instructionsArea.getInputMap(JComponent.WHEN_FOCUSED);
+        KeyboardShortcutUtil.removeAllKeyStrokesMappedToAction(focusedIm, "submitAction");
+        focusedIm.put(submitKeyStroke, "submitAction");
+
+        instructionsArea.getActionMap().put("submitAction", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 SwingUtilities.invokeLater(() -> {
@@ -968,6 +974,12 @@ public class Chrome
         // Then call the standard registration method to repopulate from settings
         im.clear();
         am.clear();
+
+        var ip = rightPanel.getInstructionsPanel();
+        var instructionsArea = ip.getInstructionsArea();
+        KeyboardShortcutUtil.removeAllKeyStrokesMappedToAction(
+                instructionsArea.getInputMap(JComponent.WHEN_FOCUSED), "submitAction");
+
         registerGlobalKeyboardShortcuts();
     }
 
