@@ -3,7 +3,6 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -11,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
@@ -35,7 +33,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
-            "import.declaration", // importNodeType - matches @import.declaration capture in go.scm
+            CaptureNames.IMPORT_DECLARATION, // importNodeType - matches @import.declaration capture in go.scm
             "name", // identifierFieldName (used as fallback if specific .name capture is missing)
             "body", // bodyFieldName (e.g. function_declaration.body -> block)
             "parameters", // parametersFieldName
@@ -515,7 +513,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // We look only at the immediate prefix on the same line or after the last space/newline
         String prefix = text.substring(0, quoteStart).trim();
         int lastSpace = Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('\n'));
-        String lastToken = lastSpace == -1 ? prefix : prefix.substring(lastSpace).trim();
+        String lastToken =
+                lastSpace == -1 ? prefix : prefix.substring(lastSpace).trim();
         return "_".equals(lastToken);
     }
 
