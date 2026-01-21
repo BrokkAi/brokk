@@ -722,7 +722,7 @@ public class ReviewAgent {
                         title,
                         LoggingFuture.supplyAsync(
                                 () -> {
-                                    Llm correctionLlm = cm.getLlm(llm.getModel(), "Note Correction");
+                                    Llm correctionLlm = llm.copy("Note Correction");
                                     String currentNote = noteSection;
                                     List<String> currentIssues = initialIssues;
 

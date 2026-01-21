@@ -262,7 +262,7 @@ public final class RelevanceClassifier {
     }
 
     private static String relevanceScoreCacheKey(Llm llm, String systemPrompt, String userPrompt) {
-        var payload = "model=" + llm.getModel() + "\n" + systemPrompt + "\n---\n" + userPrompt;
+        var payload = llm + "\n" + systemPrompt + "\n---\n" + userPrompt;
         return "relevance_" + StringDiskCache.sha1Hex(payload);
     }
 }

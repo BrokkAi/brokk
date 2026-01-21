@@ -1768,8 +1768,15 @@ public class Llm {
         }
     }
 
+    // FIXME nobody should be using this, you can call copy() instead if you want to create another LLM,
+    // or pass the model instance instead of Llm
     public StreamingChatModel getModel() {
-        return this.model;
+        return model;
+    }
+
+    public Llm copy(String newTaskDescription) {
+        return new Llm(
+                model, newTaskDescription, contextManager, allowPartialResponses, forceReasoningEcho, tagRetain, echo);
     }
 
     public void setModel(StreamingChatModel model) {
