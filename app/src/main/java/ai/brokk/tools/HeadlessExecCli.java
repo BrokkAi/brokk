@@ -148,7 +148,7 @@ public class HeadlessExecCli {
 
     static WorkspaceSelection chooseWorkspaceRootForMode(String mode, String repoOwner, String repoName) {
         String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
-        if ("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode)) {
+        if ("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode) || "ISSUE_WRITER".equals(normalizedMode)) {
             String safeOwner = repoOwner.isBlank() ? "unknown-owner" : repoOwner.replaceAll("[^A-Za-z0-9._-]", "-");
             String safeRepo = repoName.isBlank() ? "unknown-repo" : repoName.replaceAll("[^A-Za-z0-9._-]", "-");
             String prefix = "brokk-headless-" + safeOwner + "-" + safeRepo + "-";
@@ -359,6 +359,10 @@ public class HeadlessExecCli {
             tags.put("repo_owner", repoOwner);
             tags.put("repo_name", repoName);
             tags.put("pr_number", String.valueOf(prNumber));
+        } else if ("ISSUE_WRITER".equals(mode)) {
+            tags.put("github_token", githubToken);
+            tags.put("repo_owner", repoOwner);
+            tags.put("repo_name", repoName);
         }
         jobSpec.set("tags", tags);
 
@@ -611,7 +615,7 @@ public class HeadlessExecCli {
         System.out.println("  --auto-compress          Enable auto-compress of context");
         System.out.println("  --help                   Show this help message");
         System.out.println();
-        System.out.println("ISSUE/REVIEW Mode Options (required when --mode ISSUE or REVIEW):");
+        System.out.println("ISSUE/REVIEW/ISSUE_WRITER Mode Options (required when --mode ISSUE, REVIEW, or ISSUE_WRITER):");
         System.out.println("  --github-token TOKEN     GitHub API token");
         System.out.println("  --repo-owner OWNER       Repository owner (user or organization)");
         System.out.println("  --repo-name REPO         Repository name");
@@ -730,6 +734,27 @@ public class HeadlessExecCli {
             }
             if (prNumber <= 0) {
                 System.err.println("ERROR: --pr-number is required for REVIEW mode");
+                return false;
+            }
+        }
+
+        // Validate ISSUE_WRITER mode required fields
+        if ("ISSUE_WRITER".equals(mode)) {
+            if (githubToken.isBlank()) {
+                System.err.println("ERROR: --github-token is required for ISSUE_WRITER mode");
+                return false;
+            }
+            if (repoOwner.isBlank()) {
+                System.err.println("ERROR: --repo-owner is required for ISSUE_WRITER mode");
+                return false;
+            }
+            if (repoName.isBlank()) {
+                System.err.println("ERROR: --repo-name is required for ISSUE_WRITER mode");
+                return false;
+            }
+            if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
+                System.err.println(
+                        "ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
                 return false;
             }
         }
