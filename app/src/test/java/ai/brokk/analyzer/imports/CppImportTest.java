@@ -173,4 +173,27 @@ class CppImportTest {
             assertTrue(foundFn, "Should resolve helperFunction from helper.h despite trailing comment with quotes");
         }
     }
+
+    @Test
+    void testImportResolutionIgnoresPathTraversalOutsideProject() throws IOException {
+        String sourceContent =
+                """
+                #include "../outside.h"
+                #include "../../way_outside.h"
+                
+                int main() { return 0; }
+                """;
+
+        try (IProject project = code(sourceContent, "src/main.cpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile mainFile = new ProjectFile(project.getRoot(), "src/main.cpp");
+
+            // Should not throw and should return empty set since includes escape project root
+            Set<CodeUnit> importedUnits = ((ImportAnalysisProvider) analyzer).importedCodeUnitsOf(mainFile);
+
+            assertTrue(importedUnits.isEmpty(), "Includes that escape project root should not resolve to any CodeUnits");
+        }
+    }
 }

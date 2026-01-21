@@ -356,9 +356,16 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             }
 
             var resolvedPath = parent.resolve(relativePath).normalize();
-            var relToRoot = includingFile.getRoot().relativize(resolvedPath);
+            var root = includingFile.getRoot();
 
-            ProjectFile candidate = new ProjectFile(includingFile.getRoot(), relToRoot);
+            // Guard against path traversal outside project root
+            if (!resolvedPath.startsWith(root)) {
+                return Optional.empty();
+            }
+
+            var relToRoot = root.relativize(resolvedPath);
+
+            ProjectFile candidate = new ProjectFile(root, relToRoot);
             // Verify the file exists in the project's view
             if (getTopLevelDeclarations().containsKey(candidate)) {
                 return Optional.of(candidate);
