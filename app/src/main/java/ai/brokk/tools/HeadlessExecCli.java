@@ -39,6 +39,7 @@ import org.jetbrains.annotations.Nullable;
 public class HeadlessExecCli {
     private static final Logger logger = LogManager.getLogger(HeadlessExecCli.class);
     private static final ObjectMapper mapper = new ObjectMapper();
+    private static final String REPO_COMPONENT_ALLOWLIST_REGEX = "^[A-Za-z0-9_.-]+$";
     private final MediaType JSON;
     private static final int READY_POLL_TIMEOUT_MS = 30000;
     private static final int READY_POLL_INTERVAL_MS = 500;
@@ -701,13 +702,18 @@ public class HeadlessExecCli {
                 System.err.println("ERROR: --repo-owner is required for ISSUE mode");
                 return false;
             }
+            if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-owner '" + repoOwner + "'. Repo owner must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
             if (repoName.isBlank()) {
                 System.err.println("ERROR: --repo-name is required for ISSUE mode");
                 return false;
             }
-            if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
-                System.err.println(
-                        "ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
+            if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
                 return false;
             }
             if (issueNumber <= 0) {
@@ -726,13 +732,18 @@ public class HeadlessExecCli {
                 System.err.println("ERROR: --repo-owner is required for REVIEW mode");
                 return false;
             }
+            if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-owner '" + repoOwner + "'. Repo owner must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
             if (repoName.isBlank()) {
                 System.err.println("ERROR: --repo-name is required for REVIEW mode");
                 return false;
             }
-            if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
-                System.err.println(
-                        "ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
+            if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
                 return false;
             }
             if (prNumber <= 0) {
@@ -751,13 +762,18 @@ public class HeadlessExecCli {
                 System.err.println("ERROR: --repo-owner is required for ISSUE_WRITER mode");
                 return false;
             }
+            if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-owner '" + repoOwner + "'. Repo owner must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
             if (repoName.isBlank()) {
                 System.err.println("ERROR: --repo-name is required for ISSUE_WRITER mode");
                 return false;
             }
-            if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
-                System.err.println(
-                        "ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
+            if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
                 return false;
             }
         }
