@@ -77,7 +77,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private final ContextManager cm;
     private final GitRepo repo;
     private final DeferredUpdateHelper deferredUpdateHelper;
-    private final TabTitleUpdater tabTitleUpdater;
+    private final ReviewTabListener reviewTabListener;
 
     /** The operational mode of the panel. */
     private enum PanelMode {
@@ -184,28 +184,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private List<FileComparisonInfo> fileComparisons = List.of();
 
-    @FunctionalInterface
-    public interface TabTitleUpdater {
-        void updateTitleAndTooltip(String title, String tooltip);
-    }
+    public record ReviewTabState(String title, String tooltip, int uncommittedCount) {}
 
     @FunctionalInterface
-    public interface TabBadgeUpdater {
-        void updateBadgeCount(int count);
+    public interface ReviewTabListener {
+        void onReviewTabStateChanged(ReviewTabState state);
     }
 
-    private final TabBadgeUpdater tabBadgeUpdater;
-
-    public SessionChangesPanel(
-            Chrome chrome,
-            ContextManager contextManager,
-            TabTitleUpdater tabTitleUpdater,
-            TabBadgeUpdater tabBadgeUpdater) {
+    public SessionChangesPanel(Chrome chrome, ContextManager contextManager, ReviewTabListener reviewTabListener) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.cm = contextManager;
-        this.tabTitleUpdater = tabTitleUpdater;
-        this.tabBadgeUpdater = tabBadgeUpdater;
+        this.reviewTabListener = reviewTabListener;
 
         var maybeRepo = contextManager.getProject().getRepo();
         if (!(maybeRepo instanceof GitRepo gr)) {
@@ -283,7 +273,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         // Right side: ReviewDetailPanel above diff view (only shown in REVIEW mode)
         this.rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, null, diffWithToolbar);
-        this.rightVerticalSplitPane.setResizeWeight(0.4);
+        this.rightVerticalSplitPane.setResizeWeight(0.0);
 
         // Main split: left (commits/review list + file tree), right (review detail + diff)
         this.mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
@@ -523,47 +513,38 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public void requestUpdate() {
         if (currentMode == PanelMode.REVIEW) {
-            // In review mode, we don't refresh the diff or title based on new git state,
-            // we only update the staleness notice.
             SwingUtilities.invokeLater(() -> {
                 StalenessInfo staleness = computeStaleness();
                 if (staleness != null) {
                     codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
                 }
+                emitReviewTabStateFromCached();
             });
             return;
         }
 
-        // Capture this generation so we can ignore stale results
         final long thisGeneration = updateGeneration.incrementAndGet();
 
-        // Immediately show placeholder (file count will be computed async)
-        SwingUtilities.invokeLater(() -> {
-            tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
-        });
+        SwingUtilities.invokeLater(() -> reviewTabListener.onReviewTabStateChanged(
+                new ReviewTabState("Review (...)", "Computing branch-based changes...", computeUncommittedCount())));
 
-        // Kick off async computation
         LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
-                    // In PREVIEW mode, we show uncommitted changes
                     var reviewCtx = ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
                     return new ComputedUpdate(state, reviewCtx);
                 })
                 .thenAccept(computed -> {
-                    // Check if this computation is still relevant
                     if (thisGeneration != updateGeneration.get()) {
-                        return; // A newer requestUpdate superseded us
+                        return;
                     }
 
                     lastCumulativeChanges = computed.ctx.changes();
 
-                    // Update title on EDT
                     SwingUtilities.invokeLater(() -> {
                         if (thisGeneration != updateGeneration.get()) return;
-                        updateTitleAndTooltipFromResult(computed.ctx.changes(), computed.state.baselineLabel());
+                        emitReviewTabStateFromResult(computed.ctx.changes(), computed.state.baselineLabel());
                     });
 
-                    // Trigger deferred UI update
                     deferredUpdateHelper.requestUpdate();
                 })
                 .exceptionally(ex -> {
@@ -571,7 +552,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     logger.warn("Failed to compute cumulative changes", ex);
                     SwingUtilities.invokeLater(() -> {
                         if (thisGeneration != updateGeneration.get()) return;
-                        tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes");
+                        reviewTabListener.onReviewTabStateChanged(
+                                new ReviewTabState("Review", "Failed to compute changes", computeUncommittedCount()));
                     });
                     return null;
                 });
@@ -688,7 +670,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         String label = state.baselineLabel();
 
-        updateTitleAndTooltipFromResult(result, label);
+        emitReviewTabStateFromResult(result, label);
         updateContent(result, prepared, label);
 
         if (staleness != null) {
@@ -696,7 +678,27 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void updateTitleAndTooltipFromResult(DiffService.CumulativeChanges result, String baselineLabel) {
+    private void emitReviewTabStateFromCached() {
+        var result = lastCumulativeChanges;
+        if (result != null) {
+            var state = lastBaselineState;
+            String baselineLabel = state == null ? "" : state.baselineLabel();
+            emitReviewTabStateFromResult(result, baselineLabel);
+        } else {
+            reviewTabListener.onReviewTabStateChanged(
+                    new ReviewTabState("Review", "No data", computeUncommittedCount()));
+        }
+    }
+
+    private void emitReviewTabStateFromResult(DiffService.CumulativeChanges result, String baselineLabel) {
+        int uncommittedCount = computeUncommittedCount();
+
+        if (currentMode == PanelMode.REVIEW) {
+            reviewTabListener.onReviewTabStateChanged(
+                    new ReviewTabState("Review (Guided)", "Guided review is open", uncommittedCount));
+            return;
+        }
+
         String title;
         String tooltip;
 
@@ -721,16 +723,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     result.filesChanged(), result.totalAdded(), result.totalDeleted(), baselineSuffix);
         }
 
-        tabTitleUpdater.updateTitleAndTooltip(title, tooltip);
+        reviewTabListener.onReviewTabStateChanged(new ReviewTabState(title, tooltip, uncommittedCount));
+    }
 
-        int badgeCount;
+    private int computeUncommittedCount() {
         try {
-            badgeCount = repo.getModifiedFiles().size();
+            return repo.getModifiedFiles().size();
         } catch (GitAPIException e) {
             logger.debug("Unable to determine uncommitted file count for badge", e);
-            badgeCount = 0;
+            return 0;
         }
-        tabBadgeUpdater.updateBadgeCount(badgeCount);
     }
 
     public void updateContent(
@@ -1030,7 +1032,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             // Right: review detail above diff in REVIEW, diff-only in PREVIEW
             rightVerticalSplitPane.setTopComponent(isReview ? codeReviewPanel.getDetailPanel() : null);
             rightVerticalSplitPane.setDividerSize(isReview ? defaultSplitPaneDividerSize() : 0);
-            rightVerticalSplitPane.setResizeWeight(0.5);
 
             mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
             mainSplitPane.setDividerLocation(300);
