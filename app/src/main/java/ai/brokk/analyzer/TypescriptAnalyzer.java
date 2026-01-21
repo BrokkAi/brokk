@@ -69,7 +69,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer implements Impo
             // decoratorNodeTypes
             Set.of(DECORATOR),
             // imports - capture name must match query pattern @module.import_statement
-            IMPORT_CAPTURE_NAME,
+            IMPORT_DECLARATION,
             // identifierFieldName
             "name",
             // bodyFieldName

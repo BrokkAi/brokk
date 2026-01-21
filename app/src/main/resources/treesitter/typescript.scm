@@ -291,7 +291,7 @@
 ; ============================================================================
 
 ; ES6 import statements
-(import_statement) @module.import_statement
+(import_statement) @import_declaration
 
 ; CommonJS require statements - captured as call_expression, filtered in Java code
 ; Note: #eq? predicate is not enforced by JNI Tree-sitter, so filtering is done in TypescriptAnalyzer
