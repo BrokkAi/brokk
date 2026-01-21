@@ -6,7 +6,9 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Decompiler;
 import ai.brokk.util.DownloadProgressListener;
+import ai.brokk.util.LocalCacheScanner;
 import ai.brokk.util.MavenArtifactFetcher;
+import java.nio.file.Path;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.util.concurrent.TimeUnit;
@@ -111,20 +113,26 @@ public class DependencyTools implements AutoCloseable {
 
         // Resolve latest version if not provided
         if (version == null || version.isEmpty()) {
-            // Resolve latest version from Maven Central
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    "Resolving latest version for " + groupId + ":" + artifactId + "...");
-            logger.info("Resolving latest version for {}:{} from Maven Central", groupId, artifactId);
-            var latestOpt = fetcher.resolveLatestVersion(groupId, artifactId);
-            if (latestOpt.isEmpty()) {
-                logger.warn("Could not resolve latest version for {}:{}", groupId, artifactId);
-                return ("Could not resolve latest version for %s:%s from Maven Central. "
-                                + "Try specifying an explicit version.")
-                        .formatted(groupId, artifactId);
+            io.showNotification(IConsoleIO.NotificationRole.INFO,
+                                "Resolving latest version for " + groupId + ":" + artifactId + "...");
+            // Check local caches first for existing versions
+            var localVersionOpt = LocalCacheScanner.findLatestVersion(groupId, artifactId);
+            if (localVersionOpt.isPresent()) {
+                version = localVersionOpt.get();
+                logger.info("Using latest local version for {}:{} -> {}", groupId, artifactId, version);
+            } else {
+                // Fall back to Maven Central
+                logger.info("Resolving latest version for {}:{} from Maven Central", groupId, artifactId);
+                var latestOpt = fetcher.resolveLatestVersion(groupId, artifactId);
+                if (latestOpt.isEmpty()) {
+                    logger.warn("Could not resolve latest version for {}:{}", groupId, artifactId);
+                    return ("Could not resolve latest version for %s:%s. "
+                                    + "Try specifying an explicit version.")
+                            .formatted(groupId, artifactId);
+                }
+                version = latestOpt.get();
+                logger.info("Resolved latest version from Maven Central: {}", version);
             }
-            version = latestOpt.get();
-            logger.info("Resolved latest version: {}", version);
         }
 
         var fullCoordinates = "%s:%s:%s".formatted(groupId, artifactId, version);
@@ -132,18 +140,27 @@ public class DependencyTools implements AutoCloseable {
         // Check for cancellation after version resolution
         checkInterrupted();
 
-        // Download JAR
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "Downloading " + fullCoordinates + "...");
-        logger.info("Fetching artifact: {}", fullCoordinates);
-        var jarPathOpt = fetcher.fetch(fullCoordinates, null);
-        if (jarPathOpt.isEmpty()) {
-            logger.warn("Artifact not found on Maven Central: {}", fullCoordinates);
-            return "Could not find artifact %s on Maven Central. Check the coordinates and try again."
-                    .formatted(fullCoordinates);
+        // Check local caches first (shared with GUI)
+        Path jarPath;
+        var localJarOpt = LocalCacheScanner.findArtifact(groupId, artifactId, version);
+        if (localJarOpt.isPresent()) {
+            jarPath = localJarOpt.get();
+            io.showNotification(IConsoleIO.NotificationRole.INFO,
+                                "Found " + fullCoordinates + " in local cache");
+            logger.info("Using cached artifact: {}", jarPath);
+        } else {
+            // Download JAR from Maven
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Downloading " + fullCoordinates + "...");
+            logger.info("Fetching artifact: {}", fullCoordinates);
+            var jarPathOpt = fetcher.fetch(fullCoordinates, null);
+            if (jarPathOpt.isEmpty()) {
+                logger.warn("Artifact not found on Maven Central: {}", fullCoordinates);
+                return "Could not find artifact %s on Maven Central. Check the coordinates and try again."
+                        .formatted(fullCoordinates);
+            }
+            jarPath = jarPathOpt.get();
+            logger.debug("JAR downloaded to: {}", jarPath);
         }
-
-        var jarPath = jarPathOpt.get();
-        logger.debug("JAR downloaded to: {}", jarPath);
         // Use getMasterRootPathForConfig() for worktree compatibility - dependencies are shared
         var projectRoot = contextManager.getProject().getMasterRootPathForConfig();
 

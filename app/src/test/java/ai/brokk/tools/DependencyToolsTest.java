@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.MavenArtifactFetcher;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -105,6 +106,47 @@ public class DependencyToolsTest {
         String result = tools.importMavenDependency("org.example:unknown");
 
         assertTrue(result.contains("Could not resolve latest version"), "Should report resolution failure");
+    }
+
+    @Test
+    void importMavenDependency_LocalCacheHasPriority_SkipsMavenCentralResolution() throws Exception {
+        // Set up a fake Maven local repo with a specific version (no JAR, just version dir)
+        // This tests version resolution priority without triggering decompilation
+        var m2Repo = tempDir.resolve(".m2/repository/org/localcache/testlib");
+        var versionDir = m2Repo.resolve("1.5.0");
+        Files.createDirectories(versionDir);
+        Files.writeString(versionDir.resolve("testlib-1.5.0.jar"), "dummy");
+
+        var originalHome = System.getProperty("user.home");
+        try {
+            System.setProperty("user.home", tempDir.toString());
+
+            var cm = new TestContextManager(new TestProject(tempDir));
+            var mavenResolveCalled = new AtomicInteger(0);
+            var mavenFetchCalled = new AtomicInteger(0);
+            var mockFetcher = new MavenArtifactFetcher() {
+                @Override
+                public Optional<String> resolveLatestVersion(String groupId, String artifactId) {
+                    mavenResolveCalled.incrementAndGet();
+                    return Optional.of("99.0.0"); // Would be used if local cache wasn't checked first
+                }
+
+                @Override
+                public Optional<Path> fetch(String coordinates, String classifier) {
+                    mavenFetchCalled.incrementAndGet();
+                    return Optional.empty();
+                }
+            };
+
+            var tools = new DependencyTools(cm, mockFetcher);
+            tools.importMavenDependency("org.localcache:testlib");
+
+            // Local cache should have been used for BOTH version resolution AND artifact fetch
+            assertEquals(0, mavenResolveCalled.get(), "Should not call Maven Central for version when local version exists");
+            assertEquals(0, mavenFetchCalled.get(), "Should not call Maven Central for fetch when local JAR exists");
+        } finally {
+            System.setProperty("user.home", originalHome);
+        }
     }
 
     /**
