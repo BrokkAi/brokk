@@ -288,6 +288,42 @@ class HeadlessExecCliTest {
     }
 
     @Test
+    void testParseArgs_IssueMode_InvalidRepoOwnerIsRejected() {
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
+
+        try (PrintStream capturedErr = new PrintStream(errBytes, true, StandardCharsets.UTF_8)) {
+            System.setErr(capturedErr);
+
+            String[] args = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "bad/owner",
+                "--repo-name",
+                "repo",
+                "--issue-number",
+                "123",
+                "Fix bug"
+            };
+
+            int exitCode = HeadlessExecCli.runCli(args);
+            capturedErr.flush();
+
+            String stderr = errBytes.toString(StandardCharsets.UTF_8);
+            assertEquals(1, exitCode);
+            assertTrue(stderr.contains("Invalid --repo-owner"), stderr);
+            assertTrue(stderr.contains("must match ^[A-Za-z0-9_.-]+$"), stderr);
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
     void testParseArgs_ReviewMode_RequiredFields() {
         PrintStream originalErr = System.err;
         ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
@@ -440,6 +476,79 @@ class HeadlessExecCliTest {
     }
 
     @Test
+    void testParseArgs_IssueWriterMode_RequiredFields() {
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
+
+        try (PrintStream capturedErr = new PrintStream(errBytes, true, StandardCharsets.UTF_8)) {
+            System.setErr(capturedErr);
+
+            // Test missing --github-token
+            String[] argsMissingToken = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE_WRITER",
+                "--repo-owner",
+                "owner",
+                "--repo-name",
+                "repo",
+                "Write an issue about the bug"
+            };
+            int exitCode = HeadlessExecCli.runCli(argsMissingToken);
+            capturedErr.flush();
+            String stderr = errBytes.toString(StandardCharsets.UTF_8);
+            assertEquals(1, exitCode);
+            assertTrue(stderr.contains("ERROR: --github-token is required for ISSUE_WRITER mode"), stderr);
+
+            // Reset
+            errBytes.reset();
+
+            // Test missing --repo-owner
+            String[] argsMissingOwner = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE_WRITER",
+                "--github-token",
+                "token123",
+                "--repo-name",
+                "repo",
+                "Write an issue about the bug"
+            };
+            exitCode = HeadlessExecCli.runCli(argsMissingOwner);
+            capturedErr.flush();
+            stderr = errBytes.toString(StandardCharsets.UTF_8);
+            assertEquals(1, exitCode);
+            assertTrue(stderr.contains("ERROR: --repo-owner is required for ISSUE_WRITER mode"), stderr);
+
+            // Reset
+            errBytes.reset();
+
+            // Test missing --repo-name
+            String[] argsMissingRepo = {
+                "--planner-model",
+                "gpt-5",
+                "--mode",
+                "ISSUE_WRITER",
+                "--github-token",
+                "token123",
+                "--repo-owner",
+                "owner",
+                "Write an issue about the bug"
+            };
+            exitCode = HeadlessExecCli.runCli(argsMissingRepo);
+            capturedErr.flush();
+            stderr = errBytes.toString(StandardCharsets.UTF_8);
+            assertEquals(1, exitCode);
+            assertTrue(stderr.contains("ERROR: --repo-name is required for ISSUE_WRITER mode"), stderr);
+
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
     void testParseArgs_IssueMode_PromptIsOptional() {
         PrintStream originalErr = System.err;
         ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
@@ -529,5 +638,17 @@ class HeadlessExecCliTest {
                 selection.root().getFileName().toString().startsWith("brokk-headless-owner-repo-"),
                 "Temp dir name should include owner/repo prefix");
         assertFalse(selection.root().equals(cwd), "REVIEW workspace should not be CWD");
+    }
+
+    @Test
+    void chooseWorkspaceRootForMode_issueWriter_usesTemp_notCwd() {
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        var selection = HeadlessExecCli.chooseWorkspaceRootForMode("ISSUE_WRITER", "owner", "repo");
+        assertTrue(selection.isTemporary());
+        assertTrue(selection.root().isAbsolute());
+        assertTrue(
+                selection.root().getFileName().toString().startsWith("brokk-headless-owner-repo-"),
+                "Temp dir name should include owner/repo prefix");
+        assertFalse(selection.root().equals(cwd), "ISSUE_WRITER workspace should not be CWD");
     }
 }

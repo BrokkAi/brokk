@@ -14,6 +14,8 @@ import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
+import ai.brokk.issues.GitHubIssueService;
+import ai.brokk.issues.IssueHeader;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -39,6 +41,8 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -72,7 +76,8 @@ public final class JobRunner {
         SEARCH,
         REVIEW,
         LUTZ,
-        ISSUE
+        ISSUE,
+        ISSUE_WRITER
     }
 
     static Mode parseMode(JobSpec spec) {
@@ -217,6 +222,7 @@ public final class JobRunner {
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
                             case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
+                            case ISSUE_WRITER -> "(unused)";
                         };
                 String codeModelNameForLog =
                         switch (mode) {
@@ -225,12 +231,14 @@ public final class JobRunner {
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
+                            case ISSUE_WRITER -> "(unused)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
                             case ASK, SEARCH, REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
+                            case ISSUE_WRITER -> true;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
                     plannerModelNameForLog = (mode == Mode.CODE) ? "(unused)" : "(unknown)";
@@ -1281,6 +1289,131 @@ public final class JobRunner {
                                                     jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
                                         }
                                     }
+                                    case ISSUE_WRITER -> {
+                                        String githubToken = spec.getGithubToken();
+                                        String repoOwner = spec.getRepoOwner();
+                                        String repoName = spec.getRepoName();
+
+                                        if (githubToken == null || githubToken.isBlank()) {
+                                            throw new IllegalArgumentException(
+                                                    "ISSUE_WRITER requires github_token in tags");
+                                        }
+                                        if (repoOwner == null || repoOwner.isBlank()) {
+                                            throw new IllegalArgumentException(
+                                                    "ISSUE_WRITER requires repo_owner in tags");
+                                        }
+                                        if (repoName == null || repoName.isBlank()) {
+                                            throw new IllegalArgumentException(
+                                                    "ISSUE_WRITER requires repo_name in tags");
+                                        }
+
+                                        if (cm.getProject().isEmptyProject()) {
+                                            String msg =
+                                                    "ISSUE_WRITER requires a materialized repository in the workspace. Clone/open the repo in the selected workspace directory (e.g., via HeadlessExecCli which clones for ISSUE/REVIEW/ISSUE_WRITER).";
+                                            try {
+                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
+                                            } catch (IOException ioe) {
+                                                logger.warn(
+                                                        "Failed to append ISSUE_WRITER empty-workspace notification for job {}: {}",
+                                                        jobId,
+                                                        ioe.getMessage(),
+                                                        ioe);
+                                            }
+                                            throw new IllegalStateException(msg);
+                                        }
+
+                                        try {
+                                            store.appendEvent(
+                                                    jobId,
+                                                    JobEvent.of(
+                                                            "NOTIFICATION",
+                                                            "ISSUE_WRITER: starting repository discovery"));
+                                        } catch (IOException ioe) {
+                                            logger.warn(
+                                                    "Failed to append ISSUE_WRITER start notification for job {}: {}",
+                                                    jobId,
+                                                    ioe.getMessage(),
+                                                    ioe);
+                                        }
+
+                                        try (var scope = cm.beginTaskUngrouped("Issue Writer")) {
+                                            var context = cm.liveContext();
+
+                                            var model = resolveModelOrThrow(
+                                                    spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
+
+                                            String goal =
+                                                    """
+                                                    Issue Writer: produce a high-quality GitHub issue by discovering and citing evidence in this repository.
+
+                                                    User request:
+                                                    %s
+                                                    """
+                                                            .formatted(spec.taskInput());
+
+                                            var agent = new LutzAgent(
+                                                    context,
+                                                    goal,
+                                                    model,
+                                                    SearchPrompts.Objective.ISSUE_DIAGNOSIS,
+                                                    scope);
+                                            var result = agent.execute();
+                                            scope.append(result);
+
+                                            String raw = result.output().text().join();
+                                            var parsed = IssueWriterService.parseIssueResponse(raw);
+                                            if (parsed == null) {
+                                                String preview = raw == null
+                                                        ? "(null)"
+                                                        : (raw.length() > 500 ? raw.substring(0, 500) + "..." : raw);
+                                                throw new IllegalStateException(
+                                                        "ISSUE_WRITER discovery output was not valid JSON with required fields. Output preview: "
+                                                                + preview);
+                                            }
+
+                                            try {
+                                                store.appendEvent(
+                                                        jobId,
+                                                        JobEvent.of(
+                                                                "NOTIFICATION",
+                                                                "ISSUE_WRITER: discovery complete (title: "
+                                                                        + parsed.title() + ")"));
+                                            } catch (IOException ioe) {
+                                                logger.warn(
+                                                        "Failed to append ISSUE_WRITER discovery-complete notification for job {}: {}",
+                                                        jobId,
+                                                        ioe.getMessage(),
+                                                        ioe);
+                                            }
+
+                                            String finalBodyMarkdown = maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
+
+                                            var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+
+                                            var issueService = new GitHubIssueService(cm.getProject(), auth);
+
+                                            IssueHeader created =
+                                                    issueService.createIssue(parsed.title(), finalBodyMarkdown);
+
+                                            String createdMsg = "ISSUE_WRITER: issue created";
+                                            if (!created.id().isBlank()) {
+                                                createdMsg += " " + created.id();
+                                            }
+                                            if (created.htmlUrl() != null) {
+                                                createdMsg += " " + created.htmlUrl();
+                                            }
+
+                                            try {
+                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
+                                            } catch (IOException ioe) {
+                                                logger.warn(
+                                                        "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
+                                                        jobId,
+                                                        ioe.getMessage(),
+                                                        ioe);
+                                            }
+                                        }
+                                    }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                 }
 
@@ -1978,6 +2111,33 @@ public final class JobRunner {
         }
 
         throw new IssueExecutionException("Final gate failed unexpectedly");
+    }
+
+    private static final Pattern DIFF_FENCE_PATTERN = Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
+
+    static String maybeAnnotateDiffBlocks(String bodyMarkdown) {
+        if (bodyMarkdown.isBlank() || !bodyMarkdown.contains("```diff")) {
+            return bodyMarkdown;
+        }
+
+        Matcher matcher = DIFF_FENCE_PATTERN.matcher(bodyMarkdown);
+        if (!matcher.find()) {
+            return bodyMarkdown;
+        }
+
+        matcher.reset();
+
+        var out = new StringBuilder();
+        int lastEnd = 0;
+        while (matcher.find()) {
+            out.append(bodyMarkdown, /* start= */ lastEnd, /* end= */ matcher.start());
+            String content = matcher.group(1);
+            String annotated = PrReviewService.annotateDiffWithLineNumbers(content);
+            out.append("```diff\n").append(annotated).append("\n```");
+            lastEnd = matcher.end();
+        }
+        out.append(bodyMarkdown.substring(lastEnd));
+        return out.toString();
     }
 
     static boolean issueDeliveryEnabled(JobSpec spec) {
