@@ -1913,7 +1913,7 @@ public final class JobRunner {
         var out = new StringBuilder();
         int lastEnd = 0;
         while (matcher.find()) {
-            out.append(bodyMarkdown, lastEnd, matcher.start());
+            out.append(bodyMarkdown, /* start= */ lastEnd, /* end= */ matcher.start());
             String content = matcher.group(1);
             String annotated = PrReviewService.annotateDiffWithLineNumbers(content);
             out.append("```diff\n").append(annotated).append("\n```");
