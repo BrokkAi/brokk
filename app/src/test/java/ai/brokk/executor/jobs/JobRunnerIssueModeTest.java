@@ -7,10 +7,12 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -265,34 +267,153 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void testRunFinalGateRetryLoop_exhaustsAttempts_andUsesFinalTerminology() {
-        var io = new TestConsoleIO();
-        // force commandRunner to always return failure output
-        java.util.function.Function<String, String> commandRunner = cmd -> "failing output";
-        java.util.function.Consumer<String> fixRunner = prompt -> {
-            // no-op: do not fix anything
+    void issueReviewTaskSequence_convertsCommentsToPrompts_andRunsInOrder_andCallsBranchHook_andFinalVerificationAfter()
+            throws Exception {
+        var comments = List.of(
+                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL),
+                new PrReviewService.InlineComment("src/C.java", 30, "Third issue", PrReviewService.Severity.HIGH));
+
+        var observed = new ArrayList<String>();
+        var prompts = new ArrayList<String>();
+        var taskIndex = new AtomicInteger(0);
+        var branchHookCalls = new AtomicInteger(0);
+
+        var currentPhase = new AtomicReference<String>("START");
+
+        java.util.function.Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
+            String prompt = JobRunner.buildInlineCommentFixPrompt(c);
+            prompts.add(prompt);
+            return prompt;
         };
 
-        // Build minimal BuildDetails with non-blank commands to ensure both test and lint run
-        BuildAgent.BuildDetails buildDetails =
-                new BuildAgent.BuildDetails("./gradlew classes", "./gradlew test", "./gradlew test --tests", Set.of());
+        java.util.function.Consumer<String> taskRunner = prompt -> {
+            assertEquals("TASKS", currentPhase.get(), "Tasks must run during TASKS phase");
+            int idx = taskIndex.incrementAndGet();
+            observed.add("task-" + idx);
+            observed.add("prompt-" + idx + ":" + prompt);
+        };
 
-        // attemptsLeft = 2 should cause two attempts then throw
-        java.util.concurrent.atomic.AtomicInteger attemptsLeft = new java.util.concurrent.atomic.AtomicInteger(2);
+        Runnable branchUpdateHook = () -> {
+            assertEquals("TASKS", currentPhase.get(), "Branch update hook must run during TASKS phase");
+            int idx = branchHookCalls.incrementAndGet();
+            observed.add("branchHook-" + idx);
+        };
 
-        IssueExecutionException ex = assertThrows(
-                IssueExecutionException.class,
-                () -> JobRunner.runFinalGateRetryLoop(
-                        "job-final-gate-1", store, io, buildDetails, attemptsLeft, commandRunner, fixRunner));
+        Runnable finalVerification = () -> {
+            assertEquals("FINAL_VERIFICATION", currentPhase.get(), "Final verification must run after tasks");
+            observed.add("finalVerification");
+        };
 
-        String msg = ex.getMessage();
-        assertTrue(
-                msg.contains("Final gate failed after"),
-                "Exception message should indicate final gate failure: " + msg);
+        currentPhase.set("TASKS");
+        JobRunner.runIssueReviewTaskSequence(comments, commentToPrompt, taskRunner, branchUpdateHook, () -> {
+            currentPhase.set("FINAL_VERIFICATION");
+            finalVerification.run();
+        });
 
-        assertFalse(
-                msg.toLowerCase().contains("pre-pr") || msg.toLowerCase().contains("prepr"),
-                "Exception message must not contain pre-PR terminology: " + msg);
+        assertEquals(3, prompts.size(), "Each inline comment must be converted to a prompt");
+        assertTrue(prompts.get(0).contains("src/A.java"));
+        assertTrue(prompts.get(0).contains("line: 10"));
+        assertTrue(prompts.get(0).contains("First issue"));
+
+        assertTrue(prompts.get(1).contains("src/B.java"));
+        assertTrue(prompts.get(1).contains("line: 20"));
+        assertTrue(prompts.get(1).contains("Second issue"));
+
+        assertTrue(prompts.get(2).contains("src/C.java"));
+        assertTrue(prompts.get(2).contains("line: 30"));
+        assertTrue(prompts.get(2).contains("Third issue"));
+
+        assertEquals(3, taskIndex.get(), "Tasks must execute exactly once per comment");
+        assertEquals(3, branchHookCalls.get(), "Branch update hook must be called once per task");
+
+        assertEquals(
+                List.of(
+                        "task-1",
+                        "prompt-1:" + prompts.get(0),
+                        "branchHook-1",
+                        "task-2",
+                        "prompt-2:" + prompts.get(1),
+                        "branchHook-2",
+                        "task-3",
+                        "prompt-3:" + prompts.get(2),
+                        "branchHook-3",
+                        "finalVerification"),
+                observed,
+                "Sequence must be strictly serial and ordered: task -> branchHook after each task -> final verification");
+    }
+
+    @Test
+    void
+            issueReviewTaskSequence_productionWiring_shortCircuitsOnCancellation_skipsRemainingTasksAndFinalVerification() {
+        var comments = List.of(
+                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL),
+                new PrReviewService.InlineComment("src/C.java", 30, "Third issue", PrReviewService.Severity.HIGH));
+
+        var cancelled = new AtomicBoolean(false);
+
+        var promptsBuilt = new AtomicInteger(0);
+        var tasksRun = new AtomicInteger(0);
+        var branchHooks = new AtomicInteger(0);
+        var finalVerificationCalls = new AtomicInteger(0);
+
+        var observed = new ArrayList<String>();
+
+        java.util.function.Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
+            promptsBuilt.incrementAndGet();
+            return JobRunner.buildInlineCommentFixPrompt(c);
+        };
+
+        java.util.function.Consumer<String> taskRunner = prompt -> {
+            int idx = tasksRun.incrementAndGet();
+            observed.add("task-" + idx);
+            if (idx == 1) {
+                cancelled.set(true);
+            }
+        };
+
+        Runnable branchUpdateHook = () -> {
+            branchHooks.incrementAndGet();
+            observed.add("branchHook-" + branchHooks.get());
+        };
+
+        Runnable finalVerification = () -> {
+            finalVerificationCalls.incrementAndGet();
+            observed.add("finalVerification");
+        };
+
+        JobRunner.runIssueReviewTaskSequenceWithCancellation(
+                comments, cancelled::get, commentToPrompt, taskRunner, branchUpdateHook, finalVerification);
+
+        assertTrue(cancelled.get(), "Test must trigger cancellation");
+        assertEquals(1, tasksRun.get(), "Only the first task should run after cancellation triggers");
+        assertEquals(1, branchHooks.get(), "Branch update hook must run only for executed tasks");
+        assertEquals(0, finalVerificationCalls.get(), "Final verification must be skipped when cancellation is active");
+
+        assertEquals(List.of("task-1", "branchHook-1"), observed);
+
+        assertEquals(
+                1,
+                promptsBuilt.get(),
+                "Production wiring should avoid building prompts for comments that will be skipped due to cancellation");
+    }
+
+    @Test
+    void issueReviewTaskSequence_noComments_stillRunsFinalVerification() {
+        var observed = new ArrayList<String>();
+        var branchHookCalls = new AtomicInteger(0);
+
+        JobRunner.runIssueReviewTaskSequence(
+                List.of(),
+                JobRunner::buildInlineCommentFixPrompt,
+                prompt -> observed.add("task:" + prompt),
+                () -> branchHookCalls.incrementAndGet(),
+                () -> observed.add("finalVerification"));
+
+        assertTrue(observed.contains("finalVerification"));
+        assertEquals(1, observed.size(), "No tasks should run when comments list is empty");
+        assertEquals(0, branchHookCalls.get(), "Branch update hook must not run when there are no tasks");
     }
 
     @Test
@@ -475,5 +596,24 @@ class JobRunnerIssueModeTest {
         assertFalse(
                 repo.isLocalBranch(issueBranchName),
                 "Issue branch must be removed when forceDelete=true and normal delete fails");
+    }
+
+    @Test
+    void issueModeComputeInlineComments_emptyDiff_returnsEmptyList() throws Exception {
+        // Precondition (optional): when the base branch and HEAD point to the same commit, the unified diff is empty.
+        String baseBranch = repo.getCurrentBranch();
+
+        String diff = PrReviewService.computePrDiff(repo, baseBranch, "HEAD");
+        assertTrue(diff.isBlank(), "Precondition: diff must be empty when baseBranch == HEAD");
+
+        var reviewCalls = new AtomicInteger(0);
+
+        var comments = JobRunner.issueModeComputeInlineCommentsOrEmpty(() -> "", ignoredDiff -> {
+            reviewCalls.incrementAndGet();
+            return List.of();
+        });
+
+        assertTrue(comments.isEmpty(), "Empty diff must short-circuit to no inline comments");
+        assertEquals(0, reviewCalls.get(), "Review callback must not be invoked when diff is blank");
     }
 }
