@@ -1104,20 +1104,10 @@ public final class JobRunner {
 
                                             String goal =
                                                     """
-                                                    You are an Issue Writer. Your task: write a high-quality GitHub issue based on the user's request.
+                                                    Issue Writer: produce a high-quality GitHub issue by discovering and citing evidence in this repository.
 
                                                     User request:
                                                     %s
-
-                                                    OUTPUT FORMAT (STRICT):
-                                                    Output ONLY a single JSON object with this exact schema:
-
-                                                    { "title": "...", "bodyMarkdown": "..." }
-
-                                                    Rules:
-                                                    - Output ONLY the JSON object (no markdown fences, no extra text).
-                                                    - "title" must be a concise issue title.
-                                                    - "bodyMarkdown" must be GitHub-flavored Markdown describing the problem, expected behavior, actual behavior (if known), steps to reproduce (if known), and any relevant context.
                                                     """
                                                             .formatted(spec.taskInput());
 
@@ -1125,7 +1115,7 @@ public final class JobRunner {
                                                     context,
                                                     goal,
                                                     model,
-                                                    SearchPrompts.Objective.ANSWER_ONLY,
+                                                    SearchPrompts.Objective.ISSUE_DIAGNOSIS,
                                                     scope);
                                             var result = agent.execute();
                                             scope.append(result);
