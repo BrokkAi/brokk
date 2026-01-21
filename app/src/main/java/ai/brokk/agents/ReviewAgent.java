@@ -907,6 +907,10 @@ public class ReviewAgent {
 
                 Every section except Overview is optional; omit them if there is nothing important to say.
                 </instructions>
+                <environment>
+                Unless there is overwhelming evidence to the contrary, you should assume that the code compiles and runs.
+                You should NOT assume that more tests exist besides what you see.
+                </environment>
                 <excerpt_format>
                 When referencing code, use the following format with the file path and line number on a separate line before the code block:
 
