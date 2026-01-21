@@ -500,16 +500,17 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     public static Set<CodeUnit> resolveJavaScriptLikeImports(
-            IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
-        Path root = analyzer.getProject().getRoot();
-        return importStatements.stream()
-                .map(JavascriptAnalyzer::extractModulePathFromImport)
-                .flatMap(Optional::stream)
-                .map(path -> resolveJavaScriptLikeModulePath(root, file, path))
-                .filter(Objects::nonNull)
-                .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
-                .collect(Collectors.toSet());
-    }
+                IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
+            Path root = analyzer.getProject().getRoot();
+            Set<ProjectFile> projectFiles = analyzer.getProject().getAllFiles();
+            return importStatements.stream()
+                    .map(JavascriptAnalyzer::extractModulePathFromImport)
+                    .flatMap(Optional::stream)
+                    .map(path -> resolveJavaScriptLikeModulePath(root, projectFiles, file, path))
+                    .filter(Objects::nonNull)
+                    .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
+                    .collect(Collectors.toSet());
+        }
 
     public static Optional<String> extractModulePathFromImport(String importStatement) {
         // Try ES6 pattern first (imports with 'from')
@@ -542,15 +543,20 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
      * and will resolve successfully. This is intentional for performance and flexibility reasons.
      *
      * @param projectRoot the project root path
+     * @param projectFiles the set of all files in the project
      * @param importingFile the file containing the import statement
      * @param modulePath the module specifier from the import/require
      * @return the resolved ProjectFile, or null if not resolvable within the project
      */
     public static @Nullable ProjectFile resolveJavaScriptLikeModulePath(
-            Path projectRoot, ProjectFile importingFile, String modulePath) {
+            Path projectRoot, Set<ProjectFile> projectFiles, ProjectFile importingFile, String modulePath) {
         if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
             return null;
         }
+
+        Set<Path> absolutePaths = projectFiles.stream()
+                .map(ProjectFile::absPath)
+                .collect(Collectors.toSet());
 
         Path parentDir = importingFile.absPath().getParent();
         if (parentDir == null) {
@@ -563,7 +569,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
         // 1. If the path already has a known extension, try it directly first
         if (knownExtensions.stream().anyMatch(fileName::endsWith)) {
-            if (Files.exists(resolvedPath) && resolvedPath.startsWith(projectRoot)) {
+            if (absolutePaths.contains(resolvedPath) && resolvedPath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(resolvedPath));
             }
         }
@@ -583,7 +589,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         for (String ext : fileExtensions) {
             Path candidatePath = ext.isEmpty() ? basePath : basePath.resolveSibling(baseName + ext);
 
-            if (Files.exists(candidatePath) && candidatePath.startsWith(projectRoot)) {
+            if (absolutePaths.contains(candidatePath) && candidatePath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
             }
         }
@@ -592,7 +598,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         List<String> indexFiles = List.of("index.js", "index.jsx", "index.ts", "index.tsx");
         for (String indexFile : indexFiles) {
             Path candidatePath = resolvedPath.resolve(indexFile);
-            if (Files.exists(candidatePath) && candidatePath.startsWith(projectRoot)) {
+            if (absolutePaths.contains(candidatePath) && candidatePath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
             }
         }
