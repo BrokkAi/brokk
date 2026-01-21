@@ -148,26 +148,14 @@ public final class FuzzyUsageFinder {
                 mapping.add(hit);
             }
 
-            if (UsageConfig.isBooleanUsageMode()) {
-                var decisions = RelevanceClassifier.relevanceBooleanBatch(llm, service, tasks);
-                for (int i = 0; i < tasks.size(); i++) {
-                    var task = tasks.get(i);
-                    var decision = decisions.getOrDefault(task, false);
-                    var base = mapping.get(i);
-                    var scored = base.withConfidence(decision ? 1.0 : 0.0);
-                    scoredHits.add(scored);
-                    unscoredHits.remove(base);
-                }
-            } else {
-                var scores = RelevanceClassifier.relevanceScoreBatch(project.getDiskCache(), llm, service, tasks);
-                for (int i = 0; i < tasks.size(); i++) {
-                    var task = tasks.get(i);
-                    var score = scores.getOrDefault(task, 0.0);
-                    var base = mapping.get(i);
-                    var scored = base.withConfidence(score);
-                    scoredHits.add(scored);
-                    unscoredHits.remove(base);
-                }
+            var scores = RelevanceClassifier.relevanceScoreBatch(project.getDiskCache(), llm, service, tasks);
+            for (int i = 0; i < tasks.size(); i++) {
+                var task = tasks.get(i);
+                var score = scores.getOrDefault(task, 0.0);
+                var base = mapping.get(i);
+                var scored = base.withConfidence(score);
+                scoredHits.add(scored);
+                unscoredHits.remove(base);
             }
             var combined = new HashSet<UsageHit>(scoredHits.size() + unscoredHits.size());
             combined.addAll(scoredHits);
