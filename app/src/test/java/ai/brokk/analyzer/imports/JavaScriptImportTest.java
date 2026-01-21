@@ -23,6 +23,8 @@ public class JavaScriptImportTest {
                 import { Something, AnotherThing as AT } from './another-module';
                 import * as AllThings from './all-the-things';
                 import DefaultThing from './default-thing';
+                import './side-effect-module';
+                import 'global-polyfill';
 
                 function foo() {};
                 """,
@@ -35,7 +37,9 @@ public class JavaScriptImportTest {
                     "import { Something, AnotherThing as AT } from './another-module';",
                     "import * as AllThings from './all-the-things';",
                     "import React, { useState } from 'react';",
-                    "import DefaultThing from './default-thing';");
+                    "import DefaultThing from './default-thing';",
+                    "import './side-effect-module';",
+                    "import 'global-polyfill';");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
         }
     }
@@ -205,6 +209,45 @@ public class JavaScriptImportTest {
                             && cu.source().getRelPath().toString().contains("shared.js"));
 
             assertTrue(foundShared, "Should have resolved 'shared' function from require call");
+        }
+    }
+
+    @Test
+    public void testSideEffectImportResolution() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                // polyfill.js sets up global state
+                if (typeof window !== 'undefined') {
+                    window.polyfilled = true;
+                }
+                export const POLYFILL_VERSION = '1.0';
+                """,
+                        "polyfill.js")
+                .addFileContents(
+                        """
+                import './polyfill';
+
+                function main() {
+                    console.log('app started');
+                }
+                """,
+                        "app.js")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var appFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("app.js"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(appFile);
+
+            boolean foundPolyfillExport = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().endsWith("POLYFILL_VERSION")
+                            && cu.source().getRelPath().toString().contains("polyfill.js"));
+
+            assertTrue(foundPolyfillExport, "Should have resolved exports from side-effect import './polyfill'");
         }
     }
 

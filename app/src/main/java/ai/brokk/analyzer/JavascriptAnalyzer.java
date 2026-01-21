@@ -21,6 +21,7 @@ import org.treesitter.TreeSitterJavascript;
 
 public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
+    private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern CJS_REQUIRE_PATTERN = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
 
     // JS_LANGUAGE field removed, createTSLanguage will provide new instances.
@@ -511,10 +512,16 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     public static Optional<String> extractModulePathFromImport(String importStatement) {
-        // Try ES6 pattern first
+        // Try ES6 pattern first (imports with 'from')
         Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
         if (es6Matcher.find()) {
             return Optional.of(es6Matcher.group(1));
+        }
+
+        // Try ES6 side-effect imports (import './polyfill')
+        Matcher sideEffectMatcher = ES6_SIDE_EFFECT_IMPORT_PATTERN.matcher(importStatement);
+        if (sideEffectMatcher.find()) {
+            return Optional.of(sideEffectMatcher.group(1));
         }
 
         // Try CommonJS pattern
