@@ -649,8 +649,10 @@ class SessionSynchronizer {
                         existing = new SyncInfo();
                     }
 
-                    existing.oversizedSessionIds().add(id);
-                    String json = AbstractProject.objectMapper.writeValueAsString(existing);
+                    Set<UUID> updatedIds = new HashSet<>(existing.oversizedSessionIds());
+                    updatedIds.add(id);
+                    SyncInfo updated = new SyncInfo(updatedIds);
+                    String json = AbstractProject.objectMapper.writeValueAsString(updated);
                     AtomicWrites.save(syncInfoPath, json);
                     logger.info("Added session {} to oversized sessions list", id);
                     return null;
