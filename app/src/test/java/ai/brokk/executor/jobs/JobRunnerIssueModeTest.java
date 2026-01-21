@@ -467,6 +467,47 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void issueModeTestLintRetryLoop_blankTestCommand_doesNotInvokeTests_invokesLint_andFixesOncePerIteration_untilMaxIterations() {
+        var cancelled = new AtomicBoolean(false);
+
+        String testCmd = "";
+        String lintCmd = "./gradlew lint";
+
+        int maxIterations = 3;
+
+        var lintCalls = new AtomicInteger(0);
+        var fixCalls = new AtomicInteger(0);
+
+        java.util.function.Function<String, String> commandRunner = cmd -> {
+            if (cmd.equals(testCmd)) {
+                return fail("Test command must not be invoked when testAllCommand() is blank");
+            }
+            if (cmd.equals(lintCmd)) {
+                lintCalls.incrementAndGet();
+                return "LINT FAILED OUTPUT";
+            }
+            return fail("Unexpected command: " + cmd);
+        };
+
+        java.util.function.Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+
+        IssueExecutionException ex = assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildAgent.BuildDetails(lintCmd, testCmd, "", java.util.Set.of()),
+                        maxIterations));
+
+        assertEquals(maxIterations, lintCalls.get(), "Lint must be invoked once per iteration");
+        assertEquals(maxIterations, fixCalls.get(), "Fix must run once per iteration");
+        assertTrue(
+                ex.getMessage().contains("Tests/lint failed after " + maxIterations + " iteration(s)"),
+                "Exception message should reflect maxIterations");
+    }
+
+    @Test
     void issueReviewTaskSequence_convertsCommentsToPrompts_andRunsInOrder_andCallsBranchHook_andFinalVerificationAfter()
             throws Exception {
         var comments = List.of(
