@@ -11,6 +11,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
@@ -43,10 +44,10 @@ public final class FuzzyUsageFinder {
 
     public static FuzzyUsageFinder create(IContextManager cm) {
         var service = cm.getService();
-        var quickestModel = service.quickestModel();
-        var llm = quickestModel instanceof AbstractService.UnavailableStreamingModel
+        var model = service.getModel(ModelProperties.ModelType.USAGES);
+        var llm = model instanceof AbstractService.UnavailableStreamingModel
                 ? null
-                : new Llm(quickestModel, "Disambiguate Code Unit Usages", cm, false, false, false, false);
+                : new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false);
         return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm);
     }
 

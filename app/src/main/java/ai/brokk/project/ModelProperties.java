@@ -85,9 +85,11 @@ public final class ModelProperties {
 
         // indirectly selectable via vendor preference
         SUMMARIZE("quickConfig", gpt5Mini, gcf1),
+        // GCF1 is cheap enough for usages, but we don't get enough concurrent requests, so free tier gets flash2
+        USAGES("usagesConfig", gpt5Mini, flash2),
         QUICK_EDIT("quickEditConfig", flash3, gcf1),
         QUICKEST("quickestConfig", flash2Lite),
-        COMMIT_MESSAGE("commitMessageConfig", flash3, flash2),
+        COMMIT_MESSAGE("commitMessageConfig", flash3, gcf1),
         SCAN("scanConfig", flash3, gcf1),
         ARCHITECT_FALLBACK("architectFallbackConfig", gp3, gcf1),
         BUILD_PROCESSOR("buildProcessorConfig", gpt5Mini, gpt5Nano);
@@ -126,6 +128,7 @@ public final class ModelProperties {
                     "Anthropic",
                     Map.of(
                             ModelType.SUMMARIZE, haiku3,
+                            ModelType.USAGES, haiku3,
                             ModelType.QUICK_EDIT, haiku4_5,
                             ModelType.QUICKEST, haiku3,
                             ModelType.COMMIT_MESSAGE, haiku3,
@@ -136,6 +139,7 @@ public final class ModelProperties {
                     "Gemini",
                     Map.of(
                             ModelType.SUMMARIZE, flash3,
+                            ModelType.USAGES, flash3,
                             ModelType.QUICK_EDIT, flash3,
                             ModelType.QUICKEST, flash2Lite,
                             ModelType.COMMIT_MESSAGE, flash3,
@@ -146,6 +150,7 @@ public final class ModelProperties {
                     "OpenAI",
                     Map.of(
                             ModelType.SUMMARIZE, gpt5Mini,
+                            ModelType.USAGES, gpt5Mini,
                             ModelType.QUICK_EDIT, gpt5Mini,
                             ModelType.QUICKEST, gpt5Nano,
                             ModelType.COMMIT_MESSAGE, gpt5Mini,
