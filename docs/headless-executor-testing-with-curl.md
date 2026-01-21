@@ -800,7 +800,7 @@ curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
 - Executes each task with ArchitectAgent (uses `plannerModel` + `codeModel`).
 - Runs build verification after each task.
 - Retries failed builds per task (default: 3 attempts per task, configurable via `buildSettings.maxBuildAttempts`).
-- Caps overall issue remediation attempts (default: 5, configurable via `maxIssueFixAttempts`).
+- Caps overall issue remediation attempts (default: 20, configurable via `maxIssueFixAttempts`).
 - **PR Creation**: On success, pushes changes and creates a Pull Request with an AI-generated title and description.
 - `buildSettings` overrides project defaults for the job duration.
 - `codeModel` is optional; defaults to project default if omitted.
