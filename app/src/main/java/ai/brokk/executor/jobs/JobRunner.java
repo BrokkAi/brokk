@@ -23,6 +23,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
@@ -825,7 +826,7 @@ public final class JobRunner {
                                         var ghRepo = gitHubAuth.getGhRepository();
                                         var details = IssueService.fetchIssueDetails(ghRepo, issueNumber);
                                         var buildDetailsOverride =
-                                                IssueService.parseBuildSettings(spec.getBuildSettingsJson());
+                                                resolveIssueBuildDetails(spec, cm.getProject());
 
                                         // 3. Branch management
                                         var gitRepo = (GitRepo) cm.getProject().getRepo();
@@ -2128,6 +2129,21 @@ public final class JobRunner {
         }
         out.append(bodyMarkdown.substring(lastEnd));
         return out.toString();
+    }
+
+    /**
+     * Resolves build details for ISSUE mode: uses spec's build_settings if present and non-blank,
+     * otherwise falls back to project-level build details.
+     *
+     * <p>Package-private for unit testing.
+     */
+    static BuildAgent.BuildDetails resolveIssueBuildDetails(JobSpec spec, IProject project) {
+        String buildSettingsJson = spec.getBuildSettingsJson();
+        if (buildSettingsJson != null && !buildSettingsJson.isBlank()) {
+            return IssueService.parseBuildSettings(buildSettingsJson);
+        }
+        // Fall back to repository-level build details
+        return project.awaitBuildDetails();
     }
 
     static boolean issueDeliveryEnabled(JobSpec spec) {

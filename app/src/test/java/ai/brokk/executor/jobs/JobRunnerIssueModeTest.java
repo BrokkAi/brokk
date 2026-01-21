@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
+import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -158,6 +159,73 @@ class JobRunnerIssueModeTest {
         assertEquals("gpt-4", spec.plannerModel());
         assertEquals("gpt-4-mini", spec.codeModel());
         assertEquals(JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, spec.effectiveMaxIssueFixAttempts());
+    }
+
+    @Test
+    void testJobSpecOfIssue_blankBuildSettingsJson_omitsTagEntirely() {
+        // Blank buildSettingsJson should result in no build_settings tag
+        JobSpec specBlank = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 1, "");
+        assertNull(specBlank.getBuildSettingsJson(), "Blank buildSettingsJson should omit tag entirely");
+
+        JobSpec specWhitespace = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 2, "   ");
+        assertNull(specWhitespace.getBuildSettingsJson(), "Whitespace-only buildSettingsJson should omit tag");
+
+        JobSpec specNull = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 3, null);
+        assertNull(specNull.getBuildSettingsJson(), "Null buildSettingsJson should omit tag");
+    }
+
+    @Test
+    void testResolveIssueBuildDetails_blankSpecSettings_fallsBackToProjectBuildDetails() {
+        // Create a TestProject with non-empty build details
+        var project = new TestProject(tempDir);
+        var projectBuildDetails = new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of());
+        project.setBuildDetails(projectBuildDetails);
+
+        // Create JobSpec with blank build settings (tag omitted)
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "");
+        assertNull(spec.getBuildSettingsJson(), "Precondition: blank buildSettingsJson should omit tag");
+
+        // Resolve should fall back to project build details
+        BuildDetails resolved = JobRunner.resolveIssueBuildDetails(spec, project);
+
+        assertEquals(projectBuildDetails, resolved, "Should fall back to project build details when spec is blank");
+        assertEquals("./gradlew lint", resolved.buildLintCommand());
+        assertEquals("./gradlew test", resolved.testAllCommand());
+    }
+
+    @Test
+    void testResolveIssueBuildDetails_nonBlankSpecSettings_usesSpecOverride() {
+        // Create a TestProject with some build details
+        var project = new TestProject(tempDir);
+        var projectBuildDetails = new BuildDetails("./gradlew projectLint", "./gradlew projectTest", "", Set.of());
+        project.setBuildDetails(projectBuildDetails);
+
+        // Create JobSpec with explicit build settings
+        String specJson = "{\"buildLintCommand\":\"./mvn lint\",\"testAllCommand\":\"./mvn test\"}";
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, specJson);
+        assertEquals(specJson, spec.getBuildSettingsJson(), "Precondition: non-blank settings should be stored");
+
+        // Resolve should use spec's build settings, not project's
+        BuildDetails resolved = JobRunner.resolveIssueBuildDetails(spec, project);
+
+        assertEquals("./mvn lint", resolved.buildLintCommand());
+        assertEquals("./mvn test", resolved.testAllCommand());
+        assertNotEquals(projectBuildDetails, resolved, "Should use spec override, not project fallback");
+    }
+
+    @Test
+    void testResolveIssueBuildDetails_blankSpecSettings_projectAlsoEmpty_returnsEmpty() {
+        // Create a TestProject with EMPTY build details (simulating no repo-level config)
+        var project = new TestProject(tempDir);
+        // Default TestProject has EMPTY build details
+
+        // Create JobSpec with blank build settings
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "");
+
+        // Resolve should return EMPTY (both spec and project are empty)
+        BuildDetails resolved = JobRunner.resolveIssueBuildDetails(spec, project);
+
+        assertEquals(BuildDetails.EMPTY, resolved, "Should return EMPTY when both spec and project have no config");
     }
 
     @Test
