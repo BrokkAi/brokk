@@ -72,8 +72,8 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
 
     @Override
     public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
-        // MultiAnalyzer implements these interfaces by delegating to whichever child supports them.
         // We only return 'this' for these specific capabilities if at least one delegate supports them.
+        // Otherwise, we throw an AssertionError
         if (capability == ImportAnalysisProvider.class
                 || capability == TypeHierarchyProvider.class
                 || capability == TypeAliasProvider.class) {
@@ -82,10 +82,7 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
             return anyDelegateSupports ? Optional.of(capability.cast(this)) : Optional.empty();
         }
 
-        // For other capabilities, return the first delegate that supports it directly.
-        return delegates.values().stream()
-                .flatMap(d -> d.as(capability).stream())
-                .findFirst();
+        throw new AssertionError("MultiAnalyzer does not support casting to " + capability);
     }
 
     @Override
