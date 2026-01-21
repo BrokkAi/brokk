@@ -163,6 +163,25 @@ public class CodeFragmentTest {
     }
 
     @Test
+    void testCodeFragmentWithNoImportsHasNoLeadingWhitespace() {
+        ProjectFile file = new ProjectFile(tempDir, "NoImports.java");
+        CodeUnit cls = CodeUnit.cls(file, "com.example", "NoImports");
+
+        analyzer.addDeclaration(cls);
+        String code = "class NoImports {}";
+        analyzer.setSource(cls, code);
+        analyzer.setImportStatements(file, List.of());
+
+        var fragment = new ContextFragments.CodeFragment(contextManager, cls);
+        String text = fragment.text().join();
+
+        // The text is wrapped in a <file> tag by CodeWithSource.
+        // We check that the very first character is '<', meaning no leading newlines or imports.
+        assertTrue(text.startsWith("<"), "Text should start with the file tag, not whitespace or imports");
+        assertCodeContains(text, code);
+    }
+
+    @Test
     void testCodeFragmentIncludesImportStatementsForMethod() {
         ProjectFile file = new ProjectFile(tempDir, "Example.java");
         CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
