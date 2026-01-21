@@ -2102,18 +2102,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-            // Extract typical top-level imports
-            TSNode importNode =
-                    capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
-            if (importNode != null && !importNode.isNull()) {
-                String importText = sourceContent.substringFrom(importNode).strip();
-                if (!importText.isEmpty()) {
-                    localImportStatements.add(importText);
-                }
-            }
-
-            // Extract inline/call-based imports typical of interpreted languages
-            extractAdditionalImports(capturedNodesForMatch, sourceContent, localImportStatements);
+            extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
 
             for (var captureEntry : capturedNodesForMatch.entrySet()) {
                 String captureName = captureEntry.getKey();
@@ -3904,11 +3893,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param sourceContent the source code content
      * @param localImportStatements list to add extracted import statements to
      */
-    protected void extractAdditionalImports(
+    protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
             List<String> localImportStatements) {
-        // Default: no additional imports
+        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        if (importNode != null && !importNode.isNull()) {
+            String importText = sourceContent.substringFrom(importNode).strip();
+            if (!importText.isEmpty()) {
+                localImportStatements.add(importText);
+            }
+        }
     }
 
     /**

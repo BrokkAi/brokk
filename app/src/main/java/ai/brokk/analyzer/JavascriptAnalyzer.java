@@ -606,10 +606,11 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     @Override
-    protected void extractAdditionalImports(
+    protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
             List<String> localImportStatements) {
+        super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
         extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
     }
 

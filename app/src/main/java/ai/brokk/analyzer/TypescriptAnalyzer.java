@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.analyzer.JavascriptAnalyzer.extractCommonJsRequireImport;
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
@@ -1034,25 +1035,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer implements Impo
     }
 
     @Override
-    protected void extractAdditionalImports(
+    protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
             List<String> localImportStatements) {
-        TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
-        TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
-        if (requireCallNode != null
-                && !requireCallNode.isNull()
-                && requireFuncNode != null
-                && !requireFuncNode.isNull()) {
-            String funcName = sourceContent.substringFrom(requireFuncNode).strip();
-            if ("require".equals(funcName)) {
-                String requireText =
-                        sourceContent.substringFrom(requireCallNode).strip();
-                if (!requireText.isEmpty()) {
-                    localImportStatements.add(requireText);
-                }
-            }
-        }
+        super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
+        extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
     }
 
     @Override
