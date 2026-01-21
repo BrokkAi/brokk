@@ -68,7 +68,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer implements Impo
                     VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
             // decoratorNodeTypes
             Set.of(DECORATOR),
-            // imports - capture name must match query pattern @module.import_statement
+            // imports
             IMPORT_DECLARATION,
             // identifierFieldName
             "name",
