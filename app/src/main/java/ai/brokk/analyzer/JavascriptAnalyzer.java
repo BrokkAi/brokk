@@ -558,25 +558,30 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         }
 
         Path resolvedPath = parentDir.resolve(modulePath).normalize();
-
-        // 1. If the path already has a known extension, try it directly first to avoid redundant lookups
         List<String> knownExtensions = List.of(".js", ".jsx", ".ts", ".tsx");
         String fileName = resolvedPath.getFileName().toString();
+
+        // 1. If the path already has a known extension, try it directly first
         if (knownExtensions.stream().anyMatch(fileName::endsWith)) {
             if (Files.exists(resolvedPath) && resolvedPath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(resolvedPath));
             }
         }
 
-        // 2. Try direct file path (empty extension) and known extensions
+        // 2. Strip any known extension to get the base name, then try all extension variants
+        String baseName = fileName;
+        for (String ext : knownExtensions) {
+            if (baseName.endsWith(ext)) {
+                baseName = baseName.substring(0, baseName.length() - ext.length());
+                break;
+            }
+        }
+        Path basePath = resolvedPath.resolveSibling(baseName);
+
+        // Try base path (extensionless) and all known extensions
         List<String> fileExtensions = List.of("", ".js", ".jsx", ".ts", ".tsx");
         for (String ext : fileExtensions) {
-            // Skip if we already checked this path above
-            if (ext.isEmpty() && knownExtensions.stream().anyMatch(fileName::endsWith)) {
-                continue;
-            }
-
-            Path candidatePath = ext.isEmpty() ? resolvedPath : resolvedPath.resolveSibling(fileName + ext);
+            Path candidatePath = ext.isEmpty() ? basePath : basePath.resolveSibling(baseName + ext);
 
             if (Files.exists(candidatePath) && candidatePath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));

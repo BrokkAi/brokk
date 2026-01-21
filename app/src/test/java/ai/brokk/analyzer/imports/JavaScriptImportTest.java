@@ -253,6 +253,39 @@ public class JavaScriptImportTest {
     }
 
     @Test
+    public void testImportWithExplicitExtension() throws IOException {
+        // Test that importing './foo.js' resolves correctly without trying 'foo.js.js'
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export function greet() { return 'hello'; }
+                """,
+                        "utils/greet.js")
+                .addFileContents(
+                        """
+                import { greet } from './utils/greet.js';
+                function main() { return greet(); }
+                """,
+                        "main.js")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var mainFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("main.js"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(mainFile);
+
+            boolean foundGreet = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("greet")
+                            && cu.source().getRelPath().toString().contains("greet.js"));
+
+            assertTrue(foundGreet, "Should have resolved 'greet' function from explicit './utils/greet.js' import");
+        }
+    }
+
+    @Test
     public void testMixedImportAndRequire() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """

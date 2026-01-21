@@ -216,6 +216,39 @@ public class TypeScriptImportTest {
     }
 
     @Test
+    public void testImportWithExplicitExtension() throws IOException {
+        // Test that importing './foo.ts' resolves correctly without trying 'foo.ts.ts'
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export function greet(): string { return 'hello'; }
+                """,
+                        "utils/greet.ts")
+                .addFileContents(
+                        """
+                import { greet } from './utils/greet.ts';
+                function main(): string { return greet(); }
+                """,
+                        "main.ts")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var mainFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(mainFile);
+
+            boolean foundGreet = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("greet")
+                            && cu.source().getRelPath().toString().contains("greet.ts"));
+
+            assertTrue(foundGreet, "Should have resolved 'greet' function from explicit './utils/greet.ts' import");
+        }
+    }
+
+    @Test
     public void testMixedImportAndRequire() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
