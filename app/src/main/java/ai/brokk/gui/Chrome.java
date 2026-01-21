@@ -2461,9 +2461,9 @@ public class Chrome
                     int percent = (int) ((completed * 100L) / total);
                     progressBar.setValue(percent);
                     progressBar.setIndeterminate(false);
-                    progressLabel.setText(completed + "/" + total);
-                    label.setText(phase.isEmpty() ? "Rebuilding Code Intelligence" : phase);
-                    // Also set tooltip for detailed info
+                    progressLabel.setText("");
+                    label.setText("Rebuilding Code Intelligence");
+                    // Show phase details in tooltip only
                     String tooltip = String.format("%s (%d/%d - %d%%)", phase, completed, total, percent);
                     label.setToolTipText(tooltip);
                     progressBar.setToolTipText(tooltip);
@@ -2471,7 +2471,9 @@ public class Chrome
                     // Indeterminate mode when total is unknown
                     progressBar.setIndeterminate(true);
                     progressLabel.setText("");
-                    label.setText(phase.isEmpty() ? "Rebuilding Code Intelligence" : phase);
+                    label.setText("Rebuilding Code Intelligence");
+                    label.setToolTipText(phase.isEmpty() ? null : phase);
+                    progressBar.setToolTipText(phase.isEmpty() ? null : phase);
                 }
             });
         }
