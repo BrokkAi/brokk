@@ -83,6 +83,13 @@ class SessionSynchronizer {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SyncInfo(Set<UUID> oversizedSessionIds) {
 
+        @SuppressWarnings("RedundantNullCheck") // In case null is passed during deserialization
+        public SyncInfo {
+            if (oversizedSessionIds == null) {
+                oversizedSessionIds = new HashSet<>();
+            }
+        }
+
         SyncInfo() {
             this(new HashSet<>());
         }
