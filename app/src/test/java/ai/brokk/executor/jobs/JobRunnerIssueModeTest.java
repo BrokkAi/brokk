@@ -296,6 +296,76 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void issueModeTestLintRetryLoop_runsTestsThenLint_inThatOrder_andSkipsLintWhenTestsFail_iterationScoped() {
+        var cancelled = new AtomicBoolean(false);
+
+        String testCmd = "./gradlew testAll";
+        String lintCmd = "./gradlew lintAll";
+
+        var calls = new ArrayList<String>();
+
+        java.util.function.Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+
+            if (cmd.equals(testCmd)) {
+                return "TESTS FAILED";
+            }
+            if (cmd.equals(lintCmd)) {
+                return fail("Lint must be skipped when tests fail in that iteration");
+            }
+
+            return fail("Unexpected command: " + cmd);
+        };
+
+        java.util.function.Consumer<String> fixTaskRunner = out -> {};
+
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildAgent.BuildDetails(lintCmd, testCmd, "", java.util.Set.of()),
+                        2));
+
+        assertEquals(List.of(testCmd, testCmd), calls, "Should run only tests each iteration; lint is skipped");
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_runsTestsThenLint_inThatOrder_whenTestsPass() {
+        var cancelled = new AtomicBoolean(false);
+
+        String testCmd = "./gradlew testAll";
+        String lintCmd = "./gradlew lintAll";
+
+        var calls = new ArrayList<String>();
+
+        java.util.function.Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+
+            if (cmd.equals(testCmd)) {
+                return "";
+            }
+            if (cmd.equals(lintCmd)) {
+                return "";
+            }
+
+            return fail("Unexpected command: " + cmd);
+        };
+
+        java.util.function.Consumer<String> fixTaskRunner = out -> fail("No fix tasks when both pass");
+
+        JobRunner.runIssueModeTestLintRetryLoop(
+                cancelled::get,
+                commandRunner,
+                fixTaskRunner,
+                new BuildAgent.BuildDetails(lintCmd, testCmd, "", java.util.Set.of()),
+                20);
+
+        assertEquals(List.of(testCmd, lintCmd), calls, "Must run tests first, then lint second");
+    }
+
+    @Test
     void issueModeTestLintRetryLoop_lintFailure_triggersFixTaskWithExactPrefix() {
         var cancelled = new AtomicBoolean(false);
 
