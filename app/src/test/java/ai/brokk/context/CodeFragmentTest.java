@@ -145,18 +145,19 @@ public class CodeFragmentTest {
     }
 
     @Test
-    void testCodeFragmentIncludesImports() {
+    void testCodeFragmentIncludesImportStatements() {
         ProjectFile file = new ProjectFile(tempDir, "Example.java");
         CodeUnit cls = CodeUnit.cls(file, "com.example", "Example");
 
         analyzer.addDeclaration(cls);
         analyzer.setSource(cls, "class Example {}");
-        analyzer.setImportStatements(file, List.of("import java.util.List;", "import java.util.Map;"));
+        List<String> imports = List.of("import java.util.List;", "import java.util.Map;");
+        analyzer.setImportStatements(file, imports);
 
         var fragment = new ContextFragments.CodeFragment(contextManager, cls);
         String text = fragment.text().join();
 
-        String expectedImports = "import java.util.List;\nimport java.util.Map;";
+        String expectedImports = String.join("\n", imports);
         assertTrue(text.startsWith(expectedImports), "Text should start with import statements");
         assertCodeContains(text, "class Example {}");
     }

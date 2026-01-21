@@ -108,15 +108,15 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
         return Stream.concat(matchingClasses.stream(), matchingMethods.stream()).collect(Collectors.toSet());
     }
 
-    private final Map<ProjectFile, List<String>> importStatements = new HashMap<>();
+    private final Map<ProjectFile, List<String>> importStatementsByFile = new HashMap<>();
 
-    public void setImportStatements(ProjectFile file, List<String> statements) {
-        importStatements.put(file, statements);
+    public void setImportStatements(ProjectFile file, List<String> imports) {
+        importStatementsByFile.put(file, imports);
     }
 
     @Override
     public List<String> importStatementsOf(ProjectFile file) {
-        return importStatements.getOrDefault(file, List.of());
+        return importStatementsByFile.getOrDefault(file, List.of());
     }
 
     @Override
