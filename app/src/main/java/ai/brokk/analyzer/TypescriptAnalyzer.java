@@ -17,7 +17,7 @@ import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterTypescript;
 
-public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
+public final class TypescriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
 
     // Compiled regex patterns for memory efficiency
@@ -1090,5 +1090,15 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // CodeUnitProperties.signatures list.
         // Return null to avoid setting CodeUnit.signature field.
         return null;
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
     }
 }

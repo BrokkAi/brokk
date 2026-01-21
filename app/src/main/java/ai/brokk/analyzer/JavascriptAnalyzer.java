@@ -19,7 +19,7 @@ import org.treesitter.TSQueryException;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJavascript;
 
-public class JavascriptAnalyzer extends TreeSitterAnalyzer {
+public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern CJS_REQUIRE_PATTERN = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
 
@@ -632,5 +632,15 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 localTopLevelCUs,
                 localSignatures,
                 localSourceRanges);
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
     }
 }
