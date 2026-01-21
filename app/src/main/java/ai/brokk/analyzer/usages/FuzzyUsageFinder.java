@@ -24,7 +24,6 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -161,7 +160,7 @@ public final class FuzzyUsageFinder {
                         unscoredHits.remove(base);
                     }
                 } else {
-                    var scores = RelevanceClassifier.relevanceScoreBatch(llm, service, tasks);
+                    var scores = RelevanceClassifier.relevanceScoreBatch(project.getDiskCache(), llm, service, tasks);
                     for (int i = 0; i < tasks.size(); i++) {
                         var task = tasks.get(i);
                         var score = scores.getOrDefault(task, 0.0);
