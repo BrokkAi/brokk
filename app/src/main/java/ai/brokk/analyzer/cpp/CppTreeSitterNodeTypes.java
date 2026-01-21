@@ -43,7 +43,7 @@ public final class CppTreeSitterNodeTypes {
     // Other nodes
     public static final String ENUMERATOR = "enumerator";
 
-    public static final String IMPORT_DECLARATION = "preproc_include";
+    public static final String IMPORT_DECLARATION = "import.declaration";
 
     private CppTreeSitterNodeTypes() {}
 }

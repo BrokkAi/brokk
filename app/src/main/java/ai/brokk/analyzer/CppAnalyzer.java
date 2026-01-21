@@ -37,7 +37,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         config.put(CaptureNames.TYPEDEF_DEFINITION, SkeletonType.FIELD_LIKE);
         config.put(CaptureNames.USING_DEFINITION, SkeletonType.FIELD_LIKE);
         config.put("access.specifier", SkeletonType.MODULE_STATEMENT);
-        config.put("import.declaration", SkeletonType.MODULE_STATEMENT);
+        config.put(IMPORT_DECLARATION, SkeletonType.MODULE_STATEMENT);
         return config;
     }
 
@@ -51,7 +51,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                     DECLARATION),
             Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
             Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
-            "import.declaration",
+            IMPORT_DECLARATION,
             "name",
             "body",
             "parameters",
