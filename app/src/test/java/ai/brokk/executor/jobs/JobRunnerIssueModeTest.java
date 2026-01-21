@@ -2,7 +2,6 @@ package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
@@ -494,7 +493,8 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void issueModeTestLintRetryLoop_blankTestCommand_doesNotInvokeTests_invokesLint_andFixesOncePerIteration_untilMaxIterations() {
+    void
+            issueModeTestLintRetryLoop_blankTestCommand_doesNotInvokeTests_invokesLint_andFixesOncePerIteration_untilMaxIterations() {
         var cancelled = new AtomicBoolean(false);
 
         String testCmd = "";
@@ -564,11 +564,6 @@ class JobRunnerIssueModeTest {
             observed.add("task-" + idx);
             observed.add("prompt-" + idx + ":" + prompt);
         };
-            assertEquals("TASKS", currentPhase.get(), "Tasks must run during TASKS phase");
-            int idx = taskIndex.incrementAndGet();
-            observed.add("task-" + idx);
-            observed.add("prompt-" + idx + ":" + prompt);
-        };
 
         Runnable branchUpdateHook = () -> {
             assertEquals("TASKS", currentPhase.get(), "Branch update hook must run during TASKS phase");
@@ -582,10 +577,11 @@ class JobRunnerIssueModeTest {
         };
 
         currentPhase.set("TASKS");
-        JobRunner.runIssueReviewTaskSequence(comments, commentToPrompt, taskRunner, branchUpdateHook, () -> {
+        Runnable exec = () -> {
             currentPhase.set("FINAL_VERIFICATION");
             finalVerification.run();
-        });
+        };
+        JobRunner.runIssueReviewTaskSequence(comments, commentToPrompt, taskRunner, branchUpdateHook, exec);
 
         assertEquals(3, prompts.size(), "Each inline comment must be converted to a prompt");
         assertTrue(prompts.get(0).contains("src/A.java"));
@@ -642,12 +638,6 @@ class JobRunnerIssueModeTest {
         };
 
         Consumer<String> taskRunner = prompt -> {
-            int idx = tasksRun.incrementAndGet();
-            observed.add("task-" + idx);
-            if (idx == 1) {
-                cancelled.set(true);
-            }
-        };
             int idx = tasksRun.incrementAndGet();
             observed.add("task-" + idx);
             if (idx == 1) {
@@ -899,5 +889,6 @@ class JobRunnerIssueModeTest {
         assertEquals(0, reviewCalls.get(), "Review callback must not be invoked when diff is blank");
     }
 
-    // runIssueModeBuildLintRetryLoop was intentionally removed; tests should target runIssueModeTestLintRetryLoop instead.
+    // runIssueModeBuildLintRetryLoop was intentionally removed; tests should target runIssueModeTestLintRetryLoop
+    // instead.
 }

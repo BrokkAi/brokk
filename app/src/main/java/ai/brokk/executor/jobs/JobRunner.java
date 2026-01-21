@@ -24,7 +24,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -37,8 +36,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BooleanSupplier;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -1118,7 +1117,8 @@ public final class JobRunner {
                                                                 return BuildAgent.runExplicitCommand(
                                                                         cm, cmd, buildDetailsOverride);
                                                             } catch (InterruptedException ie) {
-                                                                Thread.currentThread().interrupt();
+                                                                Thread.currentThread()
+                                                                        .interrupt();
                                                                 throw new RuntimeException(ie);
                                                             }
                                                         };
@@ -1128,7 +1128,8 @@ public final class JobRunner {
                                                                 (attempt, message) -> {
                                                                     try {
                                                                         store.appendEvent(
-                                                                                jobId, JobEvent.of("NOTIFICATION", message));
+                                                                                jobId,
+                                                                                JobEvent.of("NOTIFICATION", message));
                                                                     } catch (IOException ioe) {
                                                                         logger.warn(
                                                                                 "Failed to append final verification notification event for job {}: {}",
@@ -1140,7 +1141,8 @@ public final class JobRunner {
                                                                     try {
                                                                         (console != null ? console : cm.getIo())
                                                                                 .showNotification(
-                                                                                        IConsoleIO.NotificationRole.INFO,
+                                                                                        IConsoleIO.NotificationRole
+                                                                                                .INFO,
                                                                                         message);
                                                                     } catch (Throwable ignore) {
                                                                         // best-effort only
@@ -1457,8 +1459,9 @@ public final class JobRunner {
             } catch (Throwable t) {
                 var failure = unwrapFailure(t);
 
-                boolean isCancellation =
-                        cancelled.get() || failure instanceof IssueCancelledException || t instanceof IssueCancelledException;
+                boolean isCancellation = cancelled.get()
+                        || failure instanceof IssueCancelledException
+                        || t instanceof IssueCancelledException;
 
                 if (isCancellation) {
                     logger.info("Job {} cancelled", jobId, failure);
@@ -2037,10 +2040,7 @@ public final class JobRunner {
 
             String startMsg = "Final verification attempt %d/%d: tests=%s, lint=%s"
                     .formatted(
-                            attemptNumber,
-                            maxIterations,
-                            testsSkipped ? "SKIP" : "RUN",
-                            lintSkipped ? "SKIP" : "RUN");
+                            attemptNumber, maxIterations, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
             progressSink.accept(attemptNumber, startMsg);
 
             String testOut = testsSkipped ? "" : commandRunner.apply(testCmd);
