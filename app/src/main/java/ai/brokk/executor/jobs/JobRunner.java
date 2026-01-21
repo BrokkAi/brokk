@@ -1164,7 +1164,7 @@ public final class JobRunner {
                                                                     }
                                                                 },
                                                                 buildDetailsOverride,
-                                                                20);
+                                                                spec.effectiveMaxIssueFixAttempts());
                                                     };
 
                                                     runIssueReviewTaskSequence(
