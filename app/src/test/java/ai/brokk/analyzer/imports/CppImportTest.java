@@ -124,7 +124,7 @@ class CppImportTest {
                 """
                 #include "header.h" // "note"
                 #include "other.h" /* "comment" */
-                
+
                 int main() { return 0; }
                 """;
 
@@ -145,15 +145,14 @@ class CppImportTest {
 
     @Test
     void testImportResolutionIgnoresTrailingCommentQuotes() throws IOException {
-        String headerContent =
-                """
+        String headerContent = """
                 void helperFunction();
                 """;
 
         String sourceContent =
                 """
                 #include "helper.h" // "some note"
-                
+
                 int main() { return 0; }
                 """;
 
@@ -167,8 +166,8 @@ class CppImportTest {
 
             Set<CodeUnit> importedUnits = ((ImportAnalysisProvider) analyzer).importedCodeUnitsOf(mainFile);
 
-            boolean foundFn = importedUnits.stream()
-                    .anyMatch(cu -> cu.shortName().equals("helperFunction") && cu.isFunction());
+            boolean foundFn =
+                    importedUnits.stream().anyMatch(cu -> cu.shortName().equals("helperFunction") && cu.isFunction());
 
             assertTrue(foundFn, "Should resolve helperFunction from helper.h despite trailing comment with quotes");
         }
@@ -180,7 +179,7 @@ class CppImportTest {
                 """
                 #include "../outside.h"
                 #include "../../way_outside.h"
-                
+
                 int main() { return 0; }
                 """;
 
@@ -193,7 +192,8 @@ class CppImportTest {
             // Should not throw and should return empty set since includes escape project root
             Set<CodeUnit> importedUnits = ((ImportAnalysisProvider) analyzer).importedCodeUnitsOf(mainFile);
 
-            assertTrue(importedUnits.isEmpty(), "Includes that escape project root should not resolve to any CodeUnits");
+            assertTrue(
+                    importedUnits.isEmpty(), "Includes that escape project root should not resolve to any CodeUnits");
         }
     }
 }
