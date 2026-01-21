@@ -1082,6 +1082,21 @@ public final class JobRunner {
                                             throw new IllegalArgumentException("ISSUE_WRITER requires repo_name in tags");
                                         }
 
+                                        if (cm.getProject().isEmptyProject()) {
+                                            String msg =
+                                                    "ISSUE_WRITER requires a materialized repository in the workspace. Clone/open the repo in the selected workspace directory (e.g., via HeadlessExecCli which clones for ISSUE/REVIEW/ISSUE_WRITER).";
+                                            try {
+                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
+                                            } catch (IOException ioe) {
+                                                logger.warn(
+                                                        "Failed to append ISSUE_WRITER empty-workspace notification for job {}: {}",
+                                                        jobId,
+                                                        ioe.getMessage(),
+                                                        ioe);
+                                            }
+                                            throw new IllegalStateException(msg);
+                                        }
+
                                         try {
                                             store.appendEvent(
                                                     jobId,
