@@ -13,7 +13,7 @@ import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterCpp;
 
-public class CppAnalyzer extends TreeSitterAnalyzer {
+public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
 
     @Override
@@ -301,6 +301,72 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return "}";
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    /**
+     * Resolves C++ include statements.
+     * Only "quoted" includes are resolved by looking for the file relative to the current file's directory.
+     * <angle-bracket> includes are treated as system headers and skipped.
+     */
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        if (importStatements.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<CodeUnit> resolved = new HashSet<>();
+        for (String line : importStatements) {
+            String trimmed = line.strip();
+            if (!trimmed.startsWith("#include")) {
+                continue;
+            }
+
+            // Extract content between "" or <>
+            int startQuote = trimmed.indexOf('"');
+            int endQuote = trimmed.lastIndexOf('"');
+
+            if (startQuote != -1 && endQuote > startQuote) {
+                // Quoted include: resolve relative to current file
+                String includePath = trimmed.substring(startQuote + 1, endQuote);
+                resolveRelativeInclude(file, includePath).ifPresent(resolvedFile -> {
+                    resolved.addAll(getDeclarations(resolvedFile));
+                });
+            }
+            // Angle bracket includes are ignored as they usually point to system headers
+        }
+
+        return Collections.unmodifiableSet(resolved);
+    }
+
+    private Optional<ProjectFile> resolveRelativeInclude(ProjectFile includingFile, String relativePath) {
+        try {
+            var parent = includingFile.absPath().getParent();
+            if (parent == null) {
+                return Optional.empty();
+            }
+
+            var resolvedPath = parent.resolve(relativePath).normalize();
+            var relToRoot = includingFile.getRoot().relativize(resolvedPath);
+
+            ProjectFile candidate = new ProjectFile(includingFile.getRoot(), relToRoot);
+            // Verify the file exists in the project's view
+            if (getTopLevelDeclarations().containsKey(candidate)) {
+                return Optional.of(candidate);
+            }
+        } catch (Exception e) {
+            log.debug("Failed to resolve relative include '{}' from '{}'", relativePath, includingFile, e);
+        }
+        return Optional.empty();
     }
 
     @Override
