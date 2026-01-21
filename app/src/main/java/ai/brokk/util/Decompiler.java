@@ -62,6 +62,34 @@ public class Decompiler {
     }
 
     /**
+     * Looks for a sources JAR by first trying to download from Maven (if coordinates can be determined),
+     * then falling back to a local sibling *-sources.jar file.
+     */
+    private static Optional<Path> findSourcesJar(Path jarPath, @Nullable MavenArtifactFetcher fetcher) {
+        var jarName = jarPath.getFileName().toString();
+        var coordsOpt = getMavenCoordinatesFromPomProperties(jarPath);
+
+        if (coordsOpt.isPresent()) {
+            var coords = coordsOpt.get();
+            logger.info("Detected Maven coordinates: {}. Attempting to download sources...", coords);
+            var effectiveFetcher = fetcher != null ? fetcher : new MavenArtifactFetcher();
+            var sourcesOpt = effectiveFetcher.fetch(coords, "sources");
+            if (sourcesOpt.isPresent()) {
+                return sourcesOpt;
+            }
+        }
+
+        // Check for local sibling sources JAR
+        var localSources = jarPath.resolveSibling(jarName.replace(".jar", "-sources.jar"));
+        if (Files.exists(localSources)) {
+            logger.debug("Found local sources JAR: {}", localSources);
+            return Optional.of(localSources);
+        }
+
+        return Optional.empty();
+    }
+
+    /**
      * Performs the decompilation of the selected JAR file. This method assumes jarPath is a valid JAR file.
      *
      * @param io The Chrome instance for UI feedback
@@ -85,31 +113,18 @@ public class Decompiler {
 
         runner.submit("Importing " + jarName, () -> {
             try {
-                // Attempt to download sources if we can determine Maven coordinates
+                // Show UI notification if Maven coordinates detected
                 var coordsOpt = getMavenCoordinatesFromPomProperties(jarPath);
-
-                Optional<Path> sourcesJarPathOpt = Optional.empty();
                 if (coordsOpt.isPresent()) {
-                    var coords = coordsOpt.get();
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            "Detected Maven coordinates: " + coords + ". Attempting to download sources...");
-                    var fetcher = new MavenArtifactFetcher();
-                    sourcesJarPathOpt = fetcher.fetch(coords, "sources");
+                            "Detected Maven coordinates: " + coordsOpt.get() + ". Attempting to download sources...");
+                } else {
+                    logger.info("No pom.properties found in {}. Checking for local *-sources.jar before decompiling.",
+                                jarPath.getFileName());
                 }
 
-                // If not downloaded, check for a local sibling
-                if (sourcesJarPathOpt.isEmpty()) {
-                    if (coordsOpt.isEmpty()) {
-                        logger.info(
-                                "No pom.properties found in {}. Checking for local *-sources.jar before decompiling.",
-                                jarPath.getFileName());
-                    }
-                    Path localSources = jarPath.resolveSibling(jarName.replace(".jar", "-sources.jar"));
-                    if (Files.exists(localSources)) {
-                        sourcesJarPathOpt = Optional.of(localSources);
-                    }
-                }
+                var sourcesJarPathOpt = findSourcesJar(jarPath, null);
 
                 // Prepare output directory, asking for overwrite if necessary
                 if (!prepareOutputDirectory(io, outputDir)) {
@@ -190,25 +205,7 @@ public class Decompiler {
             }
             Files.createDirectories(outputDir);
 
-            // Try to get sources JAR
-            var coordsOpt = getMavenCoordinatesFromPomProperties(jarPath);
-            Optional<Path> sourcesJarPathOpt = Optional.empty();
-
-            if (coordsOpt.isPresent()) {
-                var coords = coordsOpt.get();
-                logger.info("Detected Maven coordinates: {}. Attempting to download sources...", coords);
-                var effectiveFetcher = fetcher != null ? fetcher : new MavenArtifactFetcher();
-                sourcesJarPathOpt = effectiveFetcher.fetch(coords, "sources");
-            }
-
-            // Check for local sibling sources JAR
-            if (sourcesJarPathOpt.isEmpty()) {
-                var localSources = jarPath.resolveSibling(jarName.replace(".jar", "-sources.jar"));
-                if (Files.exists(localSources)) {
-                    logger.debug("Found local sources JAR: {}", localSources);
-                    sourcesJarPathOpt = Optional.of(localSources);
-                }
-            }
+            var sourcesJarPathOpt = findSourcesJar(jarPath, fetcher);
 
             boolean usedSources;
             if (sourcesJarPathOpt.isPresent()) {
