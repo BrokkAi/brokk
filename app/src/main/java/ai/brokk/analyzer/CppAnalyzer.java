@@ -17,6 +17,7 @@ import org.treesitter.TreeSitterCpp;
 
 public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
+    private static final Pattern QUOTED_INCLUDE_PATTERN = Pattern.compile("^#\\s*include\\s*\"([^\"]+)\"");
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -333,7 +334,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             }
 
             // Extract content between "" or <>
-            Matcher m = Pattern.compile("^#\\s*include\\s*\"([^\"]+)\"").matcher(trimmed);
+            Matcher m = QUOTED_INCLUDE_PATTERN.matcher(trimmed);
             if (m.find()) {
                 // Quoted include: resolve relative to current file
                 String includePath = m.group(1);
