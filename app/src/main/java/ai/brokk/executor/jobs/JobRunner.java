@@ -16,6 +16,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.issues.GitHubIssueService;
 import ai.brokk.issues.IssueHeader;
+import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -23,7 +24,6 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
-import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
@@ -825,8 +825,7 @@ public final class JobRunner {
                                         var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
                                         var ghRepo = gitHubAuth.getGhRepository();
                                         var details = IssueService.fetchIssueDetails(ghRepo, issueNumber);
-                                        var buildDetailsOverride =
-                                                resolveIssueBuildDetails(spec, cm.getProject());
+                                        var buildDetailsOverride = resolveIssueBuildDetails(spec, cm.getProject());
 
                                         // 3. Branch management
                                         var gitRepo = (GitRepo) cm.getProject().getRepo();
