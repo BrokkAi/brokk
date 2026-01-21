@@ -46,13 +46,23 @@ public class GitHubIssueService implements IssueService {
 
     private final IProject project;
     private final GfmRenderer gfmRenderer;
+    private final @Nullable GitHubAuth injectedAuth;
 
     public GitHubIssueService(IProject project) {
+        this(project, null);
+    }
+
+    public GitHubIssueService(IProject project, @Nullable GitHubAuth auth) {
         this.project = project;
         this.gfmRenderer = new GfmRenderer();
+        this.injectedAuth = auth;
     }
 
     protected GitHubAuth getAuth() throws IOException {
+        GitHubAuth auth = injectedAuth;
+        if (auth != null) {
+            return auth;
+        }
         return GitHubAuth.getOrCreateInstance(this.project);
     }
 

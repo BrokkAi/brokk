@@ -1390,12 +1390,7 @@ public final class JobRunner {
 
                                             var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
 
-                                            var issueService = new GitHubIssueService(cm.getProject()) {
-                                                @Override
-                                                protected GitHubAuth getAuth() {
-                                                    return auth;
-                                                }
-                                            };
+                                            var issueService = new GitHubIssueService(cm.getProject(), auth);
 
                                             IssueHeader created =
                                                     issueService.createIssue(parsed.title(), finalBodyMarkdown);
