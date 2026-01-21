@@ -65,12 +65,7 @@ public class MutedConsoleIO implements IConsoleIO {
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-        // Mute streaming output
-    }
-
-    @Override
-    public void llmOutput(String token, ChatMessageType type) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         // Mute streaming output
     }
 
@@ -130,10 +125,7 @@ public class MutedConsoleIO implements IConsoleIO {
         delegate.enableHistoryPanel();
     }
 
-    @Override
-    public void updateCommitPanel() {
-        delegate.updateCommitPanel();
-    }
+    public void updateCommitPanel() {}
 
     @Override
     public void updateGitRepo() {

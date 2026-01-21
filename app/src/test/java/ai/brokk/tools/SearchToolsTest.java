@@ -109,8 +109,11 @@ public class SearchToolsTest {
 
         IContextManager ctxManager = (IContextManager) Proxy.newProxyInstance(
                 getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
-                    if ("getProject".equals(method.getName())) return projectProxy;
-                    else throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    return switch (method.getName()) {
+                        case "getProject" -> projectProxy;
+                        case "getRepo" -> repo;
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    };
                 });
 
         searchTools = new SearchTools(ctxManager);
@@ -213,6 +216,33 @@ public class SearchToolsTest {
         assertTrue(
                 resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
                 "Should find file with regex pattern");
+    }
+
+    @Test
+    void testSkimDirectory() {
+        // Create a context manager that provides the Java analyzer and the test project
+        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                    return switch (method.getName()) {
+                        case "getAnalyzer" -> javaAnalyzer;
+                        case "getAnalyzerUninterrupted" -> javaAnalyzer;
+                        case "getProject" -> javaTestProject;
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    };
+                });
+
+        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+        // Test skimming the root directory of the test project
+        String result = tools.skimDirectory(".", "testing skimDirectory");
+        assertFalse(result.isEmpty(), "Result should not be empty");
+
+        // Verify it contains file entries in XML-ish format
+        assertTrue(result.contains("<file path=\"A.java\">"), "Should contain A.java entry");
+        assertTrue(result.contains("<file path=\"B.java\">"), "Should contain B.java entry");
+
+        // Verify it contains some identifiers from the files
+        assertTrue(result.contains("A"), "Should mention identifier A");
     }
 
     @Test

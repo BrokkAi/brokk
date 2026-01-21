@@ -2,20 +2,15 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
-import ai.brokk.analyzer.cpp.NamespaceProcessor;
-import ai.brokk.analyzer.cpp.SkeletonGenerator;
 import ai.brokk.project.IProject;
-import java.io.IOException;
-import java.nio.file.Files;
+import com.google.common.base.Splitter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSParser;
-import org.treesitter.TSTree;
 import org.treesitter.TreeSitterCpp;
 
 public class CppAnalyzer extends TreeSitterAnalyzer {
@@ -25,11 +20,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCpp(reference);
     }
-
-    private final SkeletonGenerator skeletonGenerator;
-    private final NamespaceProcessor namespaceProcessor;
-    private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
-    private final ThreadLocal<TSParser> parserCache;
 
     private static Map<String, SkeletonType> createCaptureConfiguration() {
         var config = new HashMap<String, SkeletonType>();
@@ -76,29 +66,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     public CppAnalyzer(IProject project, ProgressListener listener) {
         super(project, Languages.CPP_TREESITTER, listener);
-
-        this.parserCache = ThreadLocal.withInitial(() -> {
-            var parser = new TSParser();
-            parser.setLanguage(createTSLanguage());
-            return parser;
-        });
-
-        var templateParser = parserCache.get();
-        this.skeletonGenerator = new SkeletonGenerator(templateParser);
-        this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
     private CppAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
         super(project, Languages.CPP_TREESITTER, state, listener);
-        this.parserCache = ThreadLocal.withInitial(() -> {
-            var parser = new TSParser();
-            parser.setLanguage(createTSLanguage());
-            return parser;
-        });
-
-        var templateParser = parserCache.get();
-        this.skeletonGenerator = new SkeletonGenerator(templateParser);
-        this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
     public static CppAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
@@ -210,7 +181,19 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (NAMESPACE_DEFINITION.equals(current.getType())) {
                 var nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    namespaceParts.add(sourceContent.substringFrom(nameNode));
+                    String name = sourceContent.substringFrom(nameNode).strip();
+                    if (!name.isEmpty()) {
+                        // Handle C++17 nested namespace syntax: namespace A::B { ... }
+                        // Split by "::" and add segments in reverse order (inner to outer)
+                        // because they are reversed again at the end of the method.
+                        List<String> parts = Splitter.on("::").splitToList(name);
+                        for (int i = parts.size() - 1; i >= 0; i--) {
+                            String part = parts.get(i).strip();
+                            if (!part.isEmpty()) {
+                                namespaceParts.add(part);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -232,6 +215,20 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String bodyPlaceholder() {
         return "{...}";
+    }
+
+    @Override
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent,
+            ProjectFile file) {
+        if (ENUMERATOR.equals(fieldNode.getType())) {
+            return baseIndent + sourceContent.substringFrom(fieldNode);
+        }
+        return super.formatFieldSignature(fieldNode, sourceContent, exportPrefix, signatureText, baseIndent, file);
     }
 
     @Override
@@ -335,37 +332,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        Map<CodeUnit, String> resultSkeletons = new HashMap<>(super.getSkeletons(file));
+        Map<CodeUnit, String> resultSkeletons = super.getSkeletons(file);
 
-        // Use cached tree to avoid redundant parsing - significant performance improvement
-        String fileContent = getCachedFileContent(file);
-        var sourceContent = SourceContent.of(fileContent);
-        TSTree tree = treeOf(file);
-        if (tree == null) {
-            var parser = getSharedParser();
-            tree = Objects.requireNonNull(parser.parseString(null, fileContent), "Failed to parse file: " + file);
-        }
-        var rootNode = tree.getRootNode();
-
-        resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, sourceContent);
-        resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, sourceContent);
-        final var tempSkeletons = resultSkeletons; // we need an "effectively final" variable for the callback
-        resultSkeletons = withCodeUnitProperties(properties -> {
-            var signaturesMap = new HashMap<CodeUnit, List<String>>();
-            properties.forEach((cu, props) -> signaturesMap.put(cu, props.signatures()));
-            return namespaceProcessor.mergeNamespaceBlocks(
-                    tempSkeletons,
-                    signaturesMap,
-                    file,
-                    rootNode,
-                    sourceContent,
-                    namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
-        });
         if (isHeaderFile(file)) {
             resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
         }
 
-        return Collections.unmodifiableMap(resultSkeletons);
+        return resultSkeletons;
     }
 
     private Map<CodeUnit, String> addCorrespondingSourceDeclarations(
@@ -427,21 +400,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return (cu.isFunction() || cu.isField())
                 && cu.packageName().isEmpty()
                 && !cu.fqName().contains(".");
-    }
-
-    private String getCachedFileContent(ProjectFile file) {
-        return fileContentCache.computeIfAbsent(file, f -> {
-            try {
-                return Files.readString(f.absPath());
-            } catch (IOException e) {
-                log.error("Failed to read file content: {}", f, e);
-                throw new RuntimeException("Failed to read file: " + f, e);
-            }
-        });
-    }
-
-    private TSParser getSharedParser() {
-        return parserCache.get();
     }
 
     /**
@@ -506,7 +464,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 String nameText = sourceContent.substringFrom(nameNode).strip();
                 if (!nameText.isEmpty()) {
                     // Remove the identifier token (token-boundary) to avoid clobbering template names
-                    raw = raw.replaceAll("\\b" + java.util.regex.Pattern.quote(nameText) + "\\b", "")
+                    raw = raw.replaceAll("\\b" + Pattern.quote(nameText) + "\\b", "")
                             .strip();
                 }
             } else {
@@ -515,7 +473,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 if (toks.length > 1) {
                     String last = toks[toks.length - 1];
                     if (!last.isEmpty() && Character.isJavaIdentifierStart(last.charAt(0))) {
-                        raw = String.join(" ", java.util.Arrays.copyOf(toks, toks.length - 1))
+                        raw = String.join(" ", Arrays.copyOf(toks, toks.length - 1))
                                 .strip();
                     }
                 }
@@ -824,7 +782,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * @return true if the keyword is found as a standalone word
      */
     private boolean hasKeywordWithBoundary(String text, String keyword) {
-        var pattern = java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(keyword) + "\\b");
+        var pattern = Pattern.compile("\\b" + Pattern.quote(keyword) + "\\b");
         return pattern.matcher(text).find();
     }
 
@@ -847,7 +805,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      */
     private String extractNoexceptClause(String text) {
         // Use word boundary to find "noexcept" as standalone keyword
-        var pattern = java.util.regex.Pattern.compile("\\bnoexcept\\b");
+        var pattern = Pattern.compile("\\bnoexcept\\b");
         var matcher = pattern.matcher(text);
 
         if (!matcher.find()) {
@@ -999,10 +957,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     public String getCacheStatistics() {
-        // Count non-null parsed trees in fileState
         int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
                 .filter(fp -> fp.parsedTree() != null)
                 .count());
-        return String.format("FileContent: %d, ParsedTrees: %d", fileContentCache.size(), parsedTreeCount);
+        return "ParsedTrees: %d".formatted(parsedTreeCount);
     }
 }

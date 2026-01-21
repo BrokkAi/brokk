@@ -10,12 +10,15 @@ import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.*;
 import java.io.IOException;
+import java.net.URI;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.jar.JarFile;
@@ -37,15 +40,14 @@ public class GuiTheme {
     public static final String THEME_DARK_PLUS = "dark-plus";
     public static final String THEME_LIGHT_PLUS = "light-plus";
 
+    public static final String THEME_CLIENT_PROPERTY = "brokk.theme";
+
     private final JFrame frame;
 
     @Nullable
-    private final JScrollPane mainScrollPane;
+    private JScrollPane mainScrollPane;
 
     private final Chrome chrome;
-
-    // Track registered popup menus that need theme updates
-    private final List<JPopupMenu> popupMenus = new ArrayList<>();
 
     /**
      * Creates a new theme manager
@@ -58,6 +60,16 @@ public class GuiTheme {
         this.frame = frame;
         this.mainScrollPane = mainScrollPane;
         this.chrome = chrome;
+    }
+
+    /**
+     * Sets the main scroll pane for LLM output. This is useful for resolving
+     * initialization circular dependencies.
+     *
+     * @param scrollPane The scroll pane to track
+     */
+    public void setMainScrollPane(JScrollPane scrollPane) {
+        this.mainScrollPane = scrollPane;
     }
 
     /**
@@ -163,11 +175,6 @@ public class GuiTheme {
             ThemeTitleBarManager.updateTitleBarStyling(frame);
         });
 
-        // Update registered popup menus
-        for (JPopupMenu menu : popupMenus) {
-            SwingUtilities.updateComponentTreeUI(menu);
-        }
-
         // Make sure scroll panes update properly
         if (mainScrollPane != null) {
             mainScrollPane.revalidate();
@@ -201,11 +208,6 @@ public class GuiTheme {
                 if (w instanceof JDialog d && d.isDisplayable()) {
                     recurse.accept(d.getContentPane());
                 }
-            }
-
-            // Apply to tracked popup menus as well
-            for (JPopupMenu menu : popupMenus) {
-                recurse.accept(menu);
             }
         });
     }
@@ -420,20 +422,6 @@ public class GuiTheme {
     }
 
     /**
-     * Registers a popup menu to receive theme updates
-     *
-     * @param menu The popup menu to register
-     */
-    public void registerPopupMenu(JPopupMenu menu) {
-        if (!popupMenus.contains(menu)) {
-            popupMenus.add(menu);
-
-            // Apply current theme immediately if already initialized
-            SwingUtilities.invokeLater(() -> SwingUtilities.updateComponentTreeUI(menu));
-        }
-    }
-
-    /**
      * Applies the current RSyntaxTextArea theme to the supplied component.
      *
      * @param textArea The text area to apply theme to
@@ -483,7 +471,7 @@ public class GuiTheme {
      */
     public void updateComponentTreeUIPreservingFonts(Container container) {
         // Collect font sizes from FontSizeAware components before update
-        java.util.Map<Component, Float> fontMap = new java.util.HashMap<>();
+        Map<Component, Float> fontMap = new HashMap<>();
         collectExplicitFonts(container, fontMap);
 
         // Update UI
@@ -496,7 +484,7 @@ public class GuiTheme {
     /**
      * Recursively collects explicit font sizes from FontSizeAware components.
      */
-    private void collectExplicitFonts(Container container, java.util.Map<Component, Float> fontMap) {
+    private void collectExplicitFonts(Container container, Map<Component, Float> fontMap) {
         for (Component comp : container.getComponents()) {
             if (comp instanceof FontSizeAware fsAware && fsAware.hasExplicitFontSize()) {
                 float fontSize = fsAware.getExplicitFontSize();
@@ -511,7 +499,7 @@ public class GuiTheme {
     /**
      * Restores explicit font sizes to components.
      */
-    private void restoreExplicitFonts(java.util.Map<Component, Float> fontMap) {
+    private void restoreExplicitFonts(Map<Component, Float> fontMap) {
         fontMap.forEach((comp, fontSize) -> {
             if (comp instanceof RSyntaxTextArea textArea) {
                 Font currentFont = textArea.getFont();
@@ -529,8 +517,8 @@ public class GuiTheme {
      * @param themeName the theme name ("dark", "light", "light-plus", or "dark-plus")
      */
     private void registerCustomIcons(String themeName) {
-        String iconBase = getIconDirectoryForTheme(themeName);
-        String fallbackBase = getIconFallbackDirectoryForTheme(themeName);
+        String iconBase = getIconDirectoryForTheme();
+        String fallbackBase = getIconFallbackDirectoryForTheme();
 
         try {
             // Try to discover icons from the primary theme resource directory
@@ -576,32 +564,21 @@ public class GuiTheme {
     }
 
     /**
-     * Gets the primary icon directory for the given theme name
+     * Gets the primary icon directory for the application.
      *
-     * @param themeName the theme name
      * @return the icon directory path
      */
-    private String getIconDirectoryForTheme(String themeName) {
-        return switch (themeName.toLowerCase(Locale.ROOT)) {
-            case THEME_DARK, THEME_HIGH_CONTRAST -> "/icons/dark/";
-            case THEME_LIGHT_PLUS -> "/icons/light-plus/";
-            case THEME_LIGHT -> "/icons/light/";
-            case THEME_DARK_PLUS -> "/icons/dark/";
-            default -> "/icons/light/";
-        };
+    private String getIconDirectoryForTheme() {
+        return "/icons/";
     }
 
     /**
-     * Gets the fallback icon directory for the given theme name (or null if no fallback)
+     * Gets the fallback icon directory (or null if no fallback).
      *
-     * @param themeName the theme name
      * @return the fallback icon directory path, or null if no fallback
      */
-    private @Nullable String getIconFallbackDirectoryForTheme(String themeName) {
-        return switch (themeName.toLowerCase(Locale.ROOT)) {
-            case THEME_LIGHT_PLUS -> "/icons/light/";
-            default -> null;
-        };
+    private @Nullable String getIconFallbackDirectoryForTheme() {
+        return null;
     }
 
     /**
@@ -652,7 +629,7 @@ public class GuiTheme {
 
                     // Decode URL encoding (e.g., %20 -> space) to handle paths with spaces
                     // Use URI to properly decode file paths (handles %20, etc. correctly)
-                    var jarFile = new java.net.URI(jarFileUrl).getPath();
+                    var jarFile = new URI(jarFileUrl).getPath();
 
                     try (var jar = new JarFile(jarFile)) {
                         var entries = jar.entries();
@@ -697,10 +674,54 @@ public class GuiTheme {
         String lower = resourcePath.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".svg")) {
             // FlatLaf can render SVG natively
-            icon = new FlatSVGIcon(url);
+            var svgIcon = new FlatSVGIcon(url);
+            svgIcon.setColorFilter(createIconColorFilter());
+            icon = svgIcon;
         } else {
             icon = new ImageIcon(url);
         }
         UIManager.put(key, icon);
+    }
+
+    private static final String ICON_PRIMARY_KEY = "Brokk.icon_primary";
+    private static final String ICON_SECONDARY_KEY = "Brokk.icon_secondary";
+    private static final String ICON_LIGHT_KEY = "Brokk.icon_light";
+    private static final String ICON_ACCENT_KEY = "Brokk.icon_accent";
+    private static final String ICON_ACCENT_LIGHT_KEY = "Brokk.icon_accent_light";
+
+    private static final Map<Integer, String> ICON_COLOR_KEYS = Map.of(
+            0x000000, ICON_PRIMARY_KEY,
+            0x3D3D3D, ICON_SECONDARY_KEY,
+            0xE3E3E3, ICON_LIGHT_KEY,
+            0x00B104, ICON_ACCENT_KEY,
+            0x00D61B, ICON_ACCENT_LIGHT_KEY);
+
+    private static FlatSVGIcon.ColorFilter createIconColorFilter() {
+        var filter = new FlatSVGIcon.ColorFilter();
+        filter.setMapperEx((component, color) -> {
+            if (color.getAlpha() == 0) {
+                return color;
+            }
+            Color mapped = mapIconColor(color);
+            if (mapped == null) {
+                mapped = resolveThemeColor(ICON_PRIMARY_KEY, color);
+            }
+            return new Color(mapped.getRed(), mapped.getGreen(), mapped.getBlue(), color.getAlpha());
+        });
+        return filter;
+    }
+
+    private static @Nullable Color mapIconColor(Color color) {
+        int rgb = (color.getRed() << 16) | (color.getGreen() << 8) | color.getBlue();
+        String key = ICON_COLOR_KEYS.get(rgb);
+        if (key == null) {
+            return null;
+        }
+        return resolveThemeColor(key, color);
+    }
+
+    private static Color resolveThemeColor(String key, Color fallback) {
+        Color themeColor = UIManager.getColor(key);
+        return themeColor == null ? fallback : themeColor;
     }
 }

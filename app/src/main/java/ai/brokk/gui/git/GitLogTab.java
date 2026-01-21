@@ -9,6 +9,7 @@ import ai.brokk.git.GitRepoRemote.RemoteBranchRef;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DeferredUpdateHelper;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.mop.ThemeColors;
@@ -30,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -80,7 +82,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
     private JTextField tagsSearchField;
 
     // Branch-specific UI
-    private JMenuItem captureDiffVsBranchItem;
+    private JMenuItem captureDiffFromBranchItem;
+    private JMenuItem captureDiffToBranchItem;
     // createBranchFromCommitItem is managed by GitCommitBrowserPanel if needed, or was removed by prior refactoring.
 
     private GitCommitBrowserPanel gitCommitBrowserPanel;
@@ -391,18 +394,19 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Local branch context menu
         JPopupMenu branchContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(branchContextMenu);
         JMenuItem checkoutItem = new JMenuItem("Checkout");
         JMenuItem newBranchItem = new JMenuItem("New Branch From This");
         JMenuItem mergeItem = new JMenuItem("Merge into...");
         JMenuItem renameItem = new JMenuItem("Rename");
         JMenuItem deleteItem = new JMenuItem("Delete");
-        captureDiffVsBranchItem = new JMenuItem("Capture Diff vs Branch");
+        captureDiffFromBranchItem = new JMenuItem("Capture Diff from Branch");
+        captureDiffToBranchItem = new JMenuItem("Capture Diff to Branch");
 
         branchContextMenu.add(checkoutItem);
         branchContextMenu.add(newBranchItem);
         branchContextMenu.add(mergeItem);
-        branchContextMenu.add(captureDiffVsBranchItem);
+        branchContextMenu.add(captureDiffFromBranchItem);
+        branchContextMenu.add(captureDiffToBranchItem);
         branchContextMenu.add(renameItem);
         branchContextMenu.add(deleteItem);
 
@@ -460,7 +464,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 showMergeDialog(branchToMerge);
             }
         });
-        captureDiffVsBranchItem.addActionListener(e -> {
+        captureDiffFromBranchItem.addActionListener(e -> {
             int row = branchTable.getSelectedRow();
             if (row != -1) {
                 String selectedBranch = (String) branchTableModel.getValueAt(row, 1);
@@ -478,6 +482,29 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 }
                 if (selectedBranch.equals(currentActualBranch)) return;
 
+                // Diff FROM selectedBranch TO currentBranch (selectedBranch is base)
+                GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, selectedBranch, currentActualBranch);
+            }
+        });
+        captureDiffToBranchItem.addActionListener(e -> {
+            int row = branchTable.getSelectedRow();
+            if (row != -1) {
+                String selectedBranch = (String) branchTableModel.getValueAt(row, 1);
+                if (STASHES_VIRTUAL_BRANCH.equals(selectedBranch)) return;
+
+                String currentActualBranch;
+                try {
+                    currentActualBranch = getRepo().getCurrentBranch();
+                } catch (Exception ex) {
+                    logger.error("Could not get current branch for diff operation", ex);
+                    chrome.toolError(
+                            "Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(),
+                            "Error");
+                    return;
+                }
+                if (selectedBranch.equals(currentActualBranch)) return;
+
+                // Diff FROM currentBranch TO selectedBranch (currentBranch is base)
                 GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedBranch);
             }
         });
@@ -501,16 +528,17 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Remote branch context menu
         JPopupMenu remoteBranchContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(remoteBranchContextMenu);
         JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
         JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");
         JMenuItem remoteMergeItem = new JMenuItem(); // text set dynamically
-        JMenuItem remoteDiffItem = new JMenuItem("Capture Diff vs Branch");
+        JMenuItem remoteDiffFromItem = new JMenuItem("Capture Diff from Branch");
+        JMenuItem remoteDiffToItem = new JMenuItem("Capture Diff to Branch");
 
         remoteBranchContextMenu.add(remoteCheckoutItem);
         remoteBranchContextMenu.add(remoteNewBranchItem);
         remoteBranchContextMenu.add(remoteMergeItem);
-        remoteBranchContextMenu.add(remoteDiffItem);
+        remoteBranchContextMenu.add(remoteDiffFromItem);
+        remoteBranchContextMenu.add(remoteDiffToItem);
 
         remoteBranchTable.addMouseListener(new MouseAdapter() {
             @Override
@@ -553,7 +581,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
         remoteCheckoutItem.addActionListener(e -> performRemoteBranchAction(this::checkoutBranch));
         remoteNewBranchItem.addActionListener(e -> performRemoteBranchAction(this::createNewBranchFrom));
         remoteMergeItem.addActionListener(e -> performRemoteBranchAction(this::showMergeDialog));
-        remoteDiffItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffVsRemoteBranch));
+        remoteDiffFromItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffFromRemoteBranch));
+        remoteDiffToItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffToRemoteBranch));
 
         // Tag selection
         tagsTable.getSelectionModel().addListSelectionListener(e -> {
@@ -569,7 +598,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Tags context menu
         JPopupMenu tagContextMenu = new JPopupMenu();
-        chrome.getTheme().registerPopupMenu(tagContextMenu);
         JMenuItem tagNewBranchItem = new JMenuItem("New Branch From This");
         tagContextMenu.add(tagNewBranchItem);
 
@@ -870,7 +898,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                         currentActualBranch = localTrackingName;
                     }
                 }
-                refreshAllGitUi(currentActualBranch);
+                chrome.refreshGitAsync(currentActualBranch);
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
                 chrome.toolError(Objects.toString(e.getMessage(), "Unknown error during checkout."));
@@ -963,7 +991,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     // Update commit/branch tables
                     if (branchForUiRefreshFinal != null) {
-                        refreshAllGitUi(branchForUiRefreshFinal);
+                        chrome.refreshGitAsync(branchForUiRefreshFinal);
                     }
                 });
             }
@@ -1030,7 +1058,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
             contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
-                    refreshAllGitUi(newName);
+                    chrome.refreshGitAsync(newName);
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
@@ -1049,7 +1077,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 boolean isMerged = getRepo().isBranchMerged(branchName);
                 SwingUtilities.invokeLater(() -> {
                     if (isMerged) {
-                        int result = chrome.showConfirmDialog(
+                        int result = MaterialOptionPane.showConfirmDialog(
                                 this,
                                 "Are you sure you want to delete branch '" + branchName + "'?",
                                 "Delete Branch",
@@ -1059,8 +1087,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
                             performBranchDeletion(branchName, false);
                         }
                     } else {
-                        Object[] options = {"Force Delete", "Cancel"};
-                        int result = JOptionPane.showOptionDialog(
+                        String[] options = {"Force Delete", "Cancel"};
+                        int result = MaterialOptionPane.showOptionDialog(
                                 this,
                                 "Branch '" + branchName + "' is not fully merged.\n"
                                         + "Changes on this branch will be lost if deleted.\n"
@@ -1195,7 +1223,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
      * Creates a cell renderer with fuzzy match highlighting for simple single-column tables.
      */
     private static DefaultTableCellRenderer createFuzzyHighlightRenderer(
-            java.util.function.Supplier<@Nullable FuzzyMatcher> matcherSupplier) {
+            Supplier<@Nullable FuzzyMatcher> matcherSupplier) {
         return new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(
@@ -1215,18 +1243,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 return this;
             }
         };
-    }
-
-    private void refreshAllGitUi(String branchName) {
-        chrome.updateGitRepo();
-        chrome.getInstructionsPanel().refreshBranchUi(branchName);
-
-        // Also refresh the Changes tab to reflect the new branch's diff
-        try {
-            chrome.getHistoryOutputPanel().requestDiffUpdate();
-        } catch (Exception ex) {
-            logger.debug("Unable to refresh Changes tab after Git UI action", ex);
-        }
     }
 
     private GitRepo getRepo() {
@@ -1254,15 +1270,19 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // renameItem and deleteItem checks
         boolean isStashesSelected = STASHES_VIRTUAL_BRANCH.equals(selectedBranchName);
-        menu.getComponent(4).setEnabled(isAnyItemSelected && !isStashesSelected); // renameItem
-        menu.getComponent(5).setEnabled(isAnyItemSelected && !isCurrentBranch && !isStashesSelected); // deleteItem
+        menu.getComponent(5).setEnabled(isAnyItemSelected && !isStashesSelected); // renameItem
+        menu.getComponent(6).setEnabled(isAnyItemSelected && !isCurrentBranch && !isStashesSelected); // deleteItem
 
         if (isAnyItemSelected && selectedBranchName != null && !isStashesSelected) {
-            captureDiffVsBranchItem.setText("Capture Diff vs " + selectedBranchName);
-            captureDiffVsBranchItem.setEnabled(!isCurrentBranch);
+            captureDiffFromBranchItem.setText("Capture Diff from " + selectedBranchName);
+            captureDiffFromBranchItem.setEnabled(!isCurrentBranch);
+            captureDiffToBranchItem.setText("Capture Diff to " + selectedBranchName);
+            captureDiffToBranchItem.setEnabled(!isCurrentBranch);
         } else {
-            captureDiffVsBranchItem.setText("Capture Diff vs Branch");
-            captureDiffVsBranchItem.setEnabled(false);
+            captureDiffFromBranchItem.setText("Capture Diff from Branch");
+            captureDiffFromBranchItem.setEnabled(false);
+            captureDiffToBranchItem.setText("Capture Diff to Branch");
+            captureDiffToBranchItem.setEnabled(false);
         }
     }
 
@@ -1278,9 +1298,22 @@ public class GitLogTab extends JPanel implements ThemeAware {
         }
     }
 
-    private void captureDiffVsRemoteBranch(String selectedRemoteBranch) {
+    private void captureDiffFromRemoteBranch(String selectedRemoteBranch) {
         try {
             String currentActualBranch = getRepo().getCurrentBranch();
+            // Diff FROM selectedRemoteBranch TO currentBranch
+            GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, selectedRemoteBranch, currentActualBranch);
+        } catch (Exception ex) {
+            logger.error("Could not get current branch for diff operation", ex);
+            chrome.toolError(
+                    "Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(), "Error");
+        }
+    }
+
+    private void captureDiffToRemoteBranch(String selectedRemoteBranch) {
+        try {
+            String currentActualBranch = getRepo().getCurrentBranch();
+            // Diff FROM currentBranch TO selectedRemoteBranch
             GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedRemoteBranch);
         } catch (Exception ex) {
             logger.error("Could not get current branch for diff operation", ex);

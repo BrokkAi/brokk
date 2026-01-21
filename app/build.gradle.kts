@@ -18,6 +18,7 @@ group = "ai.brokk"
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
+        vendor.set(JvmVendorSpec.JETBRAINS)
     }
 }
 
@@ -63,6 +64,7 @@ repositories {
     mavenLocal()
 
     mavenCentral()
+    google()
 
     // Additional repositories for dependencies
     maven {
@@ -636,6 +638,19 @@ tasks.register<JavaExec>("runTreeSitterRepoRunner") {
                 "-XX:+UnlockExperimentalVMOptions"
             )
         }
+    })
+    if (project.hasProperty("args")) {
+        args((project.property("args") as String).split(" "))
+    }
+}
+
+tasks.register<JavaExec>("runPageRankBenchmark") {
+    group = "application"
+    description = "Runs the PageRankBenchmark tool"
+    mainClass.set("ai.brokk.tools.PageRankBenchmark")
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgumentProviders.add(object : CommandLineArgumentProvider {
+        override fun asArguments(): Iterable<String> = listOf("-Xmx4g", "-XX:+UseG1GC")
     })
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))

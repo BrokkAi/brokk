@@ -122,13 +122,12 @@ public class GitRepoFactory {
         return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag, null);
     }
 
-    // Package-private for testing
-    static GitRepo cloneRepo(Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
+    public static GitRepo cloneRepo(Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
             throws GitAPIException {
         return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, null, null);
     }
 
-    static GitRepo cloneRepo(
+    public static GitRepo cloneRepo(
             Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
         return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, branchOrTag, null);

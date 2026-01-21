@@ -1206,8 +1206,28 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 // This is simpler and more reliable than trying to handle edge cases with incremental removal
                 BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
             } else if (eventType == DocumentEvent.EventType.CHANGE) {
-                // For change events, always use fallback to ensure consistency
-                BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
+                // CHANGE events are for attribute changes (font, style, etc.), not content changes.
+                // We expect PlainDocument or RSyntaxDocument, not StyledDocument.
+                if (sourceDoc instanceof javax.swing.text.StyledDocument
+                        || destinationDoc instanceof javax.swing.text.StyledDocument) {
+                    logger.warn(
+                            "Unexpected StyledDocument during CHANGE sync: src={}, dst={}",
+                            sourceDoc.getClass().getName(),
+                            destinationDoc.getClass().getName());
+                }
+
+                // Invariant check: Content length should not change during a CHANGE event.
+                if (sourceDoc.getLength() != destinationDoc.getLength()) {
+                    logger.warn(
+                            "Document length mismatch during CHANGE event (Source: {}, Dest: {}). Syncing fallback.",
+                            sourceDoc.getClass().getSimpleName(),
+                            destinationDoc.getClass().getSimpleName());
+                    BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
+                }
+                // Otherwise, no need to sync content - doing so would incorrectly mark the document as dirty.
+                if (logger.isDebugEnabled()) {
+                    logger.debug("CHANGE event with matching lengths received; skipping sync to avoid dirtying doc.");
+                }
             }
         } catch (BadLocationException ex) {
             // Fallback to full document copy only on error

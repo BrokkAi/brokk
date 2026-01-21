@@ -3,24 +3,24 @@ package ai.brokk.project;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.ignore.IgnoreNode;
 import org.eclipse.jgit.ignore.IgnoreNode.MatchResult;
-import org.eclipse.jgit.util.FS;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
 /**
@@ -38,98 +38,89 @@ public final class FileFilteringService {
     private final Map<Path, List<Map.Entry<Path, Path>>> gitignoreChainCache = new ConcurrentHashMap<>();
 
     public FileFilteringService(Path root, IGitRepo repo) {
-        this.root = root;
+        this.root = root.toAbsolutePath().normalize();
         this.repo = repo;
     }
 
     /**
-     * Filter files by baseline exclusions and gitignore rules.
-     * rawExclusions should come from BuildDetails.excludedDirectories() (un-normalized).
+     * Filter files by exclusion patterns and gitignore rules.
+     * exclusionPatterns should come from BuildDetails.exclusionPatterns().
+     *
+     * <p>Pattern semantics:
+     * <ul>
+     *   <li>Simple names (no wildcards, no slash): match directory prefix OR exact filename
+     *   <li>Extension patterns (*.ext): match files by extension
+     *   <li>Glob patterns: full path or filename matching depending on presence of /
+     * </ul>
      */
-    public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> rawExclusions) {
-        // Normalize baseline exclusions
-        var baselineExclusions = rawExclusions.stream()
-                .map(s -> s.replace('\\', '/').trim())
-                .map(s -> s.startsWith("/") ? s.substring(1) : s)
-                .map(s -> s.startsWith("./") ? s.substring(2) : s)
-                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
+    public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> exclusionPatterns) {
+        // Normalize patterns: strip leading slashes, trailing slashes, normalize separators
+        var normalizedPatterns = exclusionPatterns.stream()
+                .map(FileFilteringService::normalizeExclusionPattern)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toSet());
 
-        // Also create normalized-from-raw-leading set for tolerant matching
-        Set<String> rawLeadingSlashExclusions = rawExclusions.stream()
-                .map(String::trim)
-                .filter(s -> s.startsWith("/"))
+        // Pre-compile patterns once for efficient matching across all files
+        var compiledPatterns = compilePatterns(normalizedPatterns);
+
+        Set<ProjectFile> patternFiltered = files.stream()
+                .filter(file -> !matchesFilePatternStatic(file, compiledPatterns))
                 .collect(Collectors.toSet());
 
-        Set<String> normalizedFromRawLeading = rawLeadingSlashExclusions.stream()
-                .map(s -> s.substring(1))
-                .map(s -> s.replace('\\', '/'))
-                .map(String::trim)
-                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
-
-        Set<String> unionNormalized = new HashSet<>(baselineExclusions);
-        unionNormalized.addAll(normalizedFromRawLeading);
-
-        Set<ProjectFile> baselineFiltered = files.stream()
-                .filter(file -> !isBaselineExcluded(file, unionNormalized))
-                .collect(Collectors.toSet());
-
-        // If no Git repo, return baseline-filtered only
+        // If no Git repo, return pattern-filtered only
         if (!(repo instanceof GitRepo gitRepo)) {
-            return baselineFiltered;
+            return patternFiltered;
         }
 
-        var gitTopLevel = gitRepo.getGitTopLevel();
         var workTreeRoot = gitRepo.getWorkTreeRoot();
 
         // If project root is outside the git work tree, skip gitignore filtering
         if (!root.startsWith(workTreeRoot)) {
             logger.warn(
                     "Project root {} is outside git working tree {}; gitignore filtering skipped", root, workTreeRoot);
-            return baselineFiltered;
+            return patternFiltered;
         }
 
-        var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
+        var fixedGitignoreFiles = gitRepo.getFixedGitignoreFiles();
 
-        return baselineFiltered.stream()
+        return patternFiltered.stream()
                 .filter(file -> {
                     // do not filter out deps
                     var isDep = file.getRelPath()
                             .startsWith(Path.of(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR));
-                    return isDep || !isPathIgnored(gitRepo, file.getRelPath(), fixedGitignorePairs);
+                    // ProjectFile instances are files, not directories
+                    return isDep || !isPathIgnored(gitRepo, file.getRelPath(), fixedGitignoreFiles, false);
                 })
                 .collect(Collectors.toSet());
     }
 
     /**
-     * Determine if a directory is ignored by gitignore rules.
-     * Returns false on error.
+     * Determine if a path (file or directory) is ignored by gitignore rules.
+     * Returns false on error or if no git repo.
+     * This method calls {@link Files#isDirectory} to determine directory status.
      */
-    public boolean isDirectoryIgnored(Path directoryRelPath) {
+    public boolean isGitignored(Path relPath) {
         if (!(repo instanceof GitRepo gitRepo)) {
             return false;
         }
 
-        var gitTopLevel = gitRepo.getGitTopLevel();
         var workTreeRoot = gitRepo.getWorkTreeRoot();
 
         if (!root.startsWith(workTreeRoot)) {
             return false;
         }
 
-        var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
+        var fixedGitignoreFiles = gitRepo.getFixedGitignoreFiles();
 
-        return isPathIgnored(gitRepo, directoryRelPath, fixedGitignorePairs);
+        // Compute isDirectory here since caller didn't provide it
+        Path absPath = root.resolve(relPath);
+        boolean isDirectory = Files.isDirectory(absPath);
+
+        return isPathIgnored(gitRepo, relPath, fixedGitignoreFiles, isDirectory);
     }
 
     public Optional<Path> getGlobalGitignorePath() {
-        if (!(repo instanceof GitRepo gitRepo)) {
-            return Optional.empty();
-        }
-        return getGlobalGitignoreFile(gitRepo);
+        return repo.getGlobalGitignorePath();
     }
 
     /** Clear internal caches. */
@@ -139,80 +130,168 @@ public final class FileFilteringService {
     }
 
     // -------------------------
-    // Internal helper methods (port of previous logic)
+    // Internal helper methods
     // -------------------------
 
-    private boolean isBaselineExcluded(ProjectFile file, Set<String> baselineExclusions) {
-        String fileRel = file.getRelPath().toString().replace('\\', '/');
-        for (String exclusion : baselineExclusions) {
-            String ex = exclusion.replace('\\', '/');
-            while (ex.startsWith("./")) ex = ex.substring(2);
-            if (ex.startsWith("/")) ex = ex.substring(1);
-            if (ex.endsWith("/")) ex = ex.substring(0, ex.length() - 1);
-            if (ex.isEmpty()) continue;
+    /** Represents a pre-compiled file pattern for efficient matching. */
+    private sealed interface CompiledPattern {
+        /** Simple name matches exact filename OR directory prefix (fast path). */
+        record SimpleName(String lowerName) implements CompiledPattern {}
 
-            if (fileRel.equals(ex) || fileRel.startsWith(ex + "/")) {
-                return true;
-            }
-        }
-        return false;
+        record Extension(String lowerSuffix) implements CompiledPattern {}
+
+        record Glob(Pattern regex, boolean matchFullPath) implements CompiledPattern {}
+
+        /** Path prefix matches exact path OR any path starting with prefix/ (for paths with / but no wildcards). */
+        record PathPrefix(String lowerPath) implements CompiledPattern {}
     }
 
-    private Optional<Path> getGlobalGitignoreFile(GitRepo gitRepo) {
-        var config = gitRepo.getGit().getRepository().getConfig();
+    /**
+     * A cacheable pattern matcher that holds pre-compiled patterns.
+     * Create once via {@link #createPatternMatcher(Set)} and reuse for multiple file checks.
+     */
+    public static final class FilePatternMatcher {
+        private final List<CompiledPattern> compiledPatterns;
 
-        String configPath = config.getString("core", null, "excludesfile");
-        if (configPath != null && !configPath.isEmpty()) {
-            var fs = FS.DETECTED;
-            Path globalIgnore;
+        private FilePatternMatcher(List<CompiledPattern> compiledPatterns) {
+            this.compiledPatterns = compiledPatterns;
+        }
 
-            if (configPath.startsWith("~/")) {
-                File resolved = fs.resolve(fs.userHome(), configPath.substring(2));
-                globalIgnore = resolved.toPath();
+        /** Check if a file matches any exclusion pattern. */
+        public boolean matches(ProjectFile file) {
+            return matchesFilePatternStatic(file, compiledPatterns);
+        }
+
+        /**
+         * Check if a path is excluded (for directory prefix matching).
+         * Uses fast prefix matching for SimpleName patterns.
+         *
+         * @param relativePath the path to check
+         * @param isDirectory true if the path is a directory (skips Extension pattern checks)
+         */
+        public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+            return isPathExcludedStatic(relativePath, compiledPatterns, isDirectory);
+        }
+
+        public boolean isEmpty() {
+            return compiledPatterns.isEmpty();
+        }
+    }
+
+    /**
+     * Create a reusable pattern matcher from a set of patterns.
+     * The returned matcher can be cached and reused for efficient repeated matching.
+     */
+    public static FilePatternMatcher createPatternMatcher(Set<String> patterns) {
+        if (patterns.isEmpty()) {
+            return new FilePatternMatcher(List.of());
+        }
+        return new FilePatternMatcher(compilePatterns(patterns));
+    }
+
+    /**
+     * Pre-compile file patterns for efficient reuse across many files.
+     *
+     * <p>Pattern semantics (all matching is case-insensitive):
+     * <ul>
+     *   <li><b>Simple name</b> (no wildcards, no slash): matches exact filename OR directory prefix.
+     *       Example: {@code node_modules} excludes dir and contents, {@code package-lock.json} excludes file.
+     *   <li><b>Extension pattern</b> ({@code *.ext} without additional wildcards in suffix):
+     *       matched against filename only. Example: {@code *.svg}, {@code *.min.js}
+     *   <li><b>Glob pattern</b> (contains {@code *}, {@code ?}, or {@code /}):
+     *       if pattern contains {@code /}, matched against full relative path;
+     *       otherwise matched against filename only. Example: {@code *.*}, {@code build/**}
+     * </ul>
+     *
+     * <p>Note: {@code *.*} matches any file with a dot in its name, including dotfiles
+     * like {@code .gitignore} and {@code .env}.
+     */
+    private static List<CompiledPattern> compilePatterns(Set<String> patterns) {
+        var compiled = new ArrayList<CompiledPattern>();
+        for (String rawPattern : patterns) {
+            String pattern = rawPattern.trim();
+            if (pattern.isEmpty()) continue;
+
+            // Simple name match (e.g., "node_modules", "package-lock.json")
+            // Matches exact filename OR directory prefix
+            if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
+                compiled.add(new CompiledPattern.SimpleName(pattern.toLowerCase(Locale.ROOT)));
+                continue;
+            }
+
+            // Simple extension match (e.g., "*.svg", "*.min.js")
+            if (pattern.startsWith("*.") && !pattern.contains("/")) {
+                String suffix = pattern.substring(1);
+                if (!suffix.contains("*") && !suffix.contains("?")) {
+                    compiled.add(new CompiledPattern.Extension(suffix.toLowerCase(Locale.ROOT)));
+                    continue;
+                }
+            }
+
+            // Path without wildcards - treat as prefix match (like SimpleName but for paths)
+            // e.g., "app/src/test/resources" should match the dir and all its contents
+            if (pattern.contains("/") && !pattern.contains("*") && !pattern.contains("?")) {
+                compiled.add(new CompiledPattern.PathPrefix(pattern.toLowerCase(Locale.ROOT)));
+                continue;
+            }
+
+            // Path glob pattern - convert to regex for platform-independent matching
+            try {
+                String lowerPattern = pattern.toLowerCase(Locale.ROOT);
+                var regex = globToRegex(lowerPattern);
+                compiled.add(new CompiledPattern.Glob(regex, pattern.contains("/")));
+            } catch (Exception e) {
+                logger.debug("Invalid glob pattern '{}': {}", pattern, e.getMessage());
+            }
+        }
+        return compiled;
+    }
+
+    /**
+     * Convert a glob pattern to a regex Pattern for platform-independent matching.
+     * Uses Unix path separators (forward slashes) consistently.
+     *
+     * <p>Glob syntax:
+     * <ul>
+     *   <li>{@code **} matches any characters including path separators
+     *   <li>{@code *} matches any characters except path separator
+     *   <li>{@code ?} matches exactly one character except path separator
+     * </ul>
+     */
+    @VisibleForTesting
+    public static Pattern globToRegex(String glob) {
+        var regex = new StringBuilder();
+        int i = 0;
+        while (i < glob.length()) {
+            char c = glob.charAt(i);
+            if (c == '*') {
+                if (i + 1 < glob.length() && glob.charAt(i + 1) == '*') {
+                    // ** matches anything including path separators
+                    regex.append(".*");
+                    i += 2;
+                    // Skip trailing / after **
+                    if (i < glob.length() && glob.charAt(i) == '/') {
+                        regex.append("/?");
+                        i++;
+                    }
+                } else {
+                    // * matches anything except path separator
+                    regex.append("[^/]*");
+                    i++;
+                }
+            } else if (c == '?') {
+                regex.append("[^/]");
+                i++;
+            } else if (".^$+[]{}()|\\".indexOf(c) >= 0) {
+                // Escape regex metacharacters
+                regex.append('\\').append(c);
+                i++;
             } else {
-                globalIgnore = Path.of(configPath);
-            }
-
-            if (Files.exists(globalIgnore)) {
-                logger.debug("Using global gitignore from core.excludesfile: {}", globalIgnore);
-                return Optional.of(globalIgnore);
+                regex.append(c);
+                i++;
             }
         }
-
-        File userHome = FS.DETECTED.userHome();
-        Path xdgIgnore = userHome.toPath().resolve(".config/git/ignore");
-        if (Files.exists(xdgIgnore)) {
-            logger.debug("Using global gitignore from XDG location: {}", xdgIgnore);
-            return Optional.of(xdgIgnore);
-        }
-
-        Path legacyIgnore = userHome.toPath().resolve(".gitignore_global");
-        if (Files.exists(legacyIgnore)) {
-            logger.debug("Using global gitignore from legacy location: {}", legacyIgnore);
-            return Optional.of(legacyIgnore);
-        }
-
-        return Optional.empty();
-    }
-
-    private List<Map.Entry<Path, Path>> computeFixedGitignorePairs(GitRepo gitRepo, Path gitTopLevel) {
-        var fixedPairs = new ArrayList<Map.Entry<Path, Path>>();
-
-        getGlobalGitignoreFile(gitRepo).ifPresent(globalIgnore -> {
-            fixedPairs.add(Map.entry(Path.of(""), globalIgnore));
-        });
-
-        var gitInfoExclude = gitTopLevel.resolve(".git/info/exclude");
-        if (Files.exists(gitInfoExclude)) {
-            fixedPairs.add(Map.entry(Path.of(""), gitInfoExclude));
-        }
-
-        var rootGitignore = gitTopLevel.resolve(".gitignore");
-        if (Files.exists(rootGitignore)) {
-            fixedPairs.add(Map.entry(Path.of(""), rootGitignore));
-        }
-
-        return fixedPairs;
+        return Pattern.compile(regex.toString());
     }
 
     private MatchResult checkIgnoreFile(Path ignoreFile, String pathToCheck, boolean isDirectory) {
@@ -232,7 +311,7 @@ public final class FileFilteringService {
     }
 
     private List<Map.Entry<Path, Path>> collectGitignorePairs(
-            Path gitTopLevel, Path gitRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs) {
+            Path workTreeRoot, Path gitRelPath, List<Path> fixedGitignoreFiles) {
         Path directory = gitRelPath.getParent();
         if (directory == null) {
             directory = Path.of("");
@@ -243,13 +322,18 @@ public final class FileFilteringService {
             return cached;
         }
 
+        // Fixed gitignore files (global, info/exclude, root .gitignore) all apply at root scope
         var gitignorePairs = new ArrayList<Map.Entry<Path, Path>>();
-        gitignorePairs.addAll(fixedGitignorePairs);
+        for (var file : fixedGitignoreFiles) {
+            gitignorePairs.add(Map.entry(Path.of(""), file));
+        }
 
         var nestedGitignores = new ArrayList<Map.Entry<Path, Path>>();
         Path currentDir = directory;
         while (currentDir != null && !currentDir.toString().isEmpty()) {
-            var nestedGitignore = gitTopLevel.resolve(currentDir).resolve(".gitignore");
+            // Use workTreeRoot for nested gitignores - for worktrees this is the worktree
+            // directory, not the main repo. Nested .gitignore files are in the working tree.
+            var nestedGitignore = workTreeRoot.resolve(currentDir).resolve(".gitignore");
             if (Files.exists(nestedGitignore)) {
                 nestedGitignores.add(Map.entry(currentDir, nestedGitignore));
             }
@@ -268,6 +352,131 @@ public final class FileFilteringService {
         return path.toString().replace('\\', '/');
     }
 
+    /** Normalize a string path to use forward slashes. */
+    public static String toUnixPath(String path) {
+        return path.replace('\\', '/');
+    }
+
+    /**
+     * Normalize an exclusion pattern by:
+     * - Converting to Unix path separators
+     * - Trimming whitespace
+     * - Removing leading "/" or "./"
+     * - Removing trailing "/"
+     */
+    public static String normalizeExclusionPattern(String pattern) {
+        String p = toUnixPath(pattern).trim();
+        if (p.startsWith("/")) p = p.substring(1);
+        if (p.startsWith("./")) p = p.substring(2);
+        if (p.endsWith("/")) p = p.substring(0, p.length() - 1);
+        return p;
+    }
+
+    /**
+     * Check if a file matches any of the given patterns.
+     * Patterns are compiled on each call; for repeated checks, callers should cache compiled patterns.
+     *
+     * @param file the project file to check
+     * @param patterns the set of patterns to check against
+     * @return true if the file matches any pattern
+     */
+    public static boolean matchesAnyFilePattern(ProjectFile file, Set<String> patterns) {
+        if (patterns.isEmpty()) {
+            return false;
+        }
+        var compiled = compilePatterns(patterns);
+        return matchesFilePatternStatic(file, compiled);
+    }
+
+    private static boolean matchesFilePatternStatic(ProjectFile file, List<CompiledPattern> compiledPatterns) {
+        if (compiledPatterns.isEmpty()) {
+            return false;
+        }
+
+        String filePath = toUnixPath(file.getRelPath());
+        String fileName = file.getFileName();
+        String lowerFileName = fileName.toLowerCase(Locale.ROOT);
+        String lowerFilePath = filePath.toLowerCase(Locale.ROOT);
+
+        for (var cp : compiledPatterns) {
+            boolean matched =
+                    switch (cp) {
+                        case CompiledPattern.SimpleName sn ->
+                            // Match exact filename OR file is under a directory with this name
+                            lowerFileName.equals(sn.lowerName())
+                                    || lowerFilePath.startsWith(sn.lowerName() + "/")
+                                    || lowerFilePath.contains("/" + sn.lowerName() + "/");
+                        case CompiledPattern.Extension ext -> lowerFileName.endsWith(ext.lowerSuffix());
+                        case CompiledPattern.Glob g ->
+                            g.regex()
+                                    .matcher(g.matchFullPath() ? lowerFilePath : lowerFileName)
+                                    .matches();
+                        case CompiledPattern.PathPrefix pp ->
+                            // Path equals the prefix, or starts with prefix/
+                            lowerFilePath.equals(pp.lowerPath()) || lowerFilePath.startsWith(pp.lowerPath() + "/");
+                    };
+            if (matched) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a path (file or directory) is excluded by any pattern.
+     * Uses fast prefix matching for SimpleName patterns.
+     *
+     * <p>Pattern matching behavior aligns with {@link #matchesFilePatternStatic}:
+     * <ul>
+     *   <li>SimpleName: matches path prefix or exact name
+     *   <li>Extension: matches filename suffix (files only)
+     *   <li>Glob with {@code matchFullPath=true}: matches against full path
+     *   <li>Glob with {@code matchFullPath=false}: matches against name component only
+     * </ul>
+     *
+     * @param relativePath the path to check
+     * @param compiledPatterns pre-compiled patterns
+     * @param isDirectory true if the path is a directory (skips Extension pattern checks)
+     */
+    private static boolean isPathExcludedStatic(
+            String relativePath, List<CompiledPattern> compiledPatterns, boolean isDirectory) {
+        if (compiledPatterns.isEmpty()) {
+            return false;
+        }
+
+        String path = toUnixPath(relativePath);
+        String lowerPath = path.toLowerCase(Locale.ROOT);
+        int lastSlash = lowerPath.lastIndexOf('/');
+        String lowerName = lastSlash >= 0 ? lowerPath.substring(lastSlash + 1) : lowerPath;
+
+        for (var cp : compiledPatterns) {
+            boolean matched =
+                    switch (cp) {
+                        case CompiledPattern.SimpleName sn ->
+                            // Path equals the name, or starts with name/, or contains /name/
+                            lowerPath.equals(sn.lowerName())
+                                    || lowerPath.startsWith(sn.lowerName() + "/")
+                                    || lowerPath.contains("/" + sn.lowerName() + "/")
+                                    || lowerPath.endsWith("/" + sn.lowerName());
+                        case CompiledPattern.Extension ext ->
+                            // Extension patterns only apply to files, not directories
+                            !isDirectory && lowerName.endsWith(ext.lowerSuffix());
+                        case CompiledPattern.Glob g ->
+                            // Respect matchFullPath: path globs match full path, filename globs match name only
+                            g.regex()
+                                    .matcher(g.matchFullPath() ? lowerPath : lowerName)
+                                    .matches();
+                        case CompiledPattern.PathPrefix pp ->
+                            // Path equals the prefix, or starts with prefix/
+                            lowerPath.equals(pp.lowerPath()) || lowerPath.startsWith(pp.lowerPath() + "/");
+                    };
+            if (matched) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @VisibleForTesting
     public static String normalizePathForGitignore(Path gitignoreDir, Path pathToNormalize) {
         if (gitignoreDir.toString().isEmpty()) {
@@ -277,23 +486,29 @@ public final class FileFilteringService {
         }
     }
 
-    private String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
-        Path gitTopLevel = gitRepo.getGitTopLevel();
-        Path projectAbsPath = root.resolve(projectRelPath);
-        Path gitRelPath = gitTopLevel.relativize(projectAbsPath);
-        return toUnixPath(gitRelPath);
+    private @Nullable String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
+        // Use workTreeRoot for relativizing paths - for worktrees this is the worktree's
+        // working directory, not the main repo. Using gitTopLevel would produce incorrect
+        // paths like "../worktree-name/src/file.java" that don't match gitignore patterns.
+        Path workTreeRoot = gitRepo.getWorkTreeRoot();
+        // Normalize to handle any . or .. components in projectRelPath
+        Path projectAbsPath = root.resolve(projectRelPath).normalize();
+        if (!projectAbsPath.startsWith(workTreeRoot)) {
+            return null;
+        }
+        return toUnixPath(workTreeRoot.relativize(projectAbsPath));
     }
 
     private boolean isPathIgnored(
-            GitRepo gitRepo, Path projectRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs) {
+            GitRepo gitRepo, Path projectRelPath, List<Path> fixedGitignoreFiles, boolean isDirectory) {
         String gitRelPath = toGitRelativePath(gitRepo, projectRelPath);
+        if (gitRelPath == null) {
+            return false;
+        }
         Path gitRelPathObj = Path.of(gitRelPath);
-        var gitTopLevel = gitRepo.getGitTopLevel();
+        var workTreeRoot = gitRepo.getWorkTreeRoot();
 
-        Path absPath = root.resolve(projectRelPath);
-        boolean isDirectory = Files.isDirectory(absPath);
-
-        var gitignorePairs = collectGitignorePairs(gitTopLevel, gitRelPathObj, fixedGitignorePairs);
+        var gitignorePairs = collectGitignorePairs(workTreeRoot, gitRelPathObj, fixedGitignoreFiles);
 
         MatchResult finalResult = MatchResult.CHECK_PARENT;
 
@@ -321,7 +536,7 @@ public final class FileFilteringService {
         while (parent != null && !parent.toString().isEmpty()) {
             String parentPath = toUnixPath(parent);
 
-            var parentGitignorePairs = collectGitignorePairs(gitTopLevel, parent, fixedGitignorePairs);
+            var parentGitignorePairs = collectGitignorePairs(workTreeRoot, parent, fixedGitignoreFiles);
 
             MatchResult parentResult = MatchResult.CHECK_PARENT;
 

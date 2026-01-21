@@ -13,6 +13,7 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.AutoCompleteUtil;
 import ai.brokk.gui.Constants;
+import ai.brokk.gui.components.MaterialToggleButton;
 import ai.brokk.gui.components.OverlayPanel;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -28,10 +29,12 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.JCheckBox;
@@ -39,7 +42,6 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
-import javax.swing.JToggleButton;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.text.JTextComponent;
@@ -72,11 +74,11 @@ public class AttachContextDialog extends BaseThemedDialog {
 
     // Segmented control
     private final JPanel tabBar = new JPanel();
-    private final JToggleButton filesBtn = new JToggleButton("Files");
-    private final JToggleButton foldersBtn = new JToggleButton("Folders");
-    private final JToggleButton classesBtn = new JToggleButton("Classes");
-    private final JToggleButton methodsBtn = new JToggleButton("Methods");
-    private final JToggleButton usagesBtn = new JToggleButton("Usages");
+    private final MaterialToggleButton filesBtn = new MaterialToggleButton("Files");
+    private final MaterialToggleButton foldersBtn = new MaterialToggleButton("Folders");
+    private final MaterialToggleButton classesBtn = new MaterialToggleButton("Classes");
+    private final MaterialToggleButton methodsBtn = new MaterialToggleButton("Methods");
+    private final MaterialToggleButton usagesBtn = new MaterialToggleButton("Usages");
     private final ButtonGroup tabGroup = new ButtonGroup();
 
     private final JTextField searchField = new JTextField(30);
@@ -153,9 +155,13 @@ public class AttachContextDialog extends BaseThemedDialog {
         usagesBtn.addActionListener(tabListener);
 
         tabBar.add(filesBtn);
+        tabBar.add(Box.createHorizontalStrut(4));
         tabBar.add(foldersBtn);
+        tabBar.add(Box.createHorizontalStrut(4));
         tabBar.add(classesBtn);
+        tabBar.add(Box.createHorizontalStrut(4));
         tabBar.add(methodsBtn);
+        tabBar.add(Box.createHorizontalStrut(4));
         tabBar.add(usagesBtn);
 
         // Input area: search field with overlay "Search" and hint
@@ -227,13 +233,8 @@ public class AttachContextDialog extends BaseThemedDialog {
 
         root.add(top, BorderLayout.NORTH);
 
-        // Prepare autocomplete: default to Files
-        filesProvider.setAutoActivationRules(
-                true, "._-$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+        // Prepare autocomplete: minimal setup, configuration deferred
         ac = new ClosingAutoCompletion(filesProvider, this::onConfirm);
-        ac.setAutoActivationEnabled(true);
-        ac.setAutoActivationDelay(0);
-        ac.setAutoCompleteSingleChoices(false);
         ac.install(searchField);
 
         // Confirm on Enter (when autocomplete popup is not visible)
@@ -287,16 +288,43 @@ public class AttachContextDialog extends BaseThemedDialog {
         // Register analyzer callback to manage gating lifecycle
         registerAnalyzerCallback();
 
-        // Initial gating + apply selected tab behavior
-        gateTabs();
-        onTabChanged();
-
-        setMinimumSize(new Dimension(700, 180));
-        setPreferredSize(new Dimension(700, 180));
-        pack();
+        setSize(700, 180);
         setLocationRelativeTo(parent);
 
-        SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
+        // Defer all expensive initialization to after dialog becomes visible
+        SwingUtilities.invokeLater(() -> {
+            // Button sizing for uniform width
+            var allTabs = List.of(filesBtn, foldersBtn, classesBtn, methodsBtn, usagesBtn);
+            int maxWidth = 0;
+            int maxHeight = 0;
+            for (var btn : allTabs) {
+                btn.setMargin(new Insets(4, 4, 4, 4));
+                var size = btn.getPreferredSize();
+                maxWidth = Math.max(maxWidth, size.width);
+                maxHeight = Math.max(maxHeight, size.height);
+            }
+            var fixedSize = new Dimension(maxWidth, maxHeight);
+            for (var btn : allTabs) {
+                btn.setPreferredSize(fixedSize);
+                btn.setMinimumSize(fixedSize);
+                btn.setMaximumSize(fixedSize);
+            }
+            tabBar.revalidate();
+
+            // Autocomplete configuration
+            filesProvider.setAutoActivationRules(
+                    true, "._-$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+            ac.setAutoActivationEnabled(true);
+            ac.setAutoActivationDelay(0);
+            ac.setAutoCompleteSingleChoices(false);
+
+            // Tab gating and setup
+            gateTabs();
+            onTabChanged();
+
+            // Focus request (keep last)
+            searchField.requestFocusInWindow();
+        });
 
         // Ensure callback is removed on close
         addWindowListener(new WindowAdapter() {
@@ -588,8 +616,7 @@ public class AttachContextDialog extends BaseThemedDialog {
 
             List<ShorthandCompletion> ranked = scored.stream()
                     .filter(sf -> (sf.shortScore() <= shortThreshold) || (sf.longScore() < bestShortScore))
-                    .sorted(java.util.Comparator.comparingInt(
-                                    (ScoredFolder sf) -> Math.min(sf.shortScore(), sf.longScore()))
+                    .sorted(Comparator.comparingInt((ScoredFolder sf) -> Math.min(sf.shortScore(), sf.longScore()))
                             .thenComparing(ScoredFolder::shortName))
                     .limit(100)
                     .map(sf -> new ShorthandCompletion(this, sf.shortName(), sf.path(), sf.path()))

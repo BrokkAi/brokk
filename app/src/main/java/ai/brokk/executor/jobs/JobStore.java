@@ -10,6 +10,7 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,10 +86,26 @@ public final class JobStore {
         Files.createDirectories(jobDir);
         Files.createDirectories(jobDir.resolve("artifacts"));
 
-        // Write meta.json (immutable)
+        // Write meta.json (immutable) - use redacted tags to avoid persisting secrets
         var metaFile = jobDir.resolve("meta.json");
         var tempMetaFile = jobDir.resolve(".meta.json.tmp");
-        objectMapper.writeValue(tempMetaFile.toFile(), spec);
+        var specForPersistence = new JobSpec(
+                spec.taskInput(),
+                spec.autoCommit(),
+                spec.autoCompress(),
+                spec.plannerModel(),
+                spec.scanModel(),
+                spec.codeModel(),
+                spec.preScan(),
+                spec.redactedTags(),
+                spec.sourceBranch(),
+                spec.targetBranch(),
+                spec.reasoningLevel(),
+                spec.reasoningLevelCode(),
+                spec.temperature(),
+                spec.temperatureCode(),
+                spec.maxIssueFixAttempts());
+        objectMapper.writeValue(tempMetaFile.toFile(), specForPersistence);
         Files.move(tempMetaFile, metaFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         // Write initial status.json
@@ -131,11 +148,7 @@ public final class JobStore {
         // Append as JSONL (one JSON object per line)
         var eventLine = objectMapper.writeValueAsString(eventWithSeq) + "\n";
         Files.createDirectories(jobDir);
-        Files.write(
-                eventsFile,
-                eventLine.getBytes(StandardCharsets.UTF_8),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND);
+        Files.writeString(eventsFile, eventLine, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
 
         logger.debug("Appended event {} to job {} with seq {}", event.type(), jobId, seq);
         return seq;
@@ -204,7 +217,7 @@ public final class JobStore {
         }
 
         // Ensure deterministic ordering even if the underlying file ordering is not strictly monotonic
-        result.sort(java.util.Comparator.comparingLong(JobEvent::seq));
+        result.sort(Comparator.comparingLong(JobEvent::seq));
 
         if (limit > 0 && result.size() > limit) {
             return result.subList(0, limit);
@@ -216,8 +229,13 @@ public final class JobStore {
     /**
      * Load the job specification (meta.json).
      *
+     * <p><b>Note:</b> Sensitive tags (e.g., {@code github_token}) are redacted during
+     * persistence and will contain "{@code [REDACTED]}" rather than their original values.
+     * This method is intended for auditing/debugging, not for recovering credentials
+     * needed for job execution.
+     *
      * @param jobId The job ID
-     * @return The job spec, or null if the job does not exist
+     * @return The job spec with sensitive tags redacted, or null if the job does not exist
      * @throws IOException If I/O fails
      */
     public @Nullable JobSpec loadSpec(String jobId) throws IOException {

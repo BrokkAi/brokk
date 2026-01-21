@@ -7,12 +7,12 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.PrTitleFormatter;
 import ai.brokk.util.SyntaxDetector;
 import java.time.Duration;
@@ -183,13 +183,13 @@ public interface GitDiffUiUtil {
                 var commitContent = repo.getFileContent(commitId, file);
 
                 SwingUtilities.invokeLater(() -> {
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
+                    new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
                             .leftSource(new BufferSource.StringSource(
                                     parentContent, parentCommitId, file.toString(), parentCommitId))
                             .rightSource(
                                     new BufferSource.StringSource(commitContent, commitId, file.toString(), commitId))
-                            .build();
-                    brokkDiffPanel.showInFrame(dialogTitle);
+                            .build()
+                            .showInTab(chrome.getPreviewManager(), dialogTitle);
                 });
             } catch (Exception ex) {
                 cm.getIo().toolError("Error loading history diff: " + ex.getMessage());
@@ -236,7 +236,7 @@ public interface GitDiffUiUtil {
             ICommitInfo oldestCommitInSelection) {
         contextManager.submitContextTask(() -> {
             try {
-                var repo = contextManager.getProject().getRepo();
+                var repo = (GitRepo) contextManager.getProject().getRepo();
                 var newestCommitId = newestCommitInSelection.id();
                 var oldestCommitId = oldestCommitInSelection.id();
 
@@ -250,18 +250,18 @@ public interface GitDiffUiUtil {
 
                 List<ProjectFile> changedFiles;
                 if (newestCommitId.equals(oldestCommitId)) { // Single commit selected
-                    changedFiles = newestCommitInSelection.changedFiles();
+                    changedFiles = CommitInfo.changedFiles(repo, newestCommitId);
                 } else {
                     // Files changed between oldest selected commit's parent and newest selected commit
-                    changedFiles = repo.listFilesChangedBetweenCommits(newestCommitId, oldestCommitId + "^").stream()
+                    changedFiles = repo.listFilesChangedBetweenCommits(oldestCommitId + "^", newestCommitId).stream()
                             .map(IGitRepo.ModifiedFile::file)
                             .collect(Collectors.toList());
                 }
 
                 var fileNamesSummary = formatFileList(changedFiles);
 
-                var newestShort = ((GitRepo) repo).shortHash(newestCommitId);
-                var oldestShort = ((GitRepo) repo).shortHash(oldestCommitId);
+                var newestShort = repo.shortHash(newestCommitId);
+                var oldestShort = repo.shortHash(oldestCommitId);
                 var hashTxt = newestCommitId.equals(oldestCommitId) ? newestShort : oldestShort + ".." + newestShort;
 
                 var description = "Diff of %s [%s]".formatted(fileNamesSummary, hashTxt);
@@ -369,48 +369,41 @@ public interface GitDiffUiUtil {
         var file = new ProjectFile(cm.getRoot(), filePath);
 
         cm.submitBackgroundTask("Loading compare-with-local for " + file.getFileName(), () -> {
-            try {
-                // Figure out the base commit ID and title components
-                String baseCommitId = commitId;
-                String baseCommitTitle = commitId;
-                String baseCommitShort = ((GitRepo) repo).shortHash(commitId);
-
-                if (useParent) {
-                    baseCommitId = commitId + "^";
-                    baseCommitTitle = commitId + "^";
-                    baseCommitShort = ((GitRepo) repo).shortHash(commitId) + "^";
-                }
-
-                // Read old content from the base commit
-                var oldContent = repo.getFileContent(baseCommitId, file);
-
-                // Create panel on Swing thread
-                String finalOldContent = oldContent;
-                String finalBaseCommitTitle = baseCommitTitle;
-                String finalBaseCommitId = baseCommitId;
-                String finalDialogTitle = "Diff: %s [Local vs %s]".formatted(file.getFileName(), baseCommitShort);
-
-                SwingUtilities.invokeLater(() -> {
-                    // Check if we already have a window showing this diff
-                    var leftSource = new BufferSource.StringSource(
-                            finalOldContent, finalBaseCommitTitle, file.toString(), finalBaseCommitId);
-                    var rightSource = new BufferSource.FileSource(file);
-
-                    if (DiffWindowManager.tryRaiseExistingWindow(List.of(leftSource), List.of(rightSource))) {
-                        return; // Existing window raised, don't create new one
-                    }
-
-                    // No existing window found, create new one
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
-                            .leftSource(leftSource)
-                            .rightSource(rightSource)
-                            .build();
-                    brokkDiffPanel.showInFrame(finalDialogTitle);
-                });
-            } catch (Exception ex) {
-                cm.getIo().toolError("Error loading compare-with-local diff: " + ex.getMessage());
+            // Figure out the base commit ID and title components
+            String baseCommitId;
+            String baseCommitTitle;
+            if (useParent) {
+                baseCommitId = commitId + "^";
+                baseCommitTitle = commitId + "^";
+            } else {
+                baseCommitId = commitId;
+                baseCommitTitle = commitId;
             }
-            return null;
+
+            // Read old content from the base commit
+
+            // Create panel on Swing thread
+            String oldContent = null;
+            try {
+                oldContent = repo.getFileContent(baseCommitId, file);
+            } catch (GitAPIException e) {
+                logger.warn(e);
+                oldContent = "Unable to read file: " + e.getMessage();
+            }
+            String finalOldContent = oldContent;
+            String finalDialogTitle = "Diff: %s".formatted(file.getFileName());
+
+            SwingUtilities.invokeLater(() -> {
+                var leftSource =
+                        new BufferSource.StringSource(finalOldContent, baseCommitTitle, file.toString(), baseCommitId);
+                var rightSource = new BufferSource.FileSource(file);
+
+                new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
+                        .leftSource(leftSource)
+                        .rightSource(rightSource)
+                        .build()
+                        .showInTab(chrome.getPreviewManager(), finalDialogTitle);
+            });
         });
     }
 
@@ -461,11 +454,11 @@ public interface GitDiffUiUtil {
 
     /** Open a BrokkDiffPanel showing all file changes in the specified commit. */
     static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo) {
-        var repo = cm.getProject().getRepo();
+        var repo = (GitRepo) cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
-                var files = commitInfo.changedFiles();
+                var files = CommitInfo.changedFiles(repo, commitInfo.id());
                 if (files.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit.");
                     return;
@@ -489,17 +482,11 @@ public interface GitDiffUiUtil {
                         .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if we already have a window showing this diff
-                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return;
-                    }
-
-                    // No existing window found, create new one
                     var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), cm);
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
-                    builder.build().showInFrame(title);
+                    builder.build().showInTab(chrome.getPreviewManager(), title);
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
@@ -509,11 +496,11 @@ public interface GitDiffUiUtil {
 
     /** Open a BrokkDiffPanel showing all file changes in the specified commit with a specific file pre-selected. */
     static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo, String targetFileName) {
-        var repo = cm.getProject().getRepo();
+        var repo = (GitRepo) cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
-                var files = commitInfo.changedFiles();
+                var files = CommitInfo.changedFiles(repo, commitInfo.id());
                 if (files.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit.");
                     return;
@@ -547,10 +534,11 @@ public interface GitDiffUiUtil {
                     builder.setInitialFileIndex(targetFileIndex);
                 }
 
-                String shortId = ((GitRepo) repo).shortHash(commitInfo.id());
-                var title = "Commit Diff: %s (%s)"
-                        .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
-                SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
+                String title = "Diff of " + targetFileName.substring(targetFileName.lastIndexOf('/') + 1);
+
+                SwingUtilities.invokeLater(() -> {
+                    builder.build().showInTab(chrome.getPreviewManager(), title);
+                });
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
             }
@@ -567,14 +555,14 @@ public interface GitDiffUiUtil {
 
     static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
         contextManager.submitBackgroundTask("Comparing commit to local", () -> {
+            var repo = (GitRepo) contextManager.getProject().getRepo();
             try {
-                var changedFiles = commitInfo.changedFiles();
+                var changedFiles = CommitInfo.changedFiles(repo, commitInfo.id());
                 if (changedFiles.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit");
                     return;
                 }
 
-                var repo = contextManager.getProject().getRepo();
                 var shortId = ((GitRepo) repo).shortHash(commitInfo.id());
                 var leftSources = new ArrayList<BufferSource>();
                 var rightSources = new ArrayList<BufferSource>();
@@ -587,18 +575,11 @@ public interface GitDiffUiUtil {
                 }
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if we already have a window showing this diff
-                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return;
-                    }
-
-                    // No existing window found, create new one
                     var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
-                    var panel = builder.build();
-                    panel.showInFrame("Compare " + shortId + " to Local");
+                    builder.build().showInTab(chrome.getPreviewManager(), "Compare " + shortId + " to Local");
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening multi-file diff: " + ex.getMessage());
@@ -623,7 +604,7 @@ public interface GitDiffUiUtil {
                     return;
                 }
                 List<ProjectFile> changedFiles =
-                        repo.listFilesChangedBetweenBranches(compareBranchName, baseBranchName).stream()
+                        repo.listFilesChangedBetweenBranches(baseBranchName, compareBranchName).stream()
                                 .map(IGitRepo.ModifiedFile::file)
                                 .collect(Collectors.toList());
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
@@ -670,7 +651,6 @@ public interface GitDiffUiUtil {
                             String.format(
                                     "Successfully rolled back %d file(s) to commit %s", files.size(), shortCommitId));
                     // Refresh Git panels to show the changed files
-                    chrome.updateCommitPanel();
                 });
             } catch (Exception e) {
                 logger.error("Error rolling back files", e);
@@ -751,7 +731,7 @@ public interface GitDiffUiUtil {
                 }
 
                 List<ProjectFile> changedFiles =
-                        repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha).stream()
+                        repo.listFilesChangedBetweenCommits(effectiveBaseSha, prHeadSha).stream()
                                 .map(IGitRepo.ModifiedFile::file)
                                 .collect(Collectors.toList());
                 String fileNamesSummary = formatFileList(changedFiles);
@@ -822,7 +802,7 @@ public interface GitDiffUiUtil {
                             prBaseFetchRef);
                 }
 
-                var modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+                var modifiedFiles = repo.listFilesChangedBetweenBranches(prBaseSha, prHeadSha);
 
                 if (modifiedFiles.isEmpty()) {
                     chrome.systemNotify(
@@ -889,9 +869,10 @@ public interface GitDiffUiUtil {
                     builder.setInitialFileIndex(targetFileIndex);
                 }
 
+                String title = "Diff of " + targetFilePath.substring(targetFilePath.lastIndexOf('/') + 1);
+
                 SwingUtilities.invokeLater(() -> {
-                    var diffPanel = builder.build();
-                    diffPanel.showInFrame(PrTitleFormatter.formatDiffTitle(pr));
+                    builder.build().showInTab(chrome.getPreviewManager(), title);
                 });
 
             } catch (Exception ex) {

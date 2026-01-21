@@ -13,15 +13,16 @@ import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -56,7 +57,7 @@ public final class GitWorkflow {
     }
 
     /** Synchronously commit the given files. If {@code files} is empty, commit all modified files. */
-    public CommitResult commit(List<ProjectFile> files, String msg) throws GitAPIException {
+    public CommitResult commit(Collection<ProjectFile> files, String msg) throws GitAPIException {
         assert !files.isEmpty();
         assert !msg.isBlank();
 
@@ -108,7 +109,8 @@ public final class GitWorkflow {
      * Streaming variant of suggestCommitMessage. Streams tokens to the provided IConsoleIO while the LLM runs.
      * Blocks and should be executed off the EDT. Throws RuntimeException on LLM errors.
      */
-    public String suggestCommitMessageStreaming(List<ProjectFile> files, boolean oneLine, IConsoleIO streamingOutput)
+    public String suggestCommitMessageStreaming(
+            Collection<ProjectFile> files, boolean oneLine, IConsoleIO streamingOutput)
             throws GitAPIException, InterruptedException {
         logger.debug("Suggesting commit message (streaming) for {} files (oneLine={})", files.size(), oneLine);
 
@@ -162,6 +164,10 @@ public final class GitWorkflow {
     }
 
     public String push(String branch) throws GitAPIException {
+        return push(branch, null);
+    }
+
+    public String push(String branch, @Nullable String githubToken) throws GitAPIException {
         // This check prevents attempting to push special views like "Search:" or "stashes"
         // or remote branches directly.
         if (repo.isRemoteBranch(branch) || isSyntheticBranchName(branch)) {
@@ -170,7 +176,7 @@ public final class GitWorkflow {
         }
 
         if (repo.hasUpstreamBranch(branch)) {
-            repo.remote().push(branch);
+            repo.remote().push(branch, githubToken);
             return "Pushed " + branch;
         } else {
             // Check if there are any commits to push before setting upstream.
@@ -180,7 +186,7 @@ public final class GitWorkflow {
             if (repo.listCommitsDetailed(branch).isEmpty()) {
                 return "Branch " + branch + " is empty. Nothing to push.";
             }
-            repo.remote().pushAndSetRemoteTracking(branch, "origin");
+            repo.remote().pushAndSetRemoteTracking(branch, "origin", branch, githubToken);
             return "Pushed " + branch + " and set upstream to origin/" + branch;
         }
     }
@@ -201,10 +207,10 @@ public final class GitWorkflow {
         return "Pulled " + branch;
     }
 
-    public BranchDiff diffBetweenBranches(String source, String target) throws GitAPIException {
-        var commits = repo.listCommitsBetweenBranches(source, target, /*excludeMergeCommitsFromTarget*/ true);
-        var files = repo.listFilesChangedBetweenBranches(source, target);
-        var merge = repo.getMergeBase(source, target);
+    public BranchDiff diffBetweenBranches(String oldBranch, String newBranch) throws GitAPIException {
+        var commits = repo.listCommitsBetweenBranches(oldBranch, newBranch, /*excludeMergeCommitsFromTarget*/ true);
+        var files = repo.listFilesChangedBetweenBranches(oldBranch, newBranch);
+        var merge = repo.getMergeBase(newBranch, oldBranch);
         return new BranchDiff(commits, files, merge);
     }
 
@@ -238,7 +244,7 @@ public final class GitWorkflow {
 
         List<ChatMessage> messages;
         if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {
-            var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
+            var commitMessagesContent = repo.getCommitMessagesBetween(target, source);
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
         } else {
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
@@ -248,10 +254,10 @@ public final class GitWorkflow {
         var tr = cm.getToolRegistry()
                 .builder()
                 .register(this)
-                .register(new WorkspaceTools((ContextManager) cm))
+                .register(new WorkspaceTools(((ContextManager) cm).liveContext()))
                 .build();
 
-        var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();
+        var toolSpecs = new ArrayList<ToolSpecification>();
         toolSpecs.addAll(tr.getTools(List.of("suggestPrDetails")));
         var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
 
@@ -283,9 +289,15 @@ public final class GitWorkflow {
 
     /** Pushes branch if needed and opens a PR. Returns the PR url. */
     public URI createPullRequest(String source, String target, String title, String body) throws Exception {
+        return createPullRequest(source, target, title, body, null);
+    }
+
+    /** Pushes branch if needed and opens a PR. Returns the PR url. */
+    public URI createPullRequest(String source, String target, String title, String body, @Nullable String githubToken)
+            throws Exception {
         // 1. Ensure branch is pushed
         if (repo.remote().branchNeedsPush(source)) {
-            push(source);
+            push(source, githubToken);
         }
 
         // 2. Strip "origin/" prefix for GitHub
@@ -293,7 +305,9 @@ public final class GitWorkflow {
         String base = target.replaceFirst("^origin/", "");
 
         // 3. GitHub call
-        var auth = GitHubAuth.getOrCreateInstance(cm.getProject());
+        var auth = (githubToken == null)
+                ? GitHubAuth.getOrCreateInstance(cm.getProject())
+                : GitHubAuth.createForProject(cm.getProject(), githubToken);
         var ghRepo = auth.getGhRepository();
         var pr = ghRepo.createPullRequest(title, head, base, body);
 
@@ -335,7 +349,7 @@ public final class GitWorkflow {
             return Optional.empty();
         }
 
-        var filesToCommit = modified.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
+        var filesToCommit = modified.stream().map(GitRepo.ModifiedFile::file).toList();
 
         // For auto-commit we prefer a concise one-line subject
         var message = suggestCommitMessage(filesToCommit, true).orElse(taskDescription);
@@ -346,7 +360,6 @@ public final class GitWorkflow {
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Committed " + repo.shortHash(commitResult.commitId()) + ": " + commitResult.firstLine());
-        io.updateCommitPanel();
         return Optional.of(commitResult);
     }
 }

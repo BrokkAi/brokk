@@ -20,6 +20,7 @@ import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
@@ -360,6 +361,97 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return ""; // Python uses indentation, no explicit closer for classes/functions
     }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        var query = getThreadLocalQuery();
+        var cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+
+        var match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (var cap : match.getCaptures()) {
+                String captureName = query.getCaptureNameForId(cap.getIndex());
+                if (!TEST_MARKER.equals(captureName)) {
+                    continue;
+                }
+
+                TSNode node = cap.getNode();
+                if (node == null || node.isNull()) {
+                    continue;
+                }
+
+                // Case A: Function name starting with test_
+                if (IDENTIFIER.equals(node.getType())) {
+                    TSNode parent = node.getParent();
+                    if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
+                        TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
+                        if (nameNode != null
+                                && nameNode.getStartByte() == node.getStartByte()
+                                && nameNode.getEndByte() == node.getEndByte()) {
+                            String text = sourceContent.substringFrom(node);
+                            if (text.startsWith("test_")) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                // Case B: Pytest marks
+                if (DECORATOR.equals(node.getType())) {
+                    if (isPytestMark(node, sourceContent)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isPytestMark(TSNode decoratorNode, SourceContent sourceContent) {
+        // decorator -> expression (named child 0)
+        TSNode expression = decoratorNode.getNamedChild(0);
+        if (expression == null || expression.isNull()) {
+            return false;
+        }
+
+        TSNode target = expression;
+        // If it's a call (e.g. @pytest.mark.parametrize(...)), unwrap to the callee
+        if (CALL.equals(target.getType())) {
+            target = target.getChildByFieldName(FIELD_FUNCTION);
+        }
+
+        if (target == null || target.isNull()) {
+            return false;
+        }
+
+        // Try AST navigation for attribute segments
+        List<String> segments = new ArrayList<>();
+        TSNode current = target;
+        while (current != null && !current.isNull()) {
+            if (ATTRIBUTE.equals(current.getType())) {
+                TSNode attributeNameNode = current.getChildByFieldName(FIELD_ATTRIBUTE);
+                if (attributeNameNode != null) {
+                    segments.add(0, sourceContent.substringFrom(attributeNameNode));
+                }
+                current = current.getChildByFieldName(FIELD_OBJECT);
+            } else if (IDENTIFIER.equals(current.getType())) {
+                segments.add(0, sourceContent.substringFrom(current));
+                break;
+            } else {
+                break;
+            }
+        }
+
+        if (segments.size() >= 2 && PYTEST.equals(segments.get(0)) && MARK.equals(segments.get(1))) {
+            return true;
+        }
+
+        // Fallback: minimal string check on the sliced expression
+        String expressionText = sourceContent.substringFrom(expression);
+        return expressionText.startsWith(PYTEST_MARK_PREFIX);
+    }
+
     /**
      * Determines the package name for a Python file based on its directory structure
      * and __init__.py markers.
@@ -690,24 +782,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                             if (wildcardModule != null && !wildcardModule.isEmpty()) {
                                 var moduleFile = resolveModuleFile(wildcardModule);
                                 if (moduleFile != null) {
-                                    try {
-                                        var decls = getDeclarations(moduleFile);
-                                        for (CodeUnit child : decls) {
-                                            // Import public classes and functions (no underscore prefix)
-                                            // TODO: Consider including public top-level constants (fields)
-                                            if ((child.isClass() || child.isFunction())
-                                                    && !child.identifier().startsWith("_")) {
-                                                resolvedByName.put(child.identifier(), child);
-                                            }
+                                    var decls = getDeclarations(moduleFile);
+                                    for (CodeUnit child : decls) {
+                                        // Import public classes and functions (no underscore prefix)
+                                        // TODO: Consider including public top-level constants (fields)
+                                        if ((child.isClass() || child.isFunction())
+                                                && !child.identifier().startsWith("_")) {
+                                            resolvedByName.put(child.identifier(), child);
                                         }
-                                    } catch (Exception e) {
-                                        log.warn(
-                                                "Could not expand wildcard import from {}: {}",
-                                                wildcardModule,
-                                                e.getMessage());
                                     }
                                 } else {
-                                    log.warn("Could not find module file for wildcard import: {}", wildcardModule);
+                                    log.trace("Could not find module file for wildcard import: {}", wildcardModule);
                                 }
                             }
                         }
@@ -722,22 +807,14 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                 // Try to find the symbol in the module file
                                 var moduleFile = resolveModuleFile(currentModule);
                                 if (moduleFile != null) {
-                                    try {
-                                        var decls = getDeclarations(moduleFile);
-                                        decls.stream()
-                                                .filter(cu -> cu.identifier().equals(text)
-                                                        && (cu.isClass() || cu.isFunction()))
-                                                .findFirst()
-                                                .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                                    } catch (Exception e) {
-                                        log.warn(
-                                                "Could not resolve import '{}' from module {}: {}",
-                                                text,
-                                                currentModule,
-                                                e.getMessage());
-                                    }
+                                    var decls = getDeclarations(moduleFile);
+                                    decls.stream()
+                                            .filter(cu ->
+                                                    cu.identifier().equals(text) && (cu.isClass() || cu.isFunction()))
+                                            .findFirst()
+                                            .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                                 } else {
-                                    log.debug("Could not find module file for import: {}", currentModule);
+                                    log.trace("Could not find module file for import: {}", currentModule);
                                 }
                             } else if (currentModule == null && wildcardModule == null) {
                                 // For "import X" style (no module context)

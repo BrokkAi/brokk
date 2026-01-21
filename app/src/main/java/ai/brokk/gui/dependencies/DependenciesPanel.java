@@ -7,7 +7,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
-import ai.brokk.gui.WorkspacePanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.ImportDependencyDialog;
 import ai.brokk.gui.util.Icons;
@@ -20,8 +19,6 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.ActionEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -117,7 +114,6 @@ public final class DependenciesPanel extends JPanel {
     // UI pieces used to align the bottom area with WorkspacePanel
     private JPanel southContainerPanel;
     private JPanel addRemovePanel;
-    private JPanel bottomSpacer;
 
     private MaterialButton addButton;
     private MaterialButton removeButton;
@@ -372,11 +368,6 @@ public final class DependenciesPanel extends JPanel {
             }
         });
 
-        // Spacer to align with the workspace bottom summary area (kept invisible)
-        bottomSpacer = new JPanel();
-        bottomSpacer.setOpaque(false);
-        southContainerPanel.add(bottomSpacer, BorderLayout.SOUTH);
-
         contentPanel.add(southContainerPanel, BorderLayout.SOUTH);
 
         // Let the surrounding split pane control the overall height.
@@ -556,31 +547,6 @@ public final class DependenciesPanel extends JPanel {
         isInitialized = true;
 
         loadDependenciesAsync();
-
-        // Ensure spacer size is set after initial layout
-        SwingUtilities.invokeLater(this::updateBottomSpacer);
-
-        // Update spacer when the Workspace layout changes
-        var workspacePanel = chrome.getContextPanel();
-        workspacePanel.addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                updateBottomSpacer();
-            }
-
-            @Override
-            public void componentShown(ComponentEvent e) {
-                updateBottomSpacer();
-            }
-        });
-
-        // Listen for explicit bottom-controls height changes from WorkspacePanel
-        workspacePanel.addBottomControlsListener(new WorkspacePanel.BottomControlsListener() {
-            @Override
-            public void bottomControlsHeightChanged(int newHeight) {
-                updateBottomSpacer();
-            }
-        });
     }
 
     /**
@@ -747,21 +713,6 @@ public final class DependenciesPanel extends JPanel {
             } finally {
                 isProgrammaticChange = false;
             }
-        }
-    }
-
-    private void updateBottomSpacer() {
-        try {
-            var wp = chrome.getContextPanel();
-            int target = wp.getBottomControlsPreferredHeight();
-            int controls = addRemovePanel.getPreferredSize().height;
-            int filler = Math.max(0, target - controls);
-            bottomSpacer.setPreferredSize(new Dimension(0, filler));
-            bottomSpacer.setMinimumSize(new Dimension(0, filler));
-            southContainerPanel.revalidate();
-            southContainerPanel.repaint();
-        } catch (Exception e) {
-            logger.debug("Error updating dependencies bottom spacer", e);
         }
     }
 

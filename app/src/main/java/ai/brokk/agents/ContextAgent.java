@@ -7,19 +7,20 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.TaskResult;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
+import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.prompts.CodePrompts;
-import ai.brokk.util.AdaptiveExecutor;
+import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -69,6 +70,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public class ContextAgent {
     private static final Logger logger = LogManager.getLogger(ContextAgent.class);
+
+    private static final int DESIRED_CANDIDATES = 100;
 
     private enum GroupType {
         ANALYZED,
@@ -211,7 +214,7 @@ public class ContextAgent {
     @Blocking
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
         var workspaceRepresentation =
-                CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
+                WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST));
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
@@ -237,7 +240,7 @@ public class ContextAgent {
             candidates = cm.getProject().getAllFiles().stream().sorted().toList();
             logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
         } else {
-            int maxNeighbors = 100;
+            int maxNeighbors = DESIRED_CANDIDATES;
             var envMaxNeighbors = System.getenv("BRK_MAX_NEIGHBORS");
             if (envMaxNeighbors != null) {
                 try {
@@ -274,28 +277,25 @@ public class ContextAgent {
                 .toList();
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
-        // GPT-5 Nano is currently the best combination of smart + low price. (Smarter than Flash 2.0 or Flash 2.5
-        // lite.)  We don't care as much about speed here, so 5 Nano gets the nod.
         var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
 
         // Create Llm instances - only analyzed group streams to UI
-        var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): %s".formatted(goal))
+        var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): " + goal)
                 .withForceReasoningEcho()
                 .withEcho();
         var filesLlmAnalyzed = cm.getLlm(filesOpts);
         filesLlmAnalyzed.setOutput(io);
 
-        var filesLlmUnanalyzed =
-                cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): %s".formatted(goal)));
+        var filesLlmUnanalyzed = cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): " + goal));
         filesLlmUnanalyzed.setOutput(io);
 
-        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): %s".formatted(goal))
+        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): " + goal)
                 .withForceReasoningEcho()
                 .withEcho();
         var llmAnalyzed = cm.getLlm(analyzedOpts);
         llmAnalyzed.setOutput(io);
 
-        var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): %s".formatted(goal)));
+        var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal));
         llmUnanalyzed.setOutput(io);
 
         // Process each group in parallel
@@ -405,7 +405,8 @@ public class ContextAgent {
         // If too large for evaluation, ask for interesting files (files-pruning stage with 100k cap)
         @Nullable Llm.ResponseMetadata usage = null;
 
-        if (initialTokens > evalBudgetRemaining) {
+        boolean forcePrune = "true".equalsIgnoreCase(System.getenv("BRK_FORCE_FILENAME_PRUNE"));
+        if (forcePrune || initialTokens > evalBudgetRemaining) {
             logger.debug(
                     "{} group exceeds evaluation budget ({} > {}); pruning filenames first.",
                     type,
@@ -416,21 +417,25 @@ public class ContextAgent {
                     filenames, workspaceRepresentation, pruneBudgetRemaining, filesLlm, type == GroupType.ANALYZED);
             usage = Llm.ResponseMetadata.sum(usage, pruneRec.tokenUsage());
 
-            workingFiles = pruneRec.recommendedFiles().stream().sorted().toList();
-
-            int postPruneTokens;
-            if (type == GroupType.ANALYZED) {
-                postPruneTokens = estimateAnalyzedTokens(workingFiles);
-            } else {
-                var contentsMap = readFileContents(workingFiles);
-                postPruneTokens = Messages.getApproximateTokens(contentsMap.values());
-            }
-            logger.debug("{} group post-prune token estimate: ~{}", type, postPruneTokens);
-
-            if (workingFiles.isEmpty()) {
+            var prunedFiles = pruneRec.recommendedFiles();
+            if (prunedFiles.isEmpty()) {
                 logger.debug("{} group: filename pruning produced an empty set.", type);
                 return new LlmRecommendation(Set.of(), Set.of(), Set.of(), usage);
             }
+
+            // Expand to include most-relevant neighbors
+            if (type == GroupType.ANALYZED && workingFiles.size() < DESIRED_CANDIDATES) {
+                workingFiles = expandCandidates(prunedFiles, groupFiles);
+            }
+
+            int postExpansionTokens;
+            if (type == GroupType.ANALYZED) {
+                postExpansionTokens = estimateAnalyzedTokens(workingFiles);
+            } else {
+                var contentsMap = readFileContents(workingFiles);
+                postExpansionTokens = Messages.getApproximateTokens(contentsMap.values());
+            }
+            logger.debug("{} group post-expansion token estimate: ~{}", type, postExpansionTokens);
         }
 
         // Evaluate-for-relevance stage: call LLM with a context window containing ONLY this group's data.
@@ -438,6 +443,26 @@ public class ContextAgent {
         LlmRecommendation evalRec = evaluateWithHalving(type, workingFiles, workspaceRepresentation, llm);
         usage = Llm.ResponseMetadata.sum(usage, evalRec.tokenUsage());
         return evalRec.withUsage(usage);
+    }
+
+    private List<ProjectFile> expandCandidates(Set<ProjectFile> seedFiles, List<ProjectFile> eligiblePool)
+            throws InterruptedException {
+        // Create a temporary context containing the pruned files
+        Context tempContext = new Context(cm).addFragments(cm.toPathFragments(seedFiles));
+
+        // 2* b/c we're going to filter to eligiblePool
+        var relevantNeighbors = tempContext.getMostRelevantFiles(2 * DESIRED_CANDIDATES);
+
+        // Union seeds and neighbors, restricted to the eligible group pool
+        var expandedSet = new HashSet<>(seedFiles);
+        var eligibleSet = new HashSet<>(eligiblePool);
+        relevantNeighbors.stream()
+                .filter(eligibleSet::contains)
+                .limit(DESIRED_CANDIDATES - seedFiles.size())
+                .forEach(expandedSet::add);
+
+        logger.debug("Expanded candidates to {}", expandedSet);
+        return expandedSet.stream().sorted().toList();
     }
 
     /**
@@ -472,14 +497,15 @@ public class ContextAgent {
 
     /**
      * Returns a map of ProjectFile -> identifiers text (summaries of classes in the file).
+     * Files with empty identifiers are omitted from the result.
      */
     private Map<ProjectFile, String> getCachedIdentifiers(Collection<ProjectFile> candidates) {
         return candidates.parallelStream()
                 .distinct()
-                .collect(Collectors.toMap(
-                        f -> f,
-                        f -> identifiersByFile.computeIfAbsent(f, pf -> Context.buildRelatedIdentifiers(analyzer, pf)),
-                        (v1, v2) -> v1));
+                .map(f ->
+                        Map.entry(f, identifiersByFile.computeIfAbsent(f, pf -> analyzer.buildRelatedIdentifiers(pf))))
+                .filter(entry -> !entry.getValue().isEmpty())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
     // --- Result assembly ---
@@ -613,13 +639,6 @@ public class ContextAgent {
             List<String> filenames, Collection<ChatMessage> workspaceRepresentation, Llm filesLlm)
             throws InterruptedException {
 
-        var systemPrompt =
-                """
-                You are an assistant that performs a first pass of identifying relevant files based on a goal and the existing Workspace contents.
-                A second pass will be made using your recommended files, so the top priority is to make sure you
-                identify ALL potentially relevant files without leaving any out, even at the cost of some false positives.
-                You MUST ONLY select files from the provided <filenames> list. Do NOT invent or include any file that is not exactly present in <filenames>.
-                """;
         var filenamePrompt =
                 """
                 <instructions>
@@ -653,7 +672,6 @@ public class ContextAgent {
                 """
                         .formatted(String.join("\n", filenames));
 
-        var finalSystemMessage = new SystemMessage(systemPrompt);
         var discardedNote = getDiscardedContextNote();
         var userPrompt = new StringBuilder().append("<goal>\n").append(goal).append("\n</goal>\n\n");
         if (!discardedNote.isEmpty()) {
@@ -661,8 +679,9 @@ public class ContextAgent {
         }
         userPrompt.append(filenamePrompt);
 
+        var sys = new SystemMessage(SearchPrompts.instance.searchAgentIdentity());
         List<ChatMessage> messages = Stream.concat(
-                        Stream.of(finalSystemMessage),
+                        Stream.of(sys),
                         Stream.concat(
                                 workspaceRepresentation.stream(), Stream.of(new UserMessage(userPrompt.toString()))))
                 .toList();
@@ -749,13 +768,11 @@ public class ContextAgent {
             this.io.llmOutput(
                     "Processing " + chunks.size() + " batches in parallel (showing batch 1)…\n\n",
                     ChatMessageType.AI,
-                    false,
-                    true);
+                    LlmOutputMeta.reasoning());
         }
 
         Llm filesLlmWithEcho = showBatch1Reasoning
-                ? cm.getLlm(new Llm.Options(
-                                cm.getService().quickestModel(), "ContextAgent Files Unanalyzed %s".formatted(goal))
+                ? cm.getLlm(new Llm.Options(cm.getService().quickestModel(), "ContextAgent Files Unanalyzed " + goal)
                         .withForceReasoningEcho())
                 : filesLlm;
         if (showBatch1Reasoning) {
@@ -802,8 +819,7 @@ public class ContextAgent {
             this.io.llmOutput(
                     "All batches complete. " + combinedFiles.size() + " files selected.\n\n",
                     ChatMessageType.AI,
-                    false,
-                    true);
+                    LlmOutputMeta.reasoning());
         }
 
         return new LlmRecommendation(combinedFiles, combinedTests, combinedClasses, combinedUsage);
@@ -847,7 +863,7 @@ public class ContextAgent {
                     .append("\n</discarded_context>\n\n");
         }
 
-        userMessageText.append("\n<goal>\n%s\n</goal>\n".formatted(goal));
+        userMessageText.append("\n<goal>\n").append(goal).append("\n</goal>\n");
         var userPrompt =
                 """
                 Identify code context relevant to the goal by calling `recommendContext`.
@@ -863,10 +879,15 @@ public class ContextAgent {
                   do not recommend files that are listed in the <discarded_context> section.
                 - Compare this combined list against the items in the provided section (either summaries OR files content).
 
+                Selection rubric (important):
+                - Prefer `classesToSummarize` when you need navigational context (APIs, types, call sites) and are not confident the file will be edited.
+                - Prefer `testsToAdd` for tests/specs that clarify intended behavior or will likely need updating to verify the goal.
+                - Use `filesToAdd` only for files you expect to edit or where exact implementation details are required.
+
                 Then call the `recommendContext` tool with the appropriate entries:
 
-                - Populate `filesToAdd` with full (relative) paths of files that will need to be edited, or whose implementation details are necessary. Must exactly match one of the file paths provided in this message.
-                - Populate `classesToSummarize` with fully-qualified names of classes whose APIs will be used.
+                - Populate `filesToAdd` with full (relative) paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in this message.
+                - Populate `classesToSummarize` with fully-qualified names of classes whose APIs or structure are relevant but which do not need to be edited.
                 - Populate `testsToAdd` with full (relative) paths of related test/spec/e2e/integration files that help understand or verify the goal. These will be included as summaries/skeletons only (not full file contents). Must exactly match one of the file paths provided in this message.
 
                 Either or all arguments may be empty. Do NOT invent or guess file paths. Only use file paths that are present in the file list provided in this message. If no file list is provided, call `recommendContext` with empty lists.

@@ -12,10 +12,12 @@ export type EnvInfo = {
   totalFileCount?: number;
   analyzerReady?: boolean;
   analyzerLanguages?: LanguageInfo[];
+  showEmptyState?: boolean;
 };
 
 const initial: EnvInfo = {
-  analyzerReady: false
+  analyzerReady: false,
+  showEmptyState: false
 };
 
 export const envStore = writable<EnvInfo>(initial);

@@ -1,7 +1,6 @@
 package ai.brokk.testutil;
 
 import ai.brokk.IAnalyzerWrapper;
-import ai.brokk.IWatchService;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.Set;
@@ -11,7 +10,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class TestAnalyzerWrapper implements IAnalyzerWrapper {
 
-    private final @Nullable IAnalyzer analyzer;
+    private @Nullable IAnalyzer analyzer;
     private final AtomicInteger pauseCount = new AtomicInteger(0);
     private final AtomicInteger resumeCount = new AtomicInteger(0);
     private final AtomicInteger rebuildCount = new AtomicInteger(0);
@@ -26,6 +25,11 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
 
     @Override
     public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
+        if (analyzer != null) {
+            IAnalyzer updated = analyzer.update(relevantFiles);
+            this.analyzer = updated;
+            return CompletableFuture.completedFuture(updated);
+        }
         return CompletableFuture.failedFuture(new UnsupportedOperationException("Not used in this test"));
     }
 
@@ -60,11 +64,6 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
     @Override
     public boolean isPause() {
         return pauseCount.get() > resumeCount.get();
-    }
-
-    @Override
-    public IWatchService getWatchService() {
-        return new IWatchService() {};
     }
 
     public int getPauseCount() {

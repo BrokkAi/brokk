@@ -2,6 +2,7 @@ package ai.brokk.init.onboarding;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -100,7 +101,7 @@ public class GitIgnoreConfigurator {
                 content += "!.brokk/review.md\n";
                 content += "!.brokk/project.properties\n";
 
-                Files.writeString(gitignorePf.absPath(), content);
+                AtomicWrites.save(gitignorePf.absPath(), content);
                 gitignoreUpdated = true;
                 if (consoleIO != null) {
                     consoleIO.showNotification(
@@ -133,7 +134,7 @@ public class GitIgnoreConfigurator {
             // Create stub AGENTS.md if it doesn't exist (or preserve existing)
             if (!Files.exists(agentsMdPath)) {
                 try {
-                    Files.writeString(agentsMdPath, "# Agents Guide\n");
+                    AtomicWrites.save(agentsMdPath, "# Agents Guide\n");
                     logger.debug("Created stub AGENTS.md");
                 } catch (IOException ex) {
                     logger.error("Failed to create stub AGENTS.md: {}", ex.getMessage());
@@ -142,7 +143,7 @@ public class GitIgnoreConfigurator {
 
             if (!Files.exists(reviewMdPath)) {
                 try {
-                    Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
+                    AtomicWrites.save(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
                     logger.debug("Created stub review.md");
                 } catch (IOException ex) {
                     logger.error("Failed to create stub review.md: {}", ex.getMessage());
@@ -151,7 +152,7 @@ public class GitIgnoreConfigurator {
 
             if (!Files.exists(projectPropsPath)) {
                 try {
-                    Files.writeString(projectPropsPath, "# Brokk project configuration\n");
+                    AtomicWrites.save(projectPropsPath, "# Brokk project configuration\n");
                     logger.debug("Created stub project.properties");
                 } catch (IOException ex) {
                     logger.error("Failed to create stub project.properties: {}", ex.getMessage());

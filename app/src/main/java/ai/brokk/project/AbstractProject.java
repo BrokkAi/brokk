@@ -4,12 +4,14 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.LocalFileRepo;
-import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.EnvironmentJava;
+import ai.brokk.util.PathNormalizer;
 import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -32,8 +34,8 @@ import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
     protected static final Logger logger = LogManager.getLogger(AbstractProject.class);
@@ -60,6 +62,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     // File filtering service that encapsulates baseline exclusions + gitignore handling.
     protected final FileFilteringService fileFilteringService;
+
+    // Cached pattern matcher for file exclusions (invalidated when patterns change)
+    // Using volatile for thread-safe reads without synchronization
+    private volatile Set<String> cachedPatternSet = Set.of();
+    private volatile FileFilteringService.FilePatternMatcher cachedPatternMatcher =
+            FileFilteringService.createPatternMatcher(Set.of());
 
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
@@ -121,7 +129,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     /** Generic method to save properties to a file */
-    private void saveProperties(Path file, Properties properties, String comment) {
+    protected static void saveProperties(Path file, Properties properties, String comment) {
         try {
             if (Files.exists(file)) {
                 Properties existingProps = new Properties();
@@ -134,7 +142,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     return;
                 }
             }
-            AtomicWrites.atomicSaveProperties(file, properties, comment);
+            Files.createDirectories(file.getParent());
+            AtomicWrites.save(file, properties, comment);
         } catch (IOException e) {
             logger.error("Error saving properties to {}: {}", file, e.getMessage());
         }
@@ -154,7 +163,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public CompletableFuture<Void> updateLiveDependencies(
             Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
-        return CompletableFuture.supplyAsync(() -> {
+        return LoggingFuture.supplyAsync(() -> {
             // If analyzer provided, pause watcher and compute prev files
             Set<ProjectFile> prevFiles = null;
             if (analyzerWrapper != null) {
@@ -449,6 +458,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    public boolean hasJdkOverride() {
+        var value = workspaceProps.getProperty(PROP_JDK_HOME);
+        return value != null && !value.isBlank();
+    }
+
+    @Override
     public void setJdk(@Nullable String jdkHome) {
         if (jdkHome == null || jdkHome.isBlank()) {
             workspaceProps.remove(PROP_JDK_HOME);
@@ -459,6 +474,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    @Blocking
     public Language getBuildLanguage() {
         var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
         if (configured != null && !configured.isBlank()) {
@@ -469,6 +485,23 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             }
         }
         return computeMostCommonLanguage();
+    }
+
+    @Override
+    public Language computedBuildLanguage() {
+        var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
+        if (configured != null && !configured.isBlank()) {
+            try {
+                return Languages.valueOf(configured);
+            } catch (IllegalArgumentException e) {
+                // fall through to cache check
+            }
+        }
+        // If cache is populated, compute from it; otherwise return NONE
+        if (allFilesCache != null) {
+            return computeMostCommonLanguage();
+        }
+        return Languages.NONE;
     }
 
     @Override
@@ -517,6 +550,47 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             workspaceProps.setProperty(UI_FILTER_PREFIX + key, value);
         }
         saveWorkspaceProperties();
+    }
+
+    // --- Project Tree expansion persistence ---
+
+    private static final String PROP_TREE_EXPANDED = "ui.projectTree.expandedPaths";
+
+    @Override
+    public List<Path> getExpandedTreePaths() {
+        var json = workspaceProps.getProperty(PROP_TREE_EXPANDED);
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<String> pathStrings = objectMapper.readValue(
+                    json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            // Filter out empty/blank paths and normalize separators for cross-platform compatibility
+            return pathStrings.stream()
+                    .filter(s -> !s.isBlank())
+                    .map(s -> s.replace('\\', '/'))
+                    .map(Path::of)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.warn("Error parsing expanded tree paths: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    @Override
+    public void setExpandedTreePaths(List<Path> paths) {
+        try {
+            // Filter out empty/blank paths and normalize to forward slashes for cross-platform compatibility
+            var pathStrings = paths.stream()
+                    .map(p -> PathNormalizer.canonicalizeForProject(p.toString(), getRoot()))
+                    .filter(s -> !s.isBlank())
+                    .collect(Collectors.toList());
+            var json = objectMapper.writeValueAsString(pathStrings);
+            workspaceProps.setProperty(PROP_TREE_EXPANDED, json);
+            saveWorkspaceProperties();
+        } catch (Exception e) {
+            logger.error("Error saving expanded tree paths: {}", e.getMessage());
+        }
     }
 
     // --- Terminal drawer per-project persistence ---
@@ -616,6 +690,17 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    @Blocking
+    public boolean isEmptyProject() {
+        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
+                .filter(lang -> lang != Languages.NONE)
+                .flatMap(lang -> lang.getExtensions().stream())
+                .collect(Collectors.toSet());
+
+        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
+    }
+
+    @Override
     public void close() {
         if (repo instanceof AutoCloseable autoCloseableRepo) {
             try {
@@ -696,7 +781,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private volatile Set<ProjectFile> allFilesCache;
 
     private Set<ProjectFile> getAllFilesRaw() {
-        var trackedFiles = repo.getTrackedFiles();
+        // Use getFilesForAnalysis() which handles fallback to filesystem scan for empty Git repos
+        var trackedFiles = repo.getFilesForAnalysis();
 
         var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
@@ -712,18 +798,18 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    @Blocking
     public final synchronized Set<ProjectFile> getAllFiles() {
         if (allFilesCache == null) {
-            allFilesCache = applyFiltering(getAllFilesRaw());
+            allFilesCache = filterExcludedFiles(getAllFilesRaw());
         }
         return allFilesCache;
     }
 
-    @VisibleForTesting
-    public Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
-        // Always apply baseline exclusions, regardless of Git presence
-        Set<String> rawExclusions = loadBuildDetails().excludedDirectories();
-        return fileFilteringService.filterFiles(files, rawExclusions);
+    @Override
+    public Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
+        var buildDetails = loadBuildDetails();
+        return fileFilteringService.filterFiles(files, buildDetails.exclusionPatterns());
     }
 
     @Override
@@ -737,15 +823,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public boolean isDirectoryIgnored(Path directoryRelPath) {
+    public boolean isGitignored(Path relPath) {
         if (!(repo instanceof GitRepo)) {
             return false; // No git repo = nothing is ignored
         }
 
         try {
-            return fileFilteringService.isDirectoryIgnored(directoryRelPath);
+            return fileFilteringService.isGitignored(relPath);
         } catch (Exception e) {
-            logger.warn("Error checking if directory {} is ignored: {}", directoryRelPath, e.getMessage());
+            logger.warn("Error checking if path {} is gitignored: {}", relPath, e.getMessage());
             return false; // On error, assume not ignored (conservative)
         }
     }
@@ -758,10 +844,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public Set<String> getExcludedDirectories() {
+    public Set<String> getExclusionPatterns() {
         var exclusions = new HashSet<String>();
-        exclusions.addAll(loadBuildDetails().excludedDirectories());
+        exclusions.addAll(loadBuildDetails().exclusionPatterns());
 
+        // Also exclude non-live dependencies
         var dependenciesDir = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesDir) || !Files.isDirectory(dependenciesDir)) {
             return exclusions;
@@ -783,5 +870,20 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         return exclusions;
+    }
+
+    @Override
+    public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+        var patterns = getExclusionPatterns();
+        // Read volatile fields once for consistency
+        var currentPatterns = cachedPatternSet;
+        var currentMatcher = cachedPatternMatcher;
+        // Check if cache is still valid; if not, update (benign race: might compute twice)
+        if (!patterns.equals(currentPatterns)) {
+            currentMatcher = FileFilteringService.createPatternMatcher(patterns);
+            cachedPatternMatcher = currentMatcher;
+            cachedPatternSet = patterns;
+        }
+        return currentMatcher.isPathExcluded(relativePath, isDirectory);
     }
 }

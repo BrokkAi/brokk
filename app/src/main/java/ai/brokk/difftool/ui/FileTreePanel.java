@@ -1,14 +1,18 @@
 package ai.brokk.difftool.ui;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.swing.*;
@@ -23,38 +27,60 @@ import org.jetbrains.annotations.Nullable;
 public class FileTreePanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(FileTreePanel.class);
 
+    @FunctionalInterface
+    public interface FileTreeContextMenuProvider {
+        @Nullable
+        JPopupMenu createContextMenu(List<ProjectFile> selectedFiles);
+    }
+
     private final JTree fileTree;
     private final DefaultTreeModel treeModel;
-    private DefaultMutableTreeNode rootNode;
-    private final List<BrokkDiffPanel.FileComparisonInfo> fileComparisons;
-    private final Path projectRoot;
+    private final DefaultMutableTreeNode rootNode;
+    private List<FileComparisonInfo> fileComparisons;
+
     private final JScrollPane scrollPane;
 
     @Nullable
     private GuiTheme currentTheme;
 
-    public interface FileSelectionListener {
-        void onFileSelected(int fileIndex);
-    }
-
     @Nullable
-    private FileSelectionListener selectionListener;
+    private DiffProjectFileNavigationTarget selectionListener;
 
     private final AtomicBoolean suppressSelectionEvents = new AtomicBoolean(false);
+
+    @Nullable
+    private FileTreeContextMenuProvider contextMenuProvider;
 
     // Indices of files that currently have unsaved changes
     private final Set<Integer> dirtyIndices = new HashSet<>();
     private volatile int pendingInitialSelection = -1;
 
-    public FileTreePanel(List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot) {
+    private final AtomicInteger buildGeneration = new AtomicInteger(0);
+
+    @Nullable
+    private SwingWorker<List<FileWithPath>, Void> activeWorker;
+
+    public void updateData(List<FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
+        assert SwingUtilities.isEventDispatchThread() : "updateData must be called on EDT";
+        this.fileComparisons = List.copyOf(fileComparisons);
+        String displayTitle =
+                rootTitle != null ? rootTitle : projectRoot.getFileName().toString();
+        rootNode.setUserObject(displayTitle);
+
+        // Reset state for the new data set
+        this.dirtyIndices.clear();
+        this.pendingInitialSelection = -1;
+
+        buildTree();
+    }
+
+    public FileTreePanel(List<FileComparisonInfo> fileComparisons, Path projectRoot) {
         this(fileComparisons, projectRoot, null);
     }
 
-    public FileTreePanel(
-            List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
+    public FileTreePanel(List<FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
         super(new BorderLayout());
         this.fileComparisons = fileComparisons;
-        this.projectRoot = projectRoot;
         this.currentTheme = null; // Initialize to null, will be set via applyTheme
 
         String displayTitle =
@@ -70,7 +96,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private void setupTree() {
-        fileTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
+        fileTree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         fileTree.setRootVisible(true);
         fileTree.setShowsRootHandles(true);
         fileTree.setCellRenderer(new FileTreeCellRenderer());
@@ -88,10 +114,23 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                     if (node.isLeaf() && node != rootNode) {
                         int fileIndex = findFileIndex(selectedPath);
                         if (fileIndex != -1) {
-                            selectionListener.onFileSelected(fileIndex);
+                            selectionListener.navigateToFile(fileIndex);
+                            SwingUtilities.invokeLater(() -> fileTree.requestFocusInWindow());
                         }
                     }
                 }
+            }
+        });
+
+        fileTree.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleContextMenu(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                handleContextMenu(e);
             }
         });
     }
@@ -101,6 +140,15 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private void buildTree() {
+        assert SwingUtilities.isEventDispatchThread() : "buildTree must be called on EDT";
+
+        // Cancel any existing worker for a previous generation
+        if (activeWorker != null) {
+            activeWorker.cancel(true);
+        }
+
+        final int generation = buildGeneration.incrementAndGet();
+
         rootNode.removeAllChildren();
 
         // Show loading state immediately
@@ -109,33 +157,45 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         treeModel.reload();
 
         // Perform file operations in background thread
-        new SwingWorker<List<FileWithPath>, Void>() {
+        activeWorker = new SwingWorker<List<FileWithPath>, Void>() {
             @Override
             protected List<FileWithPath> doInBackground() throws Exception {
                 assert !SwingUtilities.isEventDispatchThread() : "Background work should not run on EDT";
 
                 // Collect all files with their complete paths and determine status
-                var allFiles = IntStream.range(0, fileComparisons.size())
+                return IntStream.range(0, fileComparisons.size())
                         .mapToObj(i -> {
                             var comparison = fileComparisons.get(i);
-                            var filePath = extractFilePath(comparison);
-                            if (filePath != null) {
-                                var path = Path.of(filePath);
-                                var status = determineDiffStatus(comparison); // File I/O happens in background
-                                return new FileWithPath(path, i, status);
+                            ProjectFile file = comparison.file();
+
+                            Path path;
+                            if (file != null) {
+                                path = file.getRelPath();
+                            } else {
+                                // For purely virtual comparisons, use the display name or source title
+                                String name = comparison.getDisplayName();
+                                try {
+                                    path = Path.of(name);
+                                } catch (InvalidPathException ignored) {
+                                    path = Path.of("unknown_" + i);
+                                }
                             }
-                            return null;
+
+                            var status = determineDiffStatus(comparison);
+                            return new FileWithPath(path, i, status);
                         })
-                        .filter(Objects::nonNull)
                         .sorted(Comparator.comparing(f -> f.path.toString()))
                         .collect(Collectors.toCollection(ArrayList::new));
-
-                return allFiles;
             }
 
             @Override
             protected void done() {
                 assert SwingUtilities.isEventDispatchThread() : "UI updates must run on EDT";
+
+                // Only apply results if this is still the current generation and was not cancelled
+                if (generation != buildGeneration.get() || isCancelled()) {
+                    return;
+                }
 
                 try {
                     var allFiles = get();
@@ -175,9 +235,14 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                 } catch (Exception e) {
                     // Handle file I/O errors gracefully
                     logger.error("Error building file tree", e);
+                } finally {
+                    if (activeWorker == this) {
+                        activeWorker = null;
+                    }
                 }
             }
-        }.execute();
+        };
+        activeWorker.execute();
     }
 
     private DefaultMutableTreeNode findOrCreateDirectoryNode(DefaultMutableTreeNode root, Path dirPath) {
@@ -343,86 +408,9 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         }
     }
 
-    @Nullable
-    private String extractFilePath(BrokkDiffPanel.FileComparisonInfo comparison) {
-        // Try to get the best available path information
-        String leftPath = getSourcePath(comparison.leftSource);
-        String rightPath = getSourcePath(comparison.rightSource);
-
-        // Select the best path - prefer absolute paths, then paths with directory structure
-        String selectedPath = null;
-
-        // First, try to find an absolute path
-        try {
-            if (leftPath != null && Path.of(leftPath).isAbsolute()) {
-                selectedPath = leftPath;
-            } else if (rightPath != null && Path.of(rightPath).isAbsolute()) {
-                selectedPath = rightPath;
-            }
-        } catch (InvalidPathException e) {
-            logger.warn(
-                    "Invalid path encountered during absolute path check - leftPath: '{}', rightPath: '{}'",
-                    leftPath,
-                    rightPath,
-                    e);
-            // Continue with directory structure check
-        }
-
-        // If no absolute path found, prefer paths with directory structure
-        if (selectedPath == null) {
-            if (leftPath != null && leftPath.contains("/")) {
-                selectedPath = leftPath;
-            } else if (rightPath != null && rightPath.contains("/")) {
-                selectedPath = rightPath;
-            }
-            // Fall back to any available path
-            else if (leftPath != null) {
-                selectedPath = leftPath;
-            } else if (rightPath != null) {
-                selectedPath = rightPath;
-            } else {
-                selectedPath = comparison.getDisplayName();
-            }
-        }
-
-        // Strip project root prefix to show relative path from project root
-        return stripProjectRoot(selectedPath);
-    }
-
-    @Nullable
-    private String stripProjectRoot(@Nullable String filePath) {
-        if (filePath == null) {
-            return null;
-        }
-
-        try {
-            var path = Path.of(filePath);
-            if (path.isAbsolute() && path.startsWith(projectRoot)) {
-                var relativePath = projectRoot.relativize(path);
-                return relativePath.toString();
-            }
-        } catch (InvalidPathException e) {
-            logger.warn("Invalid path encountered while stripping project root: '{}'", filePath, e);
-            // Return original path for further processing
-        }
-
-        return filePath;
-    }
-
-    @Nullable
-    private String getSourcePath(BufferSource source) {
-        if (source instanceof BufferSource.FileSource fs) {
-            // For FileSource, always use absolute path to get full directory structure
-            return fs.file().absPath().toString();
-        } else if (source instanceof BufferSource.StringSource ss && ss.filename() != null) {
-            return ss.filename();
-        }
-        return null;
-    }
-
-    private DiffStatus determineDiffStatus(BrokkDiffPanel.FileComparisonInfo comparison) {
-        boolean leftExists = comparison.leftSource.sizeInBytes() > 0;
-        boolean rightExists = comparison.rightSource.sizeInBytes() > 0;
+    private DiffStatus determineDiffStatus(FileComparisonInfo comparison) {
+        boolean leftExists = comparison.leftSource().sizeInBytes() > 0;
+        boolean rightExists = comparison.rightSource().sizeInBytes() > 0;
 
         if (leftExists && !rightExists) {
             return DiffStatus.DELETED;
@@ -451,8 +439,60 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         return -1;
     }
 
-    public void setSelectionListener(FileSelectionListener listener) {
+    public void setSelectionListener(DiffProjectFileNavigationTarget listener) {
         this.selectionListener = listener;
+    }
+
+    public void setContextMenuProvider(@Nullable FileTreeContextMenuProvider provider) {
+        this.contextMenuProvider = provider;
+    }
+
+    /** Clear the tree selection without triggering navigation events. */
+    public void clearSelection() {
+        suppressSelectionEvents.set(true);
+        try {
+            fileTree.clearSelection();
+        } finally {
+            suppressSelectionEvents.set(false);
+        }
+    }
+
+    private void handleContextMenu(MouseEvent e) {
+        if (!e.isPopupTrigger() || contextMenuProvider == null) return;
+
+        var path = fileTree.getPathForLocation(e.getX(), e.getY());
+        if (path == null) return;
+
+        if (!fileTree.isPathSelected(path)) {
+            fileTree.setSelectionPath(path);
+        }
+
+        List<ProjectFile> selectedFiles = getSelectedProjectFiles();
+        if (selectedFiles.isEmpty()) return;
+
+        var menu = contextMenuProvider.createContextMenu(selectedFiles);
+        if (menu == null || menu.getComponentCount() == 0) return;
+
+        menu.show(fileTree, e.getX(), e.getY());
+    }
+
+    private List<ProjectFile> getSelectedProjectFiles() {
+        TreePath[] paths = fileTree.getSelectionPaths();
+        if (paths == null || paths.length == 0) return List.of();
+
+        return Arrays.stream(paths)
+                .map(p -> (DefaultMutableTreeNode) p.getLastPathComponent())
+                .map(DefaultMutableTreeNode::getUserObject)
+                .map(uo -> {
+                    if (uo instanceof FileInfo fi) {
+                        if (fi.index() < 0 || fi.index() >= fileComparisons.size()) return null;
+                        return fileComparisons.get(fi.index()).file();
+                    }
+                    return null;
+                })
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     public void selectFile(int fileIndex) {
@@ -474,6 +514,21 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             }
         } finally {
             suppressSelectionEvents.set(false);
+        }
+    }
+
+    /** Selects and scrolls to a file in the tree without triggering navigation events. */
+    public void selectFileQuietly(ProjectFile file) {
+        int index = -1;
+        for (int i = 0; i < fileComparisons.size(); i++) {
+            if (file.equals(fileComparisons.get(i).file())) {
+                index = i;
+                break;
+            }
+        }
+
+        if (index != -1) {
+            selectFile(index);
         }
     }
 

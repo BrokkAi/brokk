@@ -9,11 +9,14 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
-import ai.brokk.util.PathNormalizer;
+import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.ShellConfig;
 import com.google.common.io.Files;
 import java.awt.*;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.Objects;
@@ -73,6 +76,13 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     @Nullable
     private Future<?> manualInferBuildTaskFuture;
+
+    // Pending BuildDetails from agent run, saved on Apply/OK
+    @Nullable
+    private BuildAgent.BuildDetails pendingBuildDetails;
+    // LLM-added patterns from the most recent agent run (for UI highlighting)
+    @Nullable
+    private Set<String> pendingLlmAddedPatterns;
 
     private final JPanel bannerPanel;
 
@@ -171,7 +181,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 populateJdkControlsFromProject();
             }
         });
-        updateJdkControlsVisibility(project.getBuildLanguage());
+        updateJdkControlsVisibility(project.computedBuildLanguage());
         setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
 
         gbc.gridy = row++;
@@ -377,7 +387,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         // Populate initial values
         populatePrimaryLanguageComboBox();
-        var selectedLang = project.getBuildLanguage();
+        var selectedLang = project.computedBuildLanguage();
         primaryLanguageComboBox.setSelectedItem(selectedLang);
         updateJdkControlsVisibility(selectedLang);
         if (selectedLang == Languages.JAVA) {
@@ -400,7 +410,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                             try {
                                 if (detailsResult != null
                                         && !Objects.equals(detailsResult, BuildAgent.BuildDetails.EMPTY)) {
-                                    updateBuildDetailsFieldsFromAgent(detailsResult);
+                                    // No LLM patterns when loading from storage - don't highlight
+                                    updateBuildDetailsFieldsFromAgent(detailsResult, null);
                                 }
                             } catch (Exception e) {
                                 logger.warn("Error while applying build details from future: {}", e.getMessage(), e);
@@ -462,29 +473,22 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         SwingWorker<String, String> worker = new SwingWorker<>() {
             @Override
-            protected String doInBackground() throws InterruptedException {
-                var root = project.getRoot();
+            protected String doInBackground() {
+
+                var envVars = computeEnvFromUi();
 
                 // Step 1: Build/Lint command
                 String buildCmd = buildCleanCommandField.getText().trim();
                 if (!buildCmd.isEmpty()) {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
-                    try {
-                        var execCfg = project.getShellConfig();
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                buildCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var result =
+                            BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
                         publish("\nSUCCESS: Build/Lint command completed successfully.\n\n");
-                    } catch (Environment.SubprocessException e) {
+                    } else {
                         publish("\nERROR: Build/Lint command failed.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
+                        publish(result.output() + "\n");
                         return "Build/Lint command failed.";
                     }
                 } else {
@@ -496,21 +500,13 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!testAllCmd.isEmpty()) {
                     publish("--- Verifying Test All Command ---\n");
                     publish("$ " + testAllCmd + "\n");
-                    try {
-                        var execCfg = project.getShellConfig();
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                testAllCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var result =
+                            BuildVerifier.verifyStreaming(project, testAllCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
                         publish("\nSUCCESS: Test All command completed successfully.\n\n");
-                    } catch (Environment.SubprocessException e) {
+                    } else {
                         publish("\nERROR: Test All command failed.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
+                        publish(result.output() + "\n");
                         return "Test All command failed.";
                     }
                 } else {
@@ -549,28 +545,19 @@ public class SettingsProjectBuildPanel extends JPanel {
                     }
 
                     publish("$ " + interpolatedCmd + "\n");
-                    try {
-                        var execCfg = project.getShellConfig();
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                interpolatedCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var result = BuildVerifier.verifyStreaming(
+                            project, interpolatedCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
                         publish(
                                 "\nSUCCESS: 'Test Some' command executed without errors (this is unexpected for a placeholder test).\n\n");
-                    } catch (Environment.FailureException e) {
+                    } else if (result.exitCode() >= 0) {
                         publish(
                                 "\nSUCCESS: 'Test Some' command executed and failed as expected for a placeholder test.\n");
                         publish("This confirms the command and template syntax are valid.\n\n");
-                        // This is the expected success path.
-                    } catch (Environment.SubprocessException e) {
+                    } else {
                         publish("\nERROR: 'Test Some' command failed to execute.\n");
                         publish("This may indicate an invalid executable or a syntax error in the command.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
+                        publish(result.output() + "\n");
                         return "'Test Some' command is invalid.";
                     }
                 } else {
@@ -656,8 +643,12 @@ public class SettingsProjectBuildPanel extends JPanel {
                                 JOptionPane.INFORMATION_MESSAGE);
                     });
                 } else {
+                    var llmPatterns = agent.getLlmAddedPatterns();
                     SwingUtilities.invokeLater(() -> {
-                        updateBuildDetailsFieldsFromAgent(newBuildDetails);
+                        // Store pending details for later save on Apply/OK
+                        pendingBuildDetails = newBuildDetails;
+                        pendingLlmAddedPatterns = llmPatterns;
+                        updateBuildDetailsFieldsFromAgent(newBuildDetails, llmPatterns);
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO, "Build Agent finished. Review and apply settings.");
                     });
@@ -710,17 +701,18 @@ public class SettingsProjectBuildPanel extends JPanel {
                 .forEach(control -> control.setEnabled(enabled));
     }
 
-    private void updateBuildDetailsFieldsFromAgent(BuildAgent.BuildDetails details) {
+    private void updateBuildDetailsFieldsFromAgent(
+            BuildAgent.BuildDetails details, @Nullable Set<String> llmAddedPatterns) {
         SwingUtilities.invokeLater(() -> {
             // Update this panel's fields
             buildCleanCommandField.setText(details.buildLintCommand());
             allTestsCommandField.setText(details.testAllCommand());
             someTestsCommandField.setText(details.testSomeCommand());
 
-            // Also refresh the CI exclusions list model in the parent SettingsProjectPanel
+            // Also refresh the CI exclusions list in the parent SettingsProjectPanel
             try {
                 var spp = parentDialog.getProjectPanel();
-                spp.updateExcludedDirectories(details.excludedDirectories());
+                spp.updateExclusionPatternsFromAgent(details.exclusionPatterns(), llmAddedPatterns);
             } catch (Exception ex) {
                 logger.warn("Failed to update CI exclusions list from agent details: {}", ex.getMessage(), ex);
             }
@@ -752,7 +744,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildTimeoutSpinner.setValue((int) project.getMainProject().getRunCommandTimeoutSeconds());
         populateJdkControlsFromProject();
 
-        var selectedLang = project.getBuildLanguage();
+        var selectedLang = project.computedBuildLanguage();
         primaryLanguageComboBox.setSelectedItem(selectedLang);
         updateJdkControlsVisibility(selectedLang);
         if (selectedLang == Languages.JAVA) {
@@ -784,15 +776,11 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     public boolean applySettings() {
-        var selectedExecutorObj = commonExecutorsComboBox.getSelectedItem();
-        String newExecutorPath = "";
-        if (selectedExecutorObj instanceof ShellConfig sc) {
-            newExecutorPath = sc.executable();
-        } else if (selectedExecutorObj != null) {
-            newExecutorPath = selectedExecutorObj.toString().trim();
-        }
         // Persist build-related settings to project.
-        var currentDetails = project.loadBuildDetails();
+        // Use pendingBuildDetails for build commands if available (from recent BuildAgent run),
+        // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
+        var diskDetails = project.loadBuildDetails();
+        var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
         var newTestSome = someTestsCommandField.getText();
@@ -801,26 +789,27 @@ public class SettingsProjectBuildPanel extends JPanel {
         var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
 
         // Build environment variables map
-        var envVars = new HashMap<>(currentDetails.environmentVariables());
+        var envVars = new HashMap<>(baseDetails.environmentVariables());
+        // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
-        if (selectedPrimaryLang == Languages.JAVA) {
-            if (setJavaHomeCheckbox.isSelected()) {
-                var selPath = jdkSelector.getSelectedJdkPath();
-                if (selPath != null && !selPath.isBlank()) {
-                    envVars.put("JAVA_HOME", PathNormalizer.canonicalizeEnvPathValue(selPath));
-                }
-            }
-        } else if (selectedPrimaryLang == Languages.PYTHON) {
+        if (selectedPrimaryLang == Languages.PYTHON) {
             envVars.put("VIRTUAL_ENV", ".venv");
         }
 
+        // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint, newTestAll, newTestSome, currentDetails.excludedDirectories(), envVars);
+                newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
+
+        // Compare against what's currently saved on disk
+        var currentDetails = project.loadBuildDetails();
         if (!newDetails.equals(currentDetails)) {
             project.saveBuildDetails(newDetails);
             logger.debug("Applied Build Details changes.");
         }
+
+        // Clear pending details after save
+        pendingBuildDetails = null;
 
         MainProject.CodeAgentTestScope selectedScope =
                 runAllTestsRadio.isSelected() ? IProject.CodeAgentTestScope.ALL : IProject.CodeAgentTestScope.WORKSPACE;
@@ -837,14 +826,34 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         // JDK Controls (only for Java)
-        if (selectedPrimaryLang != null && selectedPrimaryLang != project.getBuildLanguage()) {
+        if (selectedPrimaryLang == Languages.JAVA) {
+            if (setJavaHomeCheckbox.isSelected()) {
+                String rawPath = jdkSelector.getSelectedJdkPath();
+                if (!validateAndApplyJdkOverride(rawPath)) {
+                    return false;
+                }
+            } else {
+                project.setJdk(null);
+                logger.debug("Removed JDK Home override");
+            }
+        }
+
+        if (selectedPrimaryLang != null && selectedPrimaryLang != project.computedBuildLanguage()) {
             project.setBuildLanguage(selectedPrimaryLang);
             logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
         }
 
         // Apply executor configuration
         var currentShellConfig = project.getShellConfig();
+        var selectedExecutorObj = commonExecutorsComboBox.getSelectedItem();
+        String newExecutorPath = "";
+        if (selectedExecutorObj instanceof ShellConfig sc) {
+            newExecutorPath = sc.executable();
+        } else if (selectedExecutorObj != null) {
+            newExecutorPath = selectedExecutorObj.toString().trim();
+        }
         String newExecutorArgs = executorArgsField.getText().trim();
+
         List<String> argsList = Arrays.asList(newExecutorArgs.split("\\s+"));
         var newShellConfig = new ShellConfig(newExecutorPath, argsList);
 
@@ -856,24 +865,72 @@ public class SettingsProjectBuildPanel extends JPanel {
         return true;
     }
 
+    /**
+     * Validation result for JDK override.
+     * @param jdkToPersist path or sentinel to save if valid
+     * @param errorMessage error message if invalid, null if valid
+     */
+    record JdkOverrideValidation(@Nullable String jdkToPersist, @Nullable String errorMessage) {
+        boolean isValid() {
+            return errorMessage == null;
+        }
+    }
+
+    static JdkOverrideValidation validateJdkOverride(@Nullable String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            return new JdkOverrideValidation(null, "Please select a valid JDK path.");
+        }
+
+        if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(rawPath)) {
+            return new JdkOverrideValidation(EnvironmentJava.JAVA_HOME_SENTINEL, null);
+        }
+
+        String normalized = JdkSelector.normalizeJdkPath(rawPath);
+        if (normalized.isBlank()) {
+            return new JdkOverrideValidation(null, "Please select a valid JDK path.");
+        }
+
+        try {
+            Path path = Path.of(normalized);
+            String error = JdkSelector.validateJdkPath(path);
+            if (error != null) {
+                return new JdkOverrideValidation(null, error);
+            }
+            return new JdkOverrideValidation(normalized, null);
+        } catch (InvalidPathException e) {
+            return new JdkOverrideValidation(null, "The provided path is invalid: " + e.getMessage());
+        }
+    }
+
+    boolean validateAndApplyJdkOverride(@Nullable String rawPath) {
+        var result = validateJdkOverride(rawPath);
+        if (!result.isValid()) {
+            JOptionPane.showMessageDialog(this, result.errorMessage(), "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+
+        String toPersist = result.jdkToPersist();
+        project.setJdk(toPersist);
+        if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(toPersist)) {
+            logger.debug("Applied JDK Home sentinel: {}", toPersist);
+        } else {
+            logger.debug("Applied JDK Home: {}", toPersist);
+        }
+        return true;
+    }
+
     public void showBuildBanner() {
         bannerPanel.setVisible(true);
     }
 
     private void populateJdkControlsFromProject() {
-        project.getBuildDetailsFuture().thenAccept(details -> {
-            SwingUtilities.invokeLater(() -> {
-                var env = details.environmentVariables();
-                String desired = env.get("JAVA_HOME");
+        String effectiveJdk = project.getJdk();
+        boolean hasOverride = project.hasJdkOverride();
 
-                boolean useCustomJdk = desired != null && !desired.isBlank();
-                setJavaHomeCheckbox.setSelected(useCustomJdk);
-                jdkSelector.setEnabled(useCustomJdk);
-
-                // Always populate the selector; it will select 'desired' if provided
-                jdkSelector.loadJdksAsync(desired);
-            });
-        });
+        setJavaHomeCheckbox.setSelected(hasOverride);
+        jdkSelector.setEnabled(hasOverride);
+        // Show the effective JDK (detected or explicit) in the selector
+        jdkSelector.loadJdksAsync(effectiveJdk);
     }
 
     private void updateJdkControlsVisibility(@Nullable Language selected) {
@@ -885,10 +942,16 @@ public class SettingsProjectBuildPanel extends JPanel {
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
         var selected = (Language) primaryLanguageComboBox.getSelectedItem();
-        if (selected == Languages.JAVA && setJavaHomeCheckbox.isSelected()) {
-            String sel = jdkSelector.getSelectedJdkPath();
-            if (sel != null && !sel.isBlank()) {
-                env.put("JAVA_HOME", sel);
+        if (selected == Languages.JAVA) {
+            if (setJavaHomeCheckbox.isSelected()) {
+                String sel = jdkSelector.getSelectedJdkPath();
+                if (sel != null && !sel.isBlank()) {
+                    env.put("JAVA_HOME", JdkSelector.normalizeJdkPath(sel));
+                }
+            } else {
+                // If checkbox is NOT selected, we explicitly pass the sentinel to prevent
+                // BuildVerifier from falling back to project.getJdk()
+                env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
             }
         }
         if (selected == Languages.PYTHON) {
@@ -899,7 +962,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private void populatePrimaryLanguageComboBox() {
         var detected = findLanguagesInProject();
-        var configured = project.getBuildLanguage();
+        var configured = project.computedBuildLanguage();
         if (!detected.contains(configured)) {
             detected.add(configured);
         }
@@ -931,6 +994,9 @@ public class SettingsProjectBuildPanel extends JPanel {
         // Populate common executors dropdown
         var commonExecutors = ShellConfig.getCommonExecutors();
         commonExecutorsComboBox.setModel(new DefaultComboBoxModel<>(commonExecutors));
+        commonExecutorsComboBox.setEditable(true);
+        commonExecutorsComboBox.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
+
         commonExecutorsComboBox.setRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(
@@ -948,9 +1014,6 @@ public class SettingsProjectBuildPanel extends JPanel {
                 executorArgsField.setText(String.join(" ", sc.args()));
             }
         });
-
-        commonExecutorsComboBox.setEditable(true);
-        commonExecutorsComboBox.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
 
         // pre-select the system default if present
         for (int i = 0; i < commonExecutors.length; i++) {
@@ -988,7 +1051,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 selectedItem instanceof ShellConfig sc ? sc.executable() : Objects.toString(selectedItem, "");
         String executorArgs = executorArgsField.getText().trim();
 
-        if (executorPath == null || executorPath.isEmpty()) {
+        if (executorPath.isEmpty()) {
             JOptionPane.showMessageDialog(
                     this,
                     "Please specify an executor path first.",

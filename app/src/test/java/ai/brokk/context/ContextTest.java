@@ -17,7 +17,6 @@ import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,9 +52,6 @@ class ContextTest {
 
         analyzer = new TestAnalyzer(List.of(cu1, cu2), Map.of());
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), analyzer);
-
-        // Reset fragment ID counter for test isolation
-        ContextFragments.setMinimumId(1);
     }
 
     @Test
@@ -67,12 +63,17 @@ class ContextTest {
         var p1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var p2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
 
-        var ctx = new Context(contextManager);
-        ctx = ctx.addFragments(List.of(p1, p2));
+        // Start with a non-empty context so getDescription doesn't hit the empty check if we had one
+        var originalCtx = new Context(contextManager)
+                .addFragments(new ContextFragments.StringFragment(
+                        contextManager, "base", "base", SyntaxConstants.SYNTAX_STYLE_NONE));
+        var ctx = originalCtx.addFragments(List.of(p1, p2));
 
         // Dedup: only one path fragment
-        assertEquals(1, ctx.fileFragments().count(), "Duplicate path fragments should be deduped");
-        assertTrue(ctx.getAction().startsWith("Added "), ctx.getAction());
+        assertEquals(
+                1,
+                ctx.allFragments().filter(f -> f.getType().isPath()).count(),
+                "Duplicate path fragments should be deduped");
     }
 
     @Test
@@ -87,7 +88,10 @@ class ContextTest {
         ctx = ctx.addFragments(v1);
         ctx = ctx.addFragments(v2);
 
-        assertEquals(1, ctx.virtualFragments().count(), "Duplicate virtual fragments should be deduped by id/source");
+        assertEquals(
+                1,
+                ctx.allFragments().filter(f -> !f.getType().isPath()).count(),
+                "Duplicate virtual fragments should be deduped by id/source");
     }
 
     @Test
@@ -121,13 +125,16 @@ class ContextTest {
                 .addFragments(List.of(extFrag))
                 .addFragments(codeFrag);
 
-        // Order: editable virtuals first (CodeFragment), then other editable path fragments (External),
-        // then project path fragments ordered by mtime (older A then newer B).
+        // Order: editable virtuals first (CodeFragment),
+        // then project path fragments.
+        // ExternalPathFragment is not in FragmentType.EDITABLE_TYPES.
         var editable = ctx.getEditableFragments().toList();
         assertEquals(3, editable.size(), "All editable fragments should be present before read-only filtering");
         assertInstanceOf(ContextFragments.CodeFragment.class, editable.get(0), "Editable virtuals should come first");
-        assertEquals(projectFragA, editable.get(1), "Older project file should come before newer");
-        assertEquals(projectFragB, editable.get(2), "Newer project file should be last");
+
+        // Check that path fragments follow
+        assertTrue(editable.get(1) instanceof ContextFragments.ProjectPathFragment);
+        assertTrue(editable.get(2) instanceof ContextFragments.ProjectPathFragment);
 
         // Mark CodeFragment as read-only and verify it drops from editable
         var ctx2 = ctx.setReadonly(codeFrag, true);
@@ -150,11 +157,13 @@ class ContextTest {
 
         // Remove fragment
         var ctxRemoved = ctx.removeFragments(List.of(ppf));
-        assertEquals(0, ctxRemoved.fileFragments().count(), "Fragment should be removed");
+        assertEquals(
+                0, ctxRemoved.allFragments().filter(f -> f.getType().isPath()).count(), "Fragment should be removed");
 
         // Re-add the same instance; read-only should not persist
         var ctxReadded = ctxRemoved.addFragments(List.of(ppf));
-        assertEquals(1, ctxReadded.fileFragments().count());
+        assertEquals(
+                1, ctxReadded.allFragments().filter(f -> f.getType().isPath()).count());
         assertFalse(ctxReadded.isMarkedReadonly(ppf), "Read-only should be cleared after removal");
     }
 
@@ -193,12 +202,12 @@ class ContextTest {
     void testIsAiResultDetection() {
         List<ChatMessage> msgs = List.of(UserMessage.from("U"), AiMessage.from("A"));
         var tf = new ContextFragments.TaskFragment(contextManager, msgs, "task");
-        var ctx = new Context(contextManager).withParsedOutput(tf, "action");
+        var ctx = new Context(contextManager).withParsedOutput(tf);
         assertTrue(ctx.isAiResult(), "AI result should be true when AI message is present");
 
         List<ChatMessage> msgs2 = List.of(UserMessage.from("Only user"));
         var tf2 = new ContextFragments.TaskFragment(contextManager, msgs2, "task");
-        var ctx2 = new Context(contextManager).withParsedOutput(tf2, "action");
+        var ctx2 = new Context(contextManager).withParsedOutput(tf2);
         assertFalse(ctx2.isAiResult(), "AI result should be false with no AI messages");
     }
 
@@ -213,21 +222,25 @@ class ContextTest {
         var ctx = new Context(contextManager).addFragments(List.of(ppf)).addFragments(sf);
 
         pf.write("class RefreshR0 { public static void main() {} }");
-        var refreshed = ctx.copyAndRefresh(Set.of(pf), "Test Action");
+        var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
         // ProjectPathFragment should be replaced (new instance), StringFragment should be reused (same instance)
-        var oldPpf = ctx.fileFragments().findFirst().orElseThrow();
-        var newPpf = refreshed.fileFragments().findFirst().orElseThrow();
+        var oldPpf =
+                ctx.allFragments().filter(f -> f.getType().isPath()).findFirst().orElseThrow();
+        var newPpf = refreshed
+                .allFragments()
+                .filter(f -> f.getType().isPath())
+                .findFirst()
+                .orElseThrow();
         assertNotSame(oldPpf, newPpf, "Computed project fragment should be refreshed");
         assertSame(
                 sf,
                 refreshed
-                        .virtualFragments()
+                        .allFragments()
                         .filter(f -> f instanceof ContextFragments.StringFragment)
                         .findFirst()
                         .orElseThrow(),
                 "Unrelated virtual fragments should be reused");
-        assertEquals("Test Action", refreshed.getAction(), "Action should be set accordingly");
     }
 
     @Test
@@ -243,9 +256,13 @@ class ContextTest {
 
         // Update and trigger refresh
         pf.write("class RefreshR0 { public static void main() {} }");
-        var refreshed = ctx.copyAndRefresh(Set.of(pf), "Test");
+        var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
-        var newFrag = refreshed.fileFragments().findFirst().orElseThrow();
+        var newFrag = refreshed
+                .allFragments()
+                .filter(f -> f.getType().isPath())
+                .findFirst()
+                .orElseThrow();
         assertNotSame(ppf, newFrag, "Project fragment should be refreshed to a new instance");
 
         // Verify read-only state is preserved on the refreshed fragment
@@ -268,8 +285,8 @@ class ContextTest {
         var merged = ctx1.union(ctx2);
 
         // One path (dedup), two unique virtuals
-        assertEquals(1, merged.fileFragments().count());
-        assertEquals(2, merged.virtualFragments().count());
+        assertEquals(1, merged.allFragments().filter(f -> f.getType().isPath()).count());
+        assertEquals(2, merged.allFragments().filter(f -> !f.getType().isPath()).count());
     }
 
     @Test
@@ -281,7 +298,7 @@ class ContextTest {
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
         var log = new ContextFragments.TaskFragment(contextManager, msgs, "Log");
         var entry = new TaskEntry(1, log, null);
-        ctx = ctx.addHistoryEntry(entry, log, CompletableFuture.completedFuture("act"));
+        ctx = ctx.addHistoryEntry(entry, log);
 
         var all = ctx.getAllFragmentsInDisplayOrder();
         assertFalse(all.isEmpty());
@@ -292,12 +309,6 @@ class ContextTest {
                 .filter(f -> f instanceof ContextFragments.HistoryFragment)
                 .count();
         assertEquals(1L, historyCount, "Exactly one history fragment should be present");
-    }
-
-    @Test
-    void testGetActionSummarizingWhenIncomplete() {
-        var ctx = new Context(contextManager).withAction(new CompletableFuture<>());
-        assertEquals(Context.SUMMARIZING, ctx.getAction(), "Should show summarizing when action is incomplete");
     }
 
     @Test
@@ -328,7 +339,7 @@ class ContextTest {
         ctx = Context.withAddedClasses(
                 ctx, List.of("com.example.CodeFragmentTarget", "com.example.AnotherClass"), analyzer);
 
-        var virtuals = ctx.virtualFragments().toList();
+        var virtuals = ctx.allFragments().filter(f -> !f.getType().isPath()).toList();
         assertEquals(1, virtuals.size(), "Only non-workspace class should be added");
         assertTrue(virtuals.get(0) instanceof ContextFragments.CodeFragment);
         var codeFrag = (ContextFragments.CodeFragment) virtuals.get(0);
@@ -337,11 +348,151 @@ class ContextTest {
     }
 
     @Test
-    void testWithGroupSetsFields() {
+    void testIsFileContentEmpty_withEmptyContext() {
         var ctx = new Context(contextManager);
-        var gid = UUID.randomUUID();
-        var labeled = ctx.withGroup(gid, "group-label");
-        assertEquals(gid, labeled.getGroupId());
-        assertEquals("group-label", labeled.getGroupLabel());
+        assertTrue(ctx.isFileContentEmpty(), "Empty context should have no file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withOnlyStringFragments() {
+        var ctx = new Context(contextManager);
+        var stringFrag = new ContextFragments.StringFragment(
+                contextManager, "some text", "description", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ctx = ctx.addFragments(stringFrag);
+        // StringFragment.files() returns an empty set, so isFileContentEmpty should be true
+        assertTrue(ctx.isFileContentEmpty(), "Context with only STRING fragments should report no file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withProjectPathFragment() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Test.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("class Test {}");
+        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var ctx = new Context(contextManager).addFragments(List.of(ppf));
+        assertFalse(ctx.isFileContentEmpty(), "Context with PROJECT_PATH fragment should have file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withCodeFragment() {
+        var cu = analyzer.getDefinitions("com.example.CodeFragmentTarget").stream()
+                .findFirst()
+                .orElseThrow();
+        var codeFrag = new ContextFragments.CodeFragment(contextManager, cu);
+
+        var ctx = new Context(contextManager).addFragments(codeFrag);
+        assertFalse(ctx.isFileContentEmpty(), "Context with CODE fragment should have file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withTaskFragment() {
+        var ctx = new Context(contextManager);
+        List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
+        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
+        ctx = ctx.addFragments(taskFrag);
+        assertTrue(ctx.isFileContentEmpty(), "Context with only TASK fragments should report no file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withMixedFragments() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Mixed.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("class Mixed {}");
+        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var stringFrag =
+                new ContextFragments.StringFragment(contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var ctx = new Context(contextManager).addFragments(stringFrag).addFragments(List.of(ppf));
+        assertFalse(
+                ctx.isFileContentEmpty(), "Context with mixed fragments including file content should return false");
+    }
+
+    @Test
+    void testAddFragmentsDoesNotUpdateContent() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/AddFrag.java");
+        Files.createDirectories(pf.absPath().getParent());
+
+        // 1. Initial content "v1"
+        pf.write("v1");
+        var p1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        // Ensure p1 reads and caches "v1"
+        assertEquals("v1", p1.text().join());
+
+        var ctx = new Context(contextManager).addFragments(List.of(p1));
+
+        // 2. Change content to "v2" on disk
+        pf.write("v2");
+
+        // 3. Create new fragment p2 which sees "v2"
+        var p2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        assertEquals("v2", p2.text().join());
+
+        // 4. Add p2 to context.
+        // Expectation: addFragments deduplicates by source and PRESERVES the existing fragment (p1).
+        // Therefore, the content in context remains "v1".
+        var ctx2 = ctx.addFragments(List.of(p2));
+        var fragmentInContext = ctx2.allFragments()
+                .filter(f -> f.getType().isPath())
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(
+                "v1",
+                fragmentInContext.text().join(),
+                "addFragments should preserve existing fragment content even if new fragment has newer content");
+    }
+
+    @Test
+    void testAddFragmentsExpandsSupportingFragments() {
+        ContextFragment supporting =
+                new ContextFragments.StringFragment(contextManager, "supp", "supp", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment primary =
+                new ContextFragments.StringFragment(
+                        contextManager, "primary", "primary", SyntaxConstants.SYNTAX_STYLE_NONE) {
+                    @Override
+                    public Set<ContextFragment> supportingFragments() {
+                        return Set.of(supporting);
+                    }
+                };
+
+        Context ctx = new Context(contextManager).addFragments(List.of(primary));
+
+        assertTrue(ctx.allFragments().anyMatch(f -> f == primary), "Primary fragment should be present");
+        assertTrue(
+                ctx.allFragments().anyMatch(f -> f == supporting),
+                "Supporting fragment should be expanded and present");
+    }
+
+    @Test
+    void testCopyAndRefreshUpdatesContent() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Refreshed.java");
+        Files.createDirectories(pf.absPath().getParent());
+
+        // 1. Initial content "v1"
+        pf.write("v1");
+        var p1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        // Ensure p1 reads and caches "v1"
+        assertEquals("v1", p1.text().join());
+
+        var ctx = new Context(contextManager).addFragments(List.of(p1));
+
+        // 2. Change content to "v2" on disk
+        pf.write("v2");
+
+        // 3. Call copyAndRefresh
+        var refreshedCtx = ctx.copyAndRefresh(Set.of(pf));
+        var fragmentInContext = refreshedCtx
+                .allFragments()
+                .filter(f -> f.getType().isPath())
+                .findFirst()
+                .orElseThrow();
+
+        // Expectation: copyAndRefresh should re-read from disk
+        assertEquals("v2", fragmentInContext.text().join(), "copyAndRefresh should update fragment content from disk");
+
+        // Also verify it's a new instance
+        assertNotSame(p1, fragmentInContext);
     }
 }

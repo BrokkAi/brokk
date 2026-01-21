@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -21,6 +22,8 @@ public class TestRepo implements IGitRepo {
     private final Set<ProjectFile> addedFiles = new HashSet<>();
     private final Set<ProjectFile> removedFiles = new HashSet<>();
     private final Path root;
+    private List<Path> fixedGitignoreFiles = List.of();
+    private Optional<Path> globalGitignorePath = Optional.empty();
 
     public TestRepo(Path root) {
         this.root = root;
@@ -78,8 +81,8 @@ public class TestRepo implements IGitRepo {
     }
 
     @Override
-    public String diffFiles(List<ProjectFile> selectedFiles) {
-        var selectedPaths = selectedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+    public String diffFiles(Collection<ProjectFile> files) {
+        var selectedPaths = files.stream().map(ProjectFile::toString).collect(Collectors.toSet());
         var sb = new StringBuilder();
         for (ProjectFile file : addedFiles) {
             if (selectedPaths.contains(file.toString())) {
@@ -137,11 +140,6 @@ public class TestRepo implements IGitRepo {
     }
 
     @Override
-    public Set<ModifiedFile> getModifiedFiles() {
-        return Collections.emptySet();
-    }
-
-    @Override
     public void checkout(String branchOrCommit) {
         // no-op
     }
@@ -149,5 +147,23 @@ public class TestRepo implements IGitRepo {
     @Override
     public void applyDiff(String diff) {
         // no-op
+    }
+
+    @Override
+    public List<Path> getFixedGitignoreFiles() {
+        return fixedGitignoreFiles;
+    }
+
+    public void setFixedGitignoreFiles(List<Path> fixedGitignoreFiles) {
+        this.fixedGitignoreFiles = fixedGitignoreFiles;
+    }
+
+    @Override
+    public Optional<Path> getGlobalGitignorePath() {
+        return globalGitignorePath;
+    }
+
+    public void setGlobalGitignorePath(Optional<Path> globalGitignorePath) {
+        this.globalGitignorePath = globalGitignorePath;
     }
 }

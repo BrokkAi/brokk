@@ -1,5 +1,7 @@
 package ai.brokk.context;
 
+import static java.util.Objects.requireNonNullElse;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.util.List;
@@ -108,7 +110,7 @@ public class FragmentDtos {
     }
 
     /** DTO for TaskFragment - represents a session's chat messages. */
-    public record TaskFragmentDto(String id, List<ChatMessageDto> messages, String sessionName)
+    public record TaskFragmentDto(String id, List<ChatMessageDto> messages, String taskDescription)
             implements VirtualFragmentDto { // id changed to String
         public TaskFragmentDto {
             messages = List.copyOf(messages);
@@ -116,16 +118,22 @@ public class FragmentDtos {
     }
 
     /** DTO for ChatMessage - simplified representation with role and content. */
-    public record ChatMessageDto(String role, String contentId, @Nullable String reasoningContentId) {
+    public record ChatMessageDto(
+            String role,
+            String contentId,
+            @Nullable String reasoningContentId,
+            @Nullable Map<String, Object> attributes) {
         public ChatMessageDto {
             if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");
             }
+            if (attributes != null) {
+                attributes = Map.copyOf(attributes);
+            }
         }
 
-        /** Backward-compatible constructor for older code that doesn't provide reasoningContentId. */
         public ChatMessageDto(String role, String contentId) {
-            this(role, contentId, null);
+            this(role, contentId, null, null);
         }
     }
 
@@ -301,6 +309,14 @@ public class FragmentDtos {
         }
     }
 
+    /** DTO representing history grouping metadata. */
+    public record GroupInfoDto(Map<String, String> contextToGroupId, Map<String, String> groupLabels) {
+        public GroupInfoDto {
+            contextToGroupId = Map.copyOf(contextToGroupId);
+            groupLabels = Map.copyOf(groupLabels);
+        }
+    }
+
     /** DTO for holding all unique fragments in a session history. Used as the top-level object for fragments.json. */
     public record AllFragmentsDto(
             int version, // Version of the fragment DTO structure
@@ -326,16 +342,15 @@ public class FragmentDtos {
             List<String> editable,
             List<String> readonly,
             List<String> virtuals,
+            List<String> pinned,
             List<TaskEntryRefDto> tasks,
-            @Nullable String parsedOutputId,
-            String action,
-            @Nullable String groupId,
-            @Nullable String groupLabel) {
+            @Nullable String parsedOutputId) {
         public CompactContextDto {
             // No validation on id – null means “absent in V1 history”
             editable = List.copyOf(editable);
             readonly = List.copyOf(readonly);
             virtuals = List.copyOf(virtuals);
+            pinned = List.copyOf(requireNonNullElse(pinned, List.<String>of()));
             tasks = List.copyOf(tasks);
         }
     }

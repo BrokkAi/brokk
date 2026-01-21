@@ -13,17 +13,24 @@ import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Messages;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -40,8 +47,6 @@ public class SessionManagerTest {
     @BeforeEach
     void setup() throws IOException {
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        // Reset fragment ID counter for test isolation
-        ContextFragments.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -178,28 +183,16 @@ public class SessionManagerTest {
     }
 
     private void assertContextsEqual(Context expected, Context actual) throws IOException, InterruptedException {
-        // Compare editable files
-        var expectedEditable = expected.fileFragments()
+        // Compare all fragments
+        var expectedFragments = expected.allFragments()
                 .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
-        var actualEditable = actual.fileFragments()
+        var actualFragments = actual.allFragments()
                 .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
-        assertEquals(expectedEditable.size(), actualEditable.size(), "Editable files count mismatch");
-        for (int i = 0; i < expectedEditable.size(); i++) {
-            assertContextFragmentsEqual(expectedEditable.get(i), actualEditable.get(i));
-        }
-
-        // Compare virtual fragments
-        var expectedVirtuals = expected.virtualFragments()
-                .sorted(Comparator.comparing(ContextFragment::id))
-                .toList();
-        var actualVirtuals = actual.virtualFragments()
-                .sorted(Comparator.comparing(ContextFragment::id))
-                .toList();
-        assertEquals(expectedVirtuals.size(), actualVirtuals.size(), "Virtual fragments count mismatch");
-        for (int i = 0; i < expectedVirtuals.size(); i++) {
-            assertContextFragmentsEqual(expectedVirtuals.get(i), actualVirtuals.get(i));
+        assertEquals(expectedFragments.size(), actualFragments.size(), "Fragment count mismatch");
+        for (int i = 0; i < expectedFragments.size(); i++) {
+            assertContextFragmentsEqual(expectedFragments.get(i), actualFragments.get(i));
         }
 
         // Compare task history
@@ -378,7 +371,7 @@ public class SessionManagerTest {
         List<SessionInfo> sessions = sessionManager.listSessions();
         assertEquals(1, sessions.size());
         assertEquals(session2.id(), sessions.get(0).id());
-        assertFalse(Files.exists(historyFileToDelete));
+        assertEventually(() -> assertFalse(Files.exists(historyFileToDelete)));
 
         // Test deleting non-existent, should not throw
         sessionManager.deleteSession(SessionManager.newSessionId());
@@ -445,15 +438,11 @@ public class SessionManagerTest {
         // Create history with exactly 3 AI responses
         var history = new ContextHistory(new Context(mockContextManager));
         for (int i = 0; i < 3; i++) {
-            var msgs = List.<ChatMessage>of(
-                    dev.langchain4j.data.message.UserMessage.from("Query " + i),
-                    dev.langchain4j.data.message.AiMessage.from("Response " + i));
+            var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
             var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
-            var ctx = new Context(mockContextManager)
-                    .addHistoryEntry(
-                            new TaskEntry(i + 1, tf, null),
-                            tf,
-                            java.util.concurrent.CompletableFuture.completedFuture("action" + i));
+            Context context = new Context(mockContextManager);
+            CompletableFuture.completedFuture("action" + i);
+            var ctx = context.addHistoryEntry(new TaskEntry(i + 1, tf, null), tf);
             history.pushContext(ctx);
         }
 
@@ -470,6 +459,7 @@ public class SessionManagerTest {
     void testCountAiResponses_missingSession() throws Exception {
         MainProject project = new MainProject(tempDir);
         var sessionManager = project.getSessionManager();
+        ;
 
         // Use a random UUID that doesn't exist
         UUID nonExistentId = SessionManager.newSessionId();
@@ -478,5 +468,88 @@ public class SessionManagerTest {
         assertEquals(0, count, "Non-existent session should return 0");
 
         project.close();
+    }
+
+    @Test
+    void testLoadSessionSkippingUnsupportedVersion() throws Exception {
+        Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
+        Files.createDirectories(sessionsDir);
+        ObjectMapper mapper = new ObjectMapper();
+
+        // 1. Create a legacy session (version = null)
+        UUID legacyId = UUID.randomUUID();
+        SessionInfo legacyInfo = new SessionInfo(
+                legacyId, "Legacy Session", System.currentTimeMillis(), System.currentTimeMillis(), null);
+        createSessionZip(sessionsDir, legacyInfo, mapper);
+
+        // 2. Create a future session (version = "99.0")
+        UUID futureId = UUID.randomUUID();
+        SessionInfo futureInfo = new SessionInfo(
+                futureId, "Future Session", System.currentTimeMillis(), System.currentTimeMillis(), "99.0");
+        createSessionZip(sessionsDir, futureInfo, mapper);
+
+        // 3. Create a supported session (version = current)
+        UUID currentId = UUID.randomUUID();
+        SessionInfo currentInfo =
+                new SessionInfo(currentId, "Current Session", System.currentTimeMillis(), System.currentTimeMillis());
+        createSessionZip(sessionsDir, currentInfo, mapper);
+
+        // Initialize SessionManager (loads sessions from disk)
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        List<SessionInfo> sessions = sessionManager.listSessions();
+
+        Set<UUID> loadedIds = sessions.stream().map(SessionInfo::id).collect(Collectors.toSet());
+
+        assertTrue(loadedIds.contains(legacyId), "Should load legacy session (null version)");
+        assertTrue(loadedIds.contains(currentId), "Should load current version session");
+        assertFalse(loadedIds.contains(futureId), "Should NOT load future version session");
+
+        // Verify file existence
+        assertTrue(
+                Files.exists(sessionsDir.resolve(futureId.toString() + ".zip")),
+                "Future session zip should still exist on disk");
+
+        project.close();
+    }
+
+    @Test
+    void testCompareVersions() {
+        // Equal versions
+        assertEquals(0, SessionManager.compareVersions("1.0", "1.0"));
+        assertEquals(0, SessionManager.compareVersions("2.3.4", "2.3.4"));
+
+        // Ordering
+        assertEquals(-1, SessionManager.compareVersions("1.0", "1.1"));
+        assertEquals(1, SessionManager.compareVersions("1.1", "1.0"));
+
+        assertEquals(-1, SessionManager.compareVersions("1.9", "1.10"));
+        assertEquals(1, SessionManager.compareVersions("1.10", "1.9"));
+
+        assertEquals(-1, SessionManager.compareVersions("1.0", "2.0"));
+        assertEquals(1, SessionManager.compareVersions("2.0", "1.0"));
+
+        // Different number of components
+        assertEquals(0, SessionManager.compareVersions("1.0", "1.0.0"));
+        assertEquals(0, SessionManager.compareVersions("1.0.0", "1.0"));
+
+        assertEquals(-1, SessionManager.compareVersions("1.0", "1.0.1"));
+        assertEquals(1, SessionManager.compareVersions("1.0.1", "1.0"));
+
+        // Single component versions
+        assertEquals(0, SessionManager.compareVersions("4", "4.0"));
+        assertEquals(0, SessionManager.compareVersions("4.0", "4"));
+        assertEquals(-1, SessionManager.compareVersions("4", "4.1"));
+        assertEquals(1, SessionManager.compareVersions("4.1", "4"));
+    }
+
+    private void createSessionZip(Path sessionsDir, SessionInfo info, ObjectMapper mapper) throws IOException {
+        Path zipPath = sessionsDir.resolve(info.id() + ".zip");
+        // Create new zip file
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of("create", "true"))) {
+            Path manifestPath = fs.getPath("manifest.json");
+            String json = mapper.writeValueAsString(info);
+            Files.writeString(manifestPath, json);
+        }
     }
 }

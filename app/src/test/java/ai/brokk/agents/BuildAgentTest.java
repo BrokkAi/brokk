@@ -5,15 +5,25 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.TestProject;
+import ai.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Predicate;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
+@Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock("ai.brokk.util.Environment.shellCommandRunnerFactory")
 class BuildAgentTest {
     @Test
     void testInterpolateModulesTemplate() {
@@ -216,26 +226,25 @@ class BuildAgentTest {
             git.commit().setMessage("Initial commit").call();
         }
 
-        // Create project and test isDirectoryIgnored method
+        // Create project and test isGitignored method
         var project = new MainProject(tempDir);
 
         // Verify empty directory is NOT ignored
-        assertFalse(project.isDirectoryIgnored(Path.of("tests/fixtures")), "Empty directory should NOT be ignored");
-        assertFalse(project.isDirectoryIgnored(Path.of("tests")), "Parent of empty directory should NOT be ignored");
+        assertFalse(project.isGitignored(Path.of("tests/fixtures")), "Empty directory should NOT be ignored");
+        assertFalse(project.isGitignored(Path.of("tests")), "Parent of empty directory should NOT be ignored");
 
         // Verify directory with only non-code files is NOT ignored
         assertFalse(
-                project.isDirectoryIgnored(Path.of("docs/images")),
+                project.isGitignored(Path.of("docs/images")),
                 "Directory with only non-code files should NOT be ignored");
-        assertFalse(project.isDirectoryIgnored(Path.of("docs")), "Parent of non-code directory should NOT be ignored");
+        assertFalse(project.isGitignored(Path.of("docs")), "Parent of non-code directory should NOT be ignored");
 
         // Verify directory with code is NOT ignored
-        assertFalse(project.isDirectoryIgnored(Path.of("src")), "Directory with code should NOT be ignored");
+        assertFalse(project.isGitignored(Path.of("src")), "Directory with code should NOT be ignored");
 
         // Verify actually gitignored directory IS ignored
-        assertTrue(project.isDirectoryIgnored(Path.of("build")), "Gitignored directory SHOULD be ignored");
-        assertTrue(
-                project.isDirectoryIgnored(Path.of("build/output")), "Nested gitignored directory SHOULD be ignored");
+        assertTrue(project.isGitignored(Path.of("build")), "Gitignored directory SHOULD be ignored");
+        assertTrue(project.isGitignored(Path.of("build/output")), "Nested gitignored directory SHOULD be ignored");
 
         project.close();
     }
@@ -287,5 +296,235 @@ class BuildAgentTest {
         String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "");
 
         assertEquals("uv run tests.e2e", result);
+    }
+
+    @Test
+    void testReportBuildDetailsPreservesExistingPatterns(@TempDir Path tempDir) throws Exception {
+        // Create a project with existing exclusion patterns
+        Files.createDirectory(tempDir.resolve("src"));
+        Files.createDirectory(tempDir.resolve("build"));
+        var testProject = new TestProject(tempDir);
+        testProject.setExclusionPatterns(Set.of("*.svg", "*.png", "build"));
+
+        // Create a BuildAgent - we don't need LLM for this test
+        var agent = new BuildAgent(testProject, null, null);
+
+        // Call reportBuildDetails with new patterns from "LLM"
+        // This simulates what happens when BuildAgent runs again
+        agent.reportBuildDetails(
+                "mvn compile",
+                "mvn test",
+                "mvn test -Dtest={{#classes}}{{value}}{{/classes}}",
+                List.of("target"), // LLM suggests target directory
+                List.of("*.gif") // LLM suggests gif pattern
+                );
+
+        // Verify existing patterns are preserved AND new patterns are added
+        var reportedDetails = agent.getReportedDetails();
+        assert reportedDetails != null;
+        var finalPatterns = reportedDetails.exclusionPatterns();
+
+        // Existing patterns should be preserved
+        assertTrue(finalPatterns.contains("*.svg"), "Existing *.svg pattern should be preserved");
+        assertTrue(finalPatterns.contains("*.png"), "Existing *.png pattern should be preserved");
+        assertTrue(finalPatterns.contains("build"), "Existing build pattern should be preserved");
+
+        // New LLM patterns should be added
+        assertTrue(finalPatterns.contains("*.gif"), "New *.gif pattern should be added");
+        // Note: target directory is filtered out because it doesn't exist in tempDir
+
+        // Verify llmAddedPatterns only contains patterns from this run
+        var llmPatterns = agent.getLlmAddedPatterns();
+        assertTrue(llmPatterns.contains("*.gif"), "LLM patterns should include *.gif");
+        assertFalse(llmPatterns.contains("*.svg"), "LLM patterns should NOT include existing *.svg");
+        assertFalse(llmPatterns.contains("build"), "LLM patterns should NOT include existing build");
+    }
+
+    @Test
+    void testRemoveGitignoreDuplicatesFiltersRedundantDirectories(@TempDir Path tempDir) throws Exception {
+        try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            var config = git.getRepository().getConfig();
+            config.setString("user", null, "name", "Test User");
+            config.setString("user", null, "email", "test@example.com");
+            config.save();
+
+            Files.writeString(tempDir.resolve(".gitignore"), "node_modules/\ntarget/\n");
+            Files.createDirectories(tempDir.resolve("node_modules"));
+            Files.createDirectories(tempDir.resolve("target"));
+            Files.createDirectories(tempDir.resolve("build"));
+
+            git.add().addFilepattern(".").call();
+            git.commit().setSign(false).setMessage("Initial").call();
+        }
+
+        var project = new MainProject(tempDir);
+        var agent = new BuildAgent(project, null, null);
+
+        var patterns = Set.of(
+                "node_modules", // Gitignored - should be removed
+                "target", // Gitignored - should be removed
+                "build", // Not gitignored - should be kept
+                "*.svg", // File pattern - should be kept
+                "**/*.generated" // Glob pattern - should be kept
+                );
+
+        var deduplicated = agent.removeGitignoreDuplicates(patterns);
+
+        assertFalse(deduplicated.contains("node_modules"), "Gitignored dir should be removed");
+        assertFalse(deduplicated.contains("target"), "Gitignored dir should be removed");
+        assertTrue(deduplicated.contains("build"), "Non-gitignored dir should be kept");
+        assertTrue(deduplicated.contains("*.svg"), "File pattern should be kept");
+        assertTrue(deduplicated.contains("**/*.generated"), "Glob pattern should be kept");
+
+        project.close();
+    }
+
+    @Test
+    void testReportBuildDetailsDeduplicatesGitignorePatterns(@TempDir Path tempDir) throws Exception {
+        try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            var config = git.getRepository().getConfig();
+            config.setString("user", null, "name", "Test User");
+            config.setString("user", null, "email", "test@example.com");
+            config.save();
+
+            Files.writeString(tempDir.resolve(".gitignore"), "node_modules/\n");
+            Files.createDirectories(tempDir.resolve("node_modules"));
+            Files.createDirectories(tempDir.resolve("build"));
+
+            git.add().addFilepattern(".").call();
+            git.commit().setSign(false).setMessage("Initial").call();
+        }
+
+        var project = new MainProject(tempDir);
+        var agent = new BuildAgent(project, null, null);
+
+        agent.reportBuildDetails(
+                "npm run build",
+                "npm test",
+                "npm test {{#files}}{{value}}{{/files}}",
+                List.of("node_modules", "build"),
+                List.of("*.map"));
+
+        var details = agent.getReportedDetails();
+        assert details != null;
+        var finalPatterns = details.exclusionPatterns();
+
+        assertFalse(finalPatterns.contains("node_modules"), "Gitignored directory should not be in final patterns");
+        assertTrue(finalPatterns.contains("build"), "Non-gitignored directory should be in final patterns");
+        assertTrue(finalPatterns.contains("*.map"), "File pattern should be in final patterns");
+
+        var llmPatterns = agent.getLlmAddedPatterns();
+        assertFalse(llmPatterns.contains("node_modules"), "Deduplicated pattern should not be in LLM tracking");
+        assertTrue(llmPatterns.contains("build"), "Kept pattern should be in LLM tracking");
+
+        project.close();
+    }
+
+    @Test
+    void testRunExplicitCommandSuccessStreamsAndClearsBuildError(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            String cmd = "explicit-success";
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                assertEquals(cmd, command);
+                assertTrue(timeout != null && !timeout.isNegative());
+                outputConsumer.accept("line1");
+                return "ok";
+            };
+
+            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+
+            assertTrue(updated.getBuildError().isBlank(), "Build error should be blank on success");
+            assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
+            assertTrue(io.getOutputLog().contains("line1"), "Console output should contain streamed output");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunExplicitCommandFailureSetsBuildErrorAndStreams(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            String cmd = "explicit-failure";
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                outputConsumer.accept("some output");
+                throw new Environment.FailureException("boom", "stdout:\nfail", 1);
+            };
+
+            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+
+            assertFalse(updated.getBuildError().isBlank(), "Build error should be non-blank on failure");
+            assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
+            assertTrue(io.getOutputLog().contains("some output"), "Console output should contain streamed output");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunExplicitCommandFailureNullOutputDoesNotEmbedNullLiteral(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            String cmd = "explicit-failure-null-output";
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                outputConsumer.accept("some output");
+                throw new Environment.SubprocessException(null, "ignored") {
+                    @Override
+                    public String getOutput() {
+                        return null;
+                    }
+                };
+            };
+
+            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+
+            assertFalse(updated.getBuildError().contains("null"), "Build error must not contain the literal 'null'");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunExplicitCommandBlankClearsPreviousBuildError(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("README.md"), "x");
+        var project = new TestProject(tempDir);
+        project.setBuildDetails(
+                new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+
+        var io = new TestConsoleIO();
+        var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+        var ctx = cm.liveContext();
+
+        var ctxWithError = ctx.withBuildResult(false, "previous failure");
+
+        var updated = BuildAgent.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
+
+        assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
+        assertTrue(io.getOutputLog().contains("No explicit command specified, skipping."), "Should log skip message");
     }
 }

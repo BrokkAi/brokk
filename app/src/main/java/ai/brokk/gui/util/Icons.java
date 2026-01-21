@@ -33,6 +33,7 @@ public final class Icons {
     public static final Icon STOP = SwingUtil.uiIcon("Brokk.stop");
     public static final Icon TERMINAL = SwingUtil.uiIcon("Brokk.terminal");
     public static final Icon ATTACH_FILE = SwingUtil.uiIcon("Brokk.attach_file");
+    public static final Icon PUSH_PIN = SwingUtil.uiIcon("Brokk.push_pin");
     public static final Icon HELP = SwingUtil.uiIcon("Brokk.help");
     public static final Icon MANAGE_DEPENDENCIES = SwingUtil.uiIcon("Brokk.dependencies");
     public static final Icon ADD = SwingUtil.uiIcon("Brokk.add");
@@ -69,6 +70,7 @@ public final class Icons {
     public static final Icon SETTINGS = SwingUtil.uiIcon("Brokk.settings");
     public static final Icon HISTORY = SwingUtil.uiIcon("Brokk.history");
     public static final Icon SCIENCE = SwingUtil.uiIcon("Brokk.science");
+    public static final Icon HANDYMAN = SwingUtil.uiIcon("Brokk.handyman");
     public static final Icon ARCHITECT = SwingUtil.uiIcon("Brokk.architect");
     public static final Icon CODE = SwingUtil.uiIcon("Brokk.code");
     public static final Icon ASK = SwingUtil.uiIcon("Brokk.ask");
@@ -77,4 +79,5 @@ public final class Icons {
     public static final Icon MERGE = SwingUtil.uiIcon("Brokk.merge");
     public static final Icon CONTEXT = SwingUtil.uiIcon("Brokk.context");
     public static final Icon EDIT_OFF = SwingUtil.uiIcon("Brokk.edit_off");
+    public static final Icon NEW_FOLDER = SwingUtil.uiIcon("Brokk.new_folder");
 }

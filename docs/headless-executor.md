@@ -35,6 +35,16 @@ export WORKSPACE_DIR="/path/to/workspace"
 ./gradlew :app:runHeadlessExecutor
 ```
 
+## Download a Session Zip
+
+To download a previously stored session zip, issue a GET request to the session sub-path.
+
+```bash
+curl -sS -X GET "http://localhost:8080/v1/sessions/<session-id>" \
+  -H "Authorization: Bearer my-secret-token" \
+  -o "<session-id>.zip"
+```
+
 ## ASK Mode: Read-Only Codebase Search
 
 ASK mode enables **interactive, read-only exploration** of your repository. It leverages the internal `SearchAgent` to understand your queries and automatically discover relevant code without making any modifications.
@@ -288,6 +298,203 @@ LUTZ jobs emit events following this pattern:
 
 **Progress is updated after each top-level task completes (not per subtask).**
 
+## REVIEW Mode: GitHub Pull Request Review
+
+REVIEW mode enables **automated code review of GitHub Pull Requests**. It fetches the PR, computes the diff against the base branch, generates an LLM-powered review, and posts comments directly to GitHub.
+
+### How REVIEW Works
+
+When you submit a REVIEW job, the system:
+1. Authenticates with GitHub using the provided token
+2. Fetches the PR details (base branch, head SHA)
+3. Computes the merge-base diff between the PR branch and base branch
+4. Generates an LLM-powered code review using the planner model
+5. Posts a summary comment to the PR
+6. Posts inline line comments for specific issues found in the code
+
+### Configuration
+
+REVIEW mode requires:
+- `plannerModel`: The LLM model for generating the review
+- GitHub PR metadata (passed via tags or the convenience endpoint):
+  - `github_token`: GitHub personal access token with repo access
+  - `repo_owner`: Repository owner (user or organization)
+  - `repo_name`: Repository name
+  - `pr_number`: Pull request number
+
+REVIEW mode **ignores** `codeModel` and `scanModel` since it performs review, not code generation.
+
+### Example: Using the Convenience Endpoint
+
+The easiest way to create a PR review job is via the dedicated endpoint:
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs/pr-review" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: review-001" \
+  --data @- <<'JSON'
+{
+  "owner": "myorg",
+  "repo": "myrepo",
+  "prNumber": 123,
+  "githubToken": "ghp_xxxxxxxxxxxx",
+  "plannerModel": "gpt-4"
+}
+JSON
+```
+
+### Example: Using Tags with Standard Job Endpoint
+
+Alternatively, use the standard `/v1/jobs` endpoint with mode tags:
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: review-002" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-4",
+  "tags": {
+    "mode": "REVIEW",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "pr_number": "123"
+  }
+}
+JSON
+```
+
+### Key Characteristics of REVIEW Mode
+
+- **Full GitHub integration**: Fetches PR, computes diff, posts comments
+- **Intelligent diff analysis**: Uses merge-base for accurate diff computation
+- **Inline comments**: Posts specific line comments for issues found
+- **Duplicate detection**: Skips posting duplicate comments on the same line
+- **Fallback behavior**: Falls back to regular PR comment if inline comment fails (HTTP 422)
+- **Read-only to local repo**: Does not modify local files or make commits
+
+## ISSUE Mode: Automated Issue Resolution with Build Verification
+
+ISSUE mode enables **end-to-end resolution of GitHub Issues**. It fetches the issue content, generates a multi-step plan, executes the changes, and runs a build verification loop to ensure the fix is valid.
+
+### How ISSUE Works
+
+When you submit an ISSUE job, the system follows these steps:
+1. **Fetch Issue**: Retrieves the title and body of the GitHub issue.
+2. **Branch Creation**: Creates and checks out a new branch following the convention `brokk/issue-{number}`. If the branch already exists, it appends a suffix to ensure uniqueness.
+3. **Task Planning**: Uses the `plannerModel` to decompose the issue into a series of actionable tasks.
+4. **Execution & Verification Loop**: For each generated task:
+    - **Implementation**: ArchitectAgent implements the task using `plannerModel` and `codeModel`.
+    - **Build Verification**: Runs the project's build/lint command once per task.
+    - **Self-Correction (single fix attempt)**: If verification fails, the executor performs exactly one fix attempt and then re-runs verification once.
+    - **Failure behavior**: If verification still fails after the single fix attempt, the job stops and reports failure (there is no per-task multi-retry loop in headless runs).
+5. **Final Gate & Delivery**: After all tasks verify, the executor runs final checks (full tests + lint) and then—by default—creates a commit and opens a Pull Request on GitHub. PR creation can be disabled via the `issue_delivery` tag (see below).
+6. **Cleanup**: The executor attempts to restore the original branch and remove temporary issue branches when appropriate (best-effort).
+
+Note: By default ISSUE mode creates a Pull Request (the recommended end-to-end contract). To override this behavior for special headless runs, set the `issue_delivery` tag to `none` in the job payload or tags to skip commit+PR creation while still running planning, task execution, verification, and cleanup.
+
+Example Pull Request description produced by ISSUE mode:
+
+```markdown
+Brief summary of the changes and intent (one or two short paragraphs).
+
+- Fixed null pointer in UserService by adding a defensive null check.
+- Added unit tests covering the new behavior.
+
+Fixes #42
+```
+
+### Configuration
+
+ISSUE mode requires:
+- `plannerModel`: The LLM model for planning and reasoning.
+- `codeModel` (optional): The LLM model for code generation; defaults to project default.
+- GitHub Issue metadata: `github_token`, `repo_owner`, `repo_name`, `issue_number`.
+- `buildSettings` (optional): JSON object defining how to verify the project (see below).
+- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap). After it is exhausted, the executor stops and does not create a PR. Default: 5.
+
+### Retry limits: per-task vs overall
+
+ISSUE mode has two retry limits: one for repeating build verification for a single task, and one for how many times the overall ISSUE workflow will try before giving up.
+
+| Setting | What it limits | Default |
+|---------|----------------|---------|
+| `buildSettings.maxBuildAttempts` | Per task: how many times to rerun build/lint/test for that task after attempting fixes when verification fails. | 3 |
+| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 5 |
+
+Example: if `maxBuildAttempts=3` and `maxIssueFixAttempts=5`, each task can retry verification up to 3 times, but the job will stop entirely after 5 overall ISSUE attempts.
+
+### Build Settings Structure
+
+The `buildSettings` object configures how Brokk verifies its changes. If provided, these settings override the project defaults for the duration of the job.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `buildLintCommand` | String | The command to run for building and linting (e.g., `./gradlew build` or `npm run lint`). |
+| `testAllCommand` | String | Command to run the full test suite. |
+| `testSomeCommand` | String | Command to run specific tests. |
+| `environmentVariables` | Map | Key-value pairs of environment variables required for the build. |
+| `maxBuildAttempts` | Integer (optional) | Maximum number of build verification attempts per task (default: 3). This controls the per-task build verification retry loop. |
+
+### Example: Using the Convenience Endpoint
+
+The `/v1/jobs/issue` endpoint simplifies job creation by accepting issue metadata directly in the root of the JSON body.
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: issue-001" \
+  --data @- <<'JSON'
+{
+  "owner": "myorg",
+  "repo": "myrepo",
+  "issueNumber": 42,
+  "githubToken": "ghp_xxxxxxxxxxxx",
+  "plannerModel": "gpt-4o",
+  "codeModel": "gpt-4o",
+  "maxIssueFixAttempts": 5,
+  "buildSettings": {
+    "buildLintCommand": "./gradlew classes",
+    "environmentVariables": {
+      "JAVA_HOME": "/usr/lib/jvm/java-21"
+    },
+    "maxBuildAttempts": 5
+  }
+}
+JSON
+```
+
+### Example: Using Tags with Standard Job Endpoint
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: issue-002" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "This field is ignored in ISSUE mode; the issue body is used.",
+  "plannerModel": "gpt-4o",
+  "tags": {
+    "mode": "ISSUE",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "issue_number": "42"
+  }
+}
+JSON
+```
+
 ## API Endpoints
 
 Once running, the executor exposes the following endpoints:
@@ -312,16 +519,104 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/jobs`** - Create and execute a job
   - Requires `Idempotency-Key` header for safe retries
-  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, LUTZ, ASK, SEARCH, or CODE)
+  - Body: Job JSON accepted by the headless API. Most fields correspond to persisted `JobSpec`, but:
+    - `sessionId` exists in the request body and is used to select the active session; it is not persisted in `JobSpec` (it may be copied into tags as `session_id`).
+    - `sourceBranch` / `targetBranch` are persisted/reserved `JobSpec` fields but are not currently accepted by `POST /v1/jobs` (they will always be null when jobs are created via this endpoint).
   - Returns: `{ "jobId": "<uuid>", "state": "running", ... }`
   - **SEARCH mode**: Set `"tags": { "mode": "SEARCH" }` to run a read-only repository scan. Optionally include `"scanModel": "<model>"` to override the default scan model used for repository scanning. `plannerModel` is still required by the API for validation.
   - **ASK mode**: Set `"tags": { "mode": "ASK" }` for ad-hoc read-only searches (uses service default scan model unless otherwise configured).
   - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
+  - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
+  - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
+
+#### Job-level model overrides (optional)
+
+You can optionally override model behaviors per job:
+
+- `reasoningLevel` (string, optional): Controls how much explicit reasoning effort the planner model should use.
+- `reasoningLevelCode` (string, optional): Controls how much explicit reasoning effort the code model should use. Applies to CODE and ARCHITECT modes.
+- `temperature` (number, optional): Controls sampling randomness for the planner model.
+- `temperatureCode` (number, optional): Controls sampling randomness for the code model. Applies to CODE and ARCHITECT modes.
+
+These fields are accepted in the top-level job payload alongside `plannerModel` / `codeModel` / `scanModel`.
+
+##### Validation rules
+
+- `reasoningLevel`:
+  - If provided, must be a string.
+  - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the planner model.
+
+- `reasoningLevelCode`:
+  - If provided, must be a string.
+  - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the code model.
+
+- `temperature`:
+  - If provided, must be a JSON number.
+  - Must be between `0.0` and `2.0` (inclusive).
+  - If omitted or null, the executor uses the model/service default temperature for the planner model.
+
+- `temperatureCode`:
+  - If provided, must be a JSON number.
+  - Must be between `0.0` and `2.0` (inclusive).
+  - If omitted or null, the executor uses the model/service default temperature for the code model.
+
+##### Example: ARCHITECT with reasoningLevel + temperature
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: architect-overrides-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Refactor the auth module to improve logging and error messages.",
+  "autoCommit": true,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "reasoningLevel": "HIGH",
+  "reasoningLevelCode": "MEDIUM",
+  "temperature": 0.2,
+  "temperatureCode": 0.0,
+  "tags": {
+    "mode": "ARCHITECT"
+  }
+}
+JSON
+```
+
+- **`POST /v1/jobs/issue`** - Create an issue resolution job (convenience endpoint)
+  - Requires `Idempotency-Key` header
+  - Body: `{ "owner": "<string>", "repo": "<string>", "issueNumber": <int>, "githubToken": "<string>", "plannerModel": "<string>", "codeModel": "<string>", "buildSettings": <object> }`
+  - Returns: Same response as `POST /v1/jobs`
+
+- **`POST /v1/jobs/pr-review`** - Create a PR review job (convenience endpoint)
+  - Requires `Idempotency-Key` header
+  - Body: `{ "owner": "<string>", "repo": "<string>", "prNumber": <int>, "githubToken": "<string>", "plannerModel": "<string>" }`
+  - Returns: Same response as `POST /v1/jobs`
+  - Internally creates a job with `mode: REVIEW` and the appropriate tags
 
 - **`GET /v1/jobs/{jobId}`** - Get job status
   - Returns: `JobStatus` JSON with current state and metadata
+  - Example response:
+    ```json
+    {
+      "jobId": "550e8400-e29b-41d4-a716-446655440000",
+      "state": "COMPLETED",
+      "startTime": 1734567890123,
+      "endTime": 1734567890456,
+      "progressPercent": 100,
+      "result": null,
+      "error": null,
+      "metadata": {}
+    }
+    ```
+  - Possible `state` values: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`
 
 - **`GET /v1/jobs/{jobId}/events`** - Get job events (supports polling)
   - Query params: `?after={seq}&limit={n}`
@@ -354,7 +649,7 @@ Build the shadow JAR:
 Run the JAR:
 
 ```bash
-java -co app/build/libs/brokk-<version>.jar \
+java -cp app/build/libs/brokk-<version>.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \

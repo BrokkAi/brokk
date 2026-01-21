@@ -1,19 +1,23 @@
 package ai.brokk;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.time.Instant;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 
 /**
  * Reports uncaught exceptions to the Brokk server for monitoring and debugging purposes. This class handles
@@ -47,6 +51,7 @@ public class ExceptionReporter {
      *
      * @param throwable The exception to report (must not be null)
      */
+    @Blocking
     public void reportException(Throwable throwable) {
         reportException(throwable, Map.of());
     }
@@ -58,6 +63,7 @@ public class ExceptionReporter {
      * @param throwable The exception to report (must not be null)
      * @param optionalFields Optional context fields to include with the report
      */
+    @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
@@ -78,6 +84,9 @@ public class ExceptionReporter {
         // Mark this exception as reported
         reportedExceptions.put(signature, currentTime);
 
+        // Also write to local log file for debugging
+        writeLocalErrorReport(throwable, optionalFields);
+
         // Clean up old entries from the deduplication map (keep it bounded)
         if (reportedExceptions.size() > 1000) {
             cleanupOldEntries();
@@ -86,29 +95,22 @@ public class ExceptionReporter {
         // Format the stacktrace
         String stacktrace = formatStackTrace(throwable);
 
-        // Report asynchronously to avoid blocking the current thread
-        CompletableFuture.runAsync(() -> {
-                    try {
-                        String clientVersion = BuildInfo.version;
-                        ReportingService service = serviceSupplier.get();
-                        service.reportClientException(stacktrace, clientVersion, optionalFields);
-                        logger.debug(
-                                "Successfully reported exception: {} - {}",
-                                throwable.getClass().getSimpleName(),
-                                throwable.getMessage());
-                    } catch (Exception e) {
-                        // Log the failure but don't propagate - we don't want exception reporting
-                        // to cause more exceptions
-                        logger.warn(
-                                "Failed to report exception to server: {} (original exception: {})",
-                                e.getMessage(),
-                                throwable.getClass().getSimpleName());
-                    }
-                })
-                .exceptionally(ex -> {
-                    logger.warn("Unexpected error during async exception reporting", ex);
-                    return null;
-                });
+        try {
+            String clientVersion = BuildInfo.version;
+            ReportingService service = serviceSupplier.get();
+            service.reportClientException(stacktrace, clientVersion, optionalFields);
+            logger.debug(
+                    "Successfully reported exception: {} - {}",
+                    throwable.getClass().getSimpleName(),
+                    throwable.getMessage());
+        } catch (Exception e) {
+            // Log the failure but don't propagate - we don't want exception reporting
+            // to cause more exceptions
+            logger.warn(
+                    "Failed to report exception to server: {} (original exception: {})",
+                    e.getMessage(),
+                    throwable.getClass().getSimpleName());
+        }
     }
 
     /**
@@ -167,6 +169,39 @@ public class ExceptionReporter {
     }
 
     /**
+     * Writes the exception to .brokk/last-error.log in the active project directory.
+     */
+    private void writeLocalErrorReport(Throwable throwable, Map<String, String> optionalFields) {
+        Chrome activeWindow = SwingUtil.runOnEdt(Brokk::getActiveWindow, null);
+        if (activeWindow == null) {
+            return;
+        }
+
+        var project = activeWindow.getContextManager().getProject();
+        String stacktrace = formatStackTrace(throwable);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Timestamp: ").append(Instant.now()).append("\n");
+        sb.append("Exception: ").append(throwable.getClass().getName()).append("\n");
+        sb.append("Message:   ").append(throwable.getMessage()).append("\n");
+
+        if (!optionalFields.isEmpty()) {
+            sb.append("Context:\n");
+            optionalFields.forEach(
+                    (k, v) -> sb.append("  ").append(k).append(": ").append(v).append("\n"));
+        }
+
+        sb.append("\nStacktrace:\n").append(stacktrace).append("\n");
+
+        try {
+            ProjectFile errorLog = new ProjectFile(project.getRoot(), AbstractProject.BROKK_DIR + "/last-error.log");
+            errorLog.write(sb.toString());
+        } catch (Exception e) {
+            logger.warn("Failed to write local error report: {}", e.getMessage());
+        }
+    }
+
+    /**
      * Cleans up old entries from the deduplication map to keep it bounded. Removes entries older than the deduplication
      * window.
      */
@@ -196,11 +231,16 @@ public class ExceptionReporter {
             return;
         }
 
-        Chrome activeWindow = SwingUtil.runOnEdt(() -> Brokk.getActiveWindow(), null);
-        if (activeWindow != null) {
+        SwingUtilities.invokeLater(() -> {
+            Chrome activeWindow = Brokk.getActiveWindow();
+            if (activeWindow == null) {
+                logger.warn("Unable to report exceptions in headless mode");
+                return;
+            }
+
             var cm = activeWindow.getContextManager();
             cm.reportException(throwable);
-        }
+        });
     }
 
     /**

@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.storage.file.WindowCacheConfig;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -157,7 +159,7 @@ public final class DependencyUpdater {
         try {
             Files.createDirectories(dependencyRoot);
             String json = objectMapper.writeValueAsString(metadata);
-            Files.writeString(metadataPath, json);
+            AtomicWrites.save(metadataPath, json);
         } catch (Exception e) {
             logger.warn("Error writing dependency metadata to {}: {}", metadataPath, e.getMessage());
         }
@@ -208,7 +210,7 @@ public final class DependencyUpdater {
      * @return set of files that changed as a result of the update
      * @throws IOException if population, swap, or cleanup fails
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     private static Set<ProjectFile> updateDependencyOnDisk(
             IProject project,
             ProjectFile dependencyRoot,
@@ -329,7 +331,7 @@ public final class DependencyUpdater {
      * @throws IllegalArgumentException if metadata is not of type GITHUB or missing required fields
      * @throws IOException if cloning or filesystem operations fail
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public static Set<ProjectFile> updateGitDependencyOnDisk(
             IProject project, ProjectFile dependencyRoot, DependencyMetadata metadata) throws IOException {
         if (metadata.type() != DependencySourceType.GITHUB) {
@@ -406,7 +408,7 @@ public final class DependencyUpdater {
      * @throws IllegalArgumentException if metadata is not of type LOCAL_PATH or missing required fields
      * @throws IOException if filesystem operations fail
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public static Set<ProjectFile> updateLocalPathDependencyOnDisk(
             IProject project, ProjectFile dependencyRoot, DependencyMetadata metadata) throws IOException {
         if (metadata.type() != DependencySourceType.LOCAL_PATH) {
@@ -599,7 +601,7 @@ public final class DependencyUpdater {
      * @param includeGit whether to auto-update GITHUB dependencies
      * @return aggregated result of the auto-update pass
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public static DependencyAutoUpdateResult autoUpdateDependenciesOnce(
             IProject project, boolean includeLocal, boolean includeGit) {
         var changedFiles = new HashSet<ProjectFile>();

@@ -40,18 +40,25 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 const lastBubble = list.at(-1);
                 // If the last message was a streaming reasoning bubble and the new one is not,
                 // mark the reasoning as complete, immutably.
-                if (lastBubble?.reasoning && !lastBubble.reasoningComplete && !evt.reasoning) {
+                if (lastBubble?.reasoningState && !lastBubble.reasoningState.complete && !evt.meta.isReasoning) {
                     const updatedBubble = finalizeReasoningBubble(lastBubble);
                     list = [...list.slice(0, -1), updatedBubble];
                 }
 
-                const isStreaming = evt.streaming ?? false;
-                // Decide if we append or start a new bubble
-                const needNew = evt.isNew ||
-                    list.length === 0 ||
-                    evt.msgType !== lastBubble?.type ||
-                    evt.reasoning !== (lastBubble?.reasoning ?? false);
+                // If the last message was a terminal bubble and a new message is starting,
+                // mark the terminal as complete, immutably.
+                if (lastBubble?.isTerminal && !lastBubble.terminalComplete && evt.meta.isNewMessage) {
+                    const updatedBubble = finalizeTerminalBubble(lastBubble);
+                    list = [...list.slice(0, -1), updatedBubble];
+                }
 
+                const isStreaming = evt.streaming ?? false;
+                const chunkText = evt.text ?? '';
+                const isTerminal = evt.meta.isTerminal;
+
+                // Decide if we append or start a new bubble.
+                // MarkdownOutputPanel.append is authoritative for isNewMessage.
+                const needNew = evt.meta.isNewMessage || list.length === 0;
 
                 let bubble: BubbleState;
                 if (needNew) {
@@ -60,17 +67,19 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         seq: nextBubbleSeq,
                         threadId: currentThreadId,
                         type: evt.msgType ?? 'AI',
-                        markdown: evt.text ?? '',
+                        markdown: chunkText,
                         epoch: evt.epoch,
                         streaming: isStreaming,
-                        reasoning: evt.reasoning ?? false,
+                        isTerminal: isTerminal || false,
+                        hast: undefined,
+                        reasoningState: evt.meta.isReasoning ? {
+                            startTime: Date.now(),
+                            complete: false,
+                            isCollapsed: false,
+                        } : undefined,
                     };
-                    if (bubble.reasoning) {
-                        bubble.startTime = Date.now();
-                        bubble.reasoningComplete = false;
-                        bubble.isCollapsed = false;
-                    }
                     list = [...list, bubble];
+
                     if (isStreaming) {
                         // clear with flush (boundary for next message)
                         clearState(true);
@@ -78,13 +87,18 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 } else {
                     // Immutable update
                     const last = list.at(-1)!;
+
                     bubble = {
                         ...last,
-                        markdown: last.markdown + (evt.text ?? ''),
+                        markdown: last.markdown + chunkText,
                         epoch: evt.epoch,
-                        streaming: isStreaming,
                     };
                     list = [...list.slice(0, -1), bubble];
+                }
+
+                // Terminal bubbles bypass markdown parsing entirely.
+                if (bubble.isTerminal) {
+                    return list;
                 }
 
                 // Register a handler for this bubble's parse results (only once per seq)
@@ -99,8 +113,9 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         });
                     });
                 }
+
                 if (isStreaming) {
-                    pushChunk(evt.text ?? '', bubble.seq);
+                    pushChunk(chunkText, bubble.seq);
                 } else {
                     // first fast pass (to show fast results), then deferred full pass
                     parse(bubble.markdown, bubble.seq, true, true);
@@ -146,24 +161,47 @@ export function reparseAll(contextId = 'main-context'): void {
 export function toggleBubbleCollapsed(seq: number): void {
     bubblesStore.update(list => {
         return list.map(bubble => {
-            if (bubble.seq === seq) {
-                return {...bubble, isCollapsed: !bubble.isCollapsed};
+            if (bubble.seq !== seq) {
+                return bubble;
             }
-            return bubble;
+            if (!bubble.reasoningState) {
+                return bubble;
+            }
+            return {
+                ...bubble,
+                reasoningState: {
+                    ...bubble.reasoningState,
+                    isCollapsed: !bubble.reasoningState.isCollapsed,
+                },
+            };
         });
     });
 }
 
 /* ─── helpers ─────────────────────────────────────────── */
-function finalizeReasoningBubble(b: BubbleState): BubbleState {
-    if (!b.reasoning) return b;
-    const durationInMs = b.startTime ? Date.now() - b.startTime : 0;
+function finalizeTerminalBubble(b: BubbleState): BubbleState {
+    if (!b.isTerminal) return b;
     return {
         ...b,
         streaming: false,
-        reasoningComplete: true,
-        duration: durationInMs / 1000,
-        isCollapsed: true,
+        terminalComplete: true,
+    };
+}
+
+function finalizeReasoningBubble(b: BubbleState): BubbleState {
+    if (!b.reasoningState) return b;
+
+    const durationInMs = b.reasoningState.startTime ? Date.now() - b.reasoningState.startTime : 0;
+
+    return {
+        ...b,
+        streaming: false,
+        reasoningState: {
+            ...b.reasoningState,
+            complete: true,
+            duration: durationInMs / 1000,
+            isCollapsed: true,
+        },
     };
 }
 
@@ -188,8 +226,11 @@ export function setLiveTaskInProgress(inProgress: boolean): void {
             if (b.streaming) {
                 updated = {...updated, streaming: false};
             }
-            if (b.reasoning && !b.reasoningComplete) {
+            if (b.reasoningState && !b.reasoningState.complete) {
                 updated = finalizeReasoningBubble(updated);
+            }
+            if (b.isTerminal && !b.terminalComplete) {
+                updated = finalizeTerminalBubble(updated);
             }
             return updated;
         });

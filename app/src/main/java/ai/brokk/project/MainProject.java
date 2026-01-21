@@ -12,19 +12,19 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
-import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.init.onboarding.GitIgnoreUtils;
 import ai.brokk.init.onboarding.StyleGuideMigrator;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.PathNormalizer;
+import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
@@ -53,8 +53,10 @@ import java.util.stream.Collectors;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -68,10 +70,11 @@ public final class MainProject extends AbstractProject {
     private final Path legacyStyleGuidePath;
     private final Path reviewGuidePath;
     private final SessionManager sessionManager;
+    private final SessionRegistry sessionRegistry = new SessionRegistry();
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
-    private volatile DiskLruCache diskCache = null;
+    private volatile StringDiskCache diskCache = null;
 
     private final DependencyUpdateScheduler dependencyUpdateScheduler;
 
@@ -228,14 +231,15 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public synchronized DiskLruCache getDiskCache() {
+    public synchronized StringDiskCache getDiskCache() {
         if (diskCache != null) {
             return diskCache;
         }
         var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
         try {
             Files.createDirectories(cacheDir);
-            diskCache = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+            DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+            diskCache = new StringDiskCache(dlc);
             logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
             return diskCache;
         } catch (IOException e) {
@@ -325,7 +329,7 @@ public final class MainProject extends AbstractProject {
                     logger.info("brokkApiKey is being CHANGED in global properties");
                 }
             }
-            AtomicWrites.atomicSaveProperties(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
+            AtomicWrites.save(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
             globalPropertiesCache = (Properties) props.clone();
         } catch (IOException e) {
             logger.error("Error saving global properties: {}", e.getMessage());
@@ -344,16 +348,21 @@ public final class MainProject extends AbstractProject {
             try {
                 var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
 
-                // Canonicalize excluded directories relative to the master root for config, preserving insertion order
-                var canonicalExcludes = new LinkedHashSet<String>();
-                for (String r : details.excludedDirectories()) {
-                    String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-                    if (!c.isBlank()) {
-                        canonicalExcludes.add(c);
+                // Canonicalize exclusion patterns that look like paths
+                var canonicalExclusions = new LinkedHashSet<String>();
+                for (String pattern : details.exclusionPatterns()) {
+                    // Only canonicalize patterns that look like directory paths (contain / or \)
+                    if (pattern.contains("/") || pattern.contains("\\")) {
+                        String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                        if (!c.isBlank()) {
+                            canonicalExclusions.add(c);
+                        }
+                    } else {
+                        canonicalExclusions.add(pattern);
                     }
                 }
 
-                // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
+                // Normalize environment variables and migrate JAVA_HOME to workspace properties
                 Map<String, String> envIn = details.environmentVariables();
                 Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
 
@@ -364,7 +373,12 @@ public final class MainProject extends AbstractProject {
                         continue;
                     }
                     if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                        canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+                        // Migration: Move JAVA_HOME from project.properties to workspace.properties
+                        String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
+                        if (!canonicalPath.isBlank()) {
+                            setJdk(canonicalPath);
+                            logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
+                        }
                     } else {
                         canonicalEnv.put(k, v);
                     }
@@ -375,7 +389,7 @@ public final class MainProject extends AbstractProject {
                         details.buildLintCommand(),
                         details.testAllCommand(),
                         details.testSomeCommand(),
-                        canonicalExcludes,
+                        canonicalExclusions,
                         canonicalEnv);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
@@ -392,36 +406,38 @@ public final class MainProject extends AbstractProject {
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
         // Build canonical details for stable on-disk representation
-        // 1) Canonicalize excluded directories relative to masterRootPathForConfig, preserving insertion order
-        var canonicalExcludes = new LinkedHashSet<String>();
-        for (String r : details.excludedDirectories()) {
-            String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-            if (!c.isBlank()) {
-                canonicalExcludes.add(c);
+        // 1) Canonicalize exclusion patterns that look like paths
+        var canonicalExclusions = new LinkedHashSet<String>();
+        for (String pattern : details.exclusionPatterns()) {
+            // Only canonicalize patterns that look like directory paths (contain / or \)
+            if (pattern.contains("/") || pattern.contains("\\")) {
+                String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                if (!c.isBlank()) {
+                    canonicalExclusions.add(c);
+                }
+            } else {
+                canonicalExclusions.add(pattern);
             }
         }
 
-        // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
+        // 2) Normalize environment variables.
+        // Omit JAVA_HOME from project-scoped storage as it is persisted in workspace properties.
         Map<String, String> envIn = details.environmentVariables();
         Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
         for (Map.Entry<String, String> e : envIn.entrySet()) {
             String k = e.getKey();
             String v = e.getValue();
-            if (v == null) {
-                continue; // NullAway should avoid this, but be defensive
+            if (v == null || "JAVA_HOME".equalsIgnoreCase(k)) {
+                continue;
             }
-            if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
-            } else {
-                canonicalEnv.put(k, v);
-            }
+            canonicalEnv.put(k, v);
         }
 
         var canonicalDetails = new BuildAgent.BuildDetails(
                 details.buildLintCommand(),
                 details.testAllCommand(),
                 details.testSomeCommand(),
-                canonicalExcludes,
+                canonicalExclusions,
                 canonicalEnv);
 
         if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
@@ -438,6 +454,7 @@ public final class MainProject extends AbstractProject {
         invalidateAllFiles();
     }
 
+    @Override
     public void setBuildDetails(BuildAgent.BuildDetails details) {
         if (detailsFuture.isDone()) {
             detailsFuture = new CompletableFuture<>();
@@ -746,33 +763,13 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    public void saveProjectProperties() {
-        // Use AbstractProject's saveProperties for consistency if it were public static or passed instance
-        // For now, keep local implementation matching AbstractProject's logic.
-        try {
-            Files.createDirectories(propertiesFile.getParent());
-            Properties existingProps = new Properties();
-            if (Files.exists(propertiesFile)) {
-                try (var reader = Files.newBufferedReader(propertiesFile)) {
-                    existingProps.load(reader);
-                } catch (IOException e) {
-                    /* ignore loading error, will attempt to save anyway */
-                }
-            }
-
-            if (Objects.equals(existingProps, projectProps)) {
-                return;
-            }
-            AtomicWrites.atomicSaveProperties(propertiesFile, projectProps, "Brokk project configuration");
-        } catch (IOException e) {
-            logger.error("Error saving properties to {}: {}", propertiesFile, e.getMessage());
-        }
+    private void saveProjectProperties() {
+        saveProperties(propertiesFile, projectProps, "Brokk project configuration");
     }
 
     @Override
     public boolean isGitHubRepo() {
-        if (!hasGit()) return false; // hasGit from AbstractProject
-        var gitRepo = (GitRepo) getRepo(); // getRepo from AbstractProject
+        if (!(getRepo() instanceof GitRepo gitRepo)) return false;
         String remoteUrl = gitRepo.remote().getUrl("origin");
         if (remoteUrl == null || remoteUrl.isBlank()) return false;
         return remoteUrl.contains("github.com");
@@ -869,7 +866,7 @@ public final class MainProject extends AbstractProject {
 
         try {
             Files.createDirectories(targetPath.getParent());
-            AtomicWrites.atomicOverwrite(targetPath, styleGuide);
+            AtomicWrites.save(targetPath, styleGuide);
             logger.debug("Saved style guide to {}", targetPath);
         } catch (IOException e) {
             logger.error("Error saving style guide to {}: {}", targetPath, e.getMessage());
@@ -892,7 +889,7 @@ public final class MainProject extends AbstractProject {
     public void saveReviewGuide(String reviewGuide) {
         try {
             Files.createDirectories(reviewGuidePath.getParent());
-            AtomicWrites.atomicOverwrite(reviewGuidePath, reviewGuide);
+            AtomicWrites.save(reviewGuidePath, reviewGuide);
         } catch (IOException e) {
             logger.error("Error saving review guide: {}", e.getMessage());
         }
@@ -1172,15 +1169,16 @@ public final class MainProject extends AbstractProject {
      * Performs the actual style.md to AGENTS.md migration.
      * Delegates to StyleGuideMigrator for the core migration logic.
      *
-     * @param chrome the Chrome instance for showing notifications
+     * @param io the IConsoleIO instance for showing notifications
      * @return true if migration succeeded, false otherwise
      */
-    public boolean performStyleMdToAgentsMdMigration(Chrome chrome) {
+    @Blocking
+    public boolean performStyleMdToAgentsMdMigration(IConsoleIO io) {
         try {
             var gitTopLevel = getMasterRootPathForConfig();
-            var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
-            var agentsFile = new ai.brokk.analyzer.ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
-            var gitRepo = hasGit() ? (GitRepo) getRepo() : null;
+            var legacyStyle = new ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
+            var agentsFile = new ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
+            var gitRepo = getRepo() instanceof GitRepo g ? g : null;
 
             logger.info(
                     "Starting style.md to AGENTS.md migration for {} via StyleGuideMigrator",
@@ -1191,11 +1189,11 @@ public final class MainProject extends AbstractProject {
             if (result.performed()) {
                 logger.info("Migration successful: {}", result.message());
                 setMigrationDeclined(false);
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, result.message());
+                io.showNotification(IConsoleIO.NotificationRole.INFO, result.message());
                 return true;
             } else {
                 logger.info("Migration not performed: {}", result.message());
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
                 return false;
             }
         } catch (Exception e) {
@@ -1204,7 +1202,7 @@ public final class MainProject extends AbstractProject {
                     getRoot().getFileName(),
                     e.getMessage(),
                     e);
-            chrome.toolError("Migration failed: " + e.getMessage(), "Migration Error");
+            io.toolError("Migration failed: " + e.getMessage(), "Migration Error");
             return false;
         }
     }
@@ -1299,10 +1297,6 @@ public final class MainProject extends AbstractProject {
     // Allowed values persisted: "legacy", "native". If unset/blank/unrecognized, treated as "default".
     private static final String WATCH_SERVICE_IMPL_KEY = "watchServiceImpl";
 
-    // Keys for history auto-compression settings
-    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
-    private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
-
     /**
      * Returns the persisted watch service implementation preference.
      *
@@ -1344,44 +1338,6 @@ public final class MainProject extends AbstractProject {
         }
         saveGlobalProperties(props);
         logger.debug("Set watch service implementation preference to {}", normalized);
-    }
-
-    /**
-     * Returns whether automatic history compression is enabled.
-     * Enabled by default to help manage conversation context size.
-     *
-     * @return true if history auto-compression is enabled, false otherwise
-     */
-    public static boolean getHistoryAutoCompress() {
-        var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
-    }
-
-    /**
-     * Returns the threshold percentage for auto-compressing conversation history.
-     * When the token count of history exceeds this percentage of the model's max input tokens,
-     * automatic compression is triggered.
-     *
-     * @return threshold as a percentage (e.g., 70 means 70%), clamped to [10, 95]
-     */
-    public static int getHistoryAutoCompressThresholdPercent() {
-        var props = loadGlobalProperties();
-        String value = props.getProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-        int defaultValue = 70;
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-        try {
-            int pct = Integer.parseInt(value.trim());
-            // Clamp to reasonable bounds [10, 95]
-            if (pct < 10) pct = 10;
-            if (pct > 95) pct = 95;
-            return pct;
-        } catch (NumberFormatException e) {
-            logger.debug(
-                    "Invalid history auto-compress threshold percentage: {}, using default {}", value, defaultValue);
-            return defaultValue;
-        }
     }
 
     // UI Scale global preference
@@ -1778,8 +1734,7 @@ public final class MainProject extends AbstractProject {
     private static void saveProjectsProperties(Properties props) {
         try {
             Files.createDirectories(PROJECTS_PROPERTIES_PATH.getParent());
-            AtomicWrites.atomicSaveProperties(
-                    PROJECTS_PROPERTIES_PATH, props, "Brokk projects: recently opened and currently open");
+            AtomicWrites.save(PROJECTS_PROPERTIES_PATH, props, "Brokk projects: recently opened and currently open");
         } catch (IOException e) {
             logger.error("Error saving projects properties: {}", e.getMessage());
         }
@@ -2154,7 +2109,7 @@ public final class MainProject extends AbstractProject {
                     String sessionIdStr = props.getProperty("lastActiveSession");
                     if (sessionIdStr != null && !sessionIdStr.isBlank()) {
                         UUID sessionId = UUID.fromString(sessionIdStr.trim());
-                        if (SessionRegistry.claim(wtPath, sessionId)) {
+                        if (sessionRegistry.claim(wtPath, sessionId)) {
                             logger.info(
                                     "Reserved session {} for non-open worktree {}", sessionId, wtPath.getFileName());
                         } else {
@@ -2233,18 +2188,46 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void sessionsListChanged() {
-        var mainChrome = Brokk.findOpenProjectWindow(getRoot());
-        var worktreeChromes = Brokk.getWorktreeChromes(this);
+    public SessionRegistry getSessionRegistry() {
+        return sessionRegistry;
+    }
 
-        var allChromes = new ArrayList<Chrome>();
-        if (mainChrome != null) {
-            allChromes.add(mainChrome);
+    /**
+     * Deletes a worktree associated with this project.
+     *
+     * @param worktreePath The path of the worktree to delete.
+     * @param force        If true, force deletion even if the worktree is dirty or locked.
+     * @throws GitAPIException if the git operation fails.
+     */
+    public void deleteWorktree(Path worktreePath, boolean force) throws GitAPIException {
+        if (!hasGit() || !getRepo().supportsWorktrees()) {
+            throw new GitRepo.GitRepoException("This project does not support worktrees.");
         }
-        allChromes.addAll(worktreeChromes);
+        if (!(getRepo() instanceof GitRepo gitRepo)) {
+            throw new GitRepo.GitRepoException("Underlying repository is not a local GitRepo.");
+        }
 
-        for (var chrome : allChromes) {
-            SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+        gitRepo.removeWorktree(worktreePath, force);
+        sessionRegistry.release(worktreePath);
+        removeFromOpenProjectsListAndClearActiveSession(worktreePath);
+    }
+
+    @Override
+    public String getRemoteProjectName() {
+        String result = null;
+        if (hasGit()) {
+            result = getRepo().getRemoteUrl();
+        }
+        if (result == null) {
+            result = getRoot().getFileName().toString();
+        }
+        return result;
+    }
+
+    @Override
+    public void sessionsListChanged() {
+        for (var chrome : Brokk.getProjectAndWorktreeChromes(this)) {
+            SwingUtilities.invokeLater(() -> chrome.getRightPanel().updateSessionComboBox());
         }
     }
 }

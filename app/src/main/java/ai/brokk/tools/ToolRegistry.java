@@ -54,6 +54,7 @@ public class ToolRegistry {
 
     /** Mapping of tool names to display headlines (icons removed). */
     private static final Map<String, String> HEADLINES = Map.ofEntries(
+            Map.entry("callSearchAgent", "Calling the search Agent"),
             Map.entry("searchSymbols", "Searching for symbols"),
             Map.entry("getSymbolLocations", "Finding files for symbols"),
             Map.entry("searchSubstrings", "Searching for substrings"),
@@ -131,6 +132,7 @@ public class ToolRegistry {
         /** Register @Tool methods from the given instance; last registration wins on name conflicts. */
         public Builder register(Object toolProviderInstance) {
             Class<?> clazz = toolProviderInstance.getClass();
+            int toolsFound = 0;
             for (Method method : clazz.getMethods()) {
                 if (!method.isAnnotationPresent(Tool.class)) continue;
                 String toolName = method.getName();
@@ -145,7 +147,9 @@ public class ToolRegistry {
                     logger.trace("Registering tool: '{}' from class {}", toolName, clazz.getName());
                 }
                 entries.put(toolName, new ToolInvocationTarget(method, toolProviderInstance));
+                toolsFound++;
             }
+            assert toolsFound > 0 : "No tools found in " + toolProviderInstance;
             return this;
         }
 
@@ -179,6 +183,19 @@ public class ToolRegistry {
     /** Returns true if a global tool with the given name is registered. */
     public boolean isRegistered(String toolName) {
         return toolMap.containsKey(toolName);
+    }
+
+    /**
+     * Executes a tool with a requirement that the request name matches the expected name.
+     * Throws FatalLlmException if the names do not match.
+     */
+    public ToolExecutionResult executeRequiredTool(String expectedToolName, ToolExecutionRequest request)
+            throws InterruptedException {
+        if (!expectedToolName.equals(request.name())) {
+            throw new FatalLlmException(
+                    "Expected tool '%s' but received '%s'".formatted(expectedToolName, request.name()));
+        }
+        return executeTool(request);
     }
 
     /** Executes a tool exclusively from the registry (no instance tools). */
@@ -377,7 +394,13 @@ public class ToolRegistry {
 
     /** Generates a user-friendly explanation for a tool request validated against THIS registry. */
     public String getExplanationForToolRequest(ToolExecutionRequest request) {
-        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
+        // hide tool calls which are rendered in another way (directly as markdown or with own taskEntry)
+        if (request.name().equals("answer")
+                || request.name().equals("abortSearch")
+                || request.name().equals("projectFinished")
+                || request.name().equals("callCodeAgent")
+                || request.name().equals("searchAgent")
+                || request.name().equals("createOrReplaceTaskList")) {
             return "";
         }
         try {

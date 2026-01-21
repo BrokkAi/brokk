@@ -8,10 +8,11 @@ import ai.brokk.IContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AdaptiveExecutor;
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.context.Context;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.prompts.CodePrompts;
-import ai.brokk.prompts.EditBlockParser;
-import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.Messages;
 import ai.brokk.util.TokenAware;
 import dev.langchain4j.data.message.AiMessage;
@@ -126,13 +127,13 @@ public final class BlitzForge {
 
         // Sort by on-disk size ascending (smallest first)
         var sortedFiles = files.stream()
-                .sorted(Comparator.comparingLong(BlitzForge::fileSize))
+                .sorted(Comparator.comparingLong(file -> BlitzForge.fileSize(file)))
                 .toList();
         // Notify listener of the initial queue ordering
         listener.onQueued(sortedFiles);
 
         // Prepare executor
-        final ExecutorService executor;
+        ExecutorService executor;
         if (config.model() instanceof Service.UnavailableStreamingModel) {
             // Fallback simple fixed pool for tests
             int pool = Math.min(Math.max(1, files.size()), Runtime.getRuntime().availableProcessors());
@@ -140,6 +141,7 @@ public final class BlitzForge {
         } else {
             executor = AdaptiveExecutor.create(service, config.model(), files.size());
         }
+        executor = new LoggingExecutorService(executor, th -> GlobalExceptionHandler.handle(th, st -> {}));
 
         int processedCount = 0;
         var results = new ArrayList<FileResult>(files.size());
@@ -265,8 +267,7 @@ public final class BlitzForge {
         } else {
             uiMessages = List.of(
                     new UserMessage(config.instructions()),
-                    CodePrompts.redactAiMessage(new AiMessage(outputText), EditBlockParser.instance)
-                            .orElse(new AiMessage("")));
+                    CodePrompts.redactAiMessage(new AiMessage(outputText)).orElse(new AiMessage("")));
         }
 
         List<String> failures = results.stream()

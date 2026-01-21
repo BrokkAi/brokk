@@ -1,6 +1,7 @@
 package ai.brokk.testutil;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.context.ContextFragments;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -35,17 +36,19 @@ public class TestConsoleIO implements IConsoleIO {
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         if (type == ChatMessageType.AI) {
-            if (isNewMessage && streamingAiMessage.length() > 0) {
+            if (meta.isNewMessage() && streamingAiMessage.length() > 0) {
                 llmRawMessages.add(new AiMessage(streamingAiMessage.toString()));
                 streamingAiMessage.setLength(0);
             }
             streamingAiMessage.append(token);
+            outputLog.append(token);
         } else if (type == ChatMessageType.CUSTOM) {
             finishStreamingAiMessage();
             // Use AiMessage for status updates in tests, as TaskEntry formatting knows how to handle it.
             llmRawMessages.add(new AiMessage(token));
+            outputLog.append(token);
         }
     }
 

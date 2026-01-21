@@ -53,6 +53,13 @@ public interface IAnalyzer {
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
     /**
+     * @return true if the given file contains test cases according to this analyzer's logic.
+     */
+    default boolean containsTests(ProjectFile file) {
+        return false;
+    }
+
+    /**
      * Returns the set of languages this analyzer understands.
      */
     Set<Language> languages();
@@ -161,10 +168,32 @@ public interface IAnalyzer {
     List<String> importStatementsOf(ProjectFile file);
 
     /**
+     * Retrieves the resolved import CodeUnits for a given file.
+     *
+     * @param file the project file
+     * @return an unmodifiable set of resolved CodeUnits from import statements
+     */
+    default Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return Set.of();
+    }
+
+    /**
+     * Returns the set of files that import the given file.
+     */
+    default Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return Set.of();
+    }
+
+    /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      * invalid.
      */
     Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
+
+    /**
+     * @return the nearest enclosing code unit of the line range within the file. Returns empty if none exists.
+     */
+    Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine);
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
@@ -181,6 +210,14 @@ public interface IAnalyzer {
      * Implementations should return only the immediate ancestors.
      */
     List<CodeUnit> getDirectAncestors(CodeUnit cu);
+
+    /**
+     * Returns the direct subtypes/descendants (non-transitive) for the given CodeUnit.
+     * Implementations should return only the immediate descendants.
+     */
+    default Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return Set.of();
+    }
 
     // Things most implementations won't have to override
 
@@ -240,13 +277,12 @@ public interface IAnalyzer {
             throw new IllegalArgumentException("Search pattern may not be empty");
         }
 
-        // Prepare case-insensitive regex pattern
+        // Prepare case-insensitive regex pattern with non-greedy quantifiers
         if (autoQuote) {
-            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*");
+            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*?" + Pattern.quote(pattern) + ".*?");
         }
 
         Pattern compiledPattern = Pattern.compile(pattern);
-        // Reuse a single Matcher across all declarations to avoid allocation overhead
         return searchDefinitions(compiledPattern);
     }
 
@@ -258,11 +294,27 @@ public interface IAnalyzer {
     }
 
     /**
+     * In order to preserve deterministic outcomes, we should sort the results. The rationale behind sorting by code
+     * unit type in this way is guided by prioritizing "smaller" sets of units higher up in the tree. Modules are
+     * typically not searched for, so these are put last.
+     */
+    static Comparator<CodeUnit> autocompleteDefinitionsSortComparator() {
+        return Comparator.comparingInt((CodeUnit cu) -> switch (cu.kind()) {
+                    case CLASS -> 0;
+                    case FUNCTION -> 1;
+                    case FIELD -> 2;
+                    case MODULE -> 3;
+                })
+                .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(CodeUnit::signature, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+    }
+
+    /**
      * Provides a search facility that is based on auto-complete logic based on (non-regex) user-input. By default, this
      * hands over to {@link IAnalyzer#searchDefinitions(String)} surrounded by wildcards.
      *
      * @param query the search query
-     * @return a list of candidates where their fully qualified names may match the query.
+     * @return a set of candidates where their fully qualified names may match the query.
      */
     default Set<CodeUnit> autocompleteDefinitions(String query) {
         if (query.isEmpty()) {
@@ -270,18 +322,18 @@ public interface IAnalyzer {
         }
 
         // Base: current behavior (case-insensitive substring via searchDefinitions)
-        var baseResults = searchDefinitions(".*" + query + ".*");
+        var baseResults = searchDefinitions(".*?" + query + ".*?");
 
-        // Fuzzy: if short query, over-approximate by inserting ".*" between characters
+        // Fuzzy: if short query, over-approximate by inserting ".*?" between characters
         Set<CodeUnit> fuzzyResults = Set.of();
         if (query.length() < 5) {
             StringBuilder sb = new StringBuilder("(?i)");
-            sb.append(".*");
+            sb.append(".*?");
             for (int i = 0; i < query.length(); i++) {
                 sb.append(Pattern.quote(String.valueOf(query.charAt(i))));
-                if (i < query.length() - 1) sb.append(".*");
+                if (i < query.length() - 1) sb.append(".*?");
             }
-            sb.append(".*");
+            sb.append(".*?");
             fuzzyResults = searchDefinitions(sb.toString());
         }
 
@@ -296,7 +348,10 @@ public interface IAnalyzer {
         for (CodeUnit cu : fuzzyResults)
             byFqName.computeIfAbsent(cu.fqName(), k -> new LinkedHashSet<>()).add(cu);
 
-        return byFqName.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
+        return byFqName.values().stream()
+                .flatMap(Set::stream)
+                .sorted(autocompleteDefinitionsSortComparator())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**
@@ -395,6 +450,52 @@ public interface IAnalyzer {
     }
 
     /**
+     * Returns the transitive set of subtypes/descendants for the given CodeUnit.
+     * This is computed via a fixed-point iterative traversal using getDirectDescendants:
+     * - Direct descendants are listed first, followed by their descendants in discovery order (BFS).
+     * - Duplicates are removed by fqName.
+     * - Cycles are handled gracefully via a visited set.
+     * <p>
+     * Implementations should override {@link #getDirectDescendants(CodeUnit)} to provide language-specific direct
+     * descendant resolution. This method composes those results into a transitive closure.
+     */
+    default List<CodeUnit> getDescendants(CodeUnit cu) {
+        // Seed with direct descendants
+        Set<CodeUnit> direct = getDirectDescendants(cu);
+        if (direct.isEmpty()) {
+            return List.of();
+        }
+
+        // Fixed-point traversal: BFS over direct descendants
+        var result = new ArrayList<CodeUnit>(direct.size());
+        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
+        var queue = new ArrayDeque<CodeUnit>(direct.size());
+
+        for (var d : direct) {
+            if (visited.add(d.fqName())) {
+                result.add(d);
+                queue.add(d);
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            var current = queue.removeFirst();
+            Set<CodeUnit> children = getDirectDescendants(current);
+            if (children.isEmpty()) continue;
+
+            for (var child : children) {
+                String key = child.fqName();
+                if (visited.add(key)) {
+                    result.add(child);
+                    queue.addLast(child);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
      * Returns an analyzer that targets the given language if one is available. For single-analyzers, it will be the
      * analyzer instance itself if there is a match. For multi-analyzers, it will be a matching delegate, if any.
      *
@@ -408,5 +509,38 @@ public interface IAnalyzer {
         } else {
             return Optional.empty();
         }
+    }
+
+    default String buildRelatedIdentifiers(ProjectFile file) {
+        return buildRelatedIdentifiers(file, CodeUnitType.ALL);
+    }
+
+    default String buildRelatedIdentifiers(ProjectFile file, Set<CodeUnitType> types) {
+        return buildRelatedIdentifiers(getTopLevelDeclarations(file), types, 0);
+    }
+
+    default String buildRelatedIdentifiers(List<CodeUnit> units, Set<CodeUnitType> types, int indent) {
+        var prefix = "  ".repeat(Math.max(0, indent));
+        var sb = new StringBuilder();
+        for (var cu : units) {
+            // Skip anonymous/lambda artifacts
+            if (cu.isAnonymous()) {
+                continue;
+            }
+
+            // Use FQN for top-level entries, simple identifier for nested entries
+            String name = indent == 0 ? cu.fqName() : cu.identifier();
+            sb.append(prefix).append("- ").append(name);
+
+            var children = getDirectChildren(cu).stream()
+                    .filter(child -> types.contains(child.kind()))
+                    .toList();
+            if (!children.isEmpty()) {
+                sb.append("\n");
+                sb.append(this.buildRelatedIdentifiers(children, types, indent + 1));
+            }
+            sb.append("\n");
+        }
+        return sb.toString().stripTrailing();
     }
 }

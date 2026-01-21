@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.FlowLayout;
 import java.lang.reflect.Constructor;
 import java.util.List;
 import javax.swing.JButton;
@@ -28,7 +29,7 @@ public final class FocusTraversalOrderTest {
         // Place components in a simple container so isShowing() can be true
         JFrame frame = new JFrame();
         frame.setUndecorated(true);
-        frame.setLayout(new java.awt.FlowLayout());
+        frame.setLayout(new FlowLayout());
         frame.add(instructions);
         frame.add(action);
         frame.add(model);

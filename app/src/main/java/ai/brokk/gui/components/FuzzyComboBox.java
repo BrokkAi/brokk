@@ -3,9 +3,12 @@ package ai.brokk.gui.components;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.swing.*;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -16,11 +19,11 @@ import org.jetbrains.annotations.Nullable;
  * @param <T> The type of items in the combo box
  */
 public class FuzzyComboBox<T> extends JPanel {
-    private final List<T> allItems;
+    private List<T> allItems;
     private final Function<T, String> displayMapper;
     private final MaterialButton button;
     private @Nullable T selectedItem;
-    private @Nullable Consumer<T> selectionChangeListener;
+    private @Nullable Consumer<@Nullable T> selectionChangeListener;
 
     /**
      * Creates a new FuzzyComboBox with the given items.
@@ -79,17 +82,17 @@ public class FuzzyComboBox<T> extends JPanel {
             panel.setSelectedItem(selectedItem);
         }
 
-        menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+        menu.addPopupMenuListener(new PopupMenuListener() {
             @Override
-            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                 SwingUtilities.invokeLater(panel::focusSearchField);
             }
 
             @Override
-            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
 
             @Override
-            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
+            public void popupMenuCanceled(PopupMenuEvent e) {}
         });
 
         menu.show(button, 0, button.getHeight());
@@ -107,9 +110,18 @@ public class FuzzyComboBox<T> extends JPanel {
      * Sets the selected item and updates the button text.
      */
     public void setSelectedItem(@Nullable T item) {
+        setSelectedItemInternal(item, true);
+    }
+
+    /**
+     * Internal method to set selected item with optional listener firing.
+     */
+    private void setSelectedItemInternal(@Nullable T item, boolean fireListener) {
+        T oldItem = this.selectedItem;
         this.selectedItem = item;
         button.setText(item != null ? displayMapper.apply(item) : "");
-        if (selectionChangeListener != null && item != null) {
+
+        if (fireListener && selectionChangeListener != null && !Objects.equals(oldItem, item)) {
             selectionChangeListener.accept(item);
         }
     }
@@ -117,8 +129,41 @@ public class FuzzyComboBox<T> extends JPanel {
     /**
      * Sets a listener that is called when the selected item changes.
      */
-    public void setSelectionChangeListener(@Nullable Consumer<T> listener) {
+    public void setSelectionChangeListener(@Nullable Consumer<@Nullable T> listener) {
         this.selectionChangeListener = listener;
+    }
+
+    /**
+     * Updates the items in this combo box.
+     * <p>
+     * If the currently selected item exists in the new items list, the selection
+     * is preserved. Otherwise, the selection is cleared. If the new items list is
+     * non-empty and no item is selected, the first item is automatically selected.
+     * <p>
+     * This method must be called on the EDT.
+     *
+     * @param items The new items to display
+     */
+    public void setItems(List<T> items) {
+        assert SwingUtilities.isEventDispatchThread() : "setItems must be called on EDT";
+
+        T oldSelection = this.selectedItem;
+        this.allItems = new ArrayList<>(items);
+
+        // Preserve selection if valid, otherwise clear and potentially auto-select
+        if (selectedItem != null && !allItems.contains(selectedItem)) {
+            setSelectedItemInternal(null, false);
+        }
+
+        if (selectedItem == null && !allItems.isEmpty()) {
+            setSelectedItemInternal(allItems.getFirst(), false);
+        }
+
+        // Fire listener only if selection actually changed
+        T newSelection = this.selectedItem;
+        if (selectionChangeListener != null && !Objects.equals(oldSelection, newSelection)) {
+            selectionChangeListener.accept(newSelection);
+        }
     }
 
     @Override

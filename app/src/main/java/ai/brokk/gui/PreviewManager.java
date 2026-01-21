@@ -3,16 +3,19 @@ package ai.brokk.gui;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.difftool.ui.BrokkDiffPanel;
+import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.dialogs.PreviewFrame;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.search.MarkdownSearchableComponent;
@@ -20,15 +23,12 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
+import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import com.formdev.flatlaf.util.SystemInfo;
 import dev.langchain4j.data.message.ChatMessage;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Container;
-import java.awt.Dimension;
+import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.io.IOException;
@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.BorderFactory;
@@ -62,6 +63,42 @@ public class PreviewManager {
 
     // Track preview windows by ProjectFile for refresh on file changes
     private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
+    private boolean isPreviewDocked;
+
+    /** Raise the given window to the front and give it focus. */
+    public static void raiseWindow(Window window) {
+        SwingUtilities.invokeLater(() -> {
+            // Bring window to front
+            window.toFront();
+
+            // Request focus
+            window.requestFocus();
+
+            // On some platforms, also need to set visible again
+            if (!window.isVisible()) {
+                window.setVisible(true);
+            }
+
+            // Make sure it's not minimized (iconified)
+            if (window instanceof Frame frame && frame.getState() == Frame.ICONIFIED) {
+                frame.setState(Frame.NORMAL);
+            }
+        });
+    }
+
+    public Map<ProjectFile, JFrame> getProjectFileToPreviewWindow() {
+        return projectFileToPreviewWindow;
+    }
+
+    public boolean isPreviewDocked() {
+        return isPreviewDocked;
+    }
+
+    public void setPreviewDocked(boolean docked) {
+        if (this.isPreviewDocked == docked) return;
+        this.isPreviewDocked = docked;
+        chrome.getRightPanel().setPreviewDocked(docked);
+    }
 
     // Shared frame for all PreviewTextPanel tabs
     @Nullable
@@ -72,10 +109,7 @@ public class PreviewManager {
     public PreviewManager(Chrome chrome) {
         this.chrome = chrome;
         this.cm = chrome.getContextManager();
-    }
-
-    Map<ProjectFile, JFrame> getProjectFileToPreviewWindow() {
-        return projectFileToPreviewWindow;
+        this.isPreviewDocked = GlobalUiSettings.isPreviewDocked();
     }
 
     /**
@@ -191,65 +225,90 @@ public class PreviewManager {
      */
     public void showPreviewInTabbedFrame(String title, JComponent panel, @Nullable ContextFragment fragment) {
         SwingUtilities.invokeLater(() -> {
-            // Create frame if it doesn't exist or was disposed
-            if (previewFrame == null || !previewFrame.isDisplayable()) {
-                previewFrame = new PreviewFrame(chrome, chrome.getTheme());
-
-                // Set bounds using same logic as regular preview windows
-                var project = cm.getProject();
-                var storedBounds = project.getPreviewWindowBounds();
-                if (storedBounds.width > 0 && storedBounds.height > 0) {
-                    previewFrame.setBounds(storedBounds);
-                    if (!chrome.isPositionOnScreen(storedBounds.x, storedBounds.y)) {
-                        previewFrame.setLocationRelativeTo(chrome.getFrame());
-                    }
-                } else {
-                    previewFrame.setSize(800, 600);
-                    previewFrame.setLocationRelativeTo(chrome.getFrame());
-                }
-
-                // Set minimum size
-                previewFrame.setMinimumSize(new Dimension(700, 200));
-
-                // Add listener to save bounds
-                previewFrame.addComponentListener(new ComponentAdapter() {
-                    @Override
-                    public void componentMoved(ComponentEvent e) {
-                        cm.getProject().savePreviewWindowBounds(castNonNull(previewFrame));
-                    }
-
-                    @Override
-                    public void componentResized(ComponentEvent e) {
-                        cm.getProject().savePreviewWindowBounds(castNonNull(previewFrame));
-                    }
-                });
-
-                // Apply theme
-                previewFrame.applyTheme(chrome.getTheme());
-            }
-
-            // Compute file key from panel or fragment
             ProjectFile file = extractFileKey(panel, fragment);
 
-            // Add or select tab with both file and fragment keys for deduplication
-            previewFrame.addOrSelectTab(title, panel, file, fragment);
-
-            // Track file mapping if applicable
-            if (file != null) {
-                projectFileToPreviewWindow.put(file, previewFrame);
+            if (isPreviewDocked) {
+                RightPanel rightPanel = chrome.getRightPanel();
+                var previewTabs = rightPanel.getPreviewTabbedPane();
+                previewTabs.addOrSelectTab(title, panel, file, fragment);
+                if (file != null) {
+                    projectFileToPreviewWindow.put(file, chrome.getFrame());
+                }
+                rightPanel.selectPreviewTab();
+                return;
             }
 
-            // Show and focus
-            previewFrame.setVisible(true);
-            previewFrame.toFront();
-            previewFrame.requestFocus();
+            // Standalone frame
+            if (panel instanceof PreviewTabbedPane ptp) {
+                ensurePreviewFrame(ptp);
+            } else {
+                ensurePreviewFrame();
+            }
+            var frame = castNonNull(previewFrame);
 
-            // macOS focus workaround
+            if (!(panel instanceof PreviewTabbedPane)) {
+                frame.addOrSelectTab(title, panel, file, fragment);
+            }
+            if (file != null) {
+                projectFileToPreviewWindow.put(file, frame);
+            }
+
+            frame.setVisible(true);
+            frame.toFront();
+            frame.requestFocus();
+
             if (SystemInfo.isMacOS) {
-                previewFrame.setAlwaysOnTop(true);
-                previewFrame.setAlwaysOnTop(false);
+                frame.setAlwaysOnTop(true);
+                frame.setAlwaysOnTop(false);
             }
         });
+    }
+
+    private void ensurePreviewFrame() {
+        ensurePreviewFrame(null);
+    }
+
+    private void ensurePreviewFrame(@Nullable PreviewTabbedPane existingPane) {
+        if (previewFrame != null && previewFrame.isDisplayable()) {
+            if (existingPane != null) {
+                previewFrame.setTabbedPane(existingPane);
+            }
+            return;
+        }
+
+        PreviewTabbedPane pane = existingPane != null
+                ? existingPane
+                : new PreviewTabbedPane(chrome, chrome.getTheme(), title -> {}, () -> {});
+
+        previewFrame = new PreviewFrame(chrome, pane);
+        var frame = previewFrame;
+
+        var project = cm.getProject();
+        var storedBounds = project.getPreviewWindowBounds();
+        if (storedBounds.width > 0 && storedBounds.height > 0) {
+            frame.setBounds(storedBounds);
+            if (!chrome.isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                frame.setLocationRelativeTo(chrome.getFrame());
+            }
+        } else {
+            frame.setSize(800, 600);
+            frame.setLocationRelativeTo(chrome.getFrame());
+        }
+
+        frame.setMinimumSize(new Dimension(700, 200));
+        frame.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentMoved(ComponentEvent e) {
+                cm.getProject().savePreviewWindowBounds(frame);
+            }
+
+            @Override
+            public void componentResized(ComponentEvent e) {
+                cm.getProject().savePreviewWindowBounds(frame);
+            }
+        });
+
+        frame.applyTheme(chrome.getTheme());
     }
 
     /**
@@ -271,6 +330,74 @@ public class PreviewManager {
             var bf = pathFragment.file();
             if (bf instanceof ProjectFile pf) {
                 return pf;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Shows a diff panel in the shared tabbed preview interface.
+     * Incorporates deduplication logic to raise existing windows or select existing tabs.
+     */
+    public void showDiffInTab(
+            String title, BrokkDiffPanel panel, List<BufferSource> leftSources, List<BufferSource> rightSources) {
+        SwingUtilities.invokeLater(() -> {
+            // 1. Check for existing standalone window first
+            if (tryRaiseExistingDiffWindow(leftSources, rightSources)) {
+                return;
+            }
+
+            // 2. Check for existing tab in the BuildPane or PreviewFrame
+            RightPanel rightPanel = chrome.getRightPanel();
+            PreviewTabbedPane tabs = rightPanel.getPreviewTabbedPane();
+
+            var existing = findExistingDiffTab(tabs, leftSources, rightSources);
+            if (existing.isPresent() && tabs.selectTab(existing.get())) {
+                rightPanel.selectPreviewTab();
+                return;
+            }
+
+            // 3. Not found, show it as a new tab
+            showPreviewInTabbedFrame(title, panel, null);
+        });
+    }
+
+    private boolean tryRaiseExistingDiffWindow(List<BufferSource> leftSources, List<BufferSource> rightSources) {
+        for (Frame frame : Frame.getFrames()) {
+            if (!frame.isDisplayable()) {
+                continue;
+            }
+
+            var brokkPanel = findBrokkDiffPanel(frame);
+            if (brokkPanel != null && brokkPanel.matchesContent(leftSources, rightSources)) {
+                var window = SwingUtilities.getWindowAncestor(brokkPanel);
+                if (window != null) {
+                    raiseWindow(window);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private Optional<BrokkDiffPanel> findExistingDiffTab(
+            PreviewTabbedPane tabs, List<BufferSource> leftSources, List<BufferSource> rightSources) {
+        return tabs.findTab(
+                        comp -> comp instanceof BrokkDiffPanel panel && panel.matchesContent(leftSources, rightSources))
+                .map(c -> (BrokkDiffPanel) c);
+    }
+
+    @Nullable
+    private static BrokkDiffPanel findBrokkDiffPanel(Container root) {
+        for (var comp : root.getComponents()) {
+            if (comp instanceof BrokkDiffPanel panel) {
+                return panel;
+            }
+            if (comp instanceof Container container) {
+                var found = findBrokkDiffPanel(container);
+                if (found != null) {
+                    return found;
+                }
             }
         }
         return null;
@@ -304,10 +431,16 @@ public class PreviewManager {
         SwingUtilities.invokeLater(() -> {
             for (ProjectFile file : changedFiles) {
                 JFrame previewFrame = projectFileToPreviewWindow.get(file);
+
+                // If it's in the main frame, refresh the BuildPane's preview tabs
+                if (previewFrame == chrome.getFrame()) {
+                    RightPanel rightPanel = chrome.getRightPanel();
+                    rightPanel.getPreviewTabbedPane().refreshTabsForFile(file);
+                    continue;
+                }
+
                 if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
-                    // Check if it's the shared PreviewTextFrame
                     if (previewFrame == this.previewFrame) {
-                        // Refresh all tabs for this file in the tabbed frame
                         this.previewFrame.refreshTabsForFile(file);
                     } else {
                         // Legacy standalone windows; keep best-effort refresh
@@ -347,7 +480,7 @@ public class PreviewManager {
             var syntax = pf.getSyntaxStyle();
 
             // 3. Build the PTP with custom positioning
-            var panel = new PreviewTextPanel(cm, pf, content.get(), syntax, chrome.getTheme(), null);
+            var panel = new PreviewTextPanel(chrome, cm, pf, content.get(), syntax, chrome.getTheme(), null);
 
             // 4. Show in frame first
             showPreviewFrame("Preview: " + pf, panel);
@@ -412,13 +545,13 @@ public class PreviewManager {
     }
 
     private String computeInitialTitle(ContextFragment fragment) {
-        String descNow = fragment.description().renderNowOrNull();
+        String descNow = fragment.shortDescription().renderNowOrNull();
         return (descNow != null && !descNow.isBlank()) ? "Preview: " + descNow : "Preview: Loading...";
     }
 
     private void showOutputPreview(ContextFragments.OutputFragment of, String initialTitle) {
         var combinedMessages = new ArrayList<ChatMessage>();
-        for (ai.brokk.TaskEntry entry : of.entries()) {
+        for (TaskEntry entry : of.entries()) {
             if (entry.isCompressed()) {
                 combinedMessages.add(Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
             } else {
@@ -426,9 +559,9 @@ public class PreviewManager {
             }
         }
 
-        var markdownPanel = MarkdownOutputPool.instance().borrow();
-        markdownPanel.withContextForLookups(cm, chrome);
-        markdownPanel.setText(combinedMessages);
+        var markdownPanel = new MarkdownOutputPanel();
+        markdownPanel.setContextForLookups(cm, chrome);
+        markdownPanel.setMessages(combinedMessages);
 
         JPanel contentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         ContextFragment fragment = (of instanceof ContextFragment cf) ? cf : null;
@@ -441,7 +574,7 @@ public class PreviewManager {
 
     private void showImagePreview(ContextFragment fragment, String initialTitle) {
         if (fragment instanceof ContextFragments.AnonymousImageFragment pif) {
-            var imagePanel = new PreviewImagePanel(null);
+            var imagePanel = new PreviewImagePanel(chrome, null);
             showPreviewFrame(initialTitle, imagePanel, pif);
 
             ComputedSubscription.bind(
@@ -450,10 +583,10 @@ public class PreviewManager {
                     () -> SwingUtilities.invokeLater(() -> {
                         updateImagePanel(pif, imagePanel);
                         updateTitleIfNeeded(
-                                initialTitle, imagePanel, pif.description().renderNowOrNull());
+                                initialTitle, imagePanel, pif.shortDescription().renderNowOrNull());
                     }));
         } else if (fragment instanceof ContextFragments.ImageFileFragment iff) {
-            var imagePanel = new PreviewImagePanel(iff.file());
+            var imagePanel = new PreviewImagePanel(chrome, iff.file());
             showPreviewFrame(initialTitle, imagePanel, iff);
             bindTitleUpdate(iff, imagePanel, initialTitle);
         }
@@ -483,12 +616,13 @@ public class PreviewManager {
 
         JComponent panel;
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
-            var markdownPanel = MarkdownOutputPool.instance().borrow();
+            var markdownPanel = new MarkdownOutputPanel();
             markdownPanel.updateTheme(MainProject.getTheme());
-            markdownPanel.setText(List.of(Messages.customSystem(text)));
+            markdownPanel.setContextForLookups(cm, chrome);
+            markdownPanel.setStaticDocument(text);
             panel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         } else {
-            panel = new PreviewTextPanel(cm, null, text, style, chrome.getTheme(), sf);
+            panel = new PreviewTextPanel(chrome, cm, null, text, style, chrome.getTheme(), sf);
         }
 
         showPreviewFrame(initialTitle, panel, sf);
@@ -523,7 +657,8 @@ public class PreviewManager {
         // For history snapshots, pass null to prevent auto-refresh and editing, ensuring the preview remains static.
         ProjectFile projectFile = isLive ? extractProjectFile(fragment) : null;
 
-        var panel = new PreviewTextPanel(cm, projectFile, initialText, initialStyle, chrome.getTheme(), fragment);
+        var panel =
+                new PreviewTextPanel(chrome, cm, projectFile, initialText, initialStyle, chrome.getTheme(), fragment);
         showPreviewFrame(initialTitle, panel, fragment);
 
         final String fallbackStyle = initialStyle;
@@ -533,7 +668,7 @@ public class PreviewManager {
                 () -> SwingUtilities.invokeLater(() -> {
                     String text = fragment.text().renderNowOrNull();
                     String style = fragment.syntaxStyle().renderNowOrNull();
-                    String desc = fragment.description().renderNowOrNull();
+                    String desc = fragment.shortDescription().renderNowOrNull();
 
                     if (text != null) {
                         String effectiveStyle = (style != null) ? style : fallbackStyle;
@@ -579,7 +714,7 @@ public class PreviewManager {
     private void bindTitleUpdate(ContextFragment fragment, JComponent panel, String initialTitle) {
         if (initialTitle.endsWith("Loading...")) {
             ComputedSubscription.bind(fragment, panel, () -> {
-                String desc = fragment.description().renderNowOrNull();
+                String desc = fragment.shortDescription().renderNowOrNull();
                 if (desc != null && !desc.isBlank()) {
                     SwingUtilities.invokeLater(() -> updateTitleIfNeeded(initialTitle, panel, desc));
                 }
@@ -591,9 +726,10 @@ public class PreviewManager {
      * Renders markdown content and wraps it in a searchable preview panel.
      */
     private JPanel renderMarkdownContent(String text) {
-        var markdownPanel = MarkdownOutputPool.instance().borrow();
+        var markdownPanel = new MarkdownOutputPanel();
         markdownPanel.updateTheme(MainProject.getTheme());
-        markdownPanel.setText(List.of(Messages.customSystem(text)));
+        markdownPanel.setContextForLookups(cm, chrome);
+        markdownPanel.setStaticDocument(text);
         return createSearchableContentPanel(List.of(markdownPanel), null, false);
     }
 
@@ -603,9 +739,9 @@ public class PreviewManager {
      */
     private void replaceTabContent(JComponent oldComponent, JComponent newComponent, String title) {
         SwingUtilities.invokeLater(() -> {
-            if (previewFrame != null && previewFrame.isDisplayable()) {
-                previewFrame.replaceTabComponent(oldComponent, newComponent, title);
-            }
+            // Check BuildPane first
+            RightPanel rightPanel = chrome.getRightPanel();
+            rightPanel.getPreviewTabbedPane().replaceTabComponent(oldComponent, newComponent, title);
         });
     }
 
@@ -615,9 +751,9 @@ public class PreviewManager {
     private void updatePreviewWindowTitle(JComponent contentComponent, String newTitle) {
         SwingUtilities.invokeLater(() -> {
             try {
-                if (previewFrame != null && previewFrame.isDisplayable()) {
-                    previewFrame.updateTabTitle(contentComponent, newTitle);
-                }
+                // Check BuildPane first
+                RightPanel rightPanel = chrome.getRightPanel();
+                rightPanel.getPreviewTabbedPane().updateTabTitle(contentComponent, newTitle);
             } catch (Exception ex) {
                 logger.debug("Unable to update preview window title", ex);
             }

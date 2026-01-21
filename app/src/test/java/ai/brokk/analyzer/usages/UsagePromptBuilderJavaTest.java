@@ -7,8 +7,8 @@ import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.AssertionHelperUtil;
 import java.io.IOException;
-import java.lang.reflect.RecordComponent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -70,7 +70,7 @@ public class UsagePromptBuilderJavaTest {
     public void buildReturnsSingleRecordWithExpectedFields() {
         // Given a single file with a snippet containing XML special chars
         ProjectFile file = fileInProject("A.java");
-        String snippet = "line1\n<T> & \"quotes\" and 'single'\nline3";
+        String snippet = "{ // line1\n\tA.method2();//<T> & \"quotes\" and 'single'\n} // line3";
         CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
         CodeUnit target = CodeUnit.fn(file, "test", "method2");
         UsageHit hit = new UsageHit(file, 10, 0, snippet.length(), enclosing, 1.0, snippet);
@@ -80,35 +80,56 @@ public class UsagePromptBuilderJavaTest {
                 hit, target, Collections.emptyList(), analyzer, "A.method2", 10_000 // generous token budget
                 );
 
-        // Then: record has the three expected accessors and nothing else
-        RecordComponent[] components = prompt.getClass().getRecordComponents();
-        var names = Arrays.stream(components).map(RecordComponent::getName).collect(Collectors.toSet());
-        assertEquals(
-                Set.of("filterDescription", "candidateText", "promptText"),
-                names,
-                "Record must contain only the expected fields");
-
         // Field-level assertions
         assertNotNull(prompt.filterDescription(), "filterDescription should not be null");
         assertTrue(
                 prompt.filterDescription().contains(target.toString()),
                 "filterDescription should include the target code unit");
+        assertFalse(
+                prompt.filterDescription().contains("alternative code units"),
+                "filterDescription should NOT mention alternatives when none provided");
         assertEquals(snippet, prompt.candidateText(), "candidateText should equal the usage snippet");
 
         String text = prompt.promptText();
-        assertNotNull(text, "promptText should not be null");
-        assertTrue(text.contains("<file path=\""), "Expected <file> tag with path");
-        assertTrue(text.contains(file.absPath().toString()), "Expected absolute path in file tag");
-        assertTrue(text.contains("<imports>") && text.contains("</imports>"), "Expected imports section");
-        assertTrue(text.contains("<usage>") && text.contains("</usage>"), "Expected a single <usage> block");
-        assertFalse(text.contains("id="), "No id attributes should be present");
+        AssertionHelperUtil.assertCodeEquals(
+                """
+                Short Name of Search: A.method2
+                Code Unit Target: FUNCTION[test.method2]
+                Other Possible Matches: (none)
+                File of Hit: A.java
+                ```java
+                import java.util.function.Function;
 
-        // Ensure special chars are escaped
-        assertTrue(text.contains("&lt;T&gt;"), "Expected '<' and '>' to be escaped");
-        assertTrue(text.contains("&amp;"), "Expected '&' to be escaped");
-        assertTrue(text.contains("&quot;quotes&quot;"), "Expected '\"' to be escaped");
+                // snippet of method containing possible usage test.A
+                { // line1
+                	A.method2();//<T> & "quotes" and 'single'
+                } // line3
+                // rest of class
+                ```
+                """,
+                text);
+    }
+
+    @Test
+    public void buildIncludesAlternativesWhenPresent() {
+        ProjectFile file = fileInProject("A.java");
+        CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
+        CodeUnit target = CodeUnit.fn(file, "test", "method2");
+        CodeUnit alt1 = CodeUnit.fn(file, "other", "method2");
+        CodeUnit alt2 = CodeUnit.fn(file, "another", "method2");
+        UsageHit hit = new UsageHit(file, 10, 0, 10, enclosing, 1.0, "snippet");
+
+        UsagePrompt prompt =
+                UsagePromptBuilder.buildPrompt(hit, target, List.of(alt1, alt2), analyzer, "method2", 10_000);
+
         assertTrue(
-                text.contains("&apos;single&apos;") || text.contains("&#39;single&#39;"), "Expected ''' to be escaped");
+                prompt.filterDescription().contains("alternative code units"),
+                "filterDescription should mention alternatives");
+
+        String text = prompt.promptText();
+        assertTrue(
+                text.contains("Other Possible Matches:\nother.method2\nanother.method2"),
+                "Prompt should list alternative fqNames");
     }
 
     @Test
@@ -120,31 +141,42 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit target = CodeUnit.fn(file, "", "A.method2");
         UsageHit hit = new UsageHit(file, 1, 0, largeSnippet.length(), enclosing, 1.0, largeSnippet);
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit,
-                target,
-                Collections.emptyList(),
-                analyzer,
-                "A.method2",
-                32 // ~128 chars budget to trigger truncation
-                );
+        int maxTokens = 200; // 800 chars, well above the 512 min floor in the builder
+        int maxChars = maxTokens * 4;
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(hit, target, List.of(), analyzer, "A.method2", maxTokens);
 
-        assertTrue(prompt.promptText().contains("truncated due to token limit"), "Expected truncation note in prompt");
+        String text = prompt.promptText();
+
+        // 1. Verify truncation marker is present
+        assertTrue(text.contains("truncated due to token limit"), "Expected truncation note in prompt");
+
+        // 2. Verify length is within reasonable budget (maxChars + safety for marker/fence)
+        // The builder uses maxChars as a target for the content before the marker.
+        assertTrue(
+                text.length() <= maxChars + 100,
+                "Prompt length " + text.length() + " exceeded budget of " + (maxChars + 100));
+
+        // 3. Verify it ends with closing fence (even if marker follows) or is well-formed
+        // Note: The builder appends the marker AFTER the closing fence logic.
+        assertTrue(
+                text.strip().endsWith("```") || text.contains("```\n... [truncated"),
+                "Prompt should contain a closing code fence to remain well-formed Markdown");
     }
 
     @Test
-    public void buildHasNoIdsInPromptText() {
+    public void buildHasMarkdownStructure() {
         ProjectFile file = fileInProject("A.java");
         CodeUnit enclosing = CodeUnit.cls(file, "", "A");
         CodeUnit target = CodeUnit.fn(file, "", "A.method2");
         UsageHit hit = new UsageHit(file, 5, 0, 3, enclosing, 1.0, "sa");
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(hit, target, Collections.emptyList(), analyzer, "A.method2", 10_000);
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(hit, target, List.of(), analyzer, "A.method2", 10_000);
 
         String text = prompt.promptText();
-        assertTrue(text.contains("<usage>") && text.contains("</usage>"), "Expected a single <usage> block");
-        assertFalse(text.contains("id="), "No id attributes should be present");
-        assertTrue(text.contains(file.absPath().toString()), "Expected the correct file path in prompt");
+        assertTrue(text.contains("Short Name of Search: "), "Expected Short Name of Search: prefix");
+        assertTrue(text.contains("Code Unit Target: "), "Expected Code Unit Target: prefix");
+        assertTrue(text.contains("File of Hit: "), "Expected File of Hit: prefix");
+        assertTrue(text.contains("```"), "Expected Markdown code fence");
+        assertTrue(text.contains(file.getRelPath().toString()), "Expected the correct file path in prompt");
     }
 }

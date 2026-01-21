@@ -7,7 +7,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.TableUtils;
 import ai.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
-import ai.brokk.gui.WorkspacePanel;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.util.List;
@@ -65,9 +64,6 @@ public final class ContextMenuUtils {
             @SuppressWarnings("unchecked")
             var directList = (List<FileReferenceData>) cellValue;
             fileRefs = directList;
-        } else if (cellValue instanceof WorkspacePanel.DescriptionWithReferences descWithRefs) {
-            // WorkspacePanel case - extract from DescriptionWithReferences record
-            fileRefs = descWithRefs.fileReferences();
         } else {
             // Unsupported cell value type
             return;
@@ -95,31 +91,6 @@ public final class ContextMenuUtils {
                 hiddenFiles = fileRefs.subList(visibleFiles.size(), fileRefs.size());
             } else if (hasOverflow) {
                 hiddenFiles = afl.getHiddenFiles();
-            }
-        } else if (renderer instanceof JPanel panel) {
-            // WorkspacePanel case - AdaptiveFileReferenceList is inside a JPanel
-            TableUtils.FileReferenceList.AdaptiveFileReferenceList foundAfl = null;
-            for (Component c : panel.getComponents()) {
-                if (c instanceof TableUtils.FileReferenceList.AdaptiveFileReferenceList afl) {
-                    foundAfl = afl;
-                    break;
-                }
-            }
-
-            if (foundAfl != null) {
-                visibleFiles = foundAfl.getVisibleFiles();
-                hasOverflow = foundAfl.hasOverflow();
-
-                // BUGFIX: Apply same overflow detection fix for WorkspacePanel
-                if (!hasOverflow && fileRefs.size() > visibleFiles.size()) {
-                    hasOverflow = true;
-                    hiddenFiles = fileRefs.subList(visibleFiles.size(), fileRefs.size());
-                } else if (hasOverflow) {
-                    hiddenFiles = foundAfl.getHiddenFiles();
-                }
-            } else {
-                // JPanel doesn't contain AdaptiveFileReferenceList
-                visibleFiles = fileRefs;
             }
         } else {
             // Fallback if not the expected renderer type

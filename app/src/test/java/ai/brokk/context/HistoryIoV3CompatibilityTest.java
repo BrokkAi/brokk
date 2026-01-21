@@ -17,8 +17,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.jetbrains.annotations.Nullable;
@@ -51,7 +53,7 @@ class HistoryIoV3CompatibilityTest {
 
         Context top = history.liveContext();
         // Let fragments materialize
-        top.awaitContextsAreComputed(Duration.ofSeconds(10));
+        top.awaitContentsAreComputed(Duration.ofSeconds(10));
 
         var projectPathFragment = findFragment(top, ContextFragments.ProjectPathFragment.class, f -> f.description()
                 .join()
@@ -159,13 +161,13 @@ class HistoryIoV3CompatibilityTest {
 
         Context live = history.liveContext();
         // Let fragments materialize
-        live.awaitContextsAreComputed(Duration.ofSeconds(10));
+        live.awaitContentsAreComputed(Duration.ofSeconds(10));
 
         var ppf = findFragment(live, ContextFragments.ProjectPathFragment.class, f -> true);
         assertNotNull(ppf, "ProjectPathFragment should be present");
         var description = ppf.description().join();
-        var path = String.join(File.separator, List.of("app", "src", "main", "java", "ai", "brokk"));
-        assertEquals("EditBlock.java [%s]".formatted(path), description);
+        var path = String.join(File.separator, List.of("app", "src", "main", "java", "ai", "brokk", "EditBlock.java"));
+        assertEquals(path, description);
     }
 
     private Path stageBasicSessionZip() throws IOException, URISyntaxException {
@@ -252,7 +254,7 @@ class HistoryIoV3CompatibilityTest {
         var fragmentsJsonPath = staging.resolve("fragments-v3.json");
         if (Files.exists(fragmentsJsonPath)) {
             var fragsNode = mapper.readTree(Files.readString(fragmentsJsonPath, StandardCharsets.UTF_8));
-            var stack = new java.util.ArrayDeque<JsonNode>();
+            var stack = new ArrayDeque<JsonNode>();
             stack.push(fragsNode);
             while (!stack.isEmpty()) {
                 JsonNode n = stack.pop();
@@ -339,7 +341,7 @@ class HistoryIoV3CompatibilityTest {
         }
 
         var mapper = new ObjectMapper();
-        var logIds = new java.util.HashSet<String>();
+        var logIds = new HashSet<String>();
         var lines = Files.readAllLines(contextsPath, StandardCharsets.UTF_8);
         for (var line : lines) {
             var trimmed = line.trim();
@@ -371,7 +373,7 @@ class HistoryIoV3CompatibilityTest {
 
         var root = mapper.readTree(Files.readString(fragmentsPath, StandardCharsets.UTF_8));
         var taskNode = root.get("task");
-        var taskIds = new java.util.HashSet<String>();
+        var taskIds = new HashSet<String>();
         if (taskNode != null && taskNode.isObject()) {
             var it = taskNode.fieldNames();
             while (it.hasNext()) {
@@ -433,7 +435,7 @@ class HistoryIoV3CompatibilityTest {
      * @return the fragment if found, null otherwise.
      */
     private @Nullable <T extends ContextFragment> T findFragment(
-            Context context, Class<T> type, java.util.function.Predicate<T> condition) {
+            Context context, Class<T> type, Predicate<T> condition) {
         return context.allFragments()
                 .filter(type::isInstance)
                 .map(type::cast)

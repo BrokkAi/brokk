@@ -6,18 +6,22 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.ContextDelta;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
-import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
@@ -28,12 +32,15 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -42,8 +49,10 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class ArchitectAgent {
@@ -63,7 +72,7 @@ public class ArchitectAgent {
     // Result of executing a single search request: both the tool execution result and the SearchAgent result
     private record SearchTaskResult(ToolExecutionResult toolResult, TaskResult taskResult) {}
 
-    private final ContextManager cm;
+    private final IContextManager cm;
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
     private final String goal;
@@ -92,18 +101,32 @@ public class ArchitectAgent {
      * @param goal      The initial user instruction or goal for the agent.
      */
     public ArchitectAgent(
-            ContextManager contextManager,
+            IContextManager contextManager,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             String goal,
             ContextManager.TaskScope scope) {
+        this(contextManager, planningModel, codeModel, goal, scope, contextManager.liveContext());
+    }
+
+    /**
+     * Constructs a BrokkAgent with an explicit initial context.
+     * Use this when the caller has a more up-to-date context than liveContext().
+     */
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
         this.goal = goal;
         this.io = contextManager.getIo();
         this.scope = scope;
-        this.context = contextManager.liveContext();
+        this.context = initialContext;
     }
 
     /**
@@ -116,7 +139,7 @@ public class ArchitectAgent {
                     String finalExplanation) {
         var msg = "# Architect complete\n\n%s".formatted(finalExplanation);
         logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, true, false);
+        io.llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         return finalExplanation;
     }
@@ -129,7 +152,7 @@ public class ArchitectAgent {
     public String abortProject(@P("Explain why the project must be aborted.") String reason) {
         var msg = "# Architect aborted\n\n%s".formatted(reason);
         logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, true, false);
+        io.llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         return reason;
     }
@@ -153,7 +176,7 @@ public class ArchitectAgent {
         // Record planning history before invoking CodeAgent
         addPlanningToHistory();
 
-        io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
+        io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.AI, LlmOutputMeta.newMessage());
         var agent = new CodeAgent(cm, codeModel);
         var opts = new HashSet<CodeAgent.Option>();
         if (deferBuild) {
@@ -165,13 +188,19 @@ public class ArchitectAgent {
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
         context = scope.append(result);
-        // Detect whether this CodeAgent run made any changes
-        boolean didChange = !context.getChangedFiles(initialContext).isEmpty();
+        var changedFragments =
+                ContextDelta.between(initialContext, context).join().getChangedFragments();
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
+            var fileList = changedFragments.stream()
+                    .map(cf -> cf.shortDescription().join())
+                    .sorted()
+                    .collect(Collectors.joining(", "));
+            resultString += " Changed fragments: " + (fileList.isEmpty() ? "None" : fileList);
+
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild && didChange;
+            codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
             return resultString;
         }
 
@@ -192,7 +221,7 @@ public class ArchitectAgent {
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
         // Offer undo if the CodeAgent failed and left changes behind
-        if (didChange) {
+        if (!changedFragments.isEmpty()) {
             this.offerUndoToolNext = true;
         }
 
@@ -288,12 +317,13 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-        context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
+        context = scope.append(resultWithMessages(StopReason.SUCCESS, goal));
     }
 
     @Tool(
             "Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
-    public String undoLastChanges() {
+    @Blocking
+    public String undoLastChanges() throws InterruptedException {
         logger.debug("undoLastChanges invoked");
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Undoing last CodeAgent changes...");
         if (cm.undoContext()) {
@@ -313,13 +343,64 @@ public class ArchitectAgent {
         }
     }
 
+    @Tool(
+            "Set the project's build/test commands (build/lint, test-all, test-some) and excluded directories. Saves to project config. Optionally validates the build/lint command.")
+    public String setBuildDetails(
+            @P("Command to build/lint the project (e.g., 'mvn test', 'gradle test', 'npm test').")
+                    String buildLintCommand,
+            @P("Command to run all tests.") String testAllCommand,
+            @P("Command to run a subset of tests (e.g., a single module/file/class).") String testSomeCommand,
+            @P("Directories to exclude from analysis/build context.") List<String> excludedDirectories) {
+        var existingDetails = cm.getProject().loadBuildDetails();
+        var details = new BuildAgent.BuildDetails(
+                buildLintCommand,
+                testAllCommand,
+                testSomeCommand,
+                new LinkedHashSet<>(excludedDirectories),
+                existingDetails.environmentVariables());
+        cm.getProject().saveBuildDetails(details);
+
+        cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Saved build details.");
+        if (!buildLintCommand.trim().isEmpty()) {
+            return "Saved build details.\n\n" + verifyBuildCommand();
+        }
+        return "Saved build details.";
+    }
+
+    @Tool(
+            "Verify the currently configured build/lint command by executing it and returning bounded output. Uses the project's saved build details and environment variables.")
+    public String verifyBuildCommand() {
+        var project = cm.getProject();
+        var details = project.loadBuildDetails();
+        var buildLintCommand = details.buildLintCommand();
+        if (buildLintCommand.trim().isEmpty()) {
+            return "No build/lint command is configured.";
+        }
+
+        var envVars = details.environmentVariables();
+        var result = BuildVerifier.verify(project, buildLintCommand, envVars);
+
+        var statusLine = result.success()
+                ? "Build command succeeded (exit code " + result.exitCode() + ")."
+                : "Build command failed (exit code " + result.exitCode() + ").";
+
+        var output = result.output().isBlank() ? "(no output)" : result.output();
+
+        return """
+                %s
+
+                Output (last %d lines):
+                %s
+                """
+                .formatted(statusLine, BuildVerifier.MAX_OUTPUT_LINES, output);
+    }
+
     /**
-     * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
-     * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
-     * as a context fragment.
+     * A tool that invokes the Search Agent to perform deep repository analysis based on a query. The Search Agent
+     * uses specialized tools (symbols, usages, grep) to find relevant code and documentation, adding them to the Workspace.
      */
     @Tool(
-            "Invoke the Search Agent to find information relevant to the given query. The Workspace is visible to the Search Agent. Searching is much slower than adding content to the Workspace directly if you know what you are looking for, but the Agent can find things that you don't know the exact name of. ")
+            "Invoke the Search Agent to find information relevant to the given query. The Search Agent explores the codebase to find relevant identifiers and files. Searching is slower than adding known files directly, but useful when you don't know exact names or locations. ")
     public String callSearchAgent(
             @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
             throws ToolRegistry.FatalLlmException, InterruptedException {
@@ -333,13 +414,12 @@ public class ArchitectAgent {
 
             // Only the winner prints the "engaged" message
             if (shouldEcho) {
-                io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI, true, false);
+                io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.AI, LlmOutputMeta.newMessage());
             }
 
+            // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
             var searchAgent =
-                    new SearchAgent(context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, saIo);
-            // Ensure all SAs scan, but do not append individual history entries during batch
-            searchAgent.scanInitialContext(cm.getService().getScanModel(), false);
+                    new SearchAgent(context, query, planningModel, scope, saIo, SearchAgent.ScanConfig.noAppend());
             var result = searchAgent.execute();
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
@@ -363,8 +443,7 @@ public class ArchitectAgent {
                     io.llmOutput(
                             "Waiting for the other " + (currentBatchSize - 1) + " SearchAgents...",
                             ChatMessageType.AI,
-                            true,
-                            false);
+                            LlmOutputMeta.newMessage());
                 }
                 searchAgentEchoInUse.set(false);
             }
@@ -395,13 +474,17 @@ public class ArchitectAgent {
     public TaskResult executeWithScan() throws InterruptedException {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
-        var searchAgent = new SearchAgent(context, goal, scanModel, SearchAgent.Objective.WORKSPACE_ONLY, this.scope);
-        context = searchAgent.scanInitialContext();
+        var searchAgent = new SearchAgent(context, goal, scanModel, this.scope);
+        if (Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2) {
+            searchAgent.pruneContext();
+        }
+        // (appends prune + scan results to scope)
+        context = searchAgent.scanContext();
 
         // Run Architect proper
         var archResult = this.execute();
         context = scope.append(archResult);
-        return archResult;
+        return archResult.withContext(context);
     }
 
     /**
@@ -448,8 +531,9 @@ public class ArchitectAgent {
                     .orElseThrow();
 
             // Calculate current workspace token size
-            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(
-                    context, new ViewingPolicy(TaskResult.Type.ARCHITECT)));
+            var suppressed = EnumSet.noneOf(SpecialTextType.class);
+            var workspaceContentMessages =
+                    new ArrayList<>(WorkspacePrompts.getMessagesGroupedByMutability(context, suppressed));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings
@@ -468,13 +552,18 @@ public class ArchitectAgent {
             if (criticalWorkspaceSize) {
                 notifyCriticalWorkspaceRestriction(workspaceTokenSize, maxInputTokens);
                 var allowed = criticalAllowedTools();
+                allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
                 toolSpecs.addAll(tr.getTools(allowed));
                 toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
             } else {
                 // Default tool population logic
-                var allowed = new ArrayList<String>();
+                List<String> allowed = new ArrayList<>();
                 allowed.add("addFilesToWorkspace");
                 allowed.add("addFileSummariesToWorkspace");
+                allowed.add("addClassesToWorkspace");
+                allowed.add("addClassSummariesToWorkspace");
+                allowed.add("addMethodsToWorkspace");
+                allowed.add("addSymbolUsagesToWorkspace");
                 allowed.add("addUrlContentsToWorkspace");
                 allowed.add("appendNote");
                 allowed.add("dropWorkspaceFragments");
@@ -482,6 +571,8 @@ public class ArchitectAgent {
 
                 // Agent tools
                 allowed.add("callCodeAgent");
+                allowed.add("setBuildDetails");
+                allowed.add("verifyBuildCommand");
 
                 if (this.offerUndoToolNext) {
                     allowed.add("undoLastChanges");
@@ -491,6 +582,9 @@ public class ArchitectAgent {
                 // Terminals
                 allowed.add("projectFinished");
                 allowed.add("abortProject");
+
+                // Filter out analyzer-required tools at the very end
+                allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
 
                 toolSpecs.addAll(tr.getTools(allowed));
                 toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
@@ -502,7 +596,7 @@ public class ArchitectAgent {
 
             // Handle errors, with special recovery for ContextTooLarge
             if (result.error() != null) {
-                if (!(result.error() instanceof dev.langchain4j.exception.ContextTooLargeException)) {
+                if (!(result.error() instanceof ContextTooLargeException)) {
                     logger.debug(
                             "Error from LLM while deciding next action: {}",
                             result.error().getMessage());
@@ -531,6 +625,7 @@ public class ArchitectAgent {
                         new Llm.Options(fallbackModel, "Architect emergency (context too large): " + goal).withEcho());
                 notifyCriticalWorkspaceRestriction(workspaceTokenSize, fallbackModelTokens);
                 var emergencyAllowed = criticalAllowedTools();
+                emergencyAllowed = WorkspaceTools.filterByAnalyzerAvailability(emergencyAllowed, cm.getProject());
                 var emergencyToolContext = new ToolContext(tr.getTools(emergencyAllowed), ToolChoice.REQUIRED, tr);
 
                 var emergencyResult = emergencyLlm.sendRequest(messages, emergencyToolContext);
@@ -544,11 +639,6 @@ public class ArchitectAgent {
                     return resultWithMessages(StopReason.LLM_ERROR);
                 }
                 result = emergencyResult; // proceed with emergency result
-            }
-
-            // show thinking
-            if (!result.text().isBlank()) {
-                io.llmOutput("\n" + result.text(), ChatMessageType.AI);
             }
 
             totalUsage = TokenUsage.sum(
@@ -597,7 +687,10 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                     var toolResult = tr.executeTool(answerReq);
-                    io.llmOutput("Project final answer: " + toolResult.resultText(), ChatMessageType.AI);
+                    io.llmOutput(
+                            "Project final answer: " + toolResult.resultText(),
+                            ChatMessageType.AI,
+                            LlmOutputMeta.DEFAULT);
                     return codeAgentSuccessResult();
                 }
             }
@@ -611,7 +704,8 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
                     var toolResult = tr.executeTool(abortReq);
-                    io.llmOutput("Project aborted: " + toolResult.resultText(), ChatMessageType.AI);
+                    io.llmOutput(
+                            "Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     return resultWithMessages(StopReason.LLM_ABORTED);
                 }
             }
@@ -639,8 +733,7 @@ public class ArchitectAgent {
                             "Search Agent: running " + currentBatchSize
                                     + " queries in parallel; only the first will stream.",
                             ChatMessageType.AI,
-                            true,
-                            false);
+                            LlmOutputMeta.newMessage());
                 }
 
                 // Submit search agent tasks to run in the background
@@ -725,6 +818,10 @@ public class ArchitectAgent {
                     currentBatchSize = 0;
                     throw new InterruptedException();
                 }
+
+                // SearchAgents like to drop fragments unrelated to their mission; union our original context
+                // with the Search results
+                combinedContext = combinedContext.union(context);
 
                 // Post-batch message with workspace merge summary
                 printSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
@@ -877,7 +974,7 @@ public class ArchitectAgent {
             summaryMessage = "All " + batchSize + " SearchAgents are finished. " + failedCount + " Searches failed. "
                     + mergeSummary;
         }
-        io.llmOutput(summaryMessage, ChatMessageType.AI, true, false);
+        io.llmOutput(summaryMessage, ChatMessageType.AI, LlmOutputMeta.newMessage());
     }
 
     /**
@@ -888,12 +985,40 @@ public class ArchitectAgent {
             int workspaceTokenSize, int maxInputTokens, List<ChatMessage> precomputedWorkspaceMessages)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
-        // System message defines the agent's role and general instructions
-        var reminder = CodePrompts.instance.architectReminder();
-        messages.add(ArchitectPrompts.instance.systemMessage(cm, context, reminder));
+
+        var sys = new SystemMessage(
+                """
+                <instructions>
+                %s
+                </instructions>
+                <goal>
+                %s
+                </goal>
+                """
+                        .formatted(ArchitectPrompts.instance.systemInstructions(), goal)
+                        .trim());
+        messages.add(sys);
 
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
+
+        // History from previous tasks/sessions
+        messages.addAll(cm.getHistoryMessages());
+
+        // This agent's own conversational history for the current goal, with the instructionsMarker
+        // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)
+        var marker = ArchitectPrompts.instructionsMarker();
+        messages.addAll(architectMessages.stream()
+                .map(msg -> {
+                    if (msg instanceof UserMessage um) {
+                        var text = um.singleText();
+                        if (text.contains(marker)) {
+                            return new UserMessage(marker);
+                        }
+                    }
+                    return msg;
+                })
+                .toList());
 
         // Add related identifiers as a separate message/ack pair
         var related = context.buildRelatedIdentifiers(10);
@@ -913,27 +1038,34 @@ public class ArchitectAgent {
             messages.add(new AiMessage("Okay, I will consider these related files."));
         }
 
-        // History from previous tasks/sessions
-        messages.addAll(cm.getHistoryMessages());
-        // This agent's own conversational history for the current goal
-        messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
-        messages.add(new UserMessage(
-                ArchitectPrompts.instance.getFinalInstructions(context, goal, workspaceTokenSize, maxInputTokens)));
+        var finalInstructions =
+                ArchitectPrompts.instance.getFinalInstructions(context, goal, workspaceTokenSize, maxInputTokens);
 
-        // Simplify prior UserMessages containing instructionsMarker to just the marker;
-        // this avoids sending redundant instruction text on subsequent turns
-        var marker = ArchitectPrompts.instructionsMarker();
-        return messages.stream()
-                .map(msg -> {
-                    if (msg instanceof UserMessage um) {
-                        var text = um.singleText();
-                        if (text.contains(marker)) {
-                            return new UserMessage(marker);
-                        }
-                    }
-                    return msg;
-                })
-                .toList();
+        if (cm.getProject().isEmptyProject()) {
+            finalInstructions +=
+                    """
+
+                    <empty-project-notice>
+                    This project appears to be empty (a new project with no existing source files).
+                    Prefer starting by creating the minimal project structure needed to satisfy the goal, and ensure the Workspace contains the key new files you create.
+                    </empty-project-notice>
+                    """;
+        }
+
+        if (cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+            finalInstructions +=
+                    """
+
+                    <build-setup>
+                    No build/test commands are configured for this project yet.
+                    If you need to run builds/tests (or want verification after changes), call setBuildDetails(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories) to configure the project's build/test stack.
+                    </build-setup>
+                    """;
+        }
+
+        messages.add(new UserMessage(finalInstructions));
+
+        return messages;
     }
 }

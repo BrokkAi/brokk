@@ -20,6 +20,7 @@ import ai.brokk.util.Messages;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
@@ -30,8 +31,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,6 +63,11 @@ public class DtoMapper {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
+        var pinnedFragments = dto.pinned().stream()
+                .map(fragmentCache::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         var virtualFragments = dto.virtuals().stream()
                 .map(fragmentCache::get)
                 .filter(Objects::nonNull)
@@ -84,7 +88,7 @@ public class DtoMapper {
                         var pm = new Service.ModelConfig(
                                 taskRefDto.primaryModelName(), reasoning, Service.ProcessingTier.DEFAULT);
                         meta = new TaskResult.TaskMeta(type, pm);
-                        logger.debug(
+                        logger.trace(
                                 "Reconstructed TaskMeta for sequence {}: type={}, model={}",
                                 taskRefDto.sequence(),
                                 meta.type(),
@@ -123,27 +127,13 @@ public class DtoMapper {
                 ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
                 : null;
 
-        var actionFuture = CompletableFuture.completedFuture(dto.action());
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(editableFragments.stream(), virtualFragments.stream())
                 .toList();
 
-        UUID groupUuid = null;
-        if (dto.groupId() != null && !dto.groupId().isEmpty()) {
-            groupUuid = UUID.fromString(dto.groupId());
-        }
-
         return Context.createWithId(
-                ctxId,
-                mgr,
-                combined,
-                taskHistory,
-                parsedOutputFragment,
-                actionFuture,
-                groupUuid,
-                dto.groupLabel(),
-                readonlyFragments);
+                ctxId, mgr, combined, taskHistory, parsedOutputFragment, readonlyFragments, pinnedFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -151,7 +141,7 @@ public class DtoMapper {
     /**
      * Build a CompactContextDto for serialization, including marked read-only fragment IDs.
      */
-    public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer, String action) {
+    public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer) {
         var taskEntryRefs = ctx.getTaskHistory().stream()
                 .map(te -> {
                     String type = te.meta() != null ? te.meta().type().name() : null;
@@ -169,21 +159,29 @@ public class DtoMapper {
                 })
                 .toList();
 
-        var editableIds = ctx.fileFragments().map(ContextFragment::id).toList();
-        var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
+        var pathFragmentIds = ctx.allFragments()
+                .filter(f -> f.getType().isPath())
+                .map(ContextFragment::id)
+                .toList();
+        var nonPathFragmentIds = ctx.allFragments()
+                .filter(f -> !f.getType().isPath())
+                .map(ContextFragment::id)
+                .toList();
         var readonlyIds =
                 ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
+        var pinnedIds = ctx.allFragments()
+                .filter(ctx::isPinned)
+                .map(ContextFragment::id)
+                .toList();
 
         return new CompactContextDto(
                 ctx.id().toString(),
-                editableIds,
+                pathFragmentIds,
                 readonlyIds,
-                virtualIds,
+                nonPathFragmentIds,
+                pinnedIds,
                 taskEntryRefs,
-                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
-                action,
-                ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
-                ctx.getGroupLabel());
+                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null);
     }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
@@ -196,9 +194,6 @@ public class DtoMapper {
             @Nullable Map<String, byte[]> imageBytesMap,
             Map<String, ContextFragment> fragmentCacheForRecursion,
             ContentReader contentReader) {
-        // Ensure ID continuity for numeric IDs
-        ContextFragments.setMinimumId(parseNumericId(idToResolve));
-
         if (referencedDtos.containsKey(idToResolve)) {
             var dto = referencedDtos.get(idToResolve);
             if (dto instanceof FrozenFragmentDto ffd && isDeprecatedBuildFragment(ffd)) {
@@ -230,31 +225,20 @@ public class DtoMapper {
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve);
     }
 
-    private static int parseNumericId(String id) {
-        try {
-            return Integer.parseInt(id);
-        } catch (NumberFormatException e) {
-            return 0; // Non-numeric IDs (hash-based) don't affect nextId
-        }
-    }
-
     private static @Nullable ContextFragment _buildReferencedFragment(
             ReferencedFragmentDto dto, IContextManager mgr, ContentReader reader) {
         return switch (dto) {
             case ProjectFileDto pfd -> {
-                ContextFragments.setMinimumId(parseNumericId(pfd.id()));
                 // Use current project root for cross-platform compatibility
                 String snapshot = pfd.snapshotText() != null ? reader.readContent(pfd.snapshotText()) : null;
                 yield ContextFragments.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr, snapshot);
             }
             case ExternalFileDto efd -> {
-                ContextFragments.setMinimumId(parseNumericId(efd.id()));
                 String snapshot = efd.snapshotText() != null ? reader.readContent(efd.snapshotText()) : null;
                 yield ContextFragments.ExternalPathFragment.withId(
                         new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr, snapshot);
             }
             case ImageFileDto ifd -> {
-                ContextFragments.setMinimumId(parseNumericId(ifd.id()));
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
                 yield ContextFragments.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
@@ -274,7 +258,7 @@ public class DtoMapper {
         var messages = dto.messages().stream()
                 .map(msgDto -> fromChatMessageDto(msgDto, reader))
                 .toList();
-        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
+        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.taskDescription());
     }
 
     private static @Nullable ContextFragment _buildVirtualFragment(
@@ -287,8 +271,6 @@ public class DtoMapper {
             Map<String, TaskFragmentDto> allTaskDtos,
             ContentReader reader) {
         if (dto == null) return null;
-        // Ensure ID continuity for numeric IDs
-        ContextFragments.setMinimumId(parseNumericId(dto.id()));
         return switch (dto) {
             case FrozenFragmentDto ffd -> {
                 if (isDeprecatedBuildFragment(ffd)) {
@@ -325,13 +307,12 @@ public class DtoMapper {
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles(), snapshot);
             }
             case PasteTextFragmentDto pasteTextDto ->
-                new ContextFragments.PasteTextFragment(
+                ContextFragments.PasteTextFragment.withResolvedDescription(
                         pasteTextDto.id(),
                         mgr,
                         reader.readContent(pasteTextDto.contentId()),
-                        CompletableFuture.completedFuture(pasteTextDto.description()),
-                        CompletableFuture.completedFuture(
-                                requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN)));
+                        pasteTextDto.description(),
+                        requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
             case PasteImageFragmentDto pasteImageDto -> {
                 try {
                     byte[] imageBytes = imageBytesMap != null ? imageBytesMap.get(pasteImageDto.id()) : null;
@@ -487,13 +468,13 @@ public class DtoMapper {
             }
             case ContextFragments.PasteTextFragment ptf -> {
                 // Fine to block on
-                String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
+                String description = ptf.description().join();
                 String contentId = writer.writeContent(ptf.text().join(), null);
-                String syntaxStyle = getFutureSyntaxStyle(ptf.getSyntaxStyleFuture());
+                String syntaxStyle = ptf.syntaxStyle().join();
                 yield new PasteTextFragmentDto(ptf.id(), contentId, description, syntaxStyle);
             }
             case ContextFragments.AnonymousImageFragment aif -> {
-                String description = getFutureDescription(aif.descriptionFuture, "Paste of ");
+                String description = aif.description().join();
                 yield new PasteImageFragmentDto(aif.id(), description);
             }
             case ContextFragments.StacktraceFragment stf -> {
@@ -531,26 +512,6 @@ public class DtoMapper {
         };
     }
 
-    private static String getFutureDescription(Future<String> future, String prefix) {
-        String description;
-        try {
-            String fullDescription = future.get(10, TimeUnit.SECONDS);
-            description =
-                    fullDescription.startsWith(prefix) ? fullDescription.substring(prefix.length()) : fullDescription;
-        } catch (Exception e) {
-            description = "(Error getting paste description: " + e.getMessage() + ")";
-        }
-        return description;
-    }
-
-    private static String getFutureSyntaxStyle(Future<String> future) {
-        try {
-            return future.get(10, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN; // Fallback
-        }
-    }
-
     private static TaskEntryDto toTaskEntryDto(TaskEntry entry, ContentWriter writer) {
         TaskFragmentDto logDto = null;
         if (entry.hasLog()) {
@@ -578,6 +539,8 @@ public class DtoMapper {
         String reasoningContentId = null;
         String contentId;
 
+        Map<String, Object> attributes = null;
+
         if (message instanceof AiMessage aiMessage) {
             // For AiMessage, store text and reasoning separately
             String text = aiMessage.text();
@@ -588,12 +551,21 @@ public class DtoMapper {
             if (reasoning != null && !reasoning.isBlank()) {
                 reasoningContentId = writer.writeContent(reasoning, null);
             }
+        } else if (message instanceof CustomMessage customMessage) {
+            Object rawText = customMessage.attributes().get("text");
+            String text = rawText instanceof String s ? s : "";
+            contentId = writer.writeContent(text, null);
+
+            attributes = customMessage.attributes().entrySet().stream()
+                    .filter(e -> !e.getKey().equals("text"))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> b));
         } else {
             // For other message types, use the display representation
             contentId = writer.writeContent(Messages.getRepr(message), null);
         }
 
-        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId);
+        return new ChatMessageDto(
+                message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId, attributes);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
@@ -616,7 +588,15 @@ public class DtoMapper {
                 // Graceful degrade: treat entire content as text when reasoningContentId is absent
                 yield new AiMessage(content);
             }
-            case "system", "custom" -> SystemMessage.from(content);
+            case "system" -> SystemMessage.from(content);
+            case "custom" -> {
+                Map<String, Object> attrs = new java.util.HashMap<>();
+                if (dto.attributes() != null) {
+                    attrs.putAll(dto.attributes());
+                }
+                attrs.put("text", content);
+                yield CustomMessage.from(attrs);
+            }
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };
     }
@@ -820,6 +800,15 @@ public class DtoMapper {
                         e -> new ContextHistory.ContextHistoryEntryInfo(e.getValue().deletedFiles().stream()
                                 .map(dto -> fromDeletedFileDto(dto, mgr))
                                 .toList())));
+    }
+
+    public static GroupInfoDto toGroupInfoDto(Map<UUID, UUID> contextToGroupId, Map<UUID, String> groupLabels) {
+        Map<String, String> ctxToGrp = contextToGroupId.entrySet().stream()
+                .collect(Collectors.toMap(
+                        e -> e.getKey().toString(), e -> e.getValue().toString()));
+        Map<String, String> grpLabels = groupLabels.entrySet().stream()
+                .collect(Collectors.toMap(e -> e.getKey().toString(), Map.Entry::getValue));
+        return new GroupInfoDto(ctxToGrp, grpLabels);
     }
 
     private static DeletedFileDto toDeletedFileDto(ContextHistory.DeletedFile df) {

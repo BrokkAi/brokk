@@ -3,17 +3,19 @@ package ai.brokk.difftool.ui;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
 import java.awt.Component;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import javax.swing.JComponent;
 import javax.swing.SwingUtilities;
+import javax.swing.text.JTextComponent;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -23,8 +25,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>Note: This extends AbstractContentPanel to leverage existing undo/redo infrastructure while providing diff panel
  * functionality.
  */
-public abstract class AbstractDiffPanel extends AbstractContentPanel
-        implements ThemeAware, SlidingWindowCache.Disposable {
+public abstract class AbstractDiffPanel extends AbstractContentPanel implements ThemeAware, DiffPanelLifecycle {
     protected final BrokkDiffPanel parent;
     protected final GuiTheme theme;
 
@@ -66,6 +67,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
     // Editing and state - abstract methods that subclasses must implement
     public abstract List<BufferDiffPanel.AggregatedChange> collectChangesForAggregation();
 
+    @Blocking
     public abstract BufferDiffPanel.SaveResult writeChangedDocuments();
 
     public abstract void finalizeAfterSaveAggregation(Set<String> successfulFiles);
@@ -73,6 +75,9 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
     /**
      * Compute whether this panel has unsaved changes. Subclasses implement policy; the base class manages the
      * mechanism via recalcDirty().
+     *
+     * <p>Called from EDT - must not perform blocking operations (I/O, heavy computation). Implementations
+     * should only check cached flags or in-memory state.
      *
      * @return true if there are unsaved changes
      */
@@ -157,6 +162,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
 
     @Override
     public void dispose() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Default cleanup - subclasses should override and call super
         removeAll();
         this.diffNode = null;
@@ -230,6 +236,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
 
     /**
      * Apply a font size to a component by deriving from its current font. Best-effort: no-op if font is null.
+     * Must be called on EDT.
      *
      * @param component component to update
      * @param size font size in points
@@ -243,6 +250,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
 
     /**
      * Apply a font size to the diff gutter, including the blame font when supported.
+     * Must be called on EDT.
      *
      * @param gutter gutter to update
      * @param size font size in points
@@ -266,6 +274,22 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
     }
 
     /**
+     * Helper to apply a font size to an editor and its associated gutter, ensuring they stay in sync.
+     * Must be called on EDT.
+     *
+     * @param editor the text component
+     * @param gutter the associated gutter component
+     * @param size the font size in points
+     */
+    protected static void applyFontToEditorAndGutter(JTextComponent editor, DiffGutterComponent gutter, float size) {
+        applyDerivedFont(editor, size);
+        editor.revalidate();
+        editor.repaint();
+
+        applyDerivedFontToGutter(gutter, size);
+    }
+
+    /**
      * Abstract method for refreshing highlights and repainting the diff panel. Each implementation should handle its
      * own highlight refresh logic.
      */
@@ -280,8 +304,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
      * @param rightMap blame information for the right/revised side (may be empty)
      */
     public abstract void applyBlame(
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap);
+            Map<Integer, BlameService.BlameInfo> leftMap, Map<Integer, BlameService.BlameInfo> rightMap);
 
     /** Clear all blame information from this diff panel. */
     public abstract void clearBlame();
@@ -293,7 +316,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
      * @return the absolute path to the file to blame, or null if unavailable
      */
     @Nullable
-    public abstract java.nio.file.Path getTargetPathForBlame();
+    public abstract Path getTargetPathForBlame();
 
     // Font support - every diff panel must implement
 

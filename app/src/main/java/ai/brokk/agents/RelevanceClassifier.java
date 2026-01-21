@@ -2,7 +2,7 @@ package ai.brokk.agents;
 
 import ai.brokk.AbstractService;
 import ai.brokk.Llm;
-import ai.brokk.util.AdaptiveExecutor;
+import ai.brokk.concurrent.AdaptiveExecutor;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;

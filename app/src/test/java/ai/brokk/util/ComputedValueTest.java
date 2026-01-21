@@ -2,25 +2,25 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.LoggingFuture;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
-import javax.swing.SwingUtilities;
+import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.Test;
 
 public class ComputedValueTest {
 
     @Test
     public void compute_startsImmediately() throws Exception {
-        var cv = new ComputedValue<>("eager", CompletableFuture.supplyAsync(() -> 7));
+        var cv = new ComputedValue<>("eager", LoggingFuture.supplyAsync(() -> 7));
 
         assertEquals(7, cv.future().get().intValue());
     }
 
     @Test
     public void awaitOnNonEdt_timesOutAndReturnsEmpty() {
-        var cv = new ComputedValue<>("slow", CompletableFuture.supplyAsync(() -> {
+        var cv = new ComputedValue<>("slow", LoggingFuture.supplyAsync(() -> {
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException ignored) {
@@ -33,38 +33,20 @@ public class ComputedValueTest {
     }
 
     @Test
-    public void awaitOnEdt_returnsEmptyImmediately() throws Exception {
-        var cv = new ComputedValue<>("edt", CompletableFuture.supplyAsync(() -> {
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException ignored) {
-            }
-            return 2;
-        }));
-
-        var ref = new AtomicReference<Optional<Integer>>();
-        SwingUtilities.invokeAndWait(() -> {
-            Optional<Integer> got = cv.await(Duration.ofSeconds(2));
-            ref.set(got);
-        });
-        assertTrue(ref.get().isEmpty(), "await on EDT must not block and return empty");
-    }
-
-    @Test
     public void exception_propagatesToFuture() {
-        var cv = new ComputedValue<Integer>("fail", CompletableFuture.supplyAsync(() -> {
+        var cv = new ComputedValue<Integer>("fail", LoggingFuture.supplyAsync(() -> {
             throw new IllegalStateException("boom");
         }));
 
         var fut = cv.future();
-        var ex = assertThrows(java.util.concurrent.CompletionException.class, fut::join);
+        var ex = assertThrows(CompletionException.class, fut::join);
         assertTrue(ex.getCause() instanceof IllegalStateException);
         assertEquals("boom", ex.getCause().getMessage());
     }
 
     @Test
     public void join_isIdempotent() {
-        var cv = new ComputedValue<>("joinTest", CompletableFuture.supplyAsync(() -> {
+        var cv = new ComputedValue<>("joinTest", LoggingFuture.supplyAsync(() -> {
             try {
                 Thread.sleep(100);
             } catch (InterruptedException ignored) {

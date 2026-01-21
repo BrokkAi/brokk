@@ -5,6 +5,7 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
+import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
@@ -12,8 +13,8 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.Environment;
+import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.ShellConfig;
-import com.jakewharton.disklrucache.DiskLruCache;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -27,6 +28,7 @@ import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
@@ -38,13 +40,13 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
-     * Provides a DiskLruCache instance scoped to this project.
+     * Provides a string-specialized disk cache instance scoped to this project.
      *
-     * <p>Implementations (MainProject) should return a properly initialized DiskLruCache. WorktreeProject will forward
-     * to its MainProject parent.
+     * <p>Implementations (MainProject) should return a properly initialized StringDiskCache.
+     * WorktreeProject will forward to its MainProject parent.
      */
-    default DiskLruCache getDiskCache() {
-        throw new UnsupportedOperationException();
+    default IStringDiskCache getDiskCache() {
+        return new IStringDiskCache.NoopDiskCache();
     }
 
     /**
@@ -61,8 +63,22 @@ public interface IProject extends AutoCloseable {
     }
 
     /** All files in the project, including decompiled dependencies that are not in the git repo. */
+    @Blocking
     default Set<ProjectFile> getAllFiles() {
         return Set.of();
+    }
+
+    /**
+     * Returns true if this project contains no analyzable source files.
+     * A project is considered "empty" when none of its files have extensions
+     * matching any language in Languages.ALL_LANGUAGES (excluding NONE).
+     *
+     * This intentionally ignores configuration files like AGENTS.md, .brokk/**,
+     * .gitignore, etc. since those don't have analyzable extensions.
+     */
+    @Blocking
+    default boolean isEmptyProject() {
+        return false;
     }
 
     /**
@@ -80,17 +96,19 @@ public interface IProject extends AutoCloseable {
                 .collect(Collectors.toSet());
     }
 
+    default Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
+        return files;
+    }
+
     default void invalidateAllFiles() {}
 
     /**
-     * Checks if a directory is ignored by gitignore rules.
-     * This is used by BuildAgent to identify excluded directories for LLM context.
-     * Uses explicit gitignore validation with isDirectory=true rather than inferring from absence.
+     * Check if a path (file or directory) is ignored by gitignore rules.
      *
-     * @param directoryRelPath Path relative to project root
-     * @return true if the directory is ignored by gitignore rules, false otherwise
+     * @param relPath Path relative to project root
+     * @return true if the path is ignored by gitignore rules, false otherwise
      */
-    default boolean isDirectoryIgnored(Path directoryRelPath) {
+    default boolean isGitignored(Path relPath) {
         return false; // Conservative default: assume not ignored
     }
 
@@ -140,6 +158,14 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default void setBuildDetails(BuildAgent.BuildDetails details) {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setRepo(IGitRepo repo) {
+        throw new UnsupportedOperationException();
+    }
+
     default CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
@@ -176,6 +202,11 @@ public interface IProject extends AutoCloseable {
     // JDK configuration: project-scoped JAVA_HOME setting (path or sentinel)
     default @Nullable String getJdk() {
         return null;
+    }
+
+    /** Returns true if the user has explicitly configured a JDK override in this workspace. */
+    default boolean hasJdkOverride() {
+        return false;
     }
 
     default void setJdk(@Nullable String jdkHome) {}
@@ -310,7 +341,17 @@ public interface IProject extends AutoCloseable {
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
     // Primary build language configuration
+    @Blocking
     default Language getBuildLanguage() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * EDT-safe accessor for build language. Returns the configured language if available,
+     * or Languages.NONE as a safe fallback if the cache is not yet populated.
+     * Use this method on the EDT instead of getBuildLanguage().
+     */
+    default Language computedBuildLanguage() {
         throw new UnsupportedOperationException();
     }
 
@@ -332,6 +373,14 @@ public interface IProject extends AutoCloseable {
 
     /** Sets a UI filter property for persistence across sessions. */
     default void setUiFilterProperty(String key, @Nullable String value) {}
+
+    /** Gets the list of expanded directory paths in the project tree (relative to project root). */
+    default List<Path> getExpandedTreePaths() {
+        return List.of();
+    }
+
+    /** Sets the list of expanded directory paths in the project tree (relative to project root). */
+    default void setExpandedTreePaths(List<Path> paths) {}
 
     default boolean getArchitectRunInWorktree() {
         throw new UnsupportedOperationException();
@@ -355,7 +404,15 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default SessionRegistry getSessionRegistry() {
+        throw new UnsupportedOperationException();
+    }
+
     default SessionManager getSessionManager() {
+        throw new UnsupportedOperationException();
+    }
+
+    default String getRemoteProjectName() {
         throw new UnsupportedOperationException();
     }
 
@@ -409,8 +466,44 @@ public interface IProject extends AutoCloseable {
         return Set.of();
     }
 
-    default Set<String> getExcludedDirectories() {
+    /**
+     * Returns the set of exclusion patterns for code intelligence.
+     * Patterns can be simple names (e.g., "node_modules") or globs (e.g., "*.svg").
+     */
+    default Set<String> getExclusionPatterns() {
         return Set.of();
+    }
+
+    /**
+     * Returns exclusion patterns that are simple directory/file names (no wildcards).
+     * Convenience method for callers that need Path-based exclusions.
+     */
+    default Set<String> getExcludedDirectories() {
+        return getExclusionPatterns().stream()
+                .filter(p -> !p.contains("*") && !p.contains("?"))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Returns exclusion patterns that contain wildcards (glob patterns).
+     * Convenience method for callers that need only glob-style patterns.
+     */
+    default Set<String> getExcludedGlobPatterns() {
+        return getExclusionPatterns().stream()
+                .filter(p -> p.contains("*") || p.contains("?"))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Check if a path (file or directory) is excluded by any pattern.
+     * Implementations should cache compiled patterns for efficiency.
+     *
+     * @param relativePath the relative path to check (e.g., "src/main/java" or "node_modules/foo/bar.js")
+     * @param isDirectory true if the path is a directory (skips Extension pattern checks like *.svg)
+     * @return true if the path is excluded
+     */
+    default boolean isPathExcluded(String relativePath, boolean isDirectory) {
+        return false;
     }
 
     default IConsoleIO getConsoleIO() {

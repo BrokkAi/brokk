@@ -12,6 +12,8 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.prompts.CodePrompts;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
@@ -21,19 +23,26 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
     Logger logger = LogManager.getLogger(IContextManager.class);
+
+    default boolean undoContext() throws InterruptedException {
+        throw new UnsupportedOperationException();
+    }
 
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
@@ -61,8 +70,8 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default Collection<? extends ChatMessage> getHistoryMessages() {
-        return List.of();
+    default Collection<ChatMessage> getHistoryMessages() {
+        return CodePrompts.instance.getHistoryMessages(liveContext());
     }
 
     /**
@@ -82,6 +91,9 @@ public interface IContextManager {
          * @param newCtx The new context state.
          */
         void contextChanged(Context newCtx);
+
+        /** Called when the task list data has been modified. */
+        default void onTaskListChanged(TaskList.TaskListData data) {}
     }
 
     /**
@@ -135,7 +147,8 @@ public interface IContextManager {
     @Blocking
     default Set<ProjectFile> getFilesInContext() {
         return liveContext()
-                .fileFragments()
+                .allFragments()
+                .filter(f -> f.getType().isPath())
                 .flatMap(cf -> cf.files().join().stream())
                 .collect(Collectors.toSet());
     }
@@ -149,7 +162,7 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default <T> Future<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+    default <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
         try {
             return CompletableFuture.completedFuture(task.call());
         } catch (Exception e) {
@@ -157,9 +170,26 @@ public interface IContextManager {
         }
     }
 
-    default List<ProjectFile> getTestFiles() {
+    /**
+     * Submits a background task that doesn't return a result.
+     *
+     * @param taskDescription a description of the task
+     * @param task the task to execute
+     * @return a {@link Future} representing pending completion of the task
+     */
+    default CompletableFuture<Void> submitBackgroundTask(String taskDescription, Runnable task) {
+        return submitBackgroundTask(taskDescription, () -> {
+            task.run();
+            return null;
+        });
+    }
+
+    default Set<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
-        return allFiles.stream().filter(ContextManager::isTestFile).toList();
+        var analyzer = getAnalyzerWrapper().getNonBlocking();
+        return allFiles.stream()
+                .filter(f -> ContextManager.isTestFile(f, analyzer))
+                .collect(Collectors.toSet());
     }
 
     default IAnalyzerWrapper getAnalyzerWrapper() {
@@ -193,7 +223,7 @@ public interface IContextManager {
     }
 
     default AbstractService getService() {
-        throw new UnsupportedOperationException();
+        return new OfflineService(getProject());
     }
 
     default void reportException(Throwable th) {}
@@ -208,6 +238,25 @@ public interface IContextManager {
     default void addFiles(Collection<ProjectFile> path) {}
 
     default IProject getProject() {
+        throw new UnsupportedOperationException();
+    }
+
+    default ContextManager.TaskScope beginTask(
+            String input, boolean group, boolean compress, @Nullable String taskDescription) {
+        throw new UnsupportedOperationException();
+    }
+
+    default ContextManager.TaskScope beginTask(
+            String input, boolean groupAndCompress, @Nullable String taskDescription) {
+        return beginTask(input, groupAndCompress, groupAndCompress, taskDescription);
+    }
+
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
+    default ContextManager.TaskScope beginTaskUngrouped(String input) {
+        return beginTask(input, false, false, null);
+    }
+
+    default ContextManager.TaskScope anonymousScope() {
         throw new UnsupportedOperationException();
     }
 
@@ -253,5 +302,48 @@ public interface IContextManager {
     }
 
     @Blocking
-    default void compressHistory() throws InterruptedException {}
+    default void compressGlobalHistory() throws InterruptedException {
+        if (liveContext().getTaskHistory().isEmpty()) {
+            getIo().showNotification(IConsoleIO.NotificationRole.INFO, "No history to compress.");
+            return;
+        }
+
+        var interrupted = new AtomicReference<InterruptedException>();
+        pushContext(ctx -> {
+            try {
+                return compressHistory(ctx);
+            } catch (InterruptedException e) {
+                // user may interrupt
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        if (interrupted.get() != null) {
+            throw interrupted.get();
+        }
+        getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
+    }
+
+    @Blocking
+    default Context compressHistory(Context ctx) throws InterruptedException {
+        return ctx;
+    }
+
+    @Blocking
+    default CompletableFuture<String> summarizeTaskForConversation(String taskText) {
+        return CompletableFuture.completedFuture(taskText);
+    }
+
+    @Nullable
+    default UUID getCurrentSessionId() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void reloadCurrentSessionAsync() {
+        throw new UnsupportedOperationException();
+    }
+
+    default CompletableFuture<Void> createSessionAsync(String name) {
+        throw new UnsupportedOperationException();
+    }
 }

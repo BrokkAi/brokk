@@ -1,11 +1,14 @@
 package ai.brokk.agents;
 
+import static ai.brokk.project.FileFilteringService.normalizeExclusionPattern;
+import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
@@ -13,6 +16,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.project.IProject;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildOutputPreprocessor;
@@ -22,6 +26,9 @@ import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentPython;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ShellConfig;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -44,10 +51,13 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -55,6 +65,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -88,11 +99,30 @@ public class BuildAgent {
     private @Nullable String abortReason = null;
     // Field to store directories to exclude from code intelligence
     private List<String> currentExcludedDirectories = new ArrayList<>();
+    // Patterns that came directly from the LLM (not gitignore baseline)
+    private Set<String> llmAddedPatterns = Set.of();
 
     public BuildAgent(IProject project, Llm llm, ToolRegistry globalRegistry) {
         this.project = project;
         this.llm = llm;
         this.globalRegistry = globalRegistry;
+    }
+
+    /**
+     * Returns patterns that came directly from the LLM (not gitignore baseline).
+     * Call this after execute() to get patterns for UI highlighting.
+     */
+    public Set<String> getLlmAddedPatterns() {
+        return llmAddedPatterns;
+    }
+
+    /**
+     * Returns the details reported by the tool, for testing only.
+     */
+    @VisibleForTesting
+    @Nullable
+    BuildDetails getReportedDetails() {
+        return reportedDetails;
     }
 
     /**
@@ -109,7 +139,7 @@ public class BuildAgent {
 
         // build message containing root directory contents
         ToolExecutionRequest initialRequest = ToolExecutionRequest.builder()
-                .name("listFiles")
+                .name("listTrackedFiles")
                 .arguments("{\"directoryPath\": \".\"}") // Request root dir
                 .build();
         ToolExecutionResult initialResult = tr.executeTool(initialRequest);
@@ -151,28 +181,41 @@ public class BuildAgent {
         var addedFromGitignore = new ArrayList<String>();
         if (project.hasGit()) {
             try {
-                // Walk the full directory tree to find gitignored directories.
-                // Note: This full tree walk is acceptable here because it's a one-time operation
-                // at agent startup, not in the hot filtering path. For frequent file filtering
-                // operations (like AbstractProject.applyFiltering()), we use cached IgnoreNode
-                // with direct path checking instead.
-                try (var dirStream = Files.walk(project.getRoot())) {
-                    dirStream
-                            .filter(Files::isDirectory)
-                            .filter(path -> !path.equals(project.getRoot())) // Skip root
-                            .map(path -> project.getRoot().relativize(path))
-                            .filter(relPath -> !relPath.toString().startsWith(".")) // Skip hidden dirs like .git
-                            .filter(relPath -> {
-                                // Explicitly check if directory is gitignored using proper gitignore semantics
-                                // This prevents false positives from empty or non-code directories
-                                return project.isDirectoryIgnored(relPath);
-                            })
-                            .forEach(relPath -> {
-                                var dirName = relPath.toString();
-                                this.currentExcludedDirectories.add(dirName);
-                                addedFromGitignore.add(dirName);
-                            });
-                }
+                // Walk the directory tree to find gitignored directories.
+                // Uses walkFileTree to skip subtrees once a directory is known-ignored,
+                // avoiding descent into node_modules/, target/, .git/, etc.
+                var projectRoot = project.getRoot();
+
+                Files.walkFileTree(projectRoot, new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                        if (dir.equals(projectRoot)) {
+                            return FileVisitResult.CONTINUE;
+                        }
+
+                        var relPath = projectRoot.relativize(dir);
+                        var unixPath = toUnixPath(relPath);
+
+                        // Skip hidden directories like .git
+                        if (unixPath.startsWith(".")) {
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+
+                        // Check if this directory is gitignored
+                        if (project.isGitignored(relPath)) {
+                            currentExcludedDirectories.add(unixPath);
+                            addedFromGitignore.add(unixPath);
+                            return FileVisitResult.SKIP_SUBTREE; // Don't descend into ignored dirs
+                        }
+
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        return FileVisitResult.CONTINUE; // We only care about directories
+                    }
+                });
 
             } catch (IOException e) {
                 logger.warn("Error analyzing gitignore directory exclusions: {}", e.getMessage());
@@ -192,8 +235,8 @@ public class BuildAgent {
 
             // 4. Add tools
             // Get specifications for ALL tools the agent might use in this turn, from the local registry.
-            var tools = new ArrayList<>(
-                    tr.getTools(List.of("listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
+            var tools = new ArrayList<>(tr.getTools(List.of(
+                    "listTrackedFiles", "listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
             if (chatHistory.size() > 1) {
                 // allow terminal tools
                 tools.addAll(tr.getTools(List.of("reportBuildDetails", "abortBuildDetails")));
@@ -325,7 +368,9 @@ public class BuildAgent {
         String wrapperScriptInstruction;
         if (Environment.isWindows()) {
             wrapperScriptInstruction =
-                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).";
+                    """
+                    Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).
+                    Since the command will run in PowerShell, use the `--%` stop-parsing token immediately after the command or wrapper script to avoid quoting issues (e.g., `mvnw.cmd --% compile`, `gradlew.bat --% classes`).""";
         } else {
             wrapperScriptInstruction =
                     "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. ./gradlew, ./mvnw).";
@@ -350,10 +395,13 @@ public class BuildAgent {
 
                 Then call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
                 Examples of when to abort:
-                - `listFiles(".")` returns "No files found"
-                - `listFiles(".")` returns files but none are recognized build configuration files
+                - `listTrackedFiles(".")` returns "No tracked files found"
+                - `listTrackedFiles(".")` returns files but none are recognized build configuration files
                 - Root directory contains only documentation files (*.md, *.txt, LICENSE, etc.) and no source code or build files
                 - After checking root directory, no recognized build system or project structure is found
+
+                Note: `listTrackedFiles` shows all git-tracked files (unfiltered), while `listFiles` respects exclusion patterns.
+                Use `listTrackedFiles` to discover build configurations, then `listFiles` or other tools to explore filtered content.
 
                 When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
@@ -364,26 +412,53 @@ public class BuildAgent {
                 | Build tool        | One-liner a user could write
                 | ----------------- | ------------------------------------------------------------------------
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
-                | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^-last}},{{/-last}}{{/classes}}`
+                | **Maven**         | `mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                | **Go**            | `go test -run '{{#classes}}{{value}}{{^-last}} | {{/-last}}{{/classes}}`
-                | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^-last}} | {{/-last}}{{/classes}}"`
-                | **pytest**        | `uv sync && pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
-                | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
+                | **Go**            | `go test -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
+                | **.NET CLI**      | `dotnet test --verbosity quiet --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}}|{{/last}}{{/classes}}"`
+                | **Cargo**         | `cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}`
+                | **pytest**        | `uv sync && pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **Poetry**        | `poetry install --no-interaction && poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **Jest**          | `jest --silent {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **npm**           | `npm test --silent -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **RSpec**         | `bundle exec rspec --format progress {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **PHPUnit**       | `./vendor/bin/phpunit --no-progress {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
 
                 %s
                 Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
 
-                A baseline set of excluded directories has been established from build conventions and .gitignore.
+                A baseline set of excluded directories has been established from build conventions and .gitignore: %s
                 When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                 you identify that should be excluded from code intelligence, beyond this baseline.
-                IMPORTANT: Only provide literal directory paths. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
-                these are already handled by .gitignore processing.
+                IMPORTANT:
+                - Only suggest directories that ACTUALLY EXIST in this project - verify before including
+                - Only provide literal directory names. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
+                  these are already handled by .gitignore processing.
+
+                Use the `excludedFilePatterns` parameter to specify patterns for files that add cost without value.
+                IMPORTANT pattern format rules:
+                - Only suggest patterns for files that ACTUALLY EXIST in this project
+                - For file extensions, use simple `*.ext` format (e.g., `*.svg`, `*.png`) - do NOT use `**/*.ext`
+                - For specific filenames, use the literal name (e.g., `package-lock.json`) - do NOT use `**/filename`
+                - Do NOT duplicate directories here - if a directory is in `excludedDirectories`, don't add it as a pattern
+
+                Common file pattern exclusions (only include if files with these extensions exist in this project):
+                - Lock files: package-lock.json, yarn.lock, pnpm-lock.yaml
+                - Binary/media files: *.svg, *.png, *.gif, *.jpg, *.woff, *.ttf
+                - Minified files: *.min.js, *.min.css
+                - Build artifacts: *.jar (if not needed for analysis)
+
+                Do NOT exclude: configuration files, type definitions (*.d.ts, ddl files, etc), schema files (OpenAPI, GraphQL, Protobuf sources, etc), or test code.
+
+                This project's primary language is %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
+                The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
                 """
-                        .formatted(wrapperScriptInstruction)));
+                        .formatted(
+                                wrapperScriptInstruction,
+                                currentExcludedDirectories,
+                                project.getBuildLanguage().name())));
 
         // Add existing history
         messages.addAll(chatHistory);
@@ -394,6 +469,26 @@ public class BuildAgent {
                         "Determine if this project has a recognizable build system. If build configuration files are found, gather the development build details and report using 'reportBuildDetails'. If no build files are found or the project structure is unclear, call 'abortBuildDetails' with an explanation."));
 
         return messages;
+    }
+
+    @Tool("List all tracked files in a directory, ignoring exclusion patterns. Use '.' for the project root.")
+    public String listTrackedFiles(
+            @P("Directory path relative to the project root (e.g., '.', 'src/main/java')") String directoryPath) {
+        if (directoryPath.isBlank()) {
+            throw new IllegalArgumentException("Directory path cannot be empty");
+        }
+
+        // Normalize path for filtering (remove leading/trailing slashes, handle '.')
+        var normalizedPath = Path.of(directoryPath).normalize();
+
+        logger.debug(
+                "BuildAgent listing tracked files for directory path: '{}' (normalized to `{}`)",
+                directoryPath,
+                normalizedPath);
+
+        // Use tracked files (unfiltered) to ensure build files are visible during discovery
+        // This is critical: getAllFiles() applies exclusion patterns which may hide build configs
+        return SearchTools.formatFilesInDirectory(project.getRepo().getTrackedFiles(), normalizedPath, directoryPath);
     }
 
     @Tool("Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
@@ -407,22 +502,66 @@ public class BuildAgent {
             @P(
                             "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
-            @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
-                    List<String> excludedDirectories) {
-        // Combine baseline excluded directories with those suggested by the LLM
-        // Filter out glob patterns defensively even though the prompt instructs against them
-        var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
+            @P(
+                            "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
+                    List<String> excludedDirectories,
+            @P(
+                            "List of file patterns to exclude. Use '*.ext' for extensions (e.g., '*.svg'), literal names for specific files (e.g., 'package-lock.json'). Do NOT use **/ prefix or duplicate directories.")
+                    List<String> excludedFilePatterns) {
+        logger.debug("Raw excludedDirectories from LLM: {}", excludedDirectories);
+        logger.debug("Raw excludedFilePatterns from LLM: {}", excludedFilePatterns);
+        logger.debug("Baseline excludedDirectories (from gitignore, not stored): {}", currentExcludedDirectories);
+
+        // Only store LLM-suggested patterns, NOT the gitignore baseline
+        // Gitignore exclusions are handled separately by FileFilteringService
+        // Also filter out directories that don't actually exist
+        var projectRoot = project.getRoot();
+        var llmDirPatterns = excludedDirectories.stream()
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .filter(s -> !containsGlobPattern(s))
-                .map(s -> Path.of(s).normalize())
-                .map(Path::toString)
+                .map(s -> Path.of(s).normalize().toString())
+                .filter(s -> {
+                    var exists = Files.isDirectory(projectRoot.resolve(s));
+                    if (!exists) {
+                        logger.debug("Filtering out non-existent directory: {}", s);
+                    }
+                    return exists;
+                })
                 .collect(Collectors.toSet());
 
+        var filePatterns = excludedFilePatterns.stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        logger.debug("Processed LLM dirExcludes (verified existing): {}", llmDirPatterns);
+        logger.debug("Processed filePatterns: {}", filePatterns);
+
+        // Load existing user-added patterns and merge with LLM suggestions
+        // This preserves patterns the user added manually in the UI
+        var existingPatterns = project.getExclusionPatterns();
+        logger.debug("Existing user patterns (will be preserved): {}", existingPatterns);
+
+        // Merge: existing patterns + LLM suggestions (gitignore handled separately)
+        var finalPatterns = new LinkedHashSet<String>();
+        finalPatterns.addAll(existingPatterns);
+        finalPatterns.addAll(llmDirPatterns);
+        finalPatterns.addAll(filePatterns);
+
+        // Deduplicate against gitignore
+        var deduplicatedPatterns = removeGitignoreDuplicates(finalPatterns);
+
+        // Track LLM patterns after deduplication (UI shows what's actually stored)
+        this.llmAddedPatterns = new LinkedHashSet<>(llmDirPatterns);
+        this.llmAddedPatterns.addAll(filePatterns);
+        this.llmAddedPatterns.retainAll(deduplicatedPatterns);
+
+        logger.debug("Final exclusionPatterns (existing + LLM, deduplicated): {}", deduplicatedPatterns);
+        logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
-                buildLintCommand, testAllCommand, testSomeCommand, finalExcludes, defaultEnvForProject());
-        logger.debug(
-                "reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
+                buildLintCommand, testAllCommand, testSomeCommand, deduplicatedPatterns, defaultEnvForProject());
+        logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
 
@@ -464,34 +603,127 @@ public class BuildAgent {
         return s.contains("*") || s.contains("?") || s.contains("[") || s.contains("]");
     }
 
+    private static boolean isFileExtensionPattern(String pattern) {
+        return pattern.startsWith("*.") && !pattern.contains("/");
+    }
+
+    /**
+     * Remove patterns that are redundant because they match gitignored directories.
+     * FileFilteringService already applies gitignore rules at runtime, so storing
+     * gitignored directories in exclusion patterns is redundant.
+     */
+    @VisibleForTesting
+    Set<String> removeGitignoreDuplicates(Set<String> patterns) {
+        if (!project.hasGit()) {
+            return patterns;
+        }
+
+        var result = new LinkedHashSet<String>();
+        var removedCount = 0;
+
+        for (String pattern : patterns) {
+            String normalized = normalizeExclusionPattern(pattern);
+
+            if (isFileExtensionPattern(normalized)) {
+                result.add(pattern);
+                continue;
+            }
+
+            if (containsGlobPattern(normalized)) {
+                result.add(pattern);
+                continue;
+            }
+
+            Path patternPath = Path.of(normalized);
+            if (project.isGitignored(patternPath)) {
+                logger.debug("Removing redundant gitignored pattern: {}", pattern);
+                removedCount++;
+            } else {
+                result.add(pattern);
+            }
+        }
+
+        if (removedCount > 0) {
+            logger.info("Removed {} gitignore-redundant patterns from exclusions", removedCount);
+        }
+
+        return result;
+    }
+
     /** Holds semi-structured information about a project's build process */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildDetails(
             String buildLintCommand,
             String testAllCommand,
             String testSomeCommand,
-            @JsonDeserialize(as = java.util.LinkedHashSet.class) Set<String> excludedDirectories,
-            @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
-                    Map<String, String> environmentVariables) {
+            @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+                    Set<String> exclusionPatterns,
+            @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+                    Map<String, String> environmentVariables,
+            @Nullable Integer maxBuildAttempts) {
 
         @VisibleForTesting
-        BuildDetails(
+        public BuildDetails(
+                String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null);
+        }
+
+        public BuildDetails(
                 String buildLintCommand,
                 String testAllCommand,
                 String testSomeCommand,
-                Set<String> excludedDirectories) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, Map.of());
+                Set<String> exclusionPatterns,
+                Map<String, String> environmentVariables) {
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null);
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of());
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null);
+
+        /**
+         * Migrate legacy excludedDirectories to exclusionPatterns.
+         * Called during JSON deserialization for backward compatibility.
+         */
+        @JsonCreator
+        public static BuildDetails fromJson(
+                @JsonProperty("buildLintCommand") @Nullable String buildLintCommand,
+                @JsonProperty("testAllCommand") @Nullable String testAllCommand,
+                @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
+                @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
+                @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
+                @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables,
+                @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts) {
+            // Migrate legacy excludedDirectories to exclusionPatterns
+            Set<String> patterns = new LinkedHashSet<>();
+            if (exclusionPatterns != null) {
+                patterns.addAll(exclusionPatterns);
+            }
+            if (excludedDirectories != null) {
+                patterns.addAll(excludedDirectories);
+            }
+            return new BuildDetails(
+                    buildLintCommand != null ? buildLintCommand : "",
+                    testAllCommand != null ? testAllCommand : "",
+                    testSomeCommand != null ? testSomeCommand : "",
+                    patterns,
+                    environmentVariables != null ? environmentVariables : Map.of(),
+                    maxBuildAttempts);
+        }
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
     @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
+        return determineVerificationCommand(ctx, null);
+    }
+
+    /** Determine the best verification command using the provided Context and an optional override. */
+    @Blocking
+    public static @Nullable String determineVerificationCommand(Context ctx, @Nullable BuildDetails override)
+            throws InterruptedException {
         var cm = ctx.getContextManager();
 
         // Retrieve build details from the project associated with the ContextManager
-        BuildDetails details = cm.getProject().awaitBuildDetails();
+        BuildDetails details = override != null ? override : cm.getProject().awaitBuildDetails();
 
         if (details.equals(BuildDetails.EMPTY)) {
             logger.warn("No build details available, cannot determine verification command.");
@@ -512,11 +744,12 @@ public class BuildAgent {
         logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace (Context-based).");
 
         // Get ProjectFiles from editable and read-only fragments
-        var projectFilesFromEditableOrReadOnly =
-                ctx.fileFragments().flatMap(fragment -> fragment.files().join().stream()); // No analyzer
+        var projectFilesFromEditableOrReadOnly = ctx.allFragments()
+                .filter(f -> f.getType().isPath())
+                .flatMap(fragment -> fragment.files().join().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        var projectFilesFromSkeletons = ctx.virtualFragments()
+        var projectFilesFromSkeletons = ctx.allFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(skeletonFragment -> skeletonFragment.files().join().stream()); // No analyzer
 
@@ -525,8 +758,10 @@ public class BuildAgent {
                 .collect(Collectors.toSet());
 
         // Check if any of the identified project test files are present in the current workspace set
-        var workspaceTestFiles =
-                workspaceFiles.stream().filter(ContextManager::isTestFile).toList();
+        var analyzer = cm.getAnalyzer();
+        var workspaceTestFiles = workspaceFiles.stream()
+                .filter(f -> ContextManager.isTestFile(f, analyzer))
+                .toList();
 
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {
@@ -541,6 +776,15 @@ public class BuildAgent {
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
+    }
+
+    /**
+     * Determine and interpolate the "run some tests" command for the current workspace.
+     */
+    public static String getBuildLintSomeCommand(
+            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            throws InterruptedException {
+        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null);
     }
 
     /**
@@ -564,7 +808,10 @@ public class BuildAgent {
      *  3) The import root of each file established by walking up until no __init__.py.
      */
     public static String getBuildLintSomeCommand(
-            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            IContextManager cm,
+            BuildDetails details,
+            Collection<ProjectFile> workspaceTestFiles,
+            @Nullable String pythonVersionOverride)
             throws InterruptedException {
 
         String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
@@ -577,14 +824,17 @@ public class BuildAgent {
         boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
 
         if (!isFilesBased && !isClassesBased && !isModulesBased) {
-            logger.debug(
-                    "Template lacks {{#files}}, {{#classes}}, or {{#modules}}; using build/lint: {}",
-                    details.buildLintCommand());
+            cm.getIo()
+                    .systemNotify(
+                            "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, or {{#modules}}). Please update the build configuration in Settings.",
+                            "Build Configuration Warning",
+                            JOptionPane.WARNING_MESSAGE);
             return details.buildLintCommand();
         }
 
         final Path projectRoot = cm.getProject().getRoot();
-        String pythonVersion = getPythonVersionForProject(projectRoot);
+        String pythonVersion =
+                pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
 
         List<String> targetItems;
 
@@ -733,7 +983,7 @@ public class BuildAgent {
             return "";
         }
 
-        String s = rel.toString().replace('\\', '/');
+        String s = toUnixPath(rel);
         if (s.endsWith(".py")) s = s.substring(0, s.length() - 3);
         if (s.endsWith("/__init__")) s = s.substring(0, s.length() - "/__init__".length());
         while (s.startsWith("/")) s = s.substring(1);
@@ -823,12 +1073,48 @@ public class BuildAgent {
      */
     @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
+        return runVerification(cm, null);
+    }
+
+    /**
+     * Run the verification build for the current project with optional build details override.
+     */
+    @Blocking
+    public static String runVerification(IContextManager cm, @Nullable BuildDetails override)
+            throws InterruptedException {
         var interrupted = new AtomicReference<InterruptedException>(null);
         var updated = cm.pushContext(ctx -> {
             try {
-                return runVerification(ctx);
+                return runVerification(ctx, override);
             } catch (InterruptedException e) {
                 // Preserve interrupt status and defer propagation until after pushContext returns
+                Thread.currentThread().interrupt();
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        var ie = interrupted.get();
+        if (ie != null) {
+            throw ie;
+        }
+        return updated.getBuildError();
+    }
+
+    /**
+     * Run a caller-specified command (intended for ISSUE-mode gates, but reusable), stream output to the console, and
+     * update the session's Build Results fragment.
+     *
+     * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
+     * text.
+     */
+    @Blocking
+    public static String runExplicitCommand(IContextManager cm, String command, @Nullable BuildDetails override)
+            throws InterruptedException {
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
+            try {
+                return runExplicitCommand(ctx, command, override);
+            } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 interrupted.set(e);
                 return ctx;
@@ -847,12 +1133,23 @@ public class BuildAgent {
      */
     @Blocking
     public static Context runVerification(Context ctx) throws InterruptedException {
+        return runVerification(ctx, null);
+    }
+
+    /**
+     * Context-based overload that performs build/check with an optional build details override.
+     */
+    @Blocking
+    public static Context runVerification(Context ctx, @Nullable BuildDetails override) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        var verificationCommand = determineVerificationCommand(ctx);
+        var verificationCommand = determineVerificationCommand(ctx, override);
         if (verificationCommand == null || verificationCommand.isBlank()) {
-            io.llmOutput("\nNo verification command specified, skipping build/check.", ChatMessageType.CUSTOM);
+            io.llmOutput(
+                    "\nNo verification command specified, skipping build/check.",
+                    ChatMessageType.CUSTOM,
+                    LlmOutputMeta.DEFAULT);
             return ctx; // unchanged
         }
 
@@ -861,17 +1158,51 @@ public class BuildAgent {
             var lock = acquireBuildLock(cm);
             if (lock == null) {
                 logger.warn("Failed to acquire build lock; proceeding without it");
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
             }
             try (var ignored = lock) {
                 logger.debug("Acquired build lock {}", lock.lockFile());
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
             } catch (Exception e) {
                 logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
             }
         } else {
-            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
+        }
+    }
+
+    /**
+     * Context-based overload that performs a caller-specified command and returns an updated Context with the build
+     * results. No pushes are performed here; callers decide when to persist.
+     */
+    @Blocking
+    public static Context runExplicitCommand(Context ctx, String command, @Nullable BuildDetails override)
+            throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+
+        if (command.isBlank()) {
+            io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+            return ctx.withBuildResult(true, "");
+        }
+
+        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
+        if (noConcurrentBuilds) {
+            var lock = acquireBuildLock(cm);
+            if (lock == null) {
+                logger.warn("Failed to acquire build lock; proceeding without it");
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            }
+            try (var ignored = lock) {
+                logger.debug("Acquired build lock {}", lock.lockFile());
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            } catch (Exception e) {
+                logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            }
+        } else {
+            return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
         }
     }
 
@@ -930,18 +1261,20 @@ public class BuildAgent {
     }
 
     /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */
-    private static Context runBuildAndUpdateFragmentInternal(Context ctx, String verificationCommand)
-            throws InterruptedException {
+    private static Context runBuildAndUpdateFragmentInternal(
+            Context ctx, String verificationCommand, @Nullable BuildDetails override) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
+        io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
         io.llmOutput(
-                "\nRunning verification command: \n\n```bash\n" + verificationCommand + "\n```\n",
-                ChatMessageType.CUSTOM);
-        String shellLang = ShellConfig.getShellLanguageFromProject(cm.getProject());
-        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
+                verificationCommand + "\n\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.newMessage().withTerminal(true));
+
         try {
-            var details = cm.getProject().awaitBuildDetails();
+            var details = override != null ? override : cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
             var execCfg = cm.getProject().getShellConfig();
 
@@ -951,20 +1284,57 @@ public class BuildAgent {
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
                     timeout,
                     execCfg,
                     envVars);
-            io.llmOutput("\n```", ChatMessageType.CUSTOM);
 
             logger.debug("Verification command successful. Output: {}", output);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
-            io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
-
-            String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
+            String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
-            return ctx.withBuildResult(false, "Build output:\n" + processed);
+            return ctx.withBuildResult(false, processed);
+        }
+    }
+
+    private static Context runExplicitBuildAndUpdateFragmentInternal(
+            Context ctx, String command, @Nullable BuildDetails override) throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+
+        io.llmOutput(
+                "\nRunning command: \n\n```bash\n" + command + "\n```\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.DEFAULT);
+        String shellLang = ShellConfig.getShellLanguageFromProject(cm.getProject());
+        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
+        try {
+            var details = override != null ? override : cm.getProject().awaitBuildDetails();
+            var envVars = details.environmentVariables();
+            var execCfg = cm.getProject().getShellConfig();
+
+            long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
+            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
+
+            var output = Environment.instance.runShellCommand(
+                    command,
+                    cm.getProject().getRoot(),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
+                    timeout,
+                    execCfg,
+                    envVars);
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
+            logger.debug("Explicit command successful. Output: {}", output);
+            return ctx.withBuildResult(true, "Build succeeded.");
+        } catch (Environment.SubprocessException e) {
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
+            String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
+            String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
+            return ctx.withBuildResult(false, processed);
         }
     }
 

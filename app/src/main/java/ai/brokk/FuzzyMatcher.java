@@ -50,12 +50,6 @@ public class FuzzyMatcher {
         }
     }
 
-    /**
-     * Weight added to the score if the match starts at the very beginning of the text. Equivalent to
-     * PreferStartMatchMatcherWrapper.START_MATCH_WEIGHT, but reduced.
-     */
-    private static final int START_MATCH_WEIGHT = 2000; // Reduced from 10000
-
     /** Camel-hump matching is >O(n), so for larger prefixes we fall back to simpler matching to avoid pauses. */
     private static final int MAX_CAMEL_HUMP_MATCHING_LENGTH = 100;
 
@@ -199,7 +193,12 @@ public class FuzzyMatcher {
         var headFragment = requireNonNull(fragments.getHead());
         int startIndex = headFragment.getStartOffset();
         if (startIndex == 0) {
-            degree += START_MATCH_WEIGHT;
+            degree += ScoringConstants.START_MATCH_BONUS;
+        }
+
+        // Reward exact matches (case-insensitive) where the pattern covers the entire name.
+        if (fragments.size() == 1 && startIndex == 0 && fragments.getLast().getEndOffset() == name.length()) {
+            degree += ScoringConstants.EXACT_MATCH_BONUS;
         }
 
         // Add a small proximity bonus that favors earlier starts smoothly (tunable).
@@ -1110,20 +1109,27 @@ public class FuzzyMatcher {
     /**
      * Checks whether the final matched fragment ends right before a hierarchy separator in the name that denotes nested
      * code units (e.g., '.', followed by an uppercase letter). This should not trigger for filename extensions like
-     * ".java" or ".ts".
+     * ".java" or ".ts", nor should it trigger if the match is at the very end of the string.
      */
     private static boolean endsBeforeSeparator(String name, FList<TextRange> fragments) {
-        var last = fragments.getLast();
-        int end = last.getEndOffset();
-        if (end >= name.length()) {
+        // Find the absolute end of the match by looking at the last fragment's end offset.
+        int matchEnd = 0;
+        for (var range : fragments) {
+            matchEnd = Math.max(matchEnd, range.getEndOffset());
+        }
+
+        // Always allow matches that cover the tail of the string.
+        if (matchEnd >= name.length()) {
             return false;
         }
-        if (name.charAt(end) != '.') {
-            return false;
+
+        // Allow the match if it's a dot followed by a lowercase letter (likely a file extension).
+        // Only return true if it's a dot followed by an uppercase letter and it's NOT at the end of the string.
+        if (name.charAt(matchEnd) == '.') {
+            int next = matchEnd + 1;
+            return next < name.length() && Character.isUpperCase(name.charAt(next));
         }
-        // Heuristic: treat dot before an Uppercase letter as nested-code separator,
-        // but ignore dot before a lowercase extension (e.g., ".java").
-        int next = end + 1;
-        return next < name.length() && Character.isUpperCase(name.charAt(next));
+
+        return false;
     }
 }

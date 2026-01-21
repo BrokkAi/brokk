@@ -9,6 +9,7 @@ import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
+import java.awt.Component;
 import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
@@ -21,7 +22,9 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import javax.swing.JComponent;
+import javax.swing.JPanel;
 import javax.swing.JViewport;
 import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
@@ -35,7 +38,7 @@ import org.jetbrains.annotations.Nullable;
  * Displays current workspace items as "chips" with a close button to remove them from the workspace.
  * Listens to context changes and updates itself accordingly.
  */
-public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements ThemeAware, Scrollable {
+public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrollable {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -91,18 +94,18 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
             return;
         }
         // Check if click is on blank space (not within any chip component)
-        java.awt.Component clickTarget = getComponentAt(e.getPoint());
+        Component clickTarget = getComponentAt(e.getPoint());
         if (clickTarget != null && clickTarget != WorkspaceItemsChipPanel.this) {
             // Click is within a chip component, ignore
             return;
         }
 
         // Use NoSelection scenario to get standard blank-space actions
-        var scenario = new WorkspacePanel.NoSelection();
-        var actions = scenario.getActions(chrome.getContextPanel());
+        var scenario = new ContextActionsHandler.NoSelection();
+        var actions = scenario.getActions(chrome.getContextActionsHandler());
 
         // Show popup menu using PopupBuilder
-        WorkspacePanel.PopupBuilder.create(chrome).add(actions).show(this, e.getX(), e.getY());
+        ContextActionsHandler.PopupBuilder.create().add(actions).show(this, e.getX(), e.getY());
     }
 
     /**
@@ -160,7 +163,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
     public void applyGlobalStyling(Set<ContextFragment> targets) {
         this.hoveredFragments = readOnly ? Set.of() : targets;
         this.hoveredFragmentIds = Set.copyOf(
-                this.hoveredFragments.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet()));
+                this.hoveredFragments.stream().map(ContextFragment::id).collect(Collectors.toSet()));
         for (var component : getComponents()) {
             if (component instanceof JComponent jc) {
                 jc.repaint();
@@ -190,17 +193,6 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
     }
 
     private void updateChips(List<ContextFragment> fragments) {
-        updateChips(fragments, false);
-    }
-
-    private void updateChips(List<ContextFragment> fragments, boolean fromBackground) {
-        if (!fromBackground && SwingUtilities.isEventDispatchThread()) {
-            var fragmentsCopy = List.copyOf(fragments);
-            contextManager.submitBackgroundTask(
-                    "WorkspaceItemsChipPanel.updateChips", () -> updateChips(fragmentsCopy, true));
-            return;
-        }
-
         logger.debug(
                 "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
                 fragments.size(),
@@ -214,7 +206,6 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
                 .toList();
 
-        // Pre-compute classifications off-EDT
         var classifiedNonSummaries =
                 nonSummaryFragments.stream().map(ChipColorUtils::classify).toList();
 

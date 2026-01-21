@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
+import java.util.Map;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
@@ -321,6 +322,46 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Foo.Field2", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Foo.Field2'!"));
+        }
+    }
+
+    @Test
+    public void testFileSummaryNoSemicolonsAfterImports() throws IOException {
+        // Verify that Scala file summaries do not have semicolons after imports
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk
+
+                                import foo.bar
+
+                                class Foo()
+                                """,
+                        "ai/brokk/Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "ai/brokk/Foo.scala");
+
+            // Verify import statements do not have semicolons in Scala
+            var importStatements = analyzer.importStatementsOf(file);
+            assertFalse(importStatements.isEmpty(), "Should have import statements");
+            for (String importStmt : importStatements) {
+                assertFalse(
+                        importStmt.strip().endsWith(";"),
+                        "Scala import should not end with semicolon, but got: " + importStmt);
+            }
+
+            // Also verify that the class skeleton doesn't have errant semicolons
+            var skeletons = analyzer.getSkeletons(file);
+            var classSkeleton = skeletons.entrySet().stream()
+                    .filter(e -> e.getKey().isClass() && e.getKey().fqName().equals("ai.brokk.Foo"))
+                    .map(Map.Entry::getValue)
+                    .findFirst();
+            assertTrue(classSkeleton.isPresent(), "Should have a class skeleton for Foo");
+            // Class definition line should not have semicolons (Scala style)
+            String firstLine = classSkeleton.get().lines().findFirst().orElse("");
+            assertFalse(
+                    firstLine.endsWith(";"),
+                    "Scala class declaration should not end with semicolon, but got: " + firstLine);
         }
     }
 

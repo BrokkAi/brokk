@@ -2,37 +2,31 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
-import ai.brokk.context.Context;
-import ai.brokk.context.DiffService;
-import ai.brokk.difftool.ui.BrokkDiffPanel;
-import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.SessionManager;
+import ai.brokk.agents.ReviewScope;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.SwingUtil;
+import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialLoadingButton;
-import ai.brokk.gui.git.GitCommitBrowserPanel;
 import ai.brokk.gui.git.GitHubErrorUtil;
-import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
-import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
@@ -47,28 +41,26 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitWorkflow workflowService;
-    private JComboBox<String> sourceBranchComboBox;
-    private JComboBox<String> targetBranchComboBox;
+
+    private FuzzyComboBox<String> sourceBranchComboBox;
+    private FuzzyComboBox<String> targetBranchComboBox;
+
     private JTextField titleField;
     private JTextArea descriptionArea;
     private JLabel descriptionHintLabel; // Hint for description generation source
-    private GitCommitBrowserPanel commitBrowserPanel;
-    private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
     private GitHubAppInstallLabel gitHubRepoInstallWarningLabel;
     private MaterialLoadingButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
 
-    // Review tab components
     private JTabbedPane middleTabbedPane;
-    private JPanel reviewTabPlaceholder;
+    private JPanel sessionsTabPanel;
+    private JTable sessionsTable;
+    private javax.swing.table.DefaultTableModel sessionsTableModel;
+    private JCheckBox selectAllSessionsCheckbox;
 
-    @Nullable
-    private JComponent aggregatedChangesPanel;
-
-    @Nullable
-    private String mergeBaseCommit = null;
+    private final CompletableFuture<Void> sessionSyncFuture;
 
     private volatile boolean sourceBranchNeedsPush = false;
     private volatile int unpushedCommitCount = 0;
@@ -92,6 +84,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         this.preselectedSourceBranch = preselectedSourceBranch;
 
         initializeDialog();
+        this.sessionSyncFuture = this.contextManager.syncSessionsAsync();
         buildLayout();
         setLocationRelativeTo(chrome.getFrame()); // Center after layout is built
     }
@@ -104,7 +97,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void initializeDialog() {
-        setSize(1000, 1000);
+        setSize(1000, 750);
         setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
     }
 
@@ -121,36 +114,15 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         root.setLayout(new BorderLayout());
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10)); // Add padding
 
-        // --- top panel: branch selectors -------------------------------------------------------
+        // --- top panel: branch selectors + PR info ---------------------------------------------
         var topPanel = new JPanel(new BorderLayout());
-        var branchSelectorPanel = createBranchSelectorPanel();
-        topPanel.add(branchSelectorPanel, BorderLayout.NORTH);
+        topPanel.add(createBranchSelectorPanel(), BorderLayout.NORTH);
+        topPanel.add(createPrInfoPanel(), BorderLayout.CENTER);
 
-        // --- title and description panel ----------------------------------------------------
-        var prInfoPanel = createPrInfoPanel();
-        topPanel.add(prInfoPanel, BorderLayout.CENTER);
-
-        // --- middle: commit browser and file list ---------------------------------------------
-        commitBrowserPanel = new GitCommitBrowserPanel(
-                chrome,
-                contextManager,
-                () -> {
-                    /* no-op */
-                },
-                GitCommitBrowserPanel.Options.FOR_PULL_REQUEST);
-        // The duplicate initializations that were here have been removed.
-        // commitBrowserPanel and fileStatusTable are now initialized once above.
-        fileStatusTable = new FileStatusTable();
-
-        // Review tab placeholder
-        reviewTabPlaceholder = new JPanel(new BorderLayout());
-        var reviewPlaceholderLabel = new JLabel("Select branches to see diff summary", SwingConstants.CENTER);
-        reviewPlaceholderLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
-        reviewTabPlaceholder.add(reviewPlaceholderLabel, BorderLayout.CENTER);
-
+        // --- middle: tabbed content (Sessions only) --------------------------------------------
         middleTabbedPane = new JTabbedPane();
-        middleTabbedPane.addTab("Commits", null, commitBrowserPanel, "Commits included in this pull request");
-        middleTabbedPane.addTab("Review", null, reviewTabPlaceholder, "Aggregated diff summary");
+        sessionsTabPanel = createSessionsTabPanel();
+        middleTabbedPane.addTab("Sessions", null, sessionsTabPanel, "Overlapping Brokk sessions");
 
         // --- bottom: buttons ------------------------------------------------------------------
         var buttonPanel = createButtonPanel();
@@ -227,13 +199,14 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     private JPanel createBranchSelectorPanel() {
         var branchPanel = new JPanel(new GridBagLayout());
+
+        // Create combo boxes immediately with loading placeholder
+        sourceBranchComboBox = FuzzyComboBox.forStrings(List.of("Loading..."));
+        targetBranchComboBox = FuzzyComboBox.forStrings(List.of("Loading..."));
+        sourceBranchComboBox.setEnabled(false);
+        targetBranchComboBox.setEnabled(false);
+
         var row = 0;
-
-        // Create combo boxes first
-        targetBranchComboBox = new JComboBox<>();
-        sourceBranchComboBox = new JComboBox<>();
-
-        // Then add them to the panel
         row = addBranchSelectorToPanel(branchPanel, "Target branch:", targetBranchComboBox, row);
         row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox, row);
 
@@ -258,7 +231,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         return branchPanel;
     }
 
-    private int addBranchSelectorToPanel(JPanel parent, String labelText, JComboBox<String> comboBox, int row) {
+    private int addBranchSelectorToPanel(JPanel parent, String labelText, FuzzyComboBox<String> comboBox, int row) {
         var gbc = createGbc(0, row);
         parent.add(new JLabel(labelText), gbc);
 
@@ -309,8 +282,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     /** Simple immutable holder for commits and changed files between two branches. */
     // Fix the UnnecessaryLambda warning by implementing updateBranchFlow as a method
     private void updateBranchFlow() {
-        var target = (String) targetBranchComboBox.getSelectedItem();
-        var source = (String) sourceBranchComboBox.getSelectedItem();
+        var target = targetBranchComboBox.getSelectedItem();
+        var source = sourceBranchComboBox.getSelectedItem();
         if (target != null && source != null) {
             String text = target + " ← " + source + " (" + currentCommits.size() + " commits)";
             if (sourceBranchNeedsPush && unpushedCommitCount > 0) {
@@ -330,7 +303,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void setupBranchListeners() {
-        ActionListener branchChangedListener = e -> {
+        Consumer<String> branchChangedListener = branch -> {
             // Immediately update flow label for responsiveness before async refresh.
             this.currentCommits = Collections.emptyList();
             this.sourceBranchNeedsPush = false;
@@ -339,36 +312,32 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             // Full UI update, including button state, will be handled by refreshCommitList.
             refreshCommitList();
         };
-        targetBranchComboBox.addActionListener(branchChangedListener);
-        sourceBranchComboBox.addActionListener(branchChangedListener);
+
+        targetBranchComboBox.setSelectionChangeListener(branchChangedListener);
+        sourceBranchComboBox.setSelectionChangeListener(branchChangedListener);
     }
 
-    private void updateCommitRelatedUI(
-            List<CommitInfo> newCommits, List<GitRepo.ModifiedFile> newFiles, String commitPanelMessage) {
+    private void updateCommitRelatedUI(List<CommitInfo> newCommits) {
         Collections.reverse(newCommits);
         this.currentCommits = newCommits;
-        commitBrowserPanel.setCommits(newCommits, Set.of(), false, false, commitPanelMessage);
-        fileStatusTable.setFiles(newFiles);
         this.flowUpdater.run();
         updateCreatePrButtonState();
-        updateReviewTab(newFiles);
+        updateSessionsTab(newCommits);
     }
 
     private void refreshCommitList() {
-        this.mergeBaseCommit = null; // Ensure merge base is reset for each refresh
-
-        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+        var sourceBranch = sourceBranchComboBox.getSelectedItem();
+        var targetBranch = targetBranchComboBox.getSelectedItem();
 
         if (sourceBranch == null || targetBranch == null) {
-            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Select branches");
+            updateCommitRelatedUI(Collections.emptyList());
             return;
         }
 
         var contextName = targetBranch + " ← " + sourceBranch;
 
         if (sourceBranch.equals(targetBranch)) {
-            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName);
+            updateCommitRelatedUI(Collections.emptyList());
             return;
         }
 
@@ -376,23 +345,16 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             try {
                 var repo = contextManager.getProject().getRepo();
                 if (!(repo instanceof GitRepo gitRepo)) {
-                    String nonGitMessage = "Project is not a Git repository.";
                     SwingUtilities.invokeLater(() -> {
                         this.sourceBranchNeedsPush = false;
                         this.unpushedCommitCount = 0;
-                        updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), nonGitMessage);
+                        updateCommitRelatedUI(Collections.emptyList());
                     });
                     return Collections.emptyList();
                 }
 
                 // Use GitWorkflowService to get branch diff information
-                var branchDiff = workflowService.diffBetweenBranches(sourceBranch, targetBranch);
-                this.mergeBaseCommit = branchDiff.mergeBase(); // Store merge base from service
-                logger.debug(
-                        "Calculated merge base between {} and {}: {}",
-                        sourceBranch,
-                        targetBranch,
-                        this.mergeBaseCommit);
+                var branchDiff = workflowService.diffBetweenBranches(targetBranch, sourceBranch);
 
                 // Check if source branch needs push (for UI indicator)
                 boolean needsPush = gitRepo.remote().branchNeedsPush(sourceBranch);
@@ -413,7 +375,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 SwingUtilities.invokeLater(() -> {
                     this.sourceBranchNeedsPush = needsPush;
                     this.unpushedCommitCount = unpushedCount;
-                    updateCommitRelatedUI(branchDiff.commits(), branchDiff.files(), contextName);
+                    updateCommitRelatedUI(branchDiff.commits());
                 });
                 return branchDiff.commits();
             } catch (Exception e) {
@@ -421,7 +383,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 SwingUtilities.invokeLater(() -> {
                     this.sourceBranchNeedsPush = false; // Reset on error
                     this.unpushedCommitCount = 0;
-                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName + " (error)");
+                    updateCommitRelatedUI(Collections.emptyList());
                     cancelGenerationWorkersAndClearFields(); // Also clear fields on error
                     descriptionArea.setText("(Could not generate PR details due to error)");
                     titleField.setText("");
@@ -452,8 +414,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     private List<String> getCreatePrBlockers() {
         var blockers = new ArrayList<String>();
-        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+        var sourceBranch = sourceBranchComboBox.getSelectedItem();
+        var targetBranch = targetBranchComboBox.getSelectedItem();
 
         if (currentCommits.isEmpty()) {
             blockers.add("No commits to include in the pull request.");
@@ -482,12 +444,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         if (blockers.isEmpty()) {
             return null;
         }
-        var sb = new StringBuilder("<html>");
-        for (String blocker : blockers) {
-            sb.append("• ").append(blocker).append("<br>");
-        }
-        sb.append("</html>");
-        return sb.toString();
+        return "<html>"
+                + blockers.stream().map(b -> "• " + b).collect(java.util.stream.Collectors.joining("<br>"))
+                + "</html>";
     }
 
     /** Checks whether the dialog has sufficient information to enable PR creation. */
@@ -553,54 +512,75 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             return;
         }
 
-        try {
-            var localBranches = gitRepo.listLocalBranches();
-            var remoteBranches = gitRepo.listRemoteBranches();
+        CompletableFuture.runAsync(() -> {
+            try {
+                var localBranches = gitRepo.listLocalBranches();
+                var remoteBranches = gitRepo.listRemoteBranches();
 
-            var targetBranches = getTargetBranches(remoteBranches);
-            var sourceBranches = getSourceBranches(localBranches, remoteBranches);
+                var targetBranches = getTargetBranches(remoteBranches);
+                var sourceBranches = getSourceBranches(localBranches, remoteBranches);
 
-            populateBranchDropdowns(targetBranches, sourceBranches);
-            setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
+                SwingUtil.runOnEdt(() -> {
+                    populateBranchDropdowns(targetBranches, sourceBranches);
+                    try {
+                        setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
 
-            // If caller asked for a specific source branch, honour it *after*
-            // defaults have been applied (so this wins).
-            if (preselectedSourceBranch != null && sourceBranches.contains(preselectedSourceBranch)) {
-                sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
+                        // If caller asked for a specific source branch, honour it *after*
+                        // defaults have been applied (so this wins).
+                        if (preselectedSourceBranch != null && sourceBranches.contains(preselectedSourceBranch)) {
+                            sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
+                        }
+
+                        // Set up listeners AFTER default items are selected to avoid premature firing during setItems()
+                        setupBranchListeners();
+
+                        this.flowUpdater.run(); // Update label based on defaults
+                        refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and
+                        // update button state
+                    } catch (GitAPIException e) {
+                        logger.error("Error setting default branch selections", e);
+                        updateCommitRelatedUI(Collections.emptyList());
+                    }
+                });
+            } catch (GitAPIException e) {
+                logger.error("Error loading branches for PR dialog", e);
+                SwingUtil.runOnEdt(() -> {
+                    targetBranchComboBox.setItems(List.of("(Error loading branches)"));
+                    sourceBranchComboBox.setItems(List.of("(Error loading branches)"));
+                    targetBranchComboBox.setEnabled(false);
+                    sourceBranchComboBox.setEnabled(false);
+                    updateCommitRelatedUI(Collections.emptyList());
+                });
             }
-
-            // Listeners must be set up AFTER default items are selected to avoid premature firing.
-            setupBranchListeners();
-
-            this.flowUpdater.run(); // Update label based on defaults
-            refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and update button
-            // state
-            // updateCreatePrButtonState(); // No longer needed here, refreshCommitList handles it
-        } catch (GitAPIException e) {
-            logger.error("Error loading branches for PR dialog", e);
-            // Ensure UI is updated consistently on error, using the new helper method
-            SwingUtilities.invokeLater(() ->
-                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches"));
-        }
+        });
     }
 
     private List<String> getTargetBranches(List<String> remoteBranches) {
         return remoteBranches.stream()
-                .filter(branch -> branch.startsWith("origin/"))
-                .filter(branch -> !branch.equals("origin/HEAD"))
-                .toList();
-    }
-
-    private List<String> getSourceBranches(List<String> localBranches, List<String> remoteBranches) {
-        return Stream.concat(localBranches.stream(), remoteBranches.stream())
-                .distinct()
+                .filter(branch -> !branch.endsWith("/HEAD"))
                 .sorted()
                 .toList();
     }
 
+    private List<String> getSourceBranches(List<String> localBranches, List<String> remoteBranches) {
+        // Show local branches first, then remote branches (instead of mixing them alphabetically)
+        var sortedLocal = localBranches.stream().sorted().toList();
+        var sortedRemote = remoteBranches.stream().sorted().toList();
+        return Stream.concat(sortedLocal.stream(), sortedRemote.stream())
+                .distinct()
+                .toList();
+    }
+
     private void populateBranchDropdowns(List<String> targetBranches, List<String> sourceBranches) {
-        targetBranchComboBox.setModel(new DefaultComboBoxModel<>(targetBranches.toArray(new String[0])));
-        sourceBranchComboBox.setModel(new DefaultComboBoxModel<>(sourceBranches.toArray(new String[0])));
+        assert SwingUtilities.isEventDispatchThread() : "populateBranchDropdowns must run on EDT";
+
+        // Update items using new setItems() method
+        targetBranchComboBox.setItems(targetBranches);
+        sourceBranchComboBox.setItems(sourceBranches);
+
+        // Re-enable combo boxes after loading
+        targetBranchComboBox.setEnabled(true);
+        sourceBranchComboBox.setEnabled(true);
     }
 
     private void setDefaultBranchSelections(
@@ -616,17 +596,49 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     @Nullable
     private String findDefaultTargetBranch(List<String> targetBranches) {
-        if (targetBranches.contains("origin/main")) {
-            return "origin/main";
+        if (targetBranches.isEmpty()) {
+            return null;
         }
-        if (targetBranches.contains("origin/master")) {
-            return "origin/master";
+
+        var repo = contextManager.getProject().getRepo();
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return targetBranches.getFirst();
         }
-        return targetBranches.isEmpty() ? null : targetBranches.getFirst();
+
+        // Get preferred remote name (origin or fallback)
+        var preferredRemote = gitRepo.remote().getOriginRemoteNameWithFallback();
+        if (preferredRemote != null) {
+            // Try main/master on preferred remote first
+            var preferredMain = preferredRemote + "/main";
+            if (targetBranches.contains(preferredMain)) {
+                return preferredMain;
+            }
+
+            var preferredMaster = preferredRemote + "/master";
+            if (targetBranches.contains(preferredMaster)) {
+                return preferredMaster;
+            }
+        }
+
+        // Fall back to any remote's main/master
+        var anyMain = targetBranches.stream().filter(b -> b.endsWith("/main")).findFirst();
+        if (anyMain.isPresent()) {
+            return anyMain.get();
+        }
+
+        var anyMaster =
+                targetBranches.stream().filter(b -> b.endsWith("/master")).findFirst();
+        if (anyMaster.isPresent()) {
+            return anyMaster.get();
+        }
+
+        // Last resort: first branch alphabetically
+        return targetBranches.getFirst();
     }
 
     private void selectDefaultSourceBranch(GitRepo gitRepo, List<String> sourceBranches, List<String> localBranches)
             throws GitAPIException {
+
         var currentBranch = gitRepo.getCurrentBranch();
         if (sourceBranches.contains(currentBranch)) {
             sourceBranchComboBox.setSelectedItem(currentBranch);
@@ -707,6 +719,98 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
+    private JPanel createSessionsTabPanel() {
+        var panel = new JPanel(new BorderLayout());
+        sessionsTableModel = new javax.swing.table.DefaultTableModel(new Object[] {"", "Session Name", "Tasks"}, 0) {
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return columnIndex == 0 ? Boolean.class : String.class;
+            }
+
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column == 0;
+            }
+        };
+
+        sessionsTable = new JTable(sessionsTableModel);
+        sessionsTable.getColumnModel().getColumn(0).setMaxWidth(30);
+        sessionsTable.setRowHeight(24);
+
+        sessionsTableModel.addTableModelListener(e -> {
+            int selectedCount = 0;
+            for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+                if (Boolean.TRUE.equals(sessionsTableModel.getValueAt(i, 0))) {
+                    selectedCount++;
+                }
+            }
+            updateSessionsTabTitle(selectedCount);
+        });
+
+        selectAllSessionsCheckbox = new JCheckBox("Select/Deselect All", true);
+        selectAllSessionsCheckbox.addActionListener(e -> {
+            boolean selected = selectAllSessionsCheckbox.isSelected();
+            for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+                sessionsTableModel.setValueAt(selected, i, 0);
+            }
+        });
+
+        var headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        headerPanel.add(selectAllSessionsCheckbox);
+
+        panel.add(headerPanel, BorderLayout.NORTH);
+        panel.add(new JScrollPane(sessionsTable), BorderLayout.CENTER);
+        return panel;
+    }
+
+    private final Map<Integer, UUID> rowToSessionId = new HashMap<>();
+
+    private void updateSessionsTab(List<CommitInfo> commits) {
+        if (commits.isEmpty()) {
+            SwingUtilities.invokeLater(() -> {
+                sessionsTableModel.setRowCount(0);
+                rowToSessionId.clear();
+                updateSessionsTabTitle(0);
+            });
+            return;
+        }
+
+        contextManager.submitBackgroundTask("Finding overlapping sessions", () -> {
+            List<UUID> sessionIds = ReviewScope.findOverlappingSessions(contextManager, commits);
+            var sessionInfos = new ArrayList<SessionManager.SessionInfo>();
+            var taskCounts = new HashMap<UUID, Integer>();
+
+            var sm = contextManager.getProject().getSessionManager();
+            var allSessions = sm.listSessions().stream()
+                    .filter(s -> sessionIds.contains(s.id()))
+                    .toList();
+
+            for (var info : allSessions) {
+                sessionInfos.add(info);
+                taskCounts.put(info.id(), sm.countAiResponses(info.id()));
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                sessionsTableModel.setRowCount(0);
+                rowToSessionId.clear();
+                for (int i = 0; i < sessionInfos.size(); i++) {
+                    var info = sessionInfos.get(i);
+                    sessionsTableModel.addRow(new Object[] {true, info.name(), taskCounts.getOrDefault(info.id(), 0)});
+                    rowToSessionId.put(i, info.id());
+                }
+                updateSessionsTabTitle(sessionInfos.size());
+            });
+            return null;
+        });
+    }
+
+    private void updateSessionsTabTitle(int count) {
+        int idx = middleTabbedPane.indexOfComponent(sessionsTabPanel);
+        if (idx < 0) return;
+        String title = count == 1 ? "1 Session" : count + " Sessions";
+        middleTabbedPane.setTitleAt(idx, title);
+    }
+
     private void createPullRequest() {
         if (!isCreatePrReady()) {
             // This should ideally not happen if button state is managed correctly,
@@ -738,14 +842,39 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
         createPrButton.setLoading(true, "Creating PR…");
 
+        // Capture session IDs on EDT
+        List<UUID> selectedSessionUuids = new ArrayList<>();
+        for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+            if (Boolean.TRUE.equals(sessionsTableModel.getValueAt(i, 0))) {
+                UUID id = rowToSessionId.get(i);
+                if (id != null) selectedSessionUuids.add(id);
+            }
+        }
+
         contextManager.submitExclusiveAction(() -> {
             try {
+                // Wait for background session sync to complete before proceeding
+                try {
+                    sessionSyncFuture.get(30, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    logger.warn("Timed out waiting for session sync, proceeding anyway");
+                } catch (InterruptedException | ExecutionException e) {
+                    logger.warn("Session sync failed, proceeding anyway: {}", e.getMessage());
+                }
+
                 // Gather details on the EDT before going to background if they come from Swing components
                 final String title = titleField.getText().trim();
-                final String body = descriptionArea.getText().trim();
-                // Removed duplicate declarations of title and body
-                final String sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-                final String targetBranch = (String) targetBranchComboBox.getSelectedItem();
+                String body = descriptionArea.getText().trim();
+
+                if (!selectedSessionUuids.isEmpty()) {
+                    String ids = selectedSessionUuids.stream()
+                            .map(UUID::toString)
+                            .collect(java.util.stream.Collectors.joining(","));
+                    body += "\n\nbrokk-session-ids:" + ids;
+                }
+
+                final String sourceBranch = sourceBranchComboBox.getSelectedItem();
+                final String targetBranch = targetBranchComboBox.getSelectedItem();
 
                 // Ensure selectedItem calls are safe
                 if (sourceBranch == null || targetBranch == null) {
@@ -753,6 +882,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 }
 
                 var prUrl = workflowService.createPullRequest(sourceBranch, targetBranch, title, body);
+
+                // Make sessions public
+                var sm = contextManager.getProject().getSessionManager();
+                for (UUID sessionId : selectedSessionUuids) {
+                    sm.makePublicAsync(sessionId);
+                }
 
                 // Success: Open in browser and dispose dialog
                 if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
@@ -797,8 +932,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 SwingUtilities.invokeLater(() -> {
                     String message;
                     if (GitHubErrorUtil.isNoCommitsBetweenError(ex)) {
-                        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-                        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+                        var sourceBranch = sourceBranchComboBox.getSelectedItem();
+                        var targetBranch = targetBranchComboBox.getSelectedItem();
                         var base = targetBranch != null ? targetBranch : "the target branch";
                         var head = sourceBranch != null ? sourceBranch : "the source branch";
                         message = GitHubErrorUtil.formatNoCommitsBetweenError(base, head);
@@ -832,9 +967,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void showDescriptionHint(boolean show) {
-        SwingUtilities.invokeLater(() -> {
-            descriptionHintLabel.setVisible(show);
-        });
+        SwingUtilities.invokeLater(() -> descriptionHintLabel.setVisible(show));
     }
 
     private void spawnSuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
@@ -846,156 +979,5 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
         currentSuggestPrDetailsWorker = new SuggestPrDetailsWorker(sourceBranch, targetBranch);
         currentSuggestPrDetailsWorker.execute();
-    }
-
-    // --- Review Tab Methods ---
-
-    private void updateReviewTab(List<GitRepo.ModifiedFile> files) {
-        // Set loading state first
-        SwingUtilities.invokeLater(() -> {
-            reviewTabPlaceholder.removeAll();
-            var loadingLabel = new JLabel("Computing diff summary...", SwingConstants.CENTER);
-            loadingLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
-            reviewTabPlaceholder.add(loadingLabel, BorderLayout.CENTER);
-            reviewTabPlaceholder.revalidate();
-            reviewTabPlaceholder.repaint();
-        });
-
-        // Compute cumulative changes in background
-        contextManager.submitBackgroundTask("Computing review diff", () -> {
-            var changes = computeCumulativeChanges(files);
-            var prepared = DiffService.preparePerFileSummaries(changes);
-            SwingUtilities.invokeLater(() -> updateReviewTabContent(changes, prepared));
-            return changes;
-        });
-    }
-
-    private DiffService.CumulativeChanges computeCumulativeChanges(List<GitRepo.ModifiedFile> files) {
-        if (mergeBaseCommit == null || files.isEmpty()) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of());
-        }
-
-        var repo = contextManager.getProject().getRepo();
-        if (!(repo instanceof GitRepo)) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of());
-        }
-
-        // Get the source branch for right-side content (committed content, not working tree)
-        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-        if (sourceBranch == null) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of());
-        }
-
-        // Convert List<GitRepo.ModifiedFile> to Set for DiffService.summarizeDiff
-        Set<ai.brokk.git.IGitRepo.ModifiedFile> fileSet = new HashSet<>(files);
-
-        // Use DiffService to summarize changes between merge base and source branch
-        return DiffService.summarizeDiff(repo, mergeBaseCommit, sourceBranch, fileSet);
-    }
-
-    private void updateReviewTabContent(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
-        assert SwingUtilities.isEventDispatchThread() : "updateReviewTabContent must run on EDT";
-
-        // Dispose any previous diff panel
-        if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-            try {
-                diffPanel.dispose();
-            } catch (Throwable t) {
-                logger.debug("Ignoring error disposing previous BrokkDiffPanel", t);
-            }
-        }
-        aggregatedChangesPanel = null;
-
-        reviewTabPlaceholder.removeAll();
-
-        // Update tab title with stats
-        updateReviewTabTitle(res);
-
-        if (res.filesChanged() == 0) {
-            var none = new JLabel("No changes to review.", SwingConstants.CENTER);
-            none.setBorder(new EmptyBorder(20, 0, 20, 0));
-            reviewTabPlaceholder.add(none, BorderLayout.CENTER);
-            reviewTabPlaceholder.revalidate();
-            reviewTabPlaceholder.repaint();
-            return;
-        }
-
-        try {
-            var aggregatedPanel = buildAggregatedChangesPanel(prepared);
-            reviewTabPlaceholder.add(aggregatedPanel, BorderLayout.CENTER);
-        } catch (Throwable t) {
-            logger.warn("Failed to build aggregated Changes panel", t);
-            var err = new JLabel("Unable to display aggregated changes.", SwingConstants.CENTER);
-            err.setBorder(new EmptyBorder(20, 0, 20, 0));
-            reviewTabPlaceholder.add(err, BorderLayout.CENTER);
-            aggregatedChangesPanel = null;
-        }
-        reviewTabPlaceholder.revalidate();
-        reviewTabPlaceholder.repaint();
-    }
-
-    private void updateReviewTabTitle(DiffService.CumulativeChanges res) {
-        int idx = middleTabbedPane.indexOfComponent(reviewTabPlaceholder);
-        if (idx < 0) return;
-
-        if (res.filesChanged() == 0) {
-            middleTabbedPane.setTitleAt(idx, "Review (0)");
-            middleTabbedPane.setToolTipTextAt(idx, "No changes to review");
-        } else {
-            boolean isDark = chrome.getTheme().isDarkTheme();
-            Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-            Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-            String htmlTitle = String.format(
-                    "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
-                    res.filesChanged(),
-                    ColorUtil.toHex(plusColor),
-                    res.totalAdded(),
-                    ColorUtil.toHex(minusColor),
-                    res.totalDeleted());
-            middleTabbedPane.setTitleAt(idx, htmlTitle);
-            middleTabbedPane.setToolTipTextAt(
-                    idx,
-                    String.format(
-                            "Cumulative changes: %d files, +%d/-%d",
-                            res.filesChanged(), res.totalAdded(), res.totalDeleted()));
-        }
-    }
-
-    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, Context.DiffEntry>> prepared) {
-        var wrapper = new JPanel(new BorderLayout());
-
-        // Build header
-        var headerPanel = new JPanel(new BorderLayout(8, 0));
-        headerPanel.setOpaque(false);
-        headerPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-        String targetBranch = (String) targetBranchComboBox.getSelectedItem();
-        String baselineLabelText = targetBranch != null ? "Comparing vs " + targetBranch : "Branch-based changes";
-        var baselineLabel = new JLabel(baselineLabelText);
-        baselineLabel.setFont(baselineLabel.getFont().deriveFont(Font.BOLD));
-        headerPanel.add(baselineLabel, BorderLayout.WEST);
-
-        wrapper.add(headerPanel, BorderLayout.NORTH);
-
-        // Build diff panel
-        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
-                .setMultipleCommitsContext(false)
-                .setRootTitle("PR Changes");
-
-        // Use precomputed list in stable order; do not call Context.DiffEntry::title here
-        for (var entry : prepared) {
-            String title = entry.getKey();
-            Context.DiffEntry de = entry.getValue();
-            var left = new BufferSource.StringSource(de.oldContent(), title + " (base)");
-            var right = new BufferSource.StringSource(de.newContent(), title);
-            builder.leftSource(left).rightSource(right);
-        }
-
-        var diffPanel = builder.build();
-        aggregatedChangesPanel = diffPanel;
-        wrapper.add(diffPanel, BorderLayout.CENTER);
-
-        return wrapper;
     }
 }

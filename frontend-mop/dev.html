@@ -34,6 +34,7 @@
     <button id="toggle-wrap-btn" onclick="toggleCodeWrap()">Toggle Code Wrap</button>
     <span id="wrap-mode-status" style="margin-left:6px; color:#666;">(scroll)</span>
     <button onclick="showAllCodeblockCases()">Show All Code Block Cases</button>
+    <button onclick="showStaticDocument()">Show Static Document</button>
     <h3>Search Tools</h3>
     <input type="text" id="search-query-input" placeholder="Search query" style="width: 200px; margin-right: 5px;">
     <label><input type="checkbox" id="search-case-sensitive"> Case Sensitive</label>
@@ -311,15 +312,35 @@ Both approaches:
 
         // Start streaming after 3s; first chunk will auto-hide the transient message
         setTimeout(() => {
-            let index = 0;
-            const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
-            const interval = setInterval(() => {
-                if (index < chunks.length) {
-                    simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, reasoning: false});
-                    index++;
+            // First, stream terminal output with repeated gradlew commands
+            const terminalCommand = './gradlew --quiet tidy check\n';
+            const terminalRepetitions = 250;
+            let terminalIndex = 0;
+
+            const terminalInterval = setInterval(() => {
+                if (terminalIndex < terminalRepetitions) {
+                    simulateEvent('chunk', {
+                        text: terminalCommand,
+                        msgType: 'CUSTOM',
+                        streaming: true,
+                        meta: { isNewMessage: terminalIndex === 0, isReasoning: false, isTerminal: true }
+                    });
+                    terminalIndex++;
                 } else {
-                    clearInterval(interval);
-                    simulateEvent('chunk', {text: "Ask command complete!", msgType: 'CUSTOM', streaming: true, isNew: false, reasoning: false});
+                    clearInterval(terminalInterval);
+
+                    // After terminal output completes, stream the contentAi
+                    let index = 0;
+                    const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+                    const interval = setInterval(() => {
+                        if (index < chunks.length) {
+                            simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, meta: { isNewMessage: index === 0, isReasoning: false, isTerminal: false }});
+                            index++;
+                        } else {
+                            clearInterval(interval);
+                            simulateEvent('chunk', {text: "Ask command complete!", msgType: 'SYSTEM', streaming: true, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
+                        }
+                    }, 10);
                 }
             }, 10);
         }, 3000);
@@ -328,12 +349,39 @@ Both approaches:
     function showAskMd() {
         simulateEvent('history-task', {compressed: true, summary: "This is a nice **summary**", messages: [{msgType: 'USER', text: contentUser}, {msgType: 'AI', text: contentAi}]})
         simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: "Implement the changes like described"}, {msgType: 'AI', text: ai}]})
-        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, reasoning: false})
-        simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, reasoning: true})
-        simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false, reasoning: false})
-        simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false, reasoning: false})
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }})
+        simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: true, isTerminal: false }})
+        simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }})
+        simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'SYSTEM', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }})
     }
 
+    function showStaticDocument() {
+        const staticContent = `# Static Document Demo
+
+This is a **static document** that replaces the chat view.
+
+## Features
+- Displays read-only markdown content
+- Replaces the normal chat bubbles
+- Can be cleared to return to chat view
+
+## Code Example
+\`\`\`java
+public class StaticDemo {
+    public static void main(String[] args) {
+        System.out.println("Hello from static document!");
+    }
+}
+\`\`\`
+
+## Symbol Test
+Try clicking these: \`String\`, \`List\`, \`HashMap\`
+
+---
+*Click "Clear Static Document" to return to normal chat view.*`;
+
+        simulateEvent('static-document', { markdown: staticContent });
+    }
 
     const ai = `
 
@@ -562,10 +610,10 @@ Both approaches:
 
 \`\`\`[--- app/src/main/java/io/github/jbellis/brokk/gui/dialogs/analyzer/JavaAnalyzerSettingsPanel.java, +++ app/src/main/java/io/github/jbellis/brokk/gui/dialogs/analyzer/JavaAnalyzerSettingsPanel.java, @@ -31,7 +31,6 @@,  ,      public JavaAnalyzerSettingsPanel(SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {,          super(new BorderLayout(), language, projectRoot, io);, -        logger.debug("JavaAnalyzerConfigPanel initialised");,  ,          // Create a panel with GridBagLayout for the actual content,          var contentPanel = new JPanel(new GridBagLayout());]\`\`\``;
 
-        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, reasoning: false})
-        simulateEvent('chunk', {text: ai, msgType: 'AI', streaming: false, reasoning: false})
-        simulateEvent('chunk', {text: diffContent, msgType: 'SYSTEM', streaming: false, reasoning: false})
-        //simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false, reasoning: false})
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
+        simulateEvent('chunk', {text: ai, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
+        simulateEvent('chunk', {text: diffContent, msgType: 'SYSTEM', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
+        //simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
     }
 
     function streamEdit() {
@@ -838,11 +886,11 @@ if (buffer.length > 0) {
     `;
         let index = 0;
         simulateEvent('clear');
-        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true, reasoning: false});
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
         const chunks1 = contentReasoning.match(/[\s\S]{1,10}/g) || [];
         const interval1 = setInterval(() => {
             if (index < chunks1.length) {
-                simulateEvent('chunk', {text: chunks1[index], msgType: 'AI', streaming: true, reasoning: true});
+                simulateEvent('chunk', {text: chunks1[index], msgType: 'AI', streaming: true, meta: { isNewMessage: index === 0, isReasoning: true, isTerminal: false }});
                 index++;
             } else {
                 clearInterval(interval1);
@@ -850,7 +898,7 @@ if (buffer.length > 0) {
                 const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
                 const interval = setInterval(() => {
                     if (index < chunks.length) {
-                        simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, reasoning: false});
+                        simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, meta: { isNewMessage: index === 0, isReasoning: false, isTerminal: false }});
                         index++;
                     } else {
                         clearInterval(interval);
@@ -943,7 +991,8 @@ Files vs Symbols: \`package.json\` (file) vs \`String\` (symbol) - different hig
         simulateEvent('chunk', {
             text: content,
             msgType: 'AI',
-            streaming: false
+            streaming: false,
+            meta: { isNewMessage: true, isReasoning: false, isTerminal: false }
         });
     }
 
@@ -990,7 +1039,8 @@ Partial vs Exact: \`List\` vs \`List.add\` (watch for different styling!)
                 simulateEvent('chunk', {
                     text: chunks[index],
                     msgType: 'AI',
-                    streaming: true
+                    streaming: true,
+                    meta: { isNewMessage: index === 0, isReasoning: false, isTerminal: false }
                 });
                 index++;
             } else {
@@ -1032,8 +1082,8 @@ When backend supports multiple ranges:
 `;
 
         window.brokk.clear();
-        simulateEvent('chunk', { text: "Testing partial symbol matching with mock data...", msgType: 'USER', streaming: false });
-        simulateEvent('chunk', { text: testContent, msgType: 'AI', streaming: false });
+        simulateEvent('chunk', { text: "Testing partial symbol matching with mock data...", msgType: 'USER', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false } });
+        simulateEvent('chunk', { text: testContent, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false } });
     }
 
 
@@ -1056,7 +1106,7 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
 **Test it:** Try typing some of these symbols in the markdown playground below!`;
 
         window.brokk.clear();
-        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
+        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false } });
     }
 
     // Update symbol count display
@@ -1086,7 +1136,8 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
                 simulateEvent('chunk', {
                     text: mdInput.value,
                     msgType: 'AI',
-                    streaming: true
+                    streaming: true,
+                    meta: { isNewMessage: true, isReasoning: false, isTerminal: false }
                 });
             });
         });
@@ -1295,7 +1346,7 @@ const newFunction = () => {
 `;
 
     window.brokk.clear();
-    simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
+    simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false } });
 }
 
 </script>

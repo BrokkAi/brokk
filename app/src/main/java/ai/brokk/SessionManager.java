@@ -1,9 +1,11 @@
 package ai.brokk;
 
+import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.concurrent.LoggingExecutorService;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
@@ -13,6 +15,9 @@ import ai.brokk.util.SerialByKeyExecutor;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.f4b6a3.uuid.UuidCreator;
+import com.github.f4b6a3.uuid.util.UuidUtil;
+import com.google.common.base.Splitter;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
@@ -20,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -36,23 +42,52 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
+    private static final String SESSIONS_FORMAT_VERSION = "4.0";
+
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SessionInfo(UUID id, String name, long created, long modified) {
+    public record SessionInfo(UUID id, String name, long created, long modified, @Nullable String version) {
+
+        public SessionInfo(UUID id, String name, long created, long modified) {
+            this(id, name, created, modified, SESSIONS_FORMAT_VERSION);
+        }
 
         @JsonIgnore
         public boolean isSessionModified() {
             return created != modified;
         }
+
+        public Instant createdAt() {
+            return Instant.ofEpochMilli(created);
+        }
+
+        public Instant lastModified() {
+            return Instant.ofEpochMilli(modified);
+        }
+    }
+
+    public record MinimalSessionInfo(UUID id, long created, long modified) {
+        public Instant createdAt() {
+            return Instant.ofEpochMilli(created);
+        }
+
+        public Instant lastModified() {
+            return Instant.ofEpochMilli(modified);
+        }
     }
 
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
+
+    public static final String UNREADABLE_SESSIONS_DIR = "unreadable";
 
     private static class SessionExecutorThreadFactory implements ThreadFactory {
         private static final ThreadLocal<Boolean> isSessionExecutorThread = ThreadLocal.withInitial(() -> false);
@@ -88,35 +123,98 @@ public class SessionManager implements AutoCloseable {
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
 
+    private final Set<CompletableFuture<?>> inFlightForeignDownloads = ConcurrentHashMap.newKeySet();
+
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
         int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
-        this.sessionExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
+        var delegateExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
+        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
+        sessionExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
+    }
+
+    Map<UUID, SessionInfo> getSessionsCache() {
+        return sessionsCache;
+    }
+
+    SerialByKeyExecutor getSessionExecutorByKey() {
+        return sessionExecutorByKey;
     }
 
     private Map<UUID, SessionInfo> loadSessions() {
         var sessions = new ConcurrentHashMap<UUID, SessionInfo>();
         try {
             Files.createDirectories(sessionsDir);
+            Files.createDirectories(foreignSessionsPath());
             try (var stream = Files.list(sessionsDir)) {
                 stream.filter(path -> path.toString().endsWith(".zip"))
                         .forEach(zipPath -> readSessionInfoFromZip(zipPath).ifPresent(sessionInfo -> {
-                            sessions.put(sessionInfo.id(), sessionInfo);
+                            if (isVersionSupported(sessionInfo.version())) {
+                                sessions.put(sessionInfo.id(), sessionInfo);
+                            }
                         }));
             }
         } catch (IOException e) {
-            logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
+            logger.error("Error listing session zip files in {}", sessionsDir, e);
         }
         return sessions;
+    }
+
+    private Path foreignSessionsPath() {
+        return sessionsDir.resolve("foreign");
     }
 
     public List<SessionInfo> listSessions() {
         var sessions = new ArrayList<>(sessionsCache.values());
         sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
         return sessions;
+    }
+
+    public List<SessionInfo> filterSessions(Instant minBound, Instant maxBound) {
+        return listSessions().stream()
+                .filter(s -> s.lastModified().isAfter(minBound) && s.createdAt().isBefore(maxBound))
+                .toList();
+    }
+
+    public List<MinimalSessionInfo> filterForeignSessions(Instant minBound, Instant maxBound) {
+        Path foreignDir = foreignSessionsPath();
+        long minBoundMs = minBound.toEpochMilli();
+        long maxBoundMs = maxBound.toEpochMilli();
+        long ctimeGracePeriodMs = TimeUnit.DAYS.toMillis(7);
+
+        record Candidate(Path zipPath, UUID sessionId, long created) {}
+
+        try (var stream = Files.list(foreignDir)) {
+            return stream.filter(p -> p.getFileName().toString().endsWith(".zip"))
+                    .flatMap(p -> parseUuidFromFilename(p).stream()
+                            .map(id -> new Candidate(p, id, UuidUtil.getTimestamp(id))))
+                    .filter(c -> c.created() > (minBoundMs - ctimeGracePeriodMs) && c.created() < maxBoundMs)
+                    .flatMap(c -> {
+                        long modified;
+                        try {
+                            modified = Files.getLastModifiedTime(c.zipPath()).toMillis();
+                        } catch (IOException e) {
+                            logger.warn(
+                                    "Error reading mtime for foreign session {}: {}",
+                                    c.zipPath().getFileName(),
+                                    e.getMessage());
+                            return Stream.empty();
+                        }
+
+                        return Stream.of(new MinimalSessionInfo(c.sessionId(), c.created(), modified));
+                    })
+                    .filter(s ->
+                            s.lastModified().isAfter(minBound) && s.createdAt().isBefore(maxBound))
+                    .toList();
+        } catch (IOException e) {
+            if (!(e instanceof FileNotFoundException)) {
+                logger.warn("Error listing foreign sessions in {}: {}", foreignDir, e.getMessage());
+            }
+            return List.of();
+        }
     }
 
     public SessionInfo newSession(String name) {
@@ -151,7 +249,8 @@ public class SessionManager implements AutoCloseable {
     public void renameSession(UUID sessionId, String newName) {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
-            var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis());
+            var updatedInfo = new SessionInfo(
+                    oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis(), oldInfo.version());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -168,24 +267,27 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public void deleteSession(UUID sessionId) throws Exception {
+    public void deleteSession(UUID sessionId) {
         sessionsCache.remove(sessionId);
-        var deleteFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
+            Path tombstonePath = getTombstonePath(sessionId);
             try {
-                boolean deleted = Files.deleteIfExists(historyZipPath);
-                if (deleted) {
-                    logger.info("Deleted session zip: {}", historyZipPath.getFileName());
+                if (Files.exists(historyZipPath)) {
+                    Files.move(historyZipPath, tombstonePath, StandardCopyOption.REPLACE_EXISTING);
+                    logger.info("Marked session {} for deletion with tombstone.", sessionId);
                 } else {
-                    logger.warn(
-                            "Session zip {} not found for deletion, or already deleted.", historyZipPath.getFileName());
+                    // Even if local zip is gone, create tombstone to ensure remote deletion
+                    AtomicWrites.save(tombstonePath, "deleted");
                 }
             } catch (IOException e) {
-                logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
-                throw new RuntimeException("Failed to delete session " + sessionId, e);
+                logger.error("Error creating tombstone for session {}: {}", sessionId, e.getMessage());
             }
         });
-        deleteFuture.get(); // Wait for deletion to complete
+    }
+
+    private Path getTombstonePath(UUID sessionId) {
+        return sessionsDir.resolve(sessionId.toString() + ".tombstone");
     }
 
     /**
@@ -220,14 +322,26 @@ public class SessionManager implements AutoCloseable {
      */
     private void moveSessionToUnreadableSync(UUID sessionId) {
         Path historyZipPath = getSessionHistoryPath(sessionId);
-        Path unreadableDir = sessionsDir.resolve("unreadable");
+        moveZipToUnreadableSync(historyZipPath, sessionId);
+    }
+
+    private void moveZipToUnreadableSync(Path zipPath, @Nullable UUID sessionId) {
+        Path unreadableDir = sessionsDir.resolve(UNREADABLE_SESSIONS_DIR);
         try {
             Files.createDirectories(unreadableDir);
-            Path targetPath = unreadableDir.resolve(historyZipPath.getFileName());
-            Files.move(historyZipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-            logger.info("Moved session zip {} to {}", historyZipPath.getFileName(), unreadableDir);
+            Path targetPath = unreadableDir.resolve(zipPath.getFileName());
+            Files.move(zipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            if (sessionId != null) {
+                logger.info("Moved session zip {} to {}", zipPath.getFileName(), unreadableDir);
+            } else {
+                logger.info("Moved unreadable session zip {} to {}", zipPath.getFileName(), unreadableDir);
+            }
         } catch (IOException e) {
-            logger.error("Error moving history zip for session {} to unreadable: {}", sessionId, e.getMessage());
+            if (sessionId != null) {
+                logger.error("Error moving history zip for session {} to unreadable: {}", sessionId, e.getMessage());
+            } else {
+                logger.error("Error moving unreadable history zip {}: {}", zipPath.getFileName(), e.getMessage());
+            }
         }
     }
 
@@ -265,6 +379,9 @@ public class SessionManager implements AutoCloseable {
                     moveSessionToUnreadable(sessionId);
                     quarantinedIds.add(sessionId);
                     moved++;
+                    continue;
+                }
+                if (!isVersionSupported(info.get().version())) {
                     continue;
                 }
 
@@ -327,7 +444,7 @@ public class SessionManager implements AutoCloseable {
         return newSessionInfo;
     }
 
-    private Path getSessionHistoryPath(UUID sessionId) {
+    Path getSessionHistoryPath(UUID sessionId) {
         return sessionsDir.resolve(sessionId.toString() + ".zip");
     }
 
@@ -344,7 +461,7 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    private Optional<SessionInfo> readSessionInfoFromZip(Path zipPath) {
+    Optional<SessionInfo> readSessionInfoFromZip(Path zipPath) {
         if (!Files.exists(zipPath)) return Optional.empty();
         try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
             Path manifestPath = fs.getPath("manifest.json");
@@ -358,7 +475,7 @@ public class SessionManager implements AutoCloseable {
         return Optional.empty();
     }
 
-    private void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
+    void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
         try (var fs =
                 FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
             Path manifestPath = fs.getPath("manifest.json");
@@ -371,17 +488,7 @@ public class SessionManager implements AutoCloseable {
     }
 
     private void moveZipToUnreadable(Path zipPath) {
-        var future = sessionExecutorByKey.submit(zipPath.toString(), () -> {
-            Path unreadableDir = sessionsDir.resolve("unreadable");
-            try {
-                Files.createDirectories(unreadableDir);
-                Path targetPath = unreadableDir.resolve(zipPath.getFileName());
-                Files.move(zipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                logger.info("Moved unreadable session zip {} to {}", zipPath.getFileName(), unreadableDir);
-            } catch (IOException e) {
-                logger.error("Error moving unreadable history zip {}: {}", zipPath.getFileName(), e.getMessage());
-            }
-        });
+        var future = sessionExecutorByKey.submit(zipPath.toString(), () -> moveZipToUnreadableSync(zipPath, null));
         try {
             future.get();
         } catch (InterruptedException | ExecutionException e) {
@@ -390,25 +497,36 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    private ContextHistory loadHistoryOrQuarantine(UUID sessionId, IContextManager contextManager) throws Exception {
+    private ContextHistory loadHistoryOrQuarantine(UUID sessionId, IContextManager contextManager) throws IOException {
+        Path zipPath = resolveSessionHistoryZipPath(sessionId);
+
         try {
-            return loadHistoryInternal(sessionId, contextManager);
-        } catch (Exception | StackOverflowError e) {
-            moveSessionToUnreadable(sessionId);
-            throw new Exception("Cannot read session history.", e);
+            return HistoryIo.readZip(zipPath, contextManager);
+        } catch (IOException | StackOverflowError e) {
+            quarantineUnreadableSessionZip(sessionId, zipPath);
+            throw e;
         }
     }
 
     public void saveHistory(ContextHistory ch, UUID sessionId) {
         // ContextHistory is mutable, take a copy before passing it to an async task
-        var contextHistory =
-                new ContextHistory(ch.getHistory(), ch.getResetEdges(), ch.getGitStates(), ch.getEntryInfos());
+        var contextHistory = new ContextHistory(
+                ch.getHistory(),
+                ch.getResetEdges(),
+                ch.getGitStates(),
+                ch.getEntryInfos(),
+                ch.getContextToGroupId(),
+                ch.getGroupLabels());
         SessionInfo infoToSave = null;
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
                 infoToSave = new SessionInfo(
-                        currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                        currentInfo.id(),
+                        currentInfo.name(),
+                        currentInfo.created(),
+                        System.currentTimeMillis(),
+                        currentInfo.version());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session
@@ -485,11 +603,12 @@ public class SessionManager implements AutoCloseable {
     /**
      * Counts AI responses for a session without loading full history.
      * This is much faster than loadHistory() for just getting the count.
+     * Supports both local and foreign sessions.
      */
     @Blocking
     public int countAiResponses(UUID sessionId) {
-        var zipPath = getSessionHistoryPath(sessionId);
         try {
+            Path zipPath = resolveSessionHistoryZipPath(sessionId);
             return HistoryIo.countAiResponses(zipPath);
         } catch (IOException e) {
             logger.warn("Failed to count AI responses for session {}", sessionId, e);
@@ -505,7 +624,7 @@ public class SessionManager implements AutoCloseable {
             return null;
         }
 
-        var refreshed = ch.liveContext().copyAndRefresh("Load External Changes");
+        var refreshed = ch.liveContext().copyAndRefresh();
         if (!refreshed.equals(ch.liveContext())) {
             ch.pushContext(refreshed);
         }
@@ -513,46 +632,42 @@ public class SessionManager implements AutoCloseable {
         return ch;
     }
 
-    private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
-        var sessionHistoryPath = getSessionHistoryPath(sessionId);
-        ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
+    private Path resolveSessionHistoryZipPath(UUID sessionId) throws FileNotFoundException {
+        var localPath = getSessionHistoryPath(sessionId);
+        if (Files.exists(localPath)) {
+            return localPath;
+        }
 
-        // Resetting nextId based on loaded fragments.
-        // Only consider numeric IDs for dynamic fragments.
-        // Hashes will not parse to int and will be skipped by this logic.
-        int maxNumericId = 0;
-        for (Context ctx : ch.getHistory()) {
-            for (ContextFragment fragment : ctx.allFragments().toList()) {
-                try {
-                    maxNumericId = Math.max(maxNumericId, Integer.parseInt(fragment.id()));
-                } catch (NumberFormatException e) {
-                    // Ignore non-numeric IDs (hashes)
-                }
-            }
-            for (TaskEntry taskEntry : ctx.getTaskHistory()) {
-                if (taskEntry.log() != null) {
-                    try {
-                        // TaskFragment IDs are hashes, so this typically won't contribute to maxNumericId.
-                        // If some TaskFragments had numeric IDs historically, this would catch them.
-                        maxNumericId = Math.max(
-                                maxNumericId, Integer.parseInt(taskEntry.log().id()));
-                    } catch (NumberFormatException e) {
-                        // Ignore non-numeric IDs
-                    }
-                }
+        try {
+            awaitForeignDownloads();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        var foreignPath = foreignSessionsPath().resolve(sessionId.toString() + ".zip");
+        if (Files.exists(foreignPath)) {
+            return foreignPath;
+        }
+
+        throw new FileNotFoundException("Session history zip not found for session " + sessionId);
+    }
+
+    private void quarantineUnreadableSessionZip(UUID sessionId, Path zipPath) {
+        sessionsCache.remove(sessionId);
+
+        if (SessionExecutorThreadFactory.isOnSessionExecutorThread()) {
+            moveZipToUnreadableSync(zipPath, sessionId);
+        } else {
+            var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+                moveZipToUnreadableSync(zipPath, sessionId);
+                return null;
+            });
+            try {
+                future.get();
+            } catch (InterruptedException | ExecutionException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
             }
         }
-        // ContextFragment.nextId is an AtomicInteger, its value is the *next* ID to be assigned.
-        // If maxNumericId found is, say, 10, nextId should be set to 10 so that getAndIncrement() yields 11.
-        // If setNextId ensures nextId will be value+1, then passing maxNumericId is correct.
-        // Current ContextFragment.setNextId: if (value >= nextId.get()) { nextId.set(value); }
-        // Then nextId.getAndIncrement() will use `value` and then increment it.
-        // So we should set it to maxNumericId found.
-        if (maxNumericId > 0) { // Only set if we found any numeric IDs
-            ContextFragments.setMinimumId(maxNumericId + 1);
-            logger.debug("Restored dynamic fragment ID counter based on max numeric ID: {}", maxNumericId);
-        }
-        return ch;
     }
 
     /**
@@ -605,22 +720,7 @@ public class SessionManager implements AutoCloseable {
                     return new TaskList.TaskListData(List.of());
                 }
                 var loaded = AbstractProject.objectMapper.readValue(json, TaskList.TaskListData.class);
-
-                // Ensure backward compatibility: normalize any tasks that might have null/missing titles
-                // from old JSON format to use empty string
-                var normalizedTasks = loaded.tasks().stream()
-                        .map(task -> {
-                            @SuppressWarnings("NullAway") // Defensive check for deserialized data
-                            var titleValue = task.title();
-                            if (titleValue == null) {
-                                // Old JSON without title field; provide empty string default
-                                return new TaskList.TaskItem("", task.text(), task.done());
-                            }
-                            return task;
-                        })
-                        .toList();
-
-                return new TaskList.TaskListData(List.copyOf(normalizedTasks));
+                return new TaskList.TaskListData(List.copyOf(loaded.tasks()));
             } catch (IOException e) {
                 logger.warn("Error reading task list for session {}: {}", sessionId, e.getMessage());
                 return new TaskList.TaskListData(List.of());
@@ -724,6 +824,83 @@ public class SessionManager implements AutoCloseable {
 
     public Path getSessionsDir() {
         return sessionsDir;
+    }
+
+    // deliberately fire-and-forget, if it doesn't work then Guided Review will still function
+    public CompletableFuture<Service.RemoteSessionMeta> makePublicAsync(UUID sessionId) {
+        return LoggingFuture.supplyCallableAsync(() -> Service.updateSessionSharing(sessionId, "public"));
+    }
+
+    @Blocking
+    public Path downloadForeign(UUID sessionId) throws IOException {
+        byte[] content = Service.getRemoteSessionContent(sessionId);
+
+        Path foreignDir = foreignSessionsPath();
+        Files.createDirectories(foreignDir);
+
+        Path destination = foreignDir.resolve(sessionId + ".zip");
+        AtomicWrites.save(destination, content);
+
+        return destination;
+    }
+
+    /**
+     * Downloads a foreign session asynchronously and tracks it so that UI actions can await completion.
+     */
+    @SuppressWarnings("CollectionUndefinedEquality") // Reference equality is intentional
+    public CompletableFuture<Path> downloadForeignAsync(UUID sessionId) {
+        var future = LoggingFuture.supplyCallableVirtual(() -> downloadForeign(sessionId));
+        inFlightForeignDownloads.add(future);
+        future.whenComplete((unused, throwable) -> inFlightForeignDownloads.remove(future));
+        return future;
+    }
+
+    /**
+     * Blocks until all currently in-flight foreign session downloads (triggered by PR checkouts) are complete,
+     * up to a maximum of 5 seconds.
+     */
+    @Blocking
+    public void awaitForeignDownloads() throws InterruptedException {
+        var futures = inFlightForeignDownloads.toArray(new CompletableFuture[0]);
+        if (futures.length > 0) {
+            logger.debug("Waiting for {} in-flight foreign session downloads...", futures.length);
+            try {
+                CompletableFuture.allOf(futures).get(5, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                logger.debug("Timeout while waiting for foreign session downloads");
+            } catch (ExecutionException e) {
+                logger.debug("Error while waiting for foreign session downloads", e);
+            }
+        }
+    }
+
+    private static boolean isVersionSupported(@Nullable String version) {
+        if (version == null) {
+            return true;
+        }
+        try {
+            return compareVersions(version, SESSIONS_FORMAT_VERSION) <= 0;
+        } catch (NumberFormatException e) {
+            logger.warn("Cannot parse session format version '{}'", version);
+            return false;
+        }
+    }
+
+    static int compareVersions(String v1, String v2) throws NumberFormatException {
+        List<String> parts1 = Splitter.on('.').splitToList(v1);
+        List<String> parts2 = Splitter.on('.').splitToList(v2);
+        int length = Math.max(parts1.size(), parts2.size());
+        for (int i = 0; i < length; i++) {
+            int p1 = i < parts1.size() ? Integer.parseInt(parts1.get(i)) : 0;
+            int p2 = i < parts2.size() ? Integer.parseInt(parts2.get(i)) : 0;
+            if (p1 < p2) {
+                return -1;
+            }
+            if (p1 > p2) {
+                return 1;
+            }
+        }
+        return 0;
     }
 
     @Override

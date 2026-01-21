@@ -1,11 +1,11 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static ai.brokk.testutil.TestProject.*;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.context.Context;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,8 +15,12 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class JavascriptAnalyzerTest {
+    private static final Logger logger = LoggerFactory.getLogger(JavascriptAnalyzerTest.class);
+
     private static TestProject jsTestProject;
     private static JavascriptAnalyzer jsAnalyzer;
     private static ProjectFile helloJsFile;
@@ -688,12 +692,37 @@ public final class JavascriptAnalyzerTest {
 
     @Test
     void testBuildRelatedIdentifiers() {
-        var related = Context.buildRelatedIdentifiers(jsAnalyzer, helloJsFile);
+        var related = jsAnalyzer.buildRelatedIdentifiers(helloJsFile);
         var expected = """
 - Hello
   - greet
 - util
 """.strip();
         assertCodeEquals(expected, related, "Related identifiers tree for Hello.js mismatch.");
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        var finder = newFinder(jsTestProject, jsAnalyzer);
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages();
+        var files = fileNamesFromHits(hits);
+
+        assertTrue(
+                files.contains("ClassUsagePatterns.js"),
+                "Expected comprehensive usage patterns in ClassUsagePatterns.js; actual: " + files);
+
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("ClassUsagePatterns.js"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 2,
+                "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
     }
 }

@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.concurrent.AtomicWrites;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -9,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Abstraction for a filename relative to the repo. This exists to make it less difficult to ensure that different
@@ -67,7 +69,7 @@ public class ProjectFile implements BrokkFile {
 
     public void write(String st) throws IOException {
         Files.createDirectories(absPath().getParent());
-        Files.writeString(absPath(), st);
+        AtomicWrites.save(absPath(), st);
     }
 
     /** Also relative (but unlike raw Path.getParent, ours returns empty path instead of null) */
@@ -85,7 +87,7 @@ public class ProjectFile implements BrokkFile {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (!(o instanceof ProjectFile projectFile)) return false;
         return Objects.equals(root, projectFile.root) && Objects.equals(relPath, projectFile.relPath);

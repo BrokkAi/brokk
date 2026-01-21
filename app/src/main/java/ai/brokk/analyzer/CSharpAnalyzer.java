@@ -14,6 +14,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQuery;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterCSharp;
 
 public final class CSharpAnalyzer extends TreeSitterAnalyzer {
@@ -242,5 +246,45 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCSharp(reference);
+    }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        TSQuery query = getThreadLocalQuery();
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+        TSQueryMatch match = new TSQueryMatch();
+
+        Set<String> testAttributes =
+                Set.of("Test", "Fact", "Theory", "TestCase", "TestMethod", "DataTestMethod", "SetUp", "TearDown");
+
+        while (cursor.nextMatch(match)) {
+            boolean hasTestMarker = false;
+            String capturedAttrName = null;
+
+            for (var capture : match.getCaptures()) {
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                if (TEST_MARKER.equals(captureName)) {
+                    hasTestMarker = true;
+                } else if ("test_attr".equals(captureName)) {
+                    // Attribute names in C# often include the "Attribute" suffix or dots.
+                    // We extract the full text and check if it ends with or matches our known markers.
+                    capturedAttrName = sourceContent.substringFrom(capture.getNode());
+                }
+            }
+
+            if (hasTestMarker && capturedAttrName != null) {
+                String normalizedName = capturedAttrName;
+                if (normalizedName.endsWith("Attribute")) {
+                    normalizedName = normalizedName.substring(0, normalizedName.length() - "Attribute".length());
+                }
+                final String finalName = normalizedName;
+                if (testAttributes.stream()
+                        .anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

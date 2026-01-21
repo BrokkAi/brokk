@@ -9,9 +9,13 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment.SummaryType;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -19,7 +23,7 @@ import org.junit.jupiter.api.Test;
 public class SummaryFragmentTest {
 
     @Test
-    public void codeunitSkeletonFetchesTargetAndAncestors() throws IOException {
+    public void codeunitSkeletonFetchesOnlyTarget() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
     public class Base {}
@@ -32,40 +36,53 @@ public class SummaryFragmentTest {
             var fragment = new SummaryFragment(cm, "Child", SummaryType.CODEUNIT_SKELETON);
             String text = fragment.text().join();
 
-            assertCodeEquals(
-                    """
+            assertCodeEquals("""
     package (default package);
 
     class Child extends Base {
     }
+    """, text);
 
-    // Direct ancestors of Child: Base
-
-    package (default package);
-
-    public class Base {
-    }
-    """,
-                    text);
-
-            // sources() should include Child and its direct ancestor Base; no duplicates
+            // sources() should include only Child
             var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-            assertEquals(Set.of("Child", "Base"), fqns, "sources() should include Child and Base");
-            assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
+            assertEquals(Set.of("Child"), fqns, "sources() should include only Child");
 
-            // files() should include the single file containing both declarations
+            // files() should include Test.java
             ProjectFile expectedFile = testProject.getAllFiles().stream()
                     .filter(pf -> pf.getFileName().equals("Test.java"))
                     .findFirst()
                     .orElseThrow();
             var files = fragment.files().join();
-            assertEquals(Set.of(expectedFile), files, "files() should include only Test.java");
+            assertEquals(Set.of(expectedFile), files, "files() should include Test.java");
         }
     }
 
     @Test
-    public void fileSkeletonFetchesTLDsAndTheirAncestors() throws IOException {
+    public void testSupportingFragmentsForClass() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+    public class Base {}
+    class Child extends Base {}
+    """, "Test.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            var fragment = new SummaryFragment(cm, "Child", SummaryType.CODEUNIT_SKELETON);
+            var supporting = fragment.supportingFragments();
+
+            var fqns = supporting.stream()
+                    .filter(f -> f instanceof SummaryFragment)
+                    .map(f -> ((SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+
+            assertEquals(Set.of("Base"), fqns, "supportingFragments() should return ancestor fragments");
+        }
+    }
+
+    @Test
+    public void fileSkeletonFetchesOnlyTLDs() throws IOException {
         var builder = InlineTestProjectCreator.code("""
     public class Base {}
     """, "Base.java");
@@ -95,34 +112,26 @@ public class SummaryFragmentTest {
 
     class Child2 extends Base {
     }
-
-    public class Base {
-    }
     """,
                     text);
 
-            // sources() should include Child1, Child2, and Base; no duplicates
+            // sources() should include Child1 and Child2
             var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-            assertEquals(Set.of("Child1", "Child2", "Base"), fqns, "sources() should include both children and Base");
-            assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
+            assertEquals(Set.of("Child1", "Child2"), fqns, "sources() should include both children");
 
-            // files() should include Children.java and Base.java
+            // files() should include only Children.java
             ProjectFile children = testProject.getAllFiles().stream()
                     .filter(pf -> pf.getFileName().equals("Children.java"))
                     .findFirst()
                     .orElseThrow();
-            ProjectFile base = testProject.getAllFiles().stream()
-                    .filter(pf -> pf.getFileName().equals("Base.java"))
-                    .findFirst()
-                    .orElseThrow();
             var files = fragment.files().join();
-            assertEquals(Set.of(children, base), files, "files() should include Children.java and Base.java");
+            assertEquals(Set.of(children), files, "files() should include Children.java");
         }
     }
 
     @Test
-    public void fileSkeletonWithMultipleTLDsAndMixedAncestors() throws IOException {
+    public void fileSkeletonWithMultipleTLDs() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
     public interface I1 {}
@@ -161,38 +170,21 @@ public class SummaryFragmentTest {
 
                     class Standalone {
                     }
-
-                    public class Base {
-                    }
-
-                    public interface I1 {
-                    }
-
-                    public interface I2 {
-                    }
                     """,
                     text);
 
-            // sources() should include the 3 TLDs and their ancestors (Base, I1, I2); no duplicates
+            // sources() should include the 3 TLDs
             var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-            assertEquals(
-                    Set.of("Child1", "Child2", "Standalone", "Base", "I1", "I2"),
-                    fqns,
-                    "sources() should include TLDs and their direct ancestors");
-            assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
+            assertEquals(Set.of("Child1", "Child2", "Standalone"), fqns, "sources() should include only TLDs");
 
-            // files() should include Multi.java and Base.java
+            // files() should include only Multi.java
             ProjectFile multi = testProject.getAllFiles().stream()
                     .filter(pf -> pf.getFileName().equals("Multi.java"))
                     .findFirst()
                     .orElseThrow();
-            ProjectFile base = testProject.getAllFiles().stream()
-                    .filter(pf -> pf.getFileName().equals("Base.java"))
-                    .findFirst()
-                    .orElseThrow();
             var files = fragment.files().join();
-            assertEquals(Set.of(multi, base), files, "files() should include Multi.java and Base.java");
+            assertEquals(Set.of(multi), files, "files() should include only Multi.java");
         }
     }
 
@@ -215,40 +207,25 @@ public class SummaryFragmentTest {
             var fragment = new SummaryFragment(cm, "p2.Child", SummaryType.CODEUNIT_SKELETON);
             String text = fragment.text().join();
 
-            assertCodeEquals(
-                    """
+            assertCodeEquals("""
     package p2;
 
     class Child extends Base {
     }
+    """, text);
 
-    // Direct ancestors of Child: Base
-
-    package p1;
-
-    public class Base {
-    }
-    """,
-                    text);
-
-            // sources() should include p2.Child and p1.Base; no duplicates
+            // sources() should include p2.Child
             var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-            assertEquals(
-                    Set.of("p2.Child", "p1.Base"), fqns, "sources() should include Child and Base across packages");
-            assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
+            assertEquals(Set.of("p2.Child"), fqns, "sources() should include Child");
 
-            // files() should include Child.java and Base.java
+            // files() should include Child.java
             ProjectFile child = testProject.getAllFiles().stream()
                     .filter(pf -> pf.getFileName().equals("Child.java"))
                     .findFirst()
                     .orElseThrow();
-            ProjectFile base = testProject.getAllFiles().stream()
-                    .filter(pf -> pf.getFileName().equals("Base.java"))
-                    .findFirst()
-                    .orElseThrow();
             var files = fragment.files().join();
-            assertEquals(Set.of(child, base), files, "files() should include Child.java and Base.java");
+            assertEquals(Set.of(child), files, "files() should include Child.java");
         }
     }
 
@@ -286,6 +263,180 @@ public class SummaryFragmentTest {
                     .orElseThrow();
             var files = fragment.files().join();
             assertEquals(Set.of(expectedFile), files, "files() should include only Test.java");
+        }
+    }
+
+    @Test
+    public void fileSkeletonDoesNotIncludeSharedAncestors() throws IOException {
+        var builder = InlineTestProjectCreator.code("""
+    public class SharedBase {}
+    """, "Base.java");
+        try (var testProject = builder.addFileContents(
+                        """
+    class ChildA extends SharedBase {}
+    class ChildB extends SharedBase {}
+    """,
+                        "Children.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            ProjectFile childrenFile = testProject.getAllFiles().stream()
+                    .filter(pf -> pf.getFileName().equals("Children.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var fragment = new SummaryFragment(cm, childrenFile.toString(), SummaryType.FILE_SKELETONS);
+            String text = fragment.text().join();
+
+            // Verify the individual class skeletons are present
+            assertTrue(text.contains("class ChildA extends SharedBase"), "Should contain ChildA skeleton");
+            assertTrue(text.contains("class ChildB extends SharedBase"), "Should contain ChildB skeleton");
+            assertFalse(text.contains("public class SharedBase"), "Should NOT contain SharedBase skeleton");
+
+            // Verify sources()
+            var sources = fragment.sources().join();
+            var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+            assertEquals(Set.of("ChildA", "ChildB"), fqns, "sources() should include both children");
+        }
+    }
+
+    @Test
+    public void supportingFragments_excludesInnerClassAncestors() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code("", "Outer.java").build()) {
+            ProjectFile outerFile = testProject.getAllFiles().stream()
+                    .filter(pf -> pf.getFileName().equals("Outer.java"))
+                    .findFirst()
+                    .orElseThrow();
+            ProjectFile outerBaseFile = new ProjectFile(testProject.getRoot(), "OuterBase.java");
+            ProjectFile innerBaseFile = new ProjectFile(testProject.getRoot(), "InnerBase.java");
+
+            CodeUnit outer = CodeUnit.cls(outerFile, "com.example", "Outer");
+            CodeUnit inner = CodeUnit.cls(outerFile, "com.example", "Outer.Inner");
+            CodeUnit outerBase = CodeUnit.cls(outerBaseFile, "com.example", "OuterBase");
+            CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "InnerBase");
+
+            TestAnalyzer analyzer = new TestAnalyzer() {
+                @Override
+                public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+                    if (Objects.equals(outer, cu)) {
+                        return List.of(inner);
+                    }
+                    return super.getDirectChildren(cu);
+                }
+            };
+
+            analyzer.addDeclaration(outer);
+            analyzer.addDeclaration(inner);
+            analyzer.setDirectAncestors(outer, List.of(outerBase));
+            analyzer.setDirectAncestors(inner, List.of(innerBase));
+
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var fragment = new SummaryFragment(cm, "com.example.Outer", SummaryType.CODEUNIT_SKELETON);
+
+            var supporting = fragment.supportingFragments();
+            var targetIds = supporting.stream()
+                    .filter(f -> f instanceof SummaryFragment)
+                    .map(f -> ((SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+
+            assertTrue(targetIds.contains("com.example.OuterBase"), "Should include OuterBase");
+            assertFalse(targetIds.contains("com.example.InnerBase"), "Should NOT include InnerBase");
+        }
+    }
+
+    @Test
+    public void supportingFragments_fileSkeletonsResolvesAncestors() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "public class Base1 {}\npublic class Base2 {}", "Bases.java")
+                .addFileContents(
+                        """
+                        class Child1 extends Base1 {}
+                        class Child2 extends Base2 {}
+                        """,
+                        "Children.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            ProjectFile childrenFile = testProject.getAllFiles().stream()
+                    .filter(pf -> pf.getFileName().equals("Children.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            // 1. Create FILE_SKELETONS fragment
+            var fileFragment = new SummaryFragment(cm, childrenFile.toString(), SummaryType.FILE_SKELETONS);
+
+            // 2. Call supportingFragments()
+            var supporting = fileFragment.supportingFragments();
+
+            // 3. Verify returned set contains non-anonymous ancestors of TLDs
+            var targetIds = supporting.stream()
+                    .filter(f -> f instanceof SummaryFragment)
+                    .map(f -> ((SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+
+            assertEquals(Set.of("Base1", "Base2"), targetIds, "FILE_SKELETONS should return ancestors for all TLDs");
+
+            // 4. Compare behavior against CODEUNIT_SKELETON for consistency
+            var cuFragment = new SummaryFragment(cm, "Child1", SummaryType.CODEUNIT_SKELETON);
+            var cuSupporting = cuFragment.supportingFragments();
+            var cuTargetIds = cuSupporting.stream()
+                    .filter(f -> f instanceof SummaryFragment)
+                    .map(f -> ((SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+
+            assertEquals(
+                    Set.of("Base1"), cuTargetIds, "CODEUNIT_SKELETON should return ancestors for the specific unit");
+            assertTrue(
+                    targetIds.containsAll(cuTargetIds),
+                    "FILE_SKELETONS ancestors should be a superset of individual units");
+        }
+    }
+
+    @Test
+    public void combinedTextDeduplicatesSharedAncestors() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+    public class Base {}
+    class ChildA extends Base {}
+    class ChildB extends Base {}
+    """,
+                        "Test.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            var sfA = new SummaryFragment(cm, "ChildA", SummaryType.CODEUNIT_SKELETON);
+            var sfB = new SummaryFragment(cm, "ChildB", SummaryType.CODEUNIT_SKELETON);
+
+            List<SummaryFragment> fragments = new ArrayList<>();
+            fragments.add(sfA);
+            fragments.addAll(sfA.supportingFragments().stream()
+                    .map(f -> (SummaryFragment) f)
+                    .toList());
+            fragments.add(sfB);
+            fragments.addAll(sfB.supportingFragments().stream()
+                    .map(f -> (SummaryFragment) f)
+                    .toList());
+
+            String combined = SummaryFragment.combinedText(fragments);
+
+            // Combined text uses "by package" formatting, so it shouldn't have redundant ancestor headers
+            assertFalse(combined.contains("// Direct ancestors"), "Combined text should use flat package formatting");
+
+            // Each child should be present
+            assertTrue(combined.contains("class ChildA extends Base"), "Should contain ChildA");
+            assertTrue(combined.contains("class ChildB extends Base"), "Should contain ChildB");
+
+            // The superclass "Base" should appear EXACTLY once in the whole combined output
+            int count = 0;
+            int index = 0;
+            while ((index = combined.indexOf("public class Base", index)) != -1) {
+                count++;
+                index += "public class Base".length();
+            }
+            assertEquals(1, count, "Shared ancestor 'Base' should only appear once in combined output");
         }
     }
 }

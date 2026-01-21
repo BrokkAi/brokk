@@ -3,9 +3,11 @@ package ai.brokk.gui.mop.webview;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.TaskEntry;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.menu.ContextMenuBuilder;
+import ai.brokk.gui.mop.ChunkMeta;
 import ai.brokk.gui.mop.FilePathLookupService;
 import ai.brokk.gui.mop.SymbolLookupService;
 import ai.brokk.project.MainProject;
@@ -55,9 +57,15 @@ public final class MOPBridge {
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable Chrome chrome;
     private volatile @Nullable Component hostComponent;
+    private volatile boolean showEmptyState = false;
 
     public MOPBridge(WebEngine engine) {
+        this(engine, false);
+    }
+
+    public MOPBridge(WebEngine engine, boolean showEmptyState) {
         this.engine = engine;
+        this.showEmptyState = showEmptyState;
         this.xmit = Executors.newSingleThreadScheduledExecutor(r -> {
             var t = new Thread(r, "MOPBridge-" + this.hashCode());
             t.setDaemon(true);
@@ -147,12 +155,12 @@ public final class MOPBridge {
         Platform.runLater(() -> engine.executeScript(js));
     }
 
-    public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
+    public void append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta) {
         if (text.isEmpty()) {
             return;
         }
 
-        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning));
+        eventQueue.add(new BrokkEvent.Chunk(text, msgType, -1, streaming, chunkMeta));
         scheduleSend();
     }
 
@@ -209,6 +217,12 @@ public final class MOPBridge {
         scheduleSend();
     }
 
+    public void sendStaticDocument(@Nullable String markdown) {
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.StaticDocument(e, markdown));
+        scheduleSend();
+    }
+
     /** Enqueue a single task from the conversation history to the WebView. */
     public void sendHistoryTask(TaskEntry entry) {
         var e = epoch.incrementAndGet();
@@ -221,8 +235,11 @@ public final class MOPBridge {
             var msgs = taskFragment.messages();
             for (var message : msgs) {
                 var text = Messages.getText(message);
-                messages.add(
-                        new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
+                messages.add(new BrokkEvent.HistoryTask.Message(
+                        text,
+                        message.type(),
+                        Messages.isReasoningMessage(message),
+                        Messages.isTerminalMessage(message)));
             }
         }
 
@@ -272,10 +289,11 @@ public final class MOPBridge {
                 if (event instanceof BrokkEvent.Chunk chunk) {
                     if (firstChunk == null) {
                         firstChunk = chunk;
-                    } else if (chunk.isNew()
-                            || chunk.msgType() != firstChunk.msgType()
-                            || chunk.reasoning() != firstChunk.reasoning()) {
-                        // A new bubble is starting, so send the previously buffered one
+                    } else if (chunk.chunkMeta().isNewMessage()) {
+                        // isNewMessage is the authoritative signal from MarkdownOutputPanel
+                        // for all semantic boundaries (type changes, reasoning transitions, terminality).
+                        // We trust the upstream logic to set this flag correctly and do not apply
+                        // additional heuristics here.
                         flushCurrentChunk(firstChunk, currentText);
                         firstChunk = chunk;
                     }
@@ -301,19 +319,14 @@ public final class MOPBridge {
 
     private void flushCurrentChunk(@Nullable BrokkEvent.Chunk firstChunk, StringBuilder currentText) {
         if (firstChunk != null) {
-            sendChunk(
-                    currentText.toString(),
-                    firstChunk.isNew(),
-                    firstChunk.msgType(),
-                    firstChunk.streaming(),
-                    firstChunk.reasoning());
+            sendChunk(currentText.toString(), firstChunk.msgType(), firstChunk.streaming(), firstChunk.chunkMeta());
             currentText.setLength(0);
         }
     }
 
-    private void sendChunk(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
+    private void sendChunk(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta) {
         var e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming, reasoning);
+        var event = new BrokkEvent.Chunk(text, msgType, e, streaming, chunkMeta);
         sendEvent(event);
     }
 
@@ -386,6 +399,14 @@ public final class MOPBridge {
         this.hostComponent = hostComponent;
     }
 
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
+        var cm = contextManager;
+        if (cm != null) {
+            sendEnvironmentInfo(cm.isAnalyzerReady());
+        }
+    }
+
     public void lookupSymbolsAsync(String symbolNamesJson, int seq, String contextId) {
         // Assert we're not blocking the EDT with this call
         assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
@@ -411,7 +432,7 @@ public final class MOPBridge {
             return;
         }
 
-        // Use Chrome's background task system instead of raw CompletableFuture.supplyAsync()
+        // Use Chrome's background task system instead of raw ai.brokk.concurrent.LoggingFuture.supplyAsync()
         contextManager.submitBackgroundTask("Symbol lookup for " + symbolNames.size() + " symbols", () -> {
             // Assert background task is not running on EDT
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
@@ -725,7 +746,7 @@ public final class MOPBridge {
                 for (String langName : languageNames) {
                     try {
                         // Convert language name to Language object
-                        var language = ai.brokk.analyzer.Languages.valueOf(langName);
+                        var language = Languages.valueOf(langName);
 
                         // Get analyzable files for this language
                         var analyzableFiles = project.getAnalyzableFiles(language);
@@ -759,6 +780,7 @@ public final class MOPBridge {
             payload.put("projectName", projectName);
             payload.put("totalFileCount", totalFileCount);
             payload.put("analyzerReady", analyzerReady);
+            payload.put("showEmptyState", showEmptyState);
             if (!analyzerLanguagesInfo.isEmpty()) {
                 payload.put("analyzerLanguages", analyzerLanguagesInfo);
             }

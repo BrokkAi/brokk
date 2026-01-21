@@ -1,12 +1,12 @@
 package ai.brokk.gui.mop.webview;
 
+import ai.brokk.concurrent.ExecutorsUtil;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
 import org.apache.logging.log4j.LogManager;
@@ -60,11 +60,7 @@ public final class ClasspathHttpServer {
         // Handle requests by serving resources from the classpath
         server.createContext("/", this::handleRequest);
         // Use a small thread pool for handling requests
-        server.setExecutor(Executors.newFixedThreadPool(2, r -> {
-            var t = new Thread(r, "ClasspathHttpServer-" + r.hashCode());
-            t.setDaemon(true);
-            return t;
-        }));
+        server.setExecutor(ExecutorsUtil.newFixedThreadExecutor(2, "ClasspathHttpServer-"));
         server.start();
         logger.info("Embedded HTTP server started on port {}", port);
     }

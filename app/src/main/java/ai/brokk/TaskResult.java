@@ -121,7 +121,7 @@ public record TaskResult(
         CONTEXT,
         MERGE,
         BLITZFORGE,
-        COPY;
+        REVIEW;
 
         public String displayName() {
             if (this == SEARCH) {

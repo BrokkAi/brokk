@@ -101,6 +101,7 @@ public class ThemeColors {
     public static final String DIFF_ADDED = "diff_added";
     public static final String DIFF_CHANGED = "diff_changed";
     public static final String DIFF_DELETED = "diff_deleted";
+    public static final String DIFF_SEPARATOR = "diff_separator";
 
     // Search highlight colors
     public static final String SEARCH_HIGHLIGHT = "search_highlight";
@@ -163,9 +164,12 @@ public class ThemeColors {
             case DIFF_ADDED -> new Color(220, 250, 220);
             case DIFF_CHANGED -> new Color(220, 235, 250);
             case DIFF_DELETED -> new Color(250, 220, 220);
+            case DIFF_SEPARATOR -> new Color(160, 160, 160);
             case CHAT_BACKGROUND -> new Color(37, 37, 37);
             case CHAT_TEXT -> new Color(212, 212, 212);
             case CI_EXCLUDED_FOREGROUND -> Color.GRAY;
+            case ACCENT_GRADIENT_START -> new Color(0x1e, 0x88, 0xe5); // Blue
+            case ACCENT_GRADIENT_END -> new Color(0x15, 0x65, 0xc0); // Darker blue
             default -> {
                 logger.warn("No fallback color defined for key: {}", key);
                 yield Color.MAGENTA; // Bright error color for unexpected keys
