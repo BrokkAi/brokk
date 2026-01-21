@@ -984,7 +984,10 @@ public class ReviewAgent {
         }
 
         var sessionManager = cm.getProject().getSessionManager();
-        var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.ARCHITECT, TaskResult.Type.BLITZFORGE);
+        // We omit ARCHITECT task results because we kick of each task by giving it to the code agent, this is exactly
+        // the Architect's task description. If that fails, Architect will issue new instructions to the code agent,
+        // which we will also capture with Type.CODE. When architect succeeds, it just echos the original task again.
+        var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.BLITZFORGE);
         var contexts = sessionIds.stream()
                 .parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
