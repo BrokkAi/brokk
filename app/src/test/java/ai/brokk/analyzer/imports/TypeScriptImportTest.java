@@ -145,10 +145,11 @@ public class TypeScriptImportTest {
             Set<CodeUnit> importedUnits =
                     analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(childFile);
 
+            var expectedPath = java.nio.file.Path.of("src", "some", "BaseService.ts");
             boolean foundBaseService = importedUnits.stream()
                     .anyMatch(cu -> cu.shortName().equals("BaseService")
                             && cu.isClass()
-                            && cu.source().getRelPath().toString().contains("src/some/BaseService.ts"));
+                            && cu.source().getRelPath().equals(expectedPath));
 
             assertTrue(foundBaseService, "Should have resolved 'BaseService' class from src/some/BaseService.ts");
         }
