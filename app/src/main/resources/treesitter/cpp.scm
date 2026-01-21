@@ -82,3 +82,6 @@
 
 ; Access specifiers
 (access_specifier) @access.specifier
+
+; Include directives (imports)
+(preproc_include) @import.declaration
