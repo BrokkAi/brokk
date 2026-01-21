@@ -400,7 +400,9 @@ class JobRunnerIssueModeTest {
 
         Consumer<String> fixTaskRunner = out -> fixPrompts.add("fix this build error:\n" + out);
 
-        assertThrows(
+        int maxIterations = 2;
+
+        IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
                 () -> JobRunner.runIssueModeTestLintRetryLoop(
                         cancelled::get,
@@ -408,11 +410,17 @@ class JobRunnerIssueModeTest {
                         commandRunner,
                         fixTaskRunner,
                         new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
-                        2));
+                        maxIterations));
 
         assertEquals(List.of("./gradlew test", "./gradlew lint", "./gradlew test", "./gradlew lint"), calls);
         assertEquals(2, fixPrompts.size());
         assertEquals("fix this build error:\nLINT FAILED OUTPUT", fixPrompts.get(0));
+
+        String msg = ex.getMessage();
+        assertNotNull(msg);
+        assertTrue(msg.contains("Tests/lint failed after " + maxIterations + " iteration(s)"));
+        assertTrue(msg.contains("stage=lint"));
+        assertTrue(msg.contains("LINT FAILED OUTPUT"));
     }
 
     @Test
@@ -540,7 +548,12 @@ class JobRunnerIssueModeTest {
 
         assertEquals(maxIterations, testCalls.get(), "Must run exactly maxIterations iterations");
         assertEquals(maxIterations, fixCalls.get(), "Must perform exactly one fix per iteration");
-        assertTrue(ex.getMessage().contains("Tests/lint failed after " + maxIterations + " iteration(s)"));
+
+        String msg = ex.getMessage();
+        assertNotNull(msg);
+        assertTrue(msg.contains("Tests/lint failed after " + maxIterations + " iteration(s)"));
+        assertTrue(msg.contains("stage=tests"));
+        assertTrue(msg.contains("always failing"));
     }
 
     @Test
@@ -583,9 +596,12 @@ class JobRunnerIssueModeTest {
 
         assertEquals(maxIterations, lintCalls.get(), "Lint must be invoked once per iteration");
         assertEquals(maxIterations, fixCalls.get(), "Fix must run once per iteration");
-        assertTrue(
-                ex.getMessage().contains("Tests/lint failed after " + maxIterations + " iteration(s)"),
-                "Exception message should reflect maxIterations");
+
+        String msg = ex.getMessage();
+        assertNotNull(msg);
+        assertTrue(msg.contains("Tests/lint failed after " + maxIterations + " iteration(s)"));
+        assertTrue(msg.contains("stage=lint"));
+        assertTrue(msg.contains("LINT FAILED OUTPUT"));
     }
 
     @Test

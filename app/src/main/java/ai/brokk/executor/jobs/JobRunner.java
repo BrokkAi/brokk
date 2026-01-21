@@ -2035,6 +2035,10 @@ public final class JobRunner {
         boolean testsSkipped = testCmd.isBlank();
         boolean lintSkipped = lintCmd.isBlank();
 
+        @Nullable String lastFailStage = null; // "tests" | "lint"
+        @Nullable String lastFailCommand = null;
+        @Nullable String lastFailOutput = null;
+
         for (int i = 0; i < maxIterations; i++) {
             int attemptNumber = i + 1;
 
@@ -2051,6 +2055,10 @@ public final class JobRunner {
             boolean testsPassed = testsSkipped || testOut.isBlank();
 
             if (!testsPassed) {
+                lastFailStage = "tests";
+                lastFailCommand = testCmd;
+                lastFailOutput = testOut;
+
                 String resultMsg = "Final verification attempt %d/%d results: tests=FAIL, lint=SKIP"
                         .formatted(attemptNumber, maxIterations);
                 progressSink.accept(attemptNumber, resultMsg);
@@ -2075,6 +2083,10 @@ public final class JobRunner {
             progressSink.accept(attemptNumber, resultMsg);
 
             if (!lintPassed) {
+                lastFailStage = "lint";
+                lastFailCommand = lintCmd;
+                lastFailOutput = lintOut;
+
                 fixTaskRunner.accept(lintOut);
                 continue;
             }
@@ -2082,7 +2094,14 @@ public final class JobRunner {
             return;
         }
 
-        throw new IssueExecutionException("Tests/lint failed after " + maxIterations + " iteration(s)");
+        String baseMessage = "Tests/lint failed after " + maxIterations + " iteration(s)";
+        if (lastFailStage != null && lastFailCommand != null && lastFailOutput != null && !lastFailOutput.isBlank()) {
+            throw new IssueExecutionException(
+                    baseMessage + ". Last failure: stage=" + lastFailStage + ", command=" + lastFailCommand
+                            + "\nOutput:\n" + lastFailOutput);
+        }
+
+        throw new IssueExecutionException(baseMessage);
     }
 
     private static final Pattern DIFF_FENCE_PATTERN = Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
