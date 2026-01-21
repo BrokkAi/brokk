@@ -4,6 +4,7 @@ import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
+import java.nio.file.InvalidPathException;
 import java.util.*;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
@@ -363,7 +364,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             if (getTopLevelDeclarations().containsKey(candidate)) {
                 return Optional.of(candidate);
             }
-        } catch (Exception e) {
+        } catch (InvalidPathException e) {
             log.debug("Failed to resolve relative include '{}' from '{}'", relativePath, includingFile, e);
         }
         return Optional.empty();
