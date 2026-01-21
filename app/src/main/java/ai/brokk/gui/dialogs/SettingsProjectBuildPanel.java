@@ -27,6 +27,7 @@ import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
+import javax.swing.plaf.basic.BasicComboBoxEditor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -997,6 +998,17 @@ public class SettingsProjectBuildPanel extends JPanel {
         commonExecutorsComboBox.setEditable(true);
         commonExecutorsComboBox.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
 
+        commonExecutorsComboBox.setEditor(new BasicComboBoxEditor() {
+            @Override
+            public void setItem(Object anObject) {
+                if (anObject instanceof ShellConfig sc) {
+                    super.setItem(sc.executable());
+                } else {
+                    super.setItem(anObject);
+                }
+            }
+        });
+
         commonExecutorsComboBox.setRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(
@@ -1012,6 +1024,14 @@ public class SettingsProjectBuildPanel extends JPanel {
             var selected = commonExecutorsComboBox.getSelectedItem();
             if (selected instanceof ShellConfig sc) {
                 executorArgsField.setText(String.join(" ", sc.args()));
+            } else if (selected instanceof String selectedPath) {
+                for (int i = 0; i < commonExecutorsComboBox.getItemCount(); i++) {
+                    Object item = commonExecutorsComboBox.getItemAt(i);
+                    if (item instanceof ShellConfig sc && sc.executable().equals(selectedPath)) {
+                        executorArgsField.setText(String.join(" ", sc.args()));
+                        break;
+                    }
+                }
             }
         });
 
