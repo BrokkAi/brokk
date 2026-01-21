@@ -1024,6 +1024,6 @@ class JobRunnerIssueModeTest {
         assertEquals(0, reviewCalls.get(), "Review callback must not be invoked when diff is blank");
     }
 
-    // runIssueModeBuildLintRetryLoop was intentionally removed; tests should target runFinalGateRetryLoop
+    // runIssueModeBuildLintRetryLoop was intentionally removed; tests should target runIssueModeTestLintRetryLoop
     // instead.
 }
