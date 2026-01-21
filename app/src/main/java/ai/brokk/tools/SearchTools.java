@@ -8,8 +8,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
@@ -116,8 +114,6 @@ public class SearchTools {
             @P(
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
                     List<String> filePaths) {
-        assert getAnalyzer().as(SkeletonProvider.class).isPresent()
-                : "Cannot get summaries: Code Intelligence is not available.";
         if (filePaths.isEmpty()) {
             return "Cannot get summaries: file paths list is empty";
         }
@@ -138,7 +134,7 @@ public class SearchTools {
         List<String> allSkeletons = new ArrayList<>();
         List<String> filesProcessed = new ArrayList<>(); // Still useful for the "not found" message
         for (var file : projectFiles) {
-            var skeletonsInFile = ((SkeletonProvider) getAnalyzer()).getSkeletons(file);
+            var skeletonsInFile = getAnalyzer().getSkeletons(file);
             if (!skeletonsInFile.isEmpty()) {
                 // Add all skeleton strings from this file to the list
                 allSkeletons.addAll(skeletonsInFile.values());
@@ -165,6 +161,8 @@ public class SearchTools {
     @Tool(
             """
                     Search for symbols (class/function/field/module definitions) using static analysis.
+                    ONLY returns symbol definitions (declarations).
+                    DO NOT use for usages/call sites/instantiation/access patterns — use addSymbolUsagesToWorkspace or searchSubstrings.
                     Output is grouped by file, then by symbol kind within each file.
 
                     - kinds: CLASS, FUNCTION, FIELD, MODULE
@@ -248,6 +246,8 @@ public class SearchTools {
     @Tool(
             """
                     Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
+                    Use this for questions like “how is X used/accessed/obtained/wired”.
+                    If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
                     """)
     public String getUsages(
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")
@@ -294,9 +294,6 @@ public class SearchTools {
                     """)
     public String getClassSkeletons(
             @P("Fully qualified class names to get the skeleton structures for") List<String> classNames) {
-
-        assert getAnalyzer().as(SkeletonProvider.class).isPresent()
-                : "Cannot get skeletons: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
@@ -327,8 +324,6 @@ public class SearchTools {
             @P("Fully qualified class names to retrieve the full source code for") List<String> classNames,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        assert getAnalyzer().as(SourceCodeProvider.class).isPresent()
-                : "Cannot get class sources: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
@@ -416,8 +411,6 @@ public class SearchTools {
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
                     List<String> methodNames) {
-        assert getAnalyzer().as(SourceCodeProvider.class).isPresent()
-                : "Cannot get method sources: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize methodNames: remove potential `(params)` suffix from LLM.
         methodNames = stripParams(methodNames);
         if (methodNames.isEmpty()) {
@@ -435,13 +428,12 @@ public class SearchTools {
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
-                    var fragment = new ContextFragments.CodeFragment(contextManager, cu);
-                    var text = fragment.text().join();
-                    if (!text.isEmpty()) {
+                    Set<String> sources = analyzer.getSources(cu, true);
+                    if (!sources.isEmpty()) {
                         if (!result.isEmpty()) {
                             result.append("\n\n");
                         }
-                        result.append(text);
+                        result.append(String.join("\n\n", sources));
                     }
                 }
             }

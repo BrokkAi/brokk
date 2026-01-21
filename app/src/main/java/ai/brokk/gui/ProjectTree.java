@@ -597,11 +597,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         boolean hasGit = contextManager.getProject().hasGit();
         JMenuItem historyItem = new JMenuItem("Show History");
         historyItem.addActionListener(ev -> {
-            if (chrome.getGitCommitTab() != null) {
-                chrome.addFileHistoryTab(file);
-            } else {
-                logger.warn("GitPanel is null, cannot show history for {}", file);
-            }
+            chrome.addFileHistoryTab(file);
         });
         historyItem.setEnabled(hasGit);
         if (!hasGit) {

@@ -39,13 +39,16 @@ public final class UnifiedDiffHighlighter {
                 String content = diffLine.getContent();
 
                 int lineStart = currentOffset;
-                int lineEnd = currentOffset + content.length();
+                int contentLength = content.length();
+                boolean hasNewline = content.endsWith("\n");
+                // Exclude trailing newline from highlight to prevent bleeding into next line
+                int highlightEnd = currentOffset + contentLength - (hasNewline ? 1 : 0);
 
                 // Apply highlight based on LineType
-                applyLineHighlightByType(highlighter, diffLine.getType(), lineStart, lineEnd, isDarkTheme);
+                applyLineHighlightByType(highlighter, diffLine.getType(), lineStart, highlightEnd, isDarkTheme);
 
-                // Move to next line
-                currentOffset = lineEnd + (content.endsWith("\n") ? 0 : 1);
+                // Move to next line (full content length, not highlight end)
+                currentOffset += contentLength + (hasNewline ? 0 : 1);
             }
 
         } catch (Exception e) {

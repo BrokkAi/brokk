@@ -183,28 +183,16 @@ public class SessionManagerTest {
     }
 
     private void assertContextsEqual(Context expected, Context actual) throws IOException, InterruptedException {
-        // Compare editable files
-        var expectedEditable = expected.fileFragments()
+        // Compare all fragments
+        var expectedFragments = expected.allFragments()
                 .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
-        var actualEditable = actual.fileFragments()
+        var actualFragments = actual.allFragments()
                 .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
-        assertEquals(expectedEditable.size(), actualEditable.size(), "Editable files count mismatch");
-        for (int i = 0; i < expectedEditable.size(); i++) {
-            assertContextFragmentsEqual(expectedEditable.get(i), actualEditable.get(i));
-        }
-
-        // Compare virtual fragments
-        var expectedVirtuals = expected.virtualFragments()
-                .sorted(Comparator.comparing(ContextFragment::id))
-                .toList();
-        var actualVirtuals = actual.virtualFragments()
-                .sorted(Comparator.comparing(ContextFragment::id))
-                .toList();
-        assertEquals(expectedVirtuals.size(), actualVirtuals.size(), "Virtual fragments count mismatch");
-        for (int i = 0; i < expectedVirtuals.size(); i++) {
-            assertContextFragmentsEqual(expectedVirtuals.get(i), actualVirtuals.get(i));
+        assertEquals(expectedFragments.size(), actualFragments.size(), "Fragment count mismatch");
+        for (int i = 0; i < expectedFragments.size(); i++) {
+            assertContextFragmentsEqual(expectedFragments.get(i), actualFragments.get(i));
         }
 
         // Compare task history

@@ -573,8 +573,8 @@ public class BrokkDiffPanel extends JPanel
             var panelFiles = p.getFilesBeingSaved();
             for (var file : panelFiles) {
                 // Check if this file is already in the current workspace context
-                var editableFilesList = currentContext.fileFragments().toList();
-                boolean inWorkspace = editableFilesList.stream()
+                boolean inWorkspace = currentContext
+                        .allFragments()
                         .anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment ppf
                                 && ppf.file().equals(file));
                 if (!inWorkspace) {

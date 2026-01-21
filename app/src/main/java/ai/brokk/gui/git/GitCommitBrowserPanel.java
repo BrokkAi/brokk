@@ -824,7 +824,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                             IConsoleIO.NotificationRole.INFO,
                             "Cherry-picked " + finalApplied + " commit(s) into '" + branchLabel + "'.");
                     refreshCurrentViewAfterGitOp();
-                    chrome.updateCommitPanel();
                 });
             });
         });
@@ -932,7 +931,11 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void showCommitDialogAndThen(Runnable continuation) {
         var dialog = new CommitDialog(
-                chrome.getFrame(), chrome, chrome.getContextManager(), chrome.getModifiedFiles(), commitResult -> {
+                chrome.getFrame(),
+                chrome,
+                chrome.getContextManager(),
+                new ArrayList<>(getRepo().getModifiedProjectFiles()),
+                commitResult -> {
                     try {
                         if (getRepo().getModifiedFiles().isEmpty()) {
                             continuation.run();
@@ -1623,7 +1626,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 SwingUtil.runOnEdt(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
                     refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
-                    chrome.updateCommitPanel(); // For uncommitted changes
+                    // For uncommitted changes
                 });
             } catch (GitAPIException ex) {
                 logger.error("Error pulling {}: {}", branchName, ex.getMessage());

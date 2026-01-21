@@ -13,7 +13,6 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.Test;
 
 class ReviewScopeTest {
-
     @Test
     void testFromContext_roundTrip() throws IOException, GitAPIException, ReviewScope.ReviewLoadException {
         // Create a project with git and make changes

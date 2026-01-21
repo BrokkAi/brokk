@@ -62,7 +62,24 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         contentPanel = new JPanel(cardLayout);
 
         // Tab list on the right
-        tabList = new JList<>(listModel);
+        tabList = new JList<>(listModel) {
+            @Override
+            public @Nullable String getToolTipText(MouseEvent e) {
+                int index = locationToIndex(e.getPoint());
+                if (index >= 0) {
+                    var bounds = getCellBounds(index, index);
+                    if (bounds != null && bounds.contains(e.getPoint())) {
+                        var entry = listModel.get(index);
+                        if (entry.fileKey() != null) {
+                            return entry.fileKey().getRelPath().toString();
+                        }
+                        return entry.title();
+                    }
+                }
+                return null;
+            }
+        };
+        tabList.setToolTipText("");
         tabList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         tabList.setCellRenderer(new TabCellRenderer());
         tabList.setFixedCellWidth(200);

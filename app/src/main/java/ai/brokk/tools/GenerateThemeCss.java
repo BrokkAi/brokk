@@ -1,5 +1,6 @@
 package ai.brokk.tools;
 
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import java.awt.Color;
@@ -39,7 +40,7 @@ public final class GenerateThemeCss {
         String content = banner + "\n" + darkBlock + "\n" + darkPlusBlock + "\n" + lightBlock + "\n" + lightPlusBlock
                 + "\n" + highContrastBlock + "\n";
 
-        Files.writeString(target, content);
+        AtomicWrites.save(target, content);
         System.out.printf("Theme SCSS written to %s (%d bytes)%n", target.toAbsolutePath(), content.length());
     }
 

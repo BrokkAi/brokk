@@ -2,7 +2,9 @@ package ai.brokk.tools;
 
 import ai.brokk.ContextManager;
 import ai.brokk.executor.HeadlessExecutorMain;
+import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.CloneOperationTracker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Ascii;
 import java.io.IOException;
@@ -11,12 +13,14 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -35,6 +39,7 @@ import org.jetbrains.annotations.Nullable;
 public class HeadlessExecCli {
     private static final Logger logger = LogManager.getLogger(HeadlessExecCli.class);
     private static final ObjectMapper mapper = new ObjectMapper();
+    private static final String REPO_COMPONENT_ALLOWLIST_REGEX = "^[A-Za-z0-9_.-]+$";
     private final MediaType JSON;
     private static final int READY_POLL_TIMEOUT_MS = 30000;
     private static final int READY_POLL_INTERVAL_MS = 500;
@@ -54,8 +59,21 @@ public class HeadlessExecCli {
     private @Nullable Double temperatureCode = null;
     private String prompt = "";
 
-    private HeadlessExecutorMain executor;
-    private Path tempWorkspace;
+    private String githubToken = "";
+    private String repoOwner = "";
+    private String repoName = "";
+    private int issueNumber = 0;
+    private int prNumber = 0;
+    private @Nullable Integer maxIssueFixAttempts = null;
+    private String buildSettings = "";
+    private String issueDelivery = "";
+
+    private @Nullable HeadlessExecutorMain executor;
+
+    private @Nullable Path tempWorkspaceRoot;
+    private @Nullable Path workspaceRoot;
+    private boolean createdTempWorkspace = false;
+
     private OkHttpClient httpClient;
 
     public HeadlessExecCli() {
@@ -71,29 +89,16 @@ public class HeadlessExecCli {
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build();
-
-        // Create temporary workspace
-        try {
-            tempWorkspace = Files.createTempDirectory("brokk-headless-");
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to create temp workspace", e);
-        }
-        logger.info("Created temp workspace: {}", tempWorkspace);
-        // Start executor in-process on random port
-        var execId = UUID.randomUUID();
-        var project = new MainProject(tempWorkspace);
-        var contextManager = new ContextManager(project);
-        try {
-            executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to initialize HeadlessExecutorMain", e);
-        }
     }
 
     private int run() {
         try {
-            executor.start();
-            int port = executor.getPort();
+            initializeExecutorAndWorkspaceIfNeeded();
+
+            HeadlessExecutorMain executorLocal = requireInitializedExecutor();
+
+            executorLocal.start();
+            int port = executorLocal.getPort();
             var baseUrl = "http://127.0.0.1:" + port;
             logger.info("Executor started on port {}", port);
 
@@ -128,9 +133,93 @@ public class HeadlessExecCli {
             System.err.println("ERROR: " + e.getMessage());
             return 1;
         } finally {
-            // Cleanup
             cleanup();
         }
+    }
+
+    record WorkspaceSelection(Path root, boolean isTemporary) {
+        WorkspaceSelection {
+            root = root.toAbsolutePath().normalize();
+        }
+    }
+
+    WorkspaceSelection chooseWorkspaceRootForMode() {
+        return chooseWorkspaceRootForMode(mode, repoOwner, repoName);
+    }
+
+    static WorkspaceSelection chooseWorkspaceRootForMode(String mode, String repoOwner, String repoName) {
+        String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
+        if ("ISSUE".equals(normalizedMode)
+                || "REVIEW".equals(normalizedMode)
+                || "ISSUE_WRITER".equals(normalizedMode)) {
+            String safeOwner = repoOwner.isBlank() ? "unknown-owner" : repoOwner.replaceAll("[^A-Za-z0-9._-]", "-");
+            String safeRepo = repoName.isBlank() ? "unknown-repo" : repoName.replaceAll("[^A-Za-z0-9._-]", "-");
+            String prefix = "brokk-headless-" + safeOwner + "-" + safeRepo + "-";
+
+            Path tempRoot;
+            try {
+                tempRoot = Files.createTempDirectory(prefix).toAbsolutePath().normalize();
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to create temp workspace", e);
+            }
+            return new WorkspaceSelection(tempRoot, true);
+        }
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        return new WorkspaceSelection(cwd, false);
+    }
+
+    private static String buildGitHubHttpsCloneUrl(String owner, String repo) {
+        return "https://github.com/" + owner + "/" + repo + ".git";
+    }
+
+    private void initializeExecutorAndWorkspaceIfNeeded() throws IOException, GitAPIException {
+        if (executor != null) {
+            return;
+        }
+
+        WorkspaceSelection selection = chooseWorkspaceRootForMode();
+        if (selection.isTemporary()) {
+            tempWorkspaceRoot = selection.root();
+            createdTempWorkspace = true;
+
+            String cloneUrl = buildGitHubHttpsCloneUrl(repoOwner, repoName);
+            Supplier<String> tokenSupplier = () -> githubToken;
+
+            Path cloneTarget =
+                    tempWorkspaceRoot.resolve(repoName).toAbsolutePath().normalize();
+            workspaceRoot = cloneTarget;
+
+            logger.info("Using temp workspace root: {}", tempWorkspaceRoot);
+            logger.info("Cloning {} into: {}", cloneUrl, cloneTarget);
+
+            CloneOperationTracker.registerCloneOperation(tempWorkspaceRoot);
+            try {
+                Files.createDirectories(tempWorkspaceRoot);
+                CloneOperationTracker.createInProgressMarker(tempWorkspaceRoot, cloneUrl, "");
+                GitRepoFactory.cloneRepo(tokenSupplier, cloneUrl, cloneTarget, 0);
+                CloneOperationTracker.createCompleteMarker(tempWorkspaceRoot, cloneUrl, "");
+            } finally {
+                CloneOperationTracker.unregisterCloneOperation(tempWorkspaceRoot);
+            }
+        } else {
+            tempWorkspaceRoot = selection.root();
+            workspaceRoot = tempWorkspaceRoot;
+            createdTempWorkspace = false;
+            logger.info("Using current working directory as workspace: {}", workspaceRoot);
+        }
+
+        var execId = UUID.randomUUID();
+        var project = new MainProject(workspaceRoot);
+        var contextManager = new ContextManager(project);
+        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
+    }
+
+    private HeadlessExecutorMain requireInitializedExecutor() {
+        HeadlessExecutorMain ex = executor;
+        if (ex == null) {
+            throw new IllegalStateException("Executor not initialized");
+        }
+        return ex;
     }
 
     /**
@@ -245,6 +334,39 @@ public class HeadlessExecCli {
 
         var tags = mapper.createObjectNode();
         tags.put("mode", mode);
+
+        // Add Mode-specific tags and job spec fields
+        if ("ISSUE".equals(mode)) {
+            tags.put("github_token", githubToken);
+            tags.put("repo_owner", repoOwner);
+            tags.put("repo_name", repoName);
+            tags.put("issue_number", String.valueOf(issueNumber));
+            if (!issueDelivery.isBlank()) {
+                tags.put("issue_delivery", issueDelivery);
+            }
+            if (maxIssueFixAttempts != null) {
+                jobSpec.put("maxIssueFixAttempts", maxIssueFixAttempts.intValue());
+            }
+            if (!buildSettings.isBlank()) {
+                // Parse buildSettings as JSON and add as object
+                try {
+                    var buildSettingsJson = mapper.readTree(buildSettings);
+                    jobSpec.set("buildSettings", buildSettingsJson);
+                } catch (Exception e) {
+                    logger.warn("Failed to parse buildSettings as JSON, adding as string", e);
+                    jobSpec.put("buildSettings", buildSettings);
+                }
+            }
+        } else if ("REVIEW".equals(mode)) {
+            tags.put("github_token", githubToken);
+            tags.put("repo_owner", repoOwner);
+            tags.put("repo_name", repoName);
+            tags.put("pr_number", String.valueOf(prNumber));
+        } else if ("ISSUE_WRITER".equals(mode)) {
+            tags.put("github_token", githubToken);
+            tags.put("repo_owner", repoOwner);
+            tags.put("repo_name", repoName);
+        }
         jobSpec.set("tags", tags);
 
         var request = new Request.Builder()
@@ -309,14 +431,48 @@ public class HeadlessExecCli {
 
                         if (events != null && events.isArray()) {
                             for (var event : events) {
-                                var data = event.get("data");
-                                if (data != null) {
-                                    System.out.println(data.asText());
-                                    System.out.flush();
+                                var seqNode = event.get("seq");
+                                if (seqNode != null) {
+                                    afterSeq = seqNode.asLong();
                                 }
-                                var seq = event.get("seq");
-                                if (seq != null) {
-                                    afterSeq = seq.asLong();
+
+                                var typeNode = event.get("type");
+                                var dataNode = event.get("data");
+
+                                String type = typeNode != null && !typeNode.isNull() ? typeNode.asText() : "event";
+
+                                String dataText = "";
+                                if (dataNode == null || dataNode.isNull()) {
+                                    dataText = "null";
+                                } else if (dataNode.isTextual()) {
+                                    dataText = dataNode.asText();
+                                } else {
+                                    try {
+                                        dataText = mapper.writeValueAsString(dataNode);
+                                    } catch (Exception e) {
+                                        dataText = dataNode.toString();
+                                    }
+                                }
+
+                                String seqPrefix =
+                                        seqNode != null && !seqNode.isNull() ? ("[" + seqNode.asLong() + "] ") : "";
+                                String line;
+                                if (dataNode != null && dataNode.isTextual()) {
+                                    line = seqPrefix + type + ": " + dataText;
+                                } else {
+                                    line = seqPrefix + type + " " + dataText;
+                                }
+
+                                if (!line.isBlank()) {
+                                    System.out.println(line);
+                                    System.out.flush();
+                                } else {
+                                    try {
+                                        System.out.println(seqPrefix + type + " " + event.toString());
+                                    } catch (Exception e) {
+                                        System.out.println(seqPrefix + type);
+                                    }
+                                    System.out.flush();
                                 }
                             }
                         }
@@ -362,17 +518,21 @@ public class HeadlessExecCli {
      */
     private void cleanup() {
         try {
-            executor.stop(0);
-            logger.info("Executor stopped");
+            if (executor != null) {
+                executor.stop(0);
+                logger.info("Executor stopped");
+            }
         } catch (Exception e) {
             logger.warn("Error stopping executor", e);
         }
 
         try {
-            recursiveDelete(tempWorkspace);
-            logger.info("Deleted temp workspace: {}", tempWorkspace);
+            if (createdTempWorkspace && tempWorkspaceRoot != null) {
+                recursiveDelete(tempWorkspaceRoot);
+                logger.info("Deleted temp workspace root: {}", tempWorkspaceRoot);
+            }
         } catch (IOException e) {
-            logger.warn("Error deleting temp workspace", e);
+            logger.warn("Error deleting temp workspace root", e);
         }
 
         httpClient.dispatcher().executorService().shutdown();
@@ -437,11 +597,12 @@ public class HeadlessExecCli {
     }
 
     private static void printUsage() {
-        System.out.println("Usage: java HeadlessExecCli [options] <prompt>");
+        System.out.println("Usage: java HeadlessExecCli [options] [prompt]");
+        System.out.println("  Note: [prompt] is optional in ISSUE/REVIEW mode, and required in all other modes.");
         System.out.println();
         System.out.println("Options:");
         System.out.println(
-                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, or SEARCH (default: ARCHITECT)");
+                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER (default: ARCHITECT)");
         System.out.println("  --planner-model MODEL    Planner model name (required)");
         System.out.println(
                 "  --scan-model MODEL       Scan model name (optional; used by SEARCH mode; used by ASK only when --pre-scan is enabled)");
@@ -456,6 +617,19 @@ public class HeadlessExecCli {
         System.out.println("  --auto-commit            Enable auto-commit of changes");
         System.out.println("  --auto-compress          Enable auto-compress of context");
         System.out.println("  --help                   Show this help message");
+        System.out.println();
+        System.out.println(
+                "ISSUE/REVIEW/ISSUE_WRITER Mode Options (required when --mode ISSUE, REVIEW, or ISSUE_WRITER):");
+        System.out.println("  --github-token TOKEN     GitHub API token");
+        System.out.println("  --repo-owner OWNER       Repository owner (user or organization)");
+        System.out.println("  --repo-name REPO         Repository name");
+        System.out.println("  --issue-number NUMBER    GitHub issue number (required for ISSUE mode)");
+        System.out.println("  --pr-number NUMBER       GitHub PR number (required for REVIEW mode)");
+        System.out.println();
+        System.out.println("ISSUE Mode Options (optional):");
+        System.out.println("  --max-issue-fix-attempts NUMBER  Maximum fix attempts (default: 5)");
+        System.out.println("  --build-settings JSON    Build settings as JSON object");
+        System.out.println("  --issue-delivery MODE    Delivery mode ('none' to skip PR creation)");
         System.out.println();
         System.out.println(
                 "Note: In SEARCH mode, --code-model is ignored (SearchAgent is read-only and does not generate code).");
@@ -510,10 +684,100 @@ public class HeadlessExecCli {
             System.err.println("ERROR: --planner-model is required");
             return false;
         }
-        if (prompt.isBlank()) {
+
+        String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
+        boolean promptRequired = !("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode));
+        if (promptRequired && prompt.isBlank()) {
             System.err.println("ERROR: <prompt> positional argument is required");
             return false;
         }
+
+        // Validate ISSUE mode required fields
+        if ("ISSUE".equals(mode)) {
+            if (githubToken.isBlank()) {
+                System.err.println("ERROR: --github-token is required for ISSUE mode");
+                return false;
+            }
+            if (repoOwner.isBlank()) {
+                System.err.println("ERROR: --repo-owner is required for ISSUE mode");
+                return false;
+            }
+            if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-owner '" + repoOwner + "'. Repo owner must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
+            if (repoName.isBlank()) {
+                System.err.println("ERROR: --repo-name is required for ISSUE mode");
+                return false;
+            }
+            if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
+            if (issueNumber <= 0) {
+                System.err.println("ERROR: --issue-number is required for ISSUE mode");
+                return false;
+            }
+        }
+
+        // Validate REVIEW mode required fields
+        if ("REVIEW".equals(mode)) {
+            if (githubToken.isBlank()) {
+                System.err.println("ERROR: --github-token is required for REVIEW mode");
+                return false;
+            }
+            if (repoOwner.isBlank()) {
+                System.err.println("ERROR: --repo-owner is required for REVIEW mode");
+                return false;
+            }
+            if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-owner '" + repoOwner + "'. Repo owner must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
+            if (repoName.isBlank()) {
+                System.err.println("ERROR: --repo-name is required for REVIEW mode");
+                return false;
+            }
+            if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
+            if (prNumber <= 0) {
+                System.err.println("ERROR: --pr-number is required for REVIEW mode");
+                return false;
+            }
+        }
+
+        // Validate ISSUE_WRITER mode required fields
+        if ("ISSUE_WRITER".equals(mode)) {
+            if (githubToken.isBlank()) {
+                System.err.println("ERROR: --github-token is required for ISSUE_WRITER mode");
+                return false;
+            }
+            if (repoOwner.isBlank()) {
+                System.err.println("ERROR: --repo-owner is required for ISSUE_WRITER mode");
+                return false;
+            }
+            if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-owner '" + repoOwner + "'. Repo owner must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
+            if (repoName.isBlank()) {
+                System.err.println("ERROR: --repo-name is required for ISSUE_WRITER mode");
+                return false;
+            }
+            if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -525,9 +789,9 @@ public class HeadlessExecCli {
                     return false;
                 }
                 mode = Ascii.toUpperCase(value);
-                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH)$")) {
-                    System.err.println(
-                            "ERROR: Invalid mode: " + value + ". Must be ASK, CODE, ARCHITECT, LUTZ, or SEARCH");
+                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE|ISSUE_WRITER)$")) {
+                    System.err.println("ERROR: Invalid mode: " + value
+                            + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER");
                     return false;
                 }
             }
@@ -564,6 +828,60 @@ public class HeadlessExecCli {
             case "auto-commit" -> autoCommit = true;
             case "auto-compress" -> autoCompress = true;
             case "pre-scan" -> preScan = true;
+            case "github-token" -> githubToken = value;
+            case "repo-owner" -> repoOwner = value;
+            case "repo-name" -> repoName = value;
+            case "issue-number" -> {
+                if (value.isBlank()) {
+                    System.err.println("ERROR: --issue-number requires a value");
+                    return false;
+                }
+                try {
+                    issueNumber = Integer.parseInt(value);
+                    if (issueNumber <= 0) {
+                        System.err.println("ERROR: --issue-number must be a positive integer");
+                        return false;
+                    }
+                } catch (NumberFormatException e) {
+                    System.err.println("ERROR: Invalid --issue-number value: " + value);
+                    return false;
+                }
+            }
+            case "pr-number" -> {
+                if (value.isBlank()) {
+                    System.err.println("ERROR: --pr-number requires a value");
+                    return false;
+                }
+                try {
+                    prNumber = Integer.parseInt(value);
+                    if (prNumber <= 0) {
+                        System.err.println("ERROR: --pr-number must be a positive integer");
+                        return false;
+                    }
+                } catch (NumberFormatException e) {
+                    System.err.println("ERROR: Invalid --pr-number value: " + value);
+                    return false;
+                }
+            }
+            case "max-issue-fix-attempts" -> {
+                if (value.isBlank()) {
+                    System.err.println("ERROR: --max-issue-fix-attempts requires a value");
+                    return false;
+                }
+                try {
+                    int attempts = Integer.parseInt(value);
+                    if (attempts <= 0) {
+                        System.err.println("ERROR: --max-issue-fix-attempts must be a positive integer");
+                        return false;
+                    }
+                    maxIssueFixAttempts = attempts;
+                } catch (NumberFormatException e) {
+                    System.err.println("ERROR: Invalid --max-issue-fix-attempts value: " + value);
+                    return false;
+                }
+            }
+            case "build-settings" -> buildSettings = value;
+            case "issue-delivery" -> issueDelivery = value;
             default -> {
                 System.err.println("ERROR: Unknown option: --" + key);
                 return false;

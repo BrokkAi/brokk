@@ -218,4 +218,207 @@ public class BlockingOperationCheckerTest {
                         "}")
                 .doTest();
     }
+
+    @Test
+    public void doesNotWarnOnBlockingCallInSubmitBackgroundTask() {
+        helper.addSourceLines(
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
+                .addSourceLines(
+                        "ai/brokk/IContextManager.java",
+                        "package ai.brokk;",
+                        "import java.util.concurrent.CompletableFuture;",
+                        "import java.util.concurrent.Callable;",
+                        "public interface IContextManager {",
+                        "  default <T> CompletableFuture<T> submitBackgroundTask(String desc, Callable<T> task) {",
+                        "    return null;",
+                        "  }",
+                        "}")
+                .addSourceLines(
+                        "test/CF.java",
+                        "package test;",
+                        "import org.jetbrains.annotations.Blocking;",
+                        "public interface CF {",
+                        "  @Blocking",
+                        "  java.util.Set<String> files();",
+                        "}")
+                .addSourceLines(
+                        "test/Use.java",
+                        "package test;",
+                        "import javax.swing.SwingUtilities;",
+                        "import ai.brokk.IContextManager;",
+                        "class Use {",
+                        "  void f(CF cf) {",
+                        "    IContextManager cm = new IContextManager() {};",
+                        "    if (SwingUtilities.isEventDispatchThread()) {",
+                        "      cm.submitBackgroundTask(\"task\", () -> {",
+                        "        // Safe: although inside the 'then' branch of an EDT check,",
+                        "        // we are inside submitBackgroundTask which runs off the EDT.",
+                        "        return cf.files();",
+                        "      });",
+                        "    }",
+                        "  }",
+                        "}")
+                .doTest();
+    }
+
+    @Test
+    public void doesNotWarnOnSimpleSubmitBackgroundTask() {
+        helper.addSourceLines(
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
+                .addSourceLines(
+                        "ai/brokk/IContextManager.java",
+                        "package ai.brokk;",
+                        "import java.util.concurrent.CompletableFuture;",
+                        "import java.util.concurrent.Callable;",
+                        "public interface IContextManager {",
+                        "  default <T> CompletableFuture<T> submitBackgroundTask(String desc, Callable<T> task) {",
+                        "    return null;",
+                        "  }",
+                        "}")
+                .addSourceLines(
+                        "test/CF.java",
+                        "package test;",
+                        "import org.jetbrains.annotations.Blocking;",
+                        "public interface CF {",
+                        "  @Blocking",
+                        "  java.util.Set<String> files();",
+                        "}")
+                .addSourceLines(
+                        "test/Use.java",
+                        "package test;",
+                        "import ai.brokk.IContextManager;",
+                        "class Use {",
+                        "  void f(CF cf) {",
+                        "    IContextManager cm = new IContextManager() {};",
+                        "    cm.submitBackgroundTask(\"task\", () -> {",
+                        "      return cf.files();",
+                        "    });",
+                        "  }",
+                        "}")
+                .doTest();
+    }
+
+    @Test
+    public void doesNotWarnOnNestedBlockingCallInSubmitBackgroundTask() {
+        helper.addSourceLines(
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
+                .addSourceLines(
+                        "ai/brokk/IContextManager.java",
+                        "package ai.brokk;",
+                        "import java.util.concurrent.CompletableFuture;",
+                        "import java.util.concurrent.Callable;",
+                        "public interface IContextManager {",
+                        "  default <T> CompletableFuture<T> submitBackgroundTask(String desc, Callable<T> task) {",
+                        "    return null;",
+                        "  }",
+                        "}")
+                .addSourceLines(
+                        "test/CF.java",
+                        "package test;",
+                        "import org.jetbrains.annotations.Blocking;",
+                        "public interface CF {",
+                        "  @Blocking",
+                        "  java.util.Set<String> files();",
+                        "}")
+                .addSourceLines(
+                        "test/Use.java",
+                        "package test;",
+                        "import javax.swing.SwingUtilities;",
+                        "import ai.brokk.IContextManager;",
+                        "import java.util.stream.Stream;",
+                        "class Use {",
+                        "  void f(CF cf) {",
+                        "    IContextManager cm = new IContextManager() {};",
+                        "    if (SwingUtilities.isEventDispatchThread()) {",
+                        "      cm.submitBackgroundTask(\"task\", () -> {",
+                        "        // Safe: nested deeply within the background task argument",
+                        "        return Stream.of(\"a\")",
+                        "            .map(s -> cf.files())",
+                        "            .count();",
+                        "      });",
+                        "    }",
+                        "  }",
+                        "}")
+                .doTest();
+    }
+
+    @Test
+    public void doesNotWarnOnLoggingFutureSupplyAsync() {
+        helper.addSourceLines(
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
+                .addSourceLines(
+                        "ai/brokk/concurrent/LoggingFuture.java",
+                        "package ai.brokk.concurrent;",
+                        "import java.util.concurrent.CompletableFuture;",
+                        "import java.util.function.Supplier;",
+                        "public final class LoggingFuture {",
+                        "  public static <T> CompletableFuture<T> supplyAsync(Supplier<T> s) { return null; }",
+                        "}")
+                .addSourceLines(
+                        "test/CF.java",
+                        "package test;",
+                        "import org.jetbrains.annotations.Blocking;",
+                        "public interface CF {",
+                        "  @Blocking",
+                        "  java.util.Set<String> files();",
+                        "}")
+                .addSourceLines(
+                        "test/Use.java",
+                        "package test;",
+                        "import ai.brokk.concurrent.LoggingFuture;",
+                        "import javax.swing.SwingUtilities;",
+                        "class Use {",
+                        "  void f(CF cf) {",
+                        "    if (SwingUtilities.isEventDispatchThread()) {",
+                        "      LoggingFuture.supplyAsync(() -> cf.files());",
+                        "    }",
+                        "  }",
+                        "}")
+                .doTest();
+    }
+
+    @Test
+    public void doesNotWarnOnLoggingFutureSupplyCallableAsync() {
+        helper.addSourceLines(
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
+                .addSourceLines(
+                        "ai/brokk/concurrent/LoggingFuture.java",
+                        "package ai.brokk.concurrent;",
+                        "import java.util.concurrent.CompletableFuture;",
+                        "import java.util.concurrent.Callable;",
+                        "public final class LoggingFuture {",
+                        "  public static <T> CompletableFuture<T> supplyCallableAsync(Callable<T> c) { return null; }",
+                        "}")
+                .addSourceLines(
+                        "test/CF.java",
+                        "package test;",
+                        "import org.jetbrains.annotations.Blocking;",
+                        "public interface CF {",
+                        "  @Blocking",
+                        "  java.util.Set<String> files();",
+                        "}")
+                .addSourceLines(
+                        "test/Use.java",
+                        "package test;",
+                        "import ai.brokk.concurrent.LoggingFuture;",
+                        "import javax.swing.SwingUtilities;",
+                        "class Use {",
+                        "  void f(CF cf) {",
+                        "    if (SwingUtilities.isEventDispatchThread()) {",
+                        "      LoggingFuture.supplyCallableAsync(() -> cf.files());",
+                        "    }",
+                        "  }",
+                        "}")
+                .doTest();
+    }
 }

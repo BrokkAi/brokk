@@ -98,7 +98,7 @@ public final class GlobalUiSettings {
         try {
             var configDir = BrokkConfigPaths.getGlobalConfigDir();
             Files.createDirectories(configDir);
-            AtomicWrites.atomicSaveProperties(getUiPropertiesFile(), props, "Brokk global UI settings");
+            AtomicWrites.save(getUiPropertiesFile(), props, "Brokk global UI settings");
         } catch (IOException e) {
             logger.warn("Failed to save global UI settings: {}", e.getMessage());
         }

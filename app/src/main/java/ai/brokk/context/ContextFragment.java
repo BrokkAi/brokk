@@ -60,7 +60,6 @@ public interface ContextFragment {
         SKELETON,
         USAGE,
         CODE,
-        CALL_GRAPH,
         HISTORY,
         TASK,
         PASTE_TEXT,

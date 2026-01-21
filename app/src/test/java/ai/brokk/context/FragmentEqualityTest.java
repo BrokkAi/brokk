@@ -779,49 +779,6 @@ class FragmentEqualityTest {
     }
 
     @Nested
-    class CallGraphFragmentEqualityTest {
-        @Test
-        void testEqualsIdentity() {
-            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
-            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
-
-            assertNotEquals(cgf1, cgf2);
-        }
-
-        @Test
-        void testHasSameSourceSameParams() {
-            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
-            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
-
-            assertTrue(cgf1.hasSameSource(cgf2));
-        }
-
-        @Test
-        void testHasSameSourceDifferentMethods() {
-            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method1", 2, true);
-            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method2", 2, true);
-
-            assertFalse(cgf1.hasSameSource(cgf2));
-        }
-
-        @Test
-        void testHasSameSourceDifferentDepth() {
-            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
-            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 3, true);
-
-            assertFalse(cgf1.hasSameSource(cgf2));
-        }
-
-        @Test
-        void testHasSameSourceDifferentDirection() {
-            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
-            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, false);
-
-            assertFalse(cgf1.hasSameSource(cgf2));
-        }
-    }
-
-    @Nested
     class TaskFragmentEqualityTest {
         @Test
         void testEqualsIdenticalMessages() {

@@ -6,10 +6,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.FuzzyMatcher;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.AutoCompleteUtil;
 import ai.brokk.gui.Constants;
@@ -399,59 +396,23 @@ public class AttachContextDialog extends BaseThemedDialog {
         foldersBtn.setEnabled(true);
         foldersBtn.setToolTipText(hotkeyModifierString + "-2");
 
+        classesBtn.setEnabled(analyzerReady);
+        methodsBtn.setEnabled(analyzerReady);
+        usagesBtn.setEnabled(analyzerReady);
+        includeTestFilesCheck.setEnabled(analyzerReady);
+
+        classesBtn.setToolTipText(analyzerReady ? hotkeyModifierString + "-3" : "Classes" + ANALYZER_NOT_READY_TOOLTIP);
+        methodsBtn.setToolTipText(analyzerReady ? hotkeyModifierString + "-4" : "Methods" + ANALYZER_NOT_READY_TOOLTIP);
+        usagesBtn.setToolTipText(analyzerReady ? hotkeyModifierString + "-5" : "Usages" + ANALYZER_NOT_READY_TOOLTIP);
+        includeTestFilesCheck.setToolTipText(
+                analyzerReady ? "Include tests" : "Include tests" + ANALYZER_NOT_READY_TOOLTIP);
+
         if (!analyzerReady) {
-            classesBtn.setEnabled(false);
-            methodsBtn.setEnabled(false);
-            usagesBtn.setEnabled(false);
-
-            classesBtn.setToolTipText("Classes" + ANALYZER_NOT_READY_TOOLTIP);
-            methodsBtn.setToolTipText("Methods" + ANALYZER_NOT_READY_TOOLTIP);
-            usagesBtn.setToolTipText("Usages" + ANALYZER_NOT_READY_TOOLTIP);
-
             // Ensure a valid selection when gating
             if (!filesBtn.isSelected() && !foldersBtn.isSelected()) {
                 filesBtn.setSelected(true);
                 onTabChanged();
             }
-            return;
-        }
-
-        // Analyzer is ready, enable/disable based on capabilities
-        IAnalyzer analyzer = cm.getAnalyzerWrapper().getNonBlocking();
-        boolean hasSkeleton =
-                analyzer != null && analyzer.as(SkeletonProvider.class).isPresent();
-        boolean hasSource =
-                analyzer != null && analyzer.as(SourceCodeProvider.class).isPresent();
-        boolean hasUsages = analyzer != null;
-
-        // Classes segment
-        boolean classesEnabled = hasSkeleton || hasSource;
-        classesBtn.setEnabled(classesEnabled);
-        classesBtn.setToolTipText(
-                classesEnabled ? hotkeyModifierString + "-3" : "Classes" + ANALYZER_NOT_READY_TOOLTIP);
-
-        // Methods segment
-        boolean methodsEnabled = hasSource;
-        methodsBtn.setEnabled(methodsEnabled);
-        methodsBtn.setToolTipText(
-                methodsEnabled ? hotkeyModifierString + "-4" : "Methods" + ANALYZER_NOT_READY_TOOLTIP);
-
-        // Usages segment
-        boolean usagesEnabled = hasUsages;
-        usagesBtn.setEnabled(usagesEnabled);
-        usagesBtn.setToolTipText(usagesEnabled ? hotkeyModifierString + "-5" : "Usages" + ANALYZER_NOT_READY_TOOLTIP);
-
-        // Include tests checkbox follows the Usages gating
-        includeTestFilesCheck.setEnabled(usagesEnabled);
-        includeTestFilesCheck.setToolTipText(
-                usagesEnabled ? "Include tests" : "Include tests" + ANALYZER_NOT_READY_TOOLTIP);
-
-        // Ensure the selected segment remains valid
-        if ((classesBtn.isSelected() && !classesEnabled)
-                || (methodsBtn.isSelected() && !methodsEnabled)
-                || (usagesBtn.isSelected() && !usagesEnabled)) {
-            filesBtn.setSelected(true);
-            onTabChanged();
         }
     }
 
@@ -516,8 +477,7 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-        var frag = AnalyzerUtil.selectUsageFragment(
-                analyzer, cm, input, includeTestFilesCheck.isSelected(), summarizeCheck.isSelected());
+        var frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, input, includeTestFilesCheck.isSelected());
         selection = frag.map(Set::of).orElse(null);
         dispose();
     }

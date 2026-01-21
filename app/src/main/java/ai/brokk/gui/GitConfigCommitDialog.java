@@ -162,7 +162,6 @@ public class GitConfigCommitDialog extends JDialog {
                             Chrome.NotificationRole.INFO,
                             "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
                                     + commitResult.firstLine());
-                    chrome.updateCommitPanel();
                     chrome.updateLogTab();
                     dispose();
                 });

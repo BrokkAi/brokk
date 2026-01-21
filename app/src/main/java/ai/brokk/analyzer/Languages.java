@@ -159,69 +159,7 @@ public class Languages {
         }
     };
     public static final Language PYTHON = new PythonLanguage();
-    public static final Language C_CPP = new Language() {
-        private final Set<String> extensions = Set.of("c", "h", "cpp", "hpp", "cc", "hh", "cxx", "hxx");
-
-        @Override
-        public Set<String> getExtensions() {
-            return extensions;
-        }
-
-        @Override
-        public String name() {
-            return "C/C++";
-        }
-
-        @Override
-        public String internalName() {
-            return "C_CPP";
-        }
-
-        @Override
-        public String toString() {
-            return name();
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
-            return new CppAnalyzer(project, listener);
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
-            var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage)
-                    .map(state -> CppAnalyzer.fromState(project, state, listener))
-                    .orElseGet(() -> (CppAnalyzer) createAnalyzer(project, listener));
-        }
-
-        @Override
-        public Set<String> getSearchPatterns(CodeUnitType type) {
-            if (type == CodeUnitType.FUNCTION) {
-                return Set.of(
-                        "\\b$ident\\s*\\(", // function calls
-                        "\\.$ident\\s*\\(", // method calls
-                        "::\\s*$ident\\s*\\(" // namespace/class scope
-                        );
-            } else if (type == CodeUnitType.CLASS) {
-                return Set.of(
-                        "\\bnew\\s+$ident(?:<.+?>)?\\s*\\(", // constructor with new and optional templates
-                        "\\bclass\\s+\\w+\\s*:\\s*public\\s+$ident(?:<.+?>)?", // public inheritance with optional
-                        // templates
-                        "\\bclass\\s+\\w+\\s*:\\s*private\\s+$ident(?:<.+?>)?", // private inheritance with optional
-                        // templates
-                        "\\bclass\\s+\\w+\\s*:\\s*protected\\s+$ident(?:<.+?>)?", // protected inheritance with optional
-                        // templates
-                        "\\b$ident(?:<.+?>)?\\s+\\w+\\s*[;=]", // variable declarations with optional templates
-                        "\\b$ident(?:<.+?>)?\\s*\\*", // pointer types with optional templates
-                        "\\b$ident(?:<.+?>)?\\s*&", // reference types with optional templates
-                        "<\\s*$ident\\s*>", // as template argument
-                        "#include\\s+\"$ident\\.h\"" // header includes
-                        );
-            }
-            return Language.super.getSearchPatterns(type);
-        }
-    };
+    public static final Language C_CPP = new CppLanguage();
     public static final Language GO = new Language() {
         private final Set<String> extensions = Set.of("go");
 
@@ -282,72 +220,6 @@ public class Languages {
                         "\\.\\(\\*?$ident\\)", // type assertions
                         "\\bfunc\\s+\\(\\w+\\s+\\*?$ident\\)", // method receiver
                         "\\bimport\\s+.*\".*/$ident\"" // import statements
-                        );
-            }
-            return Language.super.getSearchPatterns(type);
-        }
-    };
-    public static final Language CPP_TREESITTER = new Language() {
-        private final Set<String> extensions = Set.of("c", "cpp", "hpp", "cc", "hh", "cxx", "hxx", "c++", "h++", "h");
-
-        @Override
-        public Set<String> getExtensions() {
-            return extensions;
-        }
-
-        @Override
-        public String name() {
-            return "C++ (TreeSitter)";
-        }
-
-        @Override
-        public String internalName() {
-            return "CPP_TREESITTER";
-        }
-
-        @Override
-        public String toString() {
-            return name();
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
-            return new CppAnalyzer(project, listener);
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
-            var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage)
-                    .map(state -> {
-                        var analyzer = CppAnalyzer.fromState(project, state, listener);
-                        return (IAnalyzer) analyzer;
-                    })
-                    .orElseGet(() -> createAnalyzer(project, listener));
-        }
-
-        @Override
-        public Set<String> getSearchPatterns(CodeUnitType type) {
-            if (type == CodeUnitType.FUNCTION) {
-                return Set.of(
-                        "\\b$ident\\s*\\(", // function calls
-                        "\\.$ident\\s*\\(", // method calls
-                        "::\\s*$ident\\s*\\(" // namespace/class scope
-                        );
-            } else if (type == CodeUnitType.CLASS) {
-                return Set.of(
-                        "\\bnew\\s+$ident(?:<.+?>)?\\s*\\(", // constructor with new and optional templates
-                        "\\bclass\\s+\\w+\\s*:\\s*public\\s+$ident(?:<.+?>)?", // public inheritance with optional
-                        // templates
-                        "\\bclass\\s+\\w+\\s*:\\s*private\\s+$ident(?:<.+?>)?", // private inheritance with optional
-                        // templates
-                        "\\bclass\\s+\\w+\\s*:\\s*protected\\s+$ident(?:<.+?>)?", // protected inheritance with optional
-                        // templates
-                        "\\b$ident(?:<.+?>)?\\s+\\w+\\s*[;=]", // variable declarations with optional templates
-                        "\\b$ident(?:<.+?>)?\\s*\\*", // pointer types with optional templates
-                        "\\b$ident(?:<.+?>)?\\s*&", // reference types with optional templates
-                        "<\\s*$ident\\s*>", // as template argument
-                        "#include\\s+\"$ident\\.h\"" // header includes
                         );
             }
             return Language.super.getSearchPatterns(type);
@@ -591,20 +463,8 @@ public class Languages {
 
     public static final Language SCALA = new ScalaLanguage();
 
-    public static final List<Language> ALL_LANGUAGES = List.of(
-            C_SHARP,
-            JAVA,
-            JAVASCRIPT,
-            PYTHON,
-            C_CPP,
-            CPP_TREESITTER,
-            GO,
-            RUST,
-            PHP,
-            TYPESCRIPT, // Now TYPESCRIPT is declared before this list
-            SCALA,
-            SQL, // SQL is now defined and can be included
-            NONE);
+    public static final List<Language> ALL_LANGUAGES =
+            List.of(C_SHARP, JAVA, JAVASCRIPT, PYTHON, C_CPP, GO, RUST, PHP, TYPESCRIPT, SCALA, SQL, NONE);
 
     /**
      * Returns the Language constant corresponding to the given file extension. Comparison is case-insensitive.

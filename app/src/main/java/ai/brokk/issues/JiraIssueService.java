@@ -458,6 +458,14 @@ public class JiraIssueService implements IssueService {
     }
 
     @Override
+    public IssueHeader createIssue(String title, String bodyMarkdown) throws IOException {
+        if (title.isBlank()) {
+            throw new IllegalArgumentException("title must not be blank");
+        }
+        throw new UnsupportedOperationException("Jira issue creation is not supported");
+    }
+
+    @Override
     public List<String> listAvailableStatuses() throws IOException {
         if (availableStatusesCache != null) {
             logger.debug("Returning cached Jira statuses.");

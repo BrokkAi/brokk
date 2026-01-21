@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
@@ -116,7 +117,9 @@ class PageRankBenchmarkTest {
                 }
 
                 // c) Fetch resolved imports
-                Set<CodeUnit> resolvedImports = analyzer.importedCodeUnitsOf(file);
+                Set<CodeUnit> resolvedImports = analyzer.as(ImportAnalysisProvider.class)
+                        .map(p -> p.importedCodeUnitsOf(file))
+                        .orElse(Set.of());
 
                 // d) Assert resolved import count equals raw import count
                 assertEquals(

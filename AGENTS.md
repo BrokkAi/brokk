@@ -46,14 +46,6 @@ with try/catch is unnecessary and futile; don't do that.
 
 1. **Use ProjectFile to represent files**. String and File and Path all have issues that ProjectFile resolves. If you're dealing with files but you don't have the ProjectFile API available, stop and ask the user to provide it. DO NOT write code that reads from a File or Path unless explicitly instructed to do so.
 
-## Testing
-
-1. Prefer `ai.brokk.testutil.AssertionHelperUtil` methods when writing analyzer tests that compare multi-block code strings.
-   - Use `assertCodeEquals`/`assertCodeStartsWith`/`assertCodeEndsWith`/`assertCodeContains` for code string comparisons.
-   - These helpers normalize line endings and trim outer whitespace, making tests stable across platforms and editors.
-   - Avoid direct assertEquals on raw multi-line code output.
-2. We have standard mock versions of common interfaces: TestAnalyzer, TestConsoleIO, TestContextManager, TestGitRepo, TestProject. Ask the user to add these to the Workspace rather than rolling your own.
-
 ## Concurrency
 
 1. Always use utility classes that log exceptions appropriately. If you create an ExecutorService, you
@@ -67,8 +59,11 @@ with try/catch is unnecessary and futile; don't do that.
    you should wire that up as well.
    There are convenience methods for newVirtualThreadExecutor and newFixedThreadExecutor in ai.brokk.concurrent.ExecutorsUtil
    that you should use unless you need to roll a custom ThreadFactory.
-2. Use LoggingFuture.supplyAsync, .allOf, .anyOf instead of CompletableFuture static methods; the API is the same.
-   LoggingFuture also has a supplyCallableAsync method when that is a better fit.
+2. Use LoggingFuture.supplyAsync, runAsync, .allOf, .anyOf instead of CompletableFuture static methods; the API is the same.
+   LoggingFuture also has a supplyCallableAsync method when that is a better fit, and supplyVirtual/runVirtual/supplyCallableVirtual
+   methods that are backed by virtual threads.
 3. Avoid SwingWorker in favor of virtual threads using ExecutorsUtil.newVirtualThreadExecutor, or LoggingFuture.supplyAsync.
 4. ContextManager.submitBackgroundTask is for tasks that run long enough to be noticeable by the user. For shorter
    tasks use LoggingFuture.supplyAsync if it is just one, otherwise consider using LoggingExecutorService.newVirtualThreadExecutor.
+5. Use ai.brokk.concurrent.AtomicWrites.save(Path, XXX) for writing to disk, where XXX may be a byte[], a String,
+   or a lambda that takes an OutputStream parameter.

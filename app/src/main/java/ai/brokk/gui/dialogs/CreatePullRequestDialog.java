@@ -2,13 +2,10 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
-import ai.brokk.context.DiffService;
-import ai.brokk.difftool.ui.BrokkDiffPanel;
-import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.SessionManager;
+import ai.brokk.agents.ReviewScope;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitRepoData;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
@@ -17,22 +14,19 @@ import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialLoadingButton;
-import ai.brokk.gui.git.GitCommitBrowserPanel;
 import ai.brokk.gui.git.GitHubErrorUtil;
-import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
@@ -54,23 +48,19 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private JTextField titleField;
     private JTextArea descriptionArea;
     private JLabel descriptionHintLabel; // Hint for description generation source
-    private GitCommitBrowserPanel commitBrowserPanel;
-    private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
     private GitHubAppInstallLabel gitHubRepoInstallWarningLabel;
     private MaterialLoadingButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
 
-    // Review tab components
     private JTabbedPane middleTabbedPane;
-    private JPanel reviewTabPlaceholder;
+    private JPanel sessionsTabPanel;
+    private JTable sessionsTable;
+    private javax.swing.table.DefaultTableModel sessionsTableModel;
+    private JCheckBox selectAllSessionsCheckbox;
 
-    @Nullable
-    private JComponent aggregatedChangesPanel;
-
-    @Nullable
-    private String mergeBaseCommit = null;
+    private final CompletableFuture<Void> sessionSyncFuture;
 
     private volatile boolean sourceBranchNeedsPush = false;
     private volatile int unpushedCommitCount = 0;
@@ -94,6 +84,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         this.preselectedSourceBranch = preselectedSourceBranch;
 
         initializeDialog();
+        this.sessionSyncFuture = this.contextManager.syncSessionsAsync();
         buildLayout();
         setLocationRelativeTo(chrome.getFrame()); // Center after layout is built
     }
@@ -106,7 +97,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void initializeDialog() {
-        setSize(1000, 1000);
+        setSize(1000, 750);
         setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
     }
 
@@ -123,36 +114,15 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         root.setLayout(new BorderLayout());
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10)); // Add padding
 
-        // --- top panel: branch selectors -------------------------------------------------------
+        // --- top panel: branch selectors + PR info ---------------------------------------------
         var topPanel = new JPanel(new BorderLayout());
-        var branchSelectorPanel = createBranchSelectorPanel();
-        topPanel.add(branchSelectorPanel, BorderLayout.NORTH);
+        topPanel.add(createBranchSelectorPanel(), BorderLayout.NORTH);
+        topPanel.add(createPrInfoPanel(), BorderLayout.CENTER);
 
-        // --- title and description panel ----------------------------------------------------
-        var prInfoPanel = createPrInfoPanel();
-        topPanel.add(prInfoPanel, BorderLayout.CENTER);
-
-        // --- middle: commit browser and file list ---------------------------------------------
-        commitBrowserPanel = new GitCommitBrowserPanel(
-                chrome,
-                contextManager,
-                () -> {
-                    /* no-op */
-                },
-                GitCommitBrowserPanel.Options.FOR_PULL_REQUEST);
-        // The duplicate initializations that were here have been removed.
-        // commitBrowserPanel and fileStatusTable are now initialized once above.
-        fileStatusTable = new FileStatusTable();
-
-        // Review tab placeholder
-        reviewTabPlaceholder = new JPanel(new BorderLayout());
-        var reviewPlaceholderLabel = new JLabel("Select branches to see diff summary", SwingConstants.CENTER);
-        reviewPlaceholderLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
-        reviewTabPlaceholder.add(reviewPlaceholderLabel, BorderLayout.CENTER);
-
+        // --- middle: tabbed content (Sessions only) --------------------------------------------
         middleTabbedPane = new JTabbedPane();
-        middleTabbedPane.addTab("Commits", null, commitBrowserPanel, "Commits included in this pull request");
-        middleTabbedPane.addTab("Review", null, reviewTabPlaceholder, "Aggregated diff summary");
+        sessionsTabPanel = createSessionsTabPanel();
+        middleTabbedPane.addTab("Sessions", null, sessionsTabPanel, "Overlapping Brokk sessions");
 
         // --- bottom: buttons ------------------------------------------------------------------
         var buttonPanel = createButtonPanel();
@@ -347,32 +317,27 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         sourceBranchComboBox.setSelectionChangeListener(branchChangedListener);
     }
 
-    private void updateCommitRelatedUI(
-            List<CommitInfo> newCommits, List<GitRepo.ModifiedFile> newFiles, String commitPanelMessage) {
+    private void updateCommitRelatedUI(List<CommitInfo> newCommits) {
         Collections.reverse(newCommits);
         this.currentCommits = newCommits;
-        commitBrowserPanel.setCommits(newCommits, Set.of(), false, false, commitPanelMessage);
-        fileStatusTable.setFiles(newFiles);
         this.flowUpdater.run();
         updateCreatePrButtonState();
-        updateReviewTab(newFiles);
+        updateSessionsTab(newCommits);
     }
 
     private void refreshCommitList() {
-        this.mergeBaseCommit = null; // Ensure merge base is reset for each refresh
-
         var sourceBranch = sourceBranchComboBox.getSelectedItem();
         var targetBranch = targetBranchComboBox.getSelectedItem();
 
         if (sourceBranch == null || targetBranch == null) {
-            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Select branches");
+            updateCommitRelatedUI(Collections.emptyList());
             return;
         }
 
         var contextName = targetBranch + " ← " + sourceBranch;
 
         if (sourceBranch.equals(targetBranch)) {
-            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName);
+            updateCommitRelatedUI(Collections.emptyList());
             return;
         }
 
@@ -380,23 +345,16 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             try {
                 var repo = contextManager.getProject().getRepo();
                 if (!(repo instanceof GitRepo gitRepo)) {
-                    String nonGitMessage = "Project is not a Git repository.";
                     SwingUtilities.invokeLater(() -> {
                         this.sourceBranchNeedsPush = false;
                         this.unpushedCommitCount = 0;
-                        updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), nonGitMessage);
+                        updateCommitRelatedUI(Collections.emptyList());
                     });
                     return Collections.emptyList();
                 }
 
                 // Use GitWorkflowService to get branch diff information
                 var branchDiff = workflowService.diffBetweenBranches(targetBranch, sourceBranch);
-                this.mergeBaseCommit = branchDiff.mergeBase(); // Store merge base from service
-                logger.debug(
-                        "Calculated merge base between {} and {}: {}",
-                        sourceBranch,
-                        targetBranch,
-                        this.mergeBaseCommit);
 
                 // Check if source branch needs push (for UI indicator)
                 boolean needsPush = gitRepo.remote().branchNeedsPush(sourceBranch);
@@ -417,7 +375,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 SwingUtilities.invokeLater(() -> {
                     this.sourceBranchNeedsPush = needsPush;
                     this.unpushedCommitCount = unpushedCount;
-                    updateCommitRelatedUI(branchDiff.commits(), branchDiff.files(), contextName);
+                    updateCommitRelatedUI(branchDiff.commits());
                 });
                 return branchDiff.commits();
             } catch (Exception e) {
@@ -425,7 +383,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 SwingUtilities.invokeLater(() -> {
                     this.sourceBranchNeedsPush = false; // Reset on error
                     this.unpushedCommitCount = 0;
-                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName + " (error)");
+                    updateCommitRelatedUI(Collections.emptyList());
                     cancelGenerationWorkersAndClearFields(); // Also clear fields on error
                     descriptionArea.setText("(Could not generate PR details due to error)");
                     titleField.setText("");
@@ -486,12 +444,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         if (blockers.isEmpty()) {
             return null;
         }
-        var sb = new StringBuilder("<html>");
-        for (String blocker : blockers) {
-            sb.append("• ").append(blocker).append("<br>");
-        }
-        sb.append("</html>");
-        return sb.toString();
+        return "<html>"
+                + blockers.stream().map(b -> "• " + b).collect(java.util.stream.Collectors.joining("<br>"))
+                + "</html>";
     }
 
     /** Checks whether the dialog has sufficient information to enable PR creation. */
@@ -584,8 +539,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                         // update button state
                     } catch (GitAPIException e) {
                         logger.error("Error setting default branch selections", e);
-                        updateCommitRelatedUI(
-                                Collections.emptyList(), Collections.emptyList(), "Error setting default branches");
+                        updateCommitRelatedUI(Collections.emptyList());
                     }
                 });
             } catch (GitAPIException e) {
@@ -595,7 +549,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                     sourceBranchComboBox.setItems(List.of("(Error loading branches)"));
                     targetBranchComboBox.setEnabled(false);
                     sourceBranchComboBox.setEnabled(false);
-                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches");
+                    updateCommitRelatedUI(Collections.emptyList());
                 });
             }
         });
@@ -765,6 +719,98 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
+    private JPanel createSessionsTabPanel() {
+        var panel = new JPanel(new BorderLayout());
+        sessionsTableModel = new javax.swing.table.DefaultTableModel(new Object[] {"", "Session Name", "Tasks"}, 0) {
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return columnIndex == 0 ? Boolean.class : String.class;
+            }
+
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column == 0;
+            }
+        };
+
+        sessionsTable = new JTable(sessionsTableModel);
+        sessionsTable.getColumnModel().getColumn(0).setMaxWidth(30);
+        sessionsTable.setRowHeight(24);
+
+        sessionsTableModel.addTableModelListener(e -> {
+            int selectedCount = 0;
+            for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+                if (Boolean.TRUE.equals(sessionsTableModel.getValueAt(i, 0))) {
+                    selectedCount++;
+                }
+            }
+            updateSessionsTabTitle(selectedCount);
+        });
+
+        selectAllSessionsCheckbox = new JCheckBox("Select/Deselect All", true);
+        selectAllSessionsCheckbox.addActionListener(e -> {
+            boolean selected = selectAllSessionsCheckbox.isSelected();
+            for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+                sessionsTableModel.setValueAt(selected, i, 0);
+            }
+        });
+
+        var headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        headerPanel.add(selectAllSessionsCheckbox);
+
+        panel.add(headerPanel, BorderLayout.NORTH);
+        panel.add(new JScrollPane(sessionsTable), BorderLayout.CENTER);
+        return panel;
+    }
+
+    private final Map<Integer, UUID> rowToSessionId = new HashMap<>();
+
+    private void updateSessionsTab(List<CommitInfo> commits) {
+        if (commits.isEmpty()) {
+            SwingUtilities.invokeLater(() -> {
+                sessionsTableModel.setRowCount(0);
+                rowToSessionId.clear();
+                updateSessionsTabTitle(0);
+            });
+            return;
+        }
+
+        contextManager.submitBackgroundTask("Finding overlapping sessions", () -> {
+            List<UUID> sessionIds = ReviewScope.findOverlappingSessions(contextManager, commits);
+            var sessionInfos = new ArrayList<SessionManager.SessionInfo>();
+            var taskCounts = new HashMap<UUID, Integer>();
+
+            var sm = contextManager.getProject().getSessionManager();
+            var allSessions = sm.listSessions().stream()
+                    .filter(s -> sessionIds.contains(s.id()))
+                    .toList();
+
+            for (var info : allSessions) {
+                sessionInfos.add(info);
+                taskCounts.put(info.id(), sm.countAiResponses(info.id()));
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                sessionsTableModel.setRowCount(0);
+                rowToSessionId.clear();
+                for (int i = 0; i < sessionInfos.size(); i++) {
+                    var info = sessionInfos.get(i);
+                    sessionsTableModel.addRow(new Object[] {true, info.name(), taskCounts.getOrDefault(info.id(), 0)});
+                    rowToSessionId.put(i, info.id());
+                }
+                updateSessionsTabTitle(sessionInfos.size());
+            });
+            return null;
+        });
+    }
+
+    private void updateSessionsTabTitle(int count) {
+        int idx = middleTabbedPane.indexOfComponent(sessionsTabPanel);
+        if (idx < 0) return;
+        String title = count == 1 ? "1 Session" : count + " Sessions";
+        middleTabbedPane.setTitleAt(idx, title);
+    }
+
     private void createPullRequest() {
         if (!isCreatePrReady()) {
             // This should ideally not happen if button state is managed correctly,
@@ -796,12 +842,37 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
         createPrButton.setLoading(true, "Creating PR…");
 
+        // Capture session IDs on EDT
+        List<UUID> selectedSessionUuids = new ArrayList<>();
+        for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+            if (Boolean.TRUE.equals(sessionsTableModel.getValueAt(i, 0))) {
+                UUID id = rowToSessionId.get(i);
+                if (id != null) selectedSessionUuids.add(id);
+            }
+        }
+
         contextManager.submitExclusiveAction(() -> {
             try {
+                // Wait for background session sync to complete before proceeding
+                try {
+                    sessionSyncFuture.get(30, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    logger.warn("Timed out waiting for session sync, proceeding anyway");
+                } catch (InterruptedException | ExecutionException e) {
+                    logger.warn("Session sync failed, proceeding anyway: {}", e.getMessage());
+                }
+
                 // Gather details on the EDT before going to background if they come from Swing components
                 final String title = titleField.getText().trim();
-                final String body = descriptionArea.getText().trim();
-                // Removed duplicate declarations of title and body
+                String body = descriptionArea.getText().trim();
+
+                if (!selectedSessionUuids.isEmpty()) {
+                    String ids = selectedSessionUuids.stream()
+                            .map(UUID::toString)
+                            .collect(java.util.stream.Collectors.joining(","));
+                    body += "\n\nbrokk-session-ids:" + ids;
+                }
+
                 final String sourceBranch = sourceBranchComboBox.getSelectedItem();
                 final String targetBranch = targetBranchComboBox.getSelectedItem();
 
@@ -811,6 +882,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 }
 
                 var prUrl = workflowService.createPullRequest(sourceBranch, targetBranch, title, body);
+
+                // Make sessions public
+                var sm = contextManager.getProject().getSessionManager();
+                for (UUID sessionId : selectedSessionUuids) {
+                    sm.makePublicAsync(sessionId);
+                }
 
                 // Success: Open in browser and dispose dialog
                 if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
@@ -890,9 +967,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void showDescriptionHint(boolean show) {
-        SwingUtilities.invokeLater(() -> {
-            descriptionHintLabel.setVisible(show);
-        });
+        SwingUtilities.invokeLater(() -> descriptionHintLabel.setVisible(show));
     }
 
     private void spawnSuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
@@ -904,153 +979,5 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
         currentSuggestPrDetailsWorker = new SuggestPrDetailsWorker(sourceBranch, targetBranch);
         currentSuggestPrDetailsWorker.execute();
-    }
-
-    // --- Review Tab Methods ---
-
-    private void updateReviewTab(List<GitRepo.ModifiedFile> files) {
-        // Set loading state first
-        SwingUtilities.invokeLater(() -> {
-            reviewTabPlaceholder.removeAll();
-            var loadingLabel = new JLabel("Computing diff summary...", SwingConstants.CENTER);
-            loadingLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
-            reviewTabPlaceholder.add(loadingLabel, BorderLayout.CENTER);
-            reviewTabPlaceholder.revalidate();
-            reviewTabPlaceholder.repaint();
-        });
-
-        // Compute cumulative changes in background
-        contextManager.submitBackgroundTask("Computing review diff", () -> {
-            var changes = computeCumulativeChanges(files);
-            var prepared = DiffService.preparePerFileSummaries(changes);
-            SwingUtilities.invokeLater(() -> updateReviewTabContent(changes, prepared));
-            return changes;
-        });
-    }
-
-    private DiffService.CumulativeChanges computeCumulativeChanges(List<GitRepo.ModifiedFile> files) {
-        if (mergeBaseCommit == null || files.isEmpty()) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), currentCommits);
-        }
-
-        var repo = contextManager.getProject().getRepo();
-        if (!(repo instanceof GitRepo)) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), currentCommits);
-        }
-
-        // Get the source branch for right-side content (committed content, not working tree)
-        var sourceBranch = sourceBranchComboBox.getSelectedItem();
-        if (sourceBranch == null) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), currentCommits);
-        }
-
-        // Use DiffService to summarize changes between merge base and source branch
-        return DiffService.computeCumulativeDiff(repo, mergeBaseCommit, sourceBranch, currentCommits);
-    }
-
-    private void updateReviewTabContent(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, GitRepoData.FileDiff>> prepared) {
-        assert SwingUtilities.isEventDispatchThread() : "updateReviewTabContent must run on EDT";
-
-        // Dispose any previous diff panel
-        if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-            try {
-                diffPanel.dispose();
-            } catch (Throwable t) {
-                logger.debug("Ignoring error disposing previous BrokkDiffPanel", t);
-            }
-        }
-        aggregatedChangesPanel = null;
-
-        reviewTabPlaceholder.removeAll();
-
-        // Update tab title with stats
-        updateReviewTabTitle(res);
-
-        if (res.filesChanged() == 0) {
-            var none = new JLabel("No changes to review.", SwingConstants.CENTER);
-            none.setBorder(new EmptyBorder(20, 0, 20, 0));
-            reviewTabPlaceholder.add(none, BorderLayout.CENTER);
-            reviewTabPlaceholder.revalidate();
-            reviewTabPlaceholder.repaint();
-            return;
-        }
-
-        try {
-            var aggregatedPanel = buildAggregatedChangesPanel(prepared);
-            reviewTabPlaceholder.add(aggregatedPanel, BorderLayout.CENTER);
-        } catch (Throwable t) {
-            logger.warn("Failed to build aggregated Changes panel", t);
-            var err = new JLabel("Unable to display aggregated changes.", SwingConstants.CENTER);
-            err.setBorder(new EmptyBorder(20, 0, 20, 0));
-            reviewTabPlaceholder.add(err, BorderLayout.CENTER);
-            aggregatedChangesPanel = null;
-        }
-        reviewTabPlaceholder.revalidate();
-        reviewTabPlaceholder.repaint();
-    }
-
-    private void updateReviewTabTitle(DiffService.CumulativeChanges res) {
-        int idx = middleTabbedPane.indexOfComponent(reviewTabPlaceholder);
-        if (idx < 0) return;
-
-        if (res.filesChanged() == 0) {
-            middleTabbedPane.setTitleAt(idx, "Review (0)");
-            middleTabbedPane.setToolTipTextAt(idx, "No changes to review");
-        } else {
-            boolean isDark = chrome.getTheme().isDarkTheme();
-            Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-            Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-            String htmlTitle = String.format(
-                    "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
-                    res.filesChanged(),
-                    ColorUtil.toHex(plusColor),
-                    res.totalAdded(),
-                    ColorUtil.toHex(minusColor),
-                    res.totalDeleted());
-            middleTabbedPane.setTitleAt(idx, htmlTitle);
-            middleTabbedPane.setToolTipTextAt(
-                    idx,
-                    String.format(
-                            "Cumulative changes: %d files, +%d/-%d",
-                            res.filesChanged(), res.totalAdded(), res.totalDeleted()));
-        }
-    }
-
-    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, GitRepoData.FileDiff>> prepared) {
-        var wrapper = new JPanel(new BorderLayout());
-
-        // Build header
-        var headerPanel = new JPanel(new BorderLayout(8, 0));
-        headerPanel.setOpaque(false);
-        headerPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-        String targetBranch = targetBranchComboBox.getSelectedItem();
-        String baselineLabelText = targetBranch != null ? "Comparing vs " + targetBranch : "Branch-based changes";
-        var baselineLabel = new JLabel(baselineLabelText);
-        baselineLabel.setFont(baselineLabel.getFont().deriveFont(Font.BOLD));
-        headerPanel.add(baselineLabel, BorderLayout.WEST);
-
-        wrapper.add(headerPanel, BorderLayout.NORTH);
-
-        // Build diff panel
-        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
-                .setMultipleCommitsContext(false)
-                .setRootTitle("PR Changes");
-
-        // Use precomputed list in stable order
-        for (var entry : prepared) {
-            String title = entry.getKey();
-            var fd = entry.getValue();
-            var left = new BufferSource.StringSource(fd.oldText(), title + " (base)");
-            var right = new BufferSource.StringSource(fd.newText(), title);
-            builder.leftSource(left).rightSource(right);
-        }
-
-        var diffPanel = builder.build();
-        aggregatedChangesPanel = diffPanel;
-        wrapper.add(diffPanel, BorderLayout.CENTER);
-
-        return wrapper;
     }
 }

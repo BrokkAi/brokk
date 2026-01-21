@@ -744,11 +744,12 @@ public class BuildAgent {
         logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace (Context-based).");
 
         // Get ProjectFiles from editable and read-only fragments
-        var projectFilesFromEditableOrReadOnly =
-                ctx.fileFragments().flatMap(fragment -> fragment.files().join().stream()); // No analyzer
+        var projectFilesFromEditableOrReadOnly = ctx.allFragments()
+                .filter(f -> f.getType().isPath())
+                .flatMap(fragment -> fragment.files().join().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        var projectFilesFromSkeletons = ctx.virtualFragments()
+        var projectFilesFromSkeletons = ctx.allFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(skeletonFragment -> skeletonFragment.files().join().stream()); // No analyzer
 
@@ -817,11 +818,17 @@ public class BuildAgent {
                 ? System.getenv("BRK_TESTSOME_CMD")
                 : details.testSomeCommand();
 
+        // No test-some command configured - silently fall back to build/lint
+        if (testSomeTemplate.isBlank()) {
+            return details.buildLintCommand();
+        }
+
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
         boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
 
+        // Template is defined but misconfigured - warn the user
         if (!isFilesBased && !isClassesBased && !isModulesBased) {
             cm.getIo()
                     .systemNotify(

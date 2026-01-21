@@ -4,7 +4,9 @@ import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
+import java.nio.file.InvalidPathException;
 import java.util.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -13,8 +15,9 @@ import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterCpp;
 
-public class CppAnalyzer extends TreeSitterAnalyzer {
+public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
+    private static final Pattern QUOTED_INCLUDE_PATTERN = Pattern.compile("^#\\s*include\\s*\"([^\"]+)\"");
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -50,7 +53,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                     DECLARATION),
             Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
             Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
-            IMPORT_DECLARATION,
+            CaptureNames.IMPORT_DECLARATION,
             "name",
             "body",
             "parameters",
@@ -65,11 +68,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     public CppAnalyzer(IProject project, ProgressListener listener) {
-        super(project, Languages.CPP_TREESITTER, listener);
+        super(project, Languages.C_CPP, listener);
     }
 
     private CppAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.CPP_TREESITTER, state, listener);
+        super(project, Languages.C_CPP, state, listener);
     }
 
     public static CppAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
@@ -300,6 +303,74 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return "}";
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    /**
+     * Resolves C++ include statements.
+     * Only "quoted" includes are resolved by looking for the file relative to the current file's directory.
+     * <angle-bracket> includes are treated as system headers and skipped.
+     */
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        if (importStatements.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<CodeUnit> resolved = new HashSet<>();
+        for (String line : importStatements) {
+            String trimmed = line.strip();
+
+            // Extract content between "" (quoted includes only; angle-bracket includes are system headers)
+            Matcher m = QUOTED_INCLUDE_PATTERN.matcher(trimmed);
+            if (m.find()) {
+                // Quoted include: resolve relative to current file
+                String includePath = m.group(1);
+                resolveRelativeInclude(file, includePath).ifPresent(resolvedFile -> {
+                    resolved.addAll(getDeclarations(resolvedFile));
+                });
+            }
+            // Angle bracket includes are ignored as they usually point to system headers
+        }
+
+        return Collections.unmodifiableSet(resolved);
+    }
+
+    private Optional<ProjectFile> resolveRelativeInclude(ProjectFile includingFile, String relativePath) {
+        try {
+            var parent = includingFile.absPath().getParent();
+            if (parent == null) {
+                return Optional.empty();
+            }
+
+            var resolvedPath = parent.resolve(relativePath).normalize();
+            var root = includingFile.getRoot();
+
+            // Guard against path traversal outside project root
+            if (!resolvedPath.startsWith(root)) {
+                return Optional.empty();
+            }
+
+            var relToRoot = root.relativize(resolvedPath);
+
+            ProjectFile candidate = new ProjectFile(root, relToRoot);
+            // Verify the file exists in the project's view
+            if (getTopLevelDeclarations().containsKey(candidate)) {
+                return Optional.of(candidate);
+            }
+        } catch (InvalidPathException e) {
+            log.debug("Failed to resolve relative include '{}' from '{}'", relativePath, includingFile, e);
+        }
+        return Optional.empty();
     }
 
     @Override

@@ -380,6 +380,46 @@ JSON
 - **Fallback behavior**: Falls back to regular PR comment if inline comment fails (HTTP 422)
 - **Read-only to local repo**: Does not modify local files or make commits
 
+## ISSUE_WRITER Mode: Create a GitHub Issue
+
+ISSUE_WRITER mode is a headless workflow that uses repository discovery to draft a high-quality GitHub issue and then creates it via the GitHub API.
+
+### Configuration
+
+ISSUE_WRITER requires:
+- `plannerModel`: The LLM model to use for repository discovery and issue drafting.
+- Tags:
+  - `mode=ISSUE_WRITER`
+  - `github_token`
+  - `repo_owner`
+  - `repo_name`
+
+ISSUE_WRITER is read-only to the local repo (no file modifications or commits), but it creates a GitHub issue.
+
+### Example: Create an issue via POST /v1/jobs
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: issue-writer-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Create an issue describing the NPE when AuthenticationProvider receives a null user, including evidence from the codebase.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ISSUE_WRITER",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo"
+  }
+}
+JSON
+```
+
 ## ISSUE Mode: Automated Issue Resolution with Build Verification
 
 ISSUE mode enables **end-to-end resolution of GitHub Issues**. It fetches the issue content, generates a multi-step plan, executes the changes, and runs a build verification loop to ensure the fix is valid.
@@ -392,13 +432,13 @@ When you submit an ISSUE job, the system follows these steps:
 3. **Task Planning**: Uses the `plannerModel` to decompose the issue into a series of actionable tasks.
 4. **Execution & Verification Loop**: For each generated task:
     - **Implementation**: ArchitectAgent implements the task using `plannerModel` and `codeModel`.
-    - **Build Verification**: Runs the project's build/lint command.
-    - **Self-Correction**: If the build fails, the system automatically attempts to fix the errors (up to `buildSettings.maxBuildAttempts` attempts per task) before proceeding.
-5. **Completion & PR**: Upon successful verification of all tasks, the system:
-    - Commits the changes with an automated message (e.g., `Resolves #42: ...`).
-    - Pushes the branch to the remote.
-    - Automatically generates a Pull Request title and description. The PR description is generated from a summary of the merge-base diff (i.e., a concise summary of the changes introduced by the issue branch) and the system automatically appends a "Fixes #<issueNumber>" line so the issue will be closed when the PR is merged.
-    - Creates the Pull Request on GitHub.
+    - **Build Verification**: Runs the project's build/lint command once per task.
+    - **Self-Correction (single fix attempt)**: If verification fails, the executor performs exactly one fix attempt and then re-runs verification once.
+    - **Failure behavior**: If verification still fails after the single fix attempt, the job stops and reports failure (there is no per-task multi-retry loop in headless runs).
+5. **Final Gate & Delivery**: After all tasks verify, the executor runs final checks (full tests + lint) and then—by default—creates a commit and opens a Pull Request on GitHub. PR creation can be disabled via the `issue_delivery` tag (see below).
+6. **Cleanup**: The executor attempts to restore the original branch and remove temporary issue branches when appropriate (best-effort).
+
+Note: By default ISSUE mode creates a Pull Request (the recommended end-to-end contract). To override this behavior for special headless runs, set the `issue_delivery` tag to `none` in the job payload or tags to skip commit+PR creation while still running planning, task execution, verification, and cleanup.
 
 Example Pull Request description produced by ISSUE mode:
 
@@ -529,6 +569,7 @@ Once running, the executor exposes the following endpoints:
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
   - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
+  - **ISSUE_WRITER mode**: Set `"tags": { "mode": "ISSUE_WRITER" }` to discover evidence in the repo and create a GitHub issue (requires github_token, repo_owner, repo_name in tags).
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 
 #### Job-level model overrides (optional)

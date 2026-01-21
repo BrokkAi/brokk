@@ -7,12 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestConsoleIO;
-import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -175,7 +170,7 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class with preceding comment (fqName = pkg.module.ClassName)
-        Optional<String> classSourceOpt = AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", true);
+        Optional<String> classSourceOpt = AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass", true);
         assertTrue(classSourceOpt.isPresent(), "documented.DocumentedClass should be found");
 
         String normalizedSource = normalize.apply(classSourceOpt.get());
@@ -188,7 +183,7 @@ public final class PythonAnalyzerTest {
 
         // Test nested class with comments (fqName = pkg.module.Outer$Inner)
         Optional<String> innerClassSourceOpt =
-                AnalyzerUtil.getClassSource(analyzer, "documented.OuterClass$InnerClass", true);
+                AnalyzerUtil.getSource(analyzer, "documented.OuterClass$InnerClass", true);
         assertTrue(innerClassSourceOpt.isPresent(), "documented.OuterClass$InnerClass should be found");
 
         String normalizedInnerSource = normalize.apply(innerClassSourceOpt.get());
@@ -209,8 +204,7 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test standalone function with docstring (uses . for function scope)
-        Optional<String> functionSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.standalone_function", true);
+        Optional<String> functionSource = AnalyzerUtil.getSource(analyzer, "documented.standalone_function", true);
         assertTrue(functionSource.isPresent(), "standalone_function should be found");
 
         String normalizedFunctionSource = normalize.apply(functionSource.get());
@@ -220,8 +214,7 @@ public final class PythonAnalyzerTest {
         assertTrue(normalizedFunctionSource.contains("\"\"\""), "Function source should include docstring");
 
         // Test method with preceding comment (use $ for class boundary, . for method)
-        Optional<String> methodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", true);
+        Optional<String> methodSource = AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.get_value", true);
         assertTrue(methodSource.isPresent(), "get_value method should be found");
 
         String normalizedMethodSource = normalize.apply(methodSource.get());
@@ -236,7 +229,7 @@ public final class PythonAnalyzerTest {
 
         // Test static method with comment (use $ for class boundary, . for method)
         Optional<String> staticMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.utility_method", true);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.utility_method", true);
         assertTrue(staticMethodSource.isPresent(), "utility_method should be found");
 
         String normalizedStaticSource = normalize.apply(staticMethodSource.get());
@@ -251,7 +244,7 @@ public final class PythonAnalyzerTest {
 
         // Test class method with comment (use $ for class boundary, . for method)
         Optional<String> classMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.create_default", true);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.create_default", true);
         assertTrue(classMethodSource.isPresent(), "create_default should be found");
 
         String normalizedClassMethodSource = normalize.apply(classMethodSource.get());
@@ -270,7 +263,7 @@ public final class PythonAnalyzerTest {
     void testPythonCommentExpansionEdgeCases() {
         // Test constructor with comment (use $ for class boundary, . for method)
         Optional<String> constructorSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.__init__", true);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.__init__", true);
         assertTrue(constructorSource.isPresent(), "__init__ method should be found");
 
         Function<String, String> normalize =
@@ -287,7 +280,7 @@ public final class PythonAnalyzerTest {
 
         // Test nested class method (use $ for class boundaries, . for method)
         Optional<String> innerMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.OuterClass$InnerClass.inner_method", true);
+                AnalyzerUtil.getSource(analyzer, "documented.OuterClass$InnerClass.inner_method", true);
         assertTrue(innerMethodSource.isPresent(), "inner_method should be found");
 
         String normalizedInnerMethodSource = normalize.apply(innerMethodSource.get());
@@ -307,10 +300,9 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class source with and without comments (use $ for class boundary)
-        Optional<String> classSourceWithComments =
-                AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", true);
+        Optional<String> classSourceWithComments = AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass", true);
         Optional<String> classSourceWithoutComments =
-                AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", false);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass", false);
 
         assertTrue(classSourceWithComments.isPresent(), "Class source with comments should be present");
         assertTrue(classSourceWithoutComments.isPresent(), "Class source without comments should be present");
@@ -338,9 +330,9 @@ public final class PythonAnalyzerTest {
 
         // Test method source with and without comments (use $ for class boundary, . for method)
         Optional<String> methodSourceWithComments =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", true);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.get_value", true);
         Optional<String> methodSourceWithoutComments =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", false);
+                AnalyzerUtil.getSource(analyzer, "documented.DocumentedClass.get_value", false);
 
         assertTrue(methodSourceWithComments.isPresent(), "Method source with comments should be present");
         assertTrue(methodSourceWithoutComments.isPresent(), "Method source without comments should be present");
@@ -366,88 +358,6 @@ public final class PythonAnalyzerTest {
         assertTrue(
                 normalizedMethodWithoutComments.contains("def get_value(self):"),
                 "Method source without comments should include method definition");
-    }
-
-    @Test
-    void testPythonLocalClassesInFunctions() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-
-        ProjectFile localClassesFile = new ProjectFile(project.getRoot(), "local_classes.py");
-
-        // Get all declarations in the file
-        Set<CodeUnit> declarations = analyzer.getDeclarations(localClassesFile);
-
-        // Should find the top-level class (packageName=module, shortName=ClassName)
-        CodeUnit topLevelClassCU = CodeUnit.cls(localClassesFile, "local_classes", "TopLevelClass");
-        assertTrue(declarations.contains(topLevelClassCU), "Should find top-level class");
-
-        // The fix worked! Local classes now have scoped FQNs with $ for class boundary: func$LocalClass
-        var scopedLocalClasses = declarations.stream()
-                .filter(cu -> cu.isClass() && cu.fqName().contains("$LocalClass"))
-                .collect(Collectors.toSet());
-
-        // Verify the fix worked correctly
-        assertEquals(3, scopedLocalClasses.size(), "Should find 3 local classes with scoped FQNs");
-
-        // Check that each local class has the proper scoped FQN format (module.func$LocalClass)
-        assertTrue(
-                scopedLocalClasses.stream()
-                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_1$LocalClass")),
-                "Should find local_classes.test_function_1$LocalClass");
-        assertTrue(
-                scopedLocalClasses.stream()
-                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_2$LocalClass")),
-                "Should find local_classes.test_function_2$LocalClass");
-        assertTrue(
-                scopedLocalClasses.stream()
-                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_3$LocalClass")),
-                "Should find local_classes.test_function_3$LocalClass");
-
-        // Verify no duplicate FQNs (the original bug is fixed)
-        var fqNames = scopedLocalClasses.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertEquals(3, fqNames.size(), "All local classes should have unique FQNs");
-
-        // Verify top-level declarations include the actual top-level class
-        var topLevelDecls =
-                analyzer.withFileProperties(tld -> tld.get(localClassesFile)).topLevelCodeUnits();
-        assertTrue(topLevelDecls.contains(topLevelClassCU), "Top-level declarations should include TopLevelClass");
-
-        var localClassMethods = declarations.stream()
-                .filter(cu -> cu.isFunction() && cu.fqName().contains("$LocalClass."))
-                .collect(Collectors.toList());
-
-        // Should find 3 methods: method1, method2, method3
-        assertEquals(
-                3,
-                localClassMethods.size(),
-                "Should find 3 methods of local classes. Found: "
-                        + localClassMethods.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
-
-        // Verify specific method FQNs (methods use format: module.func$Class.method)
-        assertTrue(
-                localClassMethods.stream()
-                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_1$LocalClass.method1")),
-                "Should find local_classes.test_function_1$LocalClass.method1");
-        assertTrue(
-                localClassMethods.stream()
-                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_2$LocalClass.method2")),
-                "Should find local_classes.test_function_2$LocalClass.method2");
-        assertTrue(
-                localClassMethods.stream()
-                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_3$LocalClass.method3")),
-                "Should find local_classes.test_function_3$LocalClass.method3");
-
-        // Verify methods are properly attached as children of their classes
-        for (var localClass : scopedLocalClasses) {
-            var children = analyzer.getDirectChildren(localClass);
-            assertEquals(
-                    1,
-                    children.size(),
-                    "Each local class should have exactly 1 method as child, but " + localClass.fqName() + " has "
-                            + children.size());
-            assertTrue(children.get(0).isFunction(), "Child of " + localClass.fqName() + " should be a function");
-        }
     }
 
     @Test
@@ -1010,67 +920,6 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
-    void testPackagedFunctionLocalClasses() {
-        // Test that function-local classes work correctly in packaged Python modules
-        // This verifies that buildParentFqName correctly handles the case where:
-        // - packageName is non-empty (from __init__.py)
-        // - Function FQNs include module name: "package.module.function"
-        // - Parent lookup must find "package.module.function" when child has classChain="my_function"
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-
-        ProjectFile file = new ProjectFile(project.getRoot(), "mypackage/packaged_functions.py");
-        Set<CodeUnit> declarations = analyzer.getDeclarations(file);
-
-        // Find the function
-        var functions = declarations.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> cu.identifier().equals("my_function"))
-                .collect(Collectors.toList());
-
-        assertEquals(1, functions.size(), "Should find exactly one my_function");
-        CodeUnit myFunction = functions.getFirst();
-
-        // Verify function FQN includes package and module
-        assertEquals(
-                "mypackage.packaged_functions.my_function",
-                myFunction.fqName(),
-                "Function FQN should include package and module name");
-
-        // Find the local class
-        var localClasses = declarations.stream()
-                .filter(CodeUnit::isClass)
-                .filter(cu -> cu.fqName().contains("LocalClass"))
-                .collect(Collectors.toList());
-
-        assertEquals(1, localClasses.size(), "Should find exactly one LocalClass");
-        CodeUnit localClass = localClasses.getFirst();
-
-        // Verify local class FQN (uses $ for class boundary: module.func$ClassName)
-        assertEquals(
-                "mypackage.packaged_functions.my_function$LocalClass",
-                localClass.fqName(),
-                "Local class FQN should be in package with function-local naming using $");
-
-        // Verify parent-child relationship
-        var functionChildren = analyzer.getDirectChildren(myFunction);
-        assertEquals(1, functionChildren.size(), "my_function should have exactly 1 child (LocalClass)");
-        assertTrue(
-                functionChildren.stream().anyMatch(cu -> cu.equals(localClass)),
-                "my_function should have LocalClass as child");
-
-        // Verify the local class has a method
-        var classChildren = analyzer.getDirectChildren(localClass);
-        assertEquals(1, classChildren.size(), "LocalClass should have exactly 1 method");
-        var method = classChildren.stream().findFirst().orElseThrow();
-        // Methods in function-local classes use $ for class boundary, . for method
-        assertEquals(
-                "mypackage.packaged_functions.my_function$LocalClass.method",
-                method.fqName(),
-                "Method FQN should use $ for class boundary, . for method");
-    }
-
-    @Test
     public void testCodeUnitsAreDeduplicated() {
         // getAllDeclarations should not contain duplicate FQNs even if multiple capture paths produce same logical unit
         var allDecls = analyzer.getAllDeclarations();
@@ -1257,207 +1106,6 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
-    void testPythonTypeHierarchy() {
-        // Test parent class resolution for Python
-        // Note: Classes use $ for class boundary, methods use . for member access
-        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
-
-        // Test 1: Simple same-file inheritance
-        ProjectFile simplePy = new ProjectFile(testProject.getRoot(), "inheritance/simple.py");
-        Set<CodeUnit> simpleDecls = testAnalyzer.getDeclarations(simplePy);
-
-        // Find Dog class (identifier() extracts after last $, so this still works)
-        var dogClass =
-                simpleDecls.stream().filter(cu -> cu.identifier().equals("Dog")).findFirst();
-        assertTrue(dogClass.isPresent(), "Dog class should be found");
-
-        // Find Animal class
-        var animalClass = simpleDecls.stream()
-                .filter(cu -> cu.identifier().equals("Animal"))
-                .findFirst();
-        assertTrue(animalClass.isPresent(), "Animal class should be found");
-
-        // Test getDirectAncestors for Dog
-        var dogAncestors = testAnalyzer.getDirectAncestors(dogClass.get());
-
-        // This should pass once implementation is complete
-        assertEquals(1, dogAncestors.size(), "Dog should have exactly 1 direct ancestor (Animal)");
-        assertTrue(
-                dogAncestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
-                "Dog's ancestor should be Animal");
-
-        // Test Cat also extends Animal
-        var catClass =
-                simpleDecls.stream().filter(cu -> cu.identifier().equals("Cat")).findFirst();
-        assertTrue(catClass.isPresent(), "Cat class should be found");
-        var catAncestors = testAnalyzer.getDirectAncestors(catClass.get());
-        assertEquals(1, catAncestors.size(), "Cat should have exactly 1 direct ancestor (Animal)");
-
-        // Test 2: Multi-level inheritance
-        ProjectFile multilevelPy = new ProjectFile(testProject.getRoot(), "inheritance/multilevel.py");
-        Set<CodeUnit> multilevelDecls = testAnalyzer.getDeclarations(multilevelPy);
-
-        var childClass = multilevelDecls.stream()
-                .filter(cu -> cu.identifier().equals("Child"))
-                .findFirst();
-        assertTrue(childClass.isPresent(), "Child class should be found");
-
-        // Direct ancestors should only be Middle
-        var childDirectAncestors = testAnalyzer.getDirectAncestors(childClass.get());
-        assertEquals(1, childDirectAncestors.size(), "Child should have exactly 1 direct ancestor (Middle)");
-        assertTrue(
-                childDirectAncestors.stream().anyMatch(cu -> cu.identifier().equals("Middle")),
-                "Child's direct ancestor should be Middle");
-
-        // Transitive ancestors should include Middle and Base
-        var childAllAncestors = testAnalyzer.getAncestors(childClass.get());
-        assertEquals(2, childAllAncestors.size(), "Child should have 2 transitive ancestors (Middle, Base)");
-
-        // Test 3: Cross-file inheritance
-        ProjectFile childPy = new ProjectFile(testProject.getRoot(), "inheritance/child.py");
-        Set<CodeUnit> childFileDecls = testAnalyzer.getDeclarations(childPy);
-
-        var birdClass = childFileDecls.stream()
-                .filter(cu -> cu.identifier().equals("Bird"))
-                .findFirst();
-        assertTrue(birdClass.isPresent(), "Bird class should be found");
-
-        // Bird extends Animal from simple.py
-        var birdAncestors = testAnalyzer.getDirectAncestors(birdClass.get());
-        assertEquals(1, birdAncestors.size(), "Bird should have exactly 1 direct ancestor (Animal)");
-        assertTrue(
-                birdAncestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
-                "Bird's ancestor should be Animal from simple.py");
-
-        // Test 4: Multiple inheritance
-        ProjectFile multiplePy = new ProjectFile(testProject.getRoot(), "inheritance/multiple.py");
-        Set<CodeUnit> multipleDecls = testAnalyzer.getDeclarations(multiplePy);
-
-        var duckClass = multipleDecls.stream()
-                .filter(cu -> cu.identifier().equals("Duck"))
-                .findFirst();
-        assertTrue(duckClass.isPresent(), "Duck class should be found");
-
-        // Duck extends both Flyable and Swimmable
-        var duckAncestors = testAnalyzer.getDirectAncestors(duckClass.get());
-        assertEquals(2, duckAncestors.size(), "Duck should have exactly 2 direct ancestors (Flyable, Swimmable)");
-        assertTrue(
-                duckAncestors.stream().anyMatch(cu -> cu.identifier().equals("Flyable")),
-                "Duck's ancestors should include Flyable");
-        assertTrue(
-                duckAncestors.stream().anyMatch(cu -> cu.identifier().equals("Swimmable")),
-                "Duck's ancestors should include Swimmable");
-
-        testProject.close();
-    }
-
-    @Test
-    void testRelativeImportSameDirectory() throws Exception {
-        // Test: from .module import Class
-        // Child class in same directory as sibling
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
-                .addFileContents(
-                        """
-                class ChildClass:
-                    def child_method(self):
-                        pass
-                """,
-                        "mypackage/child.py");
-
-        try (var testProject = builder.addFileContents(
-                        """
-                from .child import ChildClass
-
-                class SiblingClass:
-                    def __init__(self):
-                        self.child = ChildClass()
-                """,
-                        "mypackage/sibling.py")
-                .build()) {
-            var analyzer = new PythonAnalyzer(testProject);
-            var siblingFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling.SiblingClass")
-                    .get();
-            var imports = analyzer.importedCodeUnitsOf(siblingFile);
-
-            // In Python, class FQNs use $ for class boundary: mypackage.child.ChildClass
-            assertTrue(
-                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.child.ChildClass")),
-                    "Should resolve 'from .child import ChildClass' to mypackage.child.ChildClass");
-        }
-    }
-
-    @Test
-    void testRelativeImportParentDirectory() throws Exception {
-        // Test: from ..module import Class
-        // Base class in parent directory
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
-                .addFileContents("# Subpackage marker\n", "mypackage/subdir/__init__.py")
-                .addFileContents(
-                        """
-                class BaseClass:
-                    def base_method(self):
-                        pass
-                """,
-                        "mypackage/base.py");
-
-        try (var testProject = builder.addFileContents(
-                        """
-                from ..base import BaseClass
-
-                class ChildClass(BaseClass):
-                    def child_method(self):
-                        pass
-                """,
-                        "mypackage/subdir/child.py")
-                .build()) {
-            var analyzer = new PythonAnalyzer(testProject);
-            var childFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.child.ChildClass")
-                    .get();
-            var imports = analyzer.importedCodeUnitsOf(childFile);
-
-            assertTrue(
-                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.base.BaseClass")),
-                    "Should resolve 'from ..base import BaseClass' to mypackage.base.BaseClass");
-        }
-    }
-
-    @Test
-    void testRelativeImportGrandparentDirectory() throws Exception {
-        // Test: from ...module import Class (two levels up)
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
-                .addFileContents("# Subpackage marker\n", "mypackage/subdir/__init__.py")
-                .addFileContents("# Deep package marker\n", "mypackage/subdir/deep/__init__.py")
-                .addFileContents(
-                        """
-                class TopClass:
-                    def top_method(self):
-                        pass
-                """,
-                        "mypackage/top.py");
-
-        try (var testProject = builder.addFileContents(
-                        """
-                from ...top import TopClass
-
-                class DeepClass(TopClass):
-                    def deep_method(self):
-                        pass
-                """,
-                        "mypackage/subdir/deep/nested.py")
-                .build()) {
-            var analyzer = new PythonAnalyzer(testProject);
-            var nestedFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.deep.nested.DeepClass")
-                    .get();
-            var imports = analyzer.importedCodeUnitsOf(nestedFile);
-
-            assertTrue(
-                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.top.TopClass")),
-                    "Should resolve 'from ...top import TopClass' to mypackage.top.TopClass");
-        }
-    }
-
-    @Test
     void testAnnotatedAndTupleAssignments() {
         // Test capture of various Python assignment patterns:
         // - Annotated assignments (VAR: Type = value)
@@ -1538,129 +1186,6 @@ public final class PythonAnalyzerTest {
                 "Function local local_var should NOT be captured as module-level field");
 
         testProject.close();
-    }
-
-    @Test
-    void testRelativeImportInheritance() throws Exception {
-        // Test that classes using relative imports show proper inheritance
-        var builder = InlineTestProjectCreator.code("# Package marker\n", "zoo/__init__.py")
-                .addFileContents("# Subpackage marker\n", "zoo/mammals/__init__.py")
-                .addFileContents(
-                        """
-                class Animal:
-                    def speak(self):
-                        pass
-                """,
-                        "zoo/animal.py");
-
-        try (var testProject = builder.addFileContents(
-                        """
-                from ..animal import Animal
-
-                class Dog(Animal):
-                    def bark(self):
-                        return "woof"
-                """,
-                        "zoo/mammals/dog.py")
-                .build()) {
-            var analyzer = new PythonAnalyzer(testProject);
-            var dogFile =
-                    AnalyzerUtil.getFileFor(analyzer, "zoo.mammals.dog.Dog").get();
-            var dogDecls = analyzer.getDeclarations(dogFile);
-
-            var dogClass = dogDecls.stream()
-                    .filter(cu -> cu.identifier().equals("Dog"))
-                    .findFirst();
-            assertTrue(dogClass.isPresent(), "Dog class should be found");
-
-            // Verify inheritance through relative import
-            var ancestors = analyzer.getDirectAncestors(dogClass.get());
-            assertEquals(1, ancestors.size(), "Dog should have exactly 1 direct ancestor (Animal)");
-            assertTrue(
-                    ancestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
-                    "Dog should extend Animal via relative import");
-        }
-    }
-
-    @Test
-    void testPackagedTopLevelClassesIncludeModuleName() {
-        // Regression test: Top-level classes in packaged Python files should include module name in FQ name
-        // Bug: Classes were missing module component (e.g., "tests.units.utils.ExampleTestState" instead of
-        // "tests.units.utils.test_utils.ExampleTestState")
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-
-        ProjectFile testUtilsFile = new ProjectFile(project.getRoot(), "tests/units/utils/test_utils.py");
-        Set<CodeUnit> declarations = analyzer.getDeclarations(testUtilsFile);
-
-        // --- Verify top-level classes include module name ---
-        var topLevelClasses = declarations.stream()
-                .filter(CodeUnit::isClass)
-                .filter(cu -> !cu.fqName()
-                        .contains(".test_backend_variable_cls$")) // exclude function-local (uses $ for class boundary)
-                .collect(Collectors.toList());
-
-        // ExampleTestState should be tests.units.utils.test_utils.ExampleTestState ($ for class boundary)
-        assertTrue(
-                topLevelClasses.stream()
-                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.ExampleTestState")),
-                "ExampleTestState should have FQ name including module with $ boundary. Found: "
-                        + topLevelClasses.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
-
-        // DataFrame should be tests.units.utils.test_utils.DataFrame ($ for class boundary)
-        assertTrue(
-                topLevelClasses.stream().anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.DataFrame")),
-                "DataFrame should have FQ name including module with $ boundary. Found: "
-                        + topLevelClasses.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
-
-        // --- Verify top-level functions include module name ---
-        var topLevelFunctions = declarations.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> cu.fqName().startsWith("tests.units.utils.test_utils."))
-                .filter(cu -> !cu.fqName().contains(".ExampleTestState.")) // exclude methods
-                .filter(cu -> !cu.fqName().contains(".DataFrame.")) // exclude methods
-                .filter(cu -> !cu.fqName().contains(".TestBackendVariable.")) // exclude function-local class methods
-                .collect(Collectors.toList());
-
-        assertTrue(
-                topLevelFunctions.stream()
-                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.mock_event")),
-                "mock_event should have FQ name including module");
-        assertTrue(
-                topLevelFunctions.stream()
-                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.get_above_max_version")),
-                "get_above_max_version should have FQ name including module");
-        assertTrue(
-                topLevelFunctions.stream().anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.test_func")),
-                "test_func should have FQ name including module");
-
-        // --- Verify function-local class includes function scope ---
-        // test_backend_variable_cls contains a class TestBackendVariable
-        // Function-local classes use $ for the class boundary: module.func$ClassName
-        var functionLocalClasses = declarations.stream()
-                .filter(CodeUnit::isClass)
-                .filter(cu -> cu.fqName().contains("TestBackendVariable"))
-                .collect(Collectors.toList());
-
-        assertEquals(1, functionLocalClasses.size(), "Should find exactly one TestBackendVariable class");
-        assertEquals(
-                "tests.units.utils.test_utils.test_backend_variable_cls$TestBackendVariable",
-                functionLocalClasses.getFirst().fqName(),
-                "Function-local class should have function in its FQ name with $ boundary");
-
-        // --- Verify top-level variables include module name ---
-        var topLevelVars = declarations.stream()
-                .filter(CodeUnit::isField)
-                .filter(cu -> cu.fqName().startsWith("tests.units.utils.test_utils."))
-                .collect(Collectors.toList());
-
-        assertTrue(
-                topLevelVars.stream().anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.V055")),
-                "V055 should have FQ name including module. Found: "
-                        + topLevelVars.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
-        assertTrue(
-                topLevelVars.stream().anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.V059")),
-                "V059 should have FQ name including module");
     }
 
     @Test
@@ -1951,123 +1476,6 @@ public final class PythonAnalyzerTest {
             // Verify the old FQN format does NOT work
             var oldFormat = testAnalyzer.getDefinitions("mypkg.__init__$PackageClass");
             assertEquals(0, oldFormat.size(), "Old __init__ FQN format should not work anymore");
-        }
-    }
-
-    @Test
-    void testDiamondInheritanceSupportingFragments() throws Exception {
-        // Diamond inheritance pattern:
-        //       A
-        //      / \
-        //     B   C
-        //      \ /
-        //       D
-        // D extends both B and C, which both extend A.
-        // supportingFragments for D should return B and C (direct ancestors),
-        // and those should each return A, but Context deduplication should handle A appearing twice.
-
-        var builder = InlineTestProjectCreator.code(
-                        """
-                class A:
-                    def method_a(self):
-                        pass
-                """,
-                        "diamond/a.py")
-                .addFileContents(
-                        """
-                from .a import A
-
-                class B(A):
-                    def method_b(self):
-                        pass
-                """,
-                        "diamond/b.py")
-                .addFileContents(
-                        """
-                from .a import A
-
-                class C(A):
-                    def method_c(self):
-                        pass
-                """,
-                        "diamond/c.py")
-                .addFileContents(
-                        """
-                from .b import B
-                from .c import C
-
-                class D(B, C):
-                    def method_d(self):
-                        pass
-                """,
-                        "diamond/d.py")
-                .addFileContents("# Package marker\n", "diamond/__init__.py");
-
-        try (var testProject = builder.build()) {
-            var testAnalyzer = new PythonAnalyzer(testProject);
-            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), testAnalyzer);
-
-            // Find class D
-            var dClass = testAnalyzer.getDefinitions("diamond.d.D");
-            assertEquals(1, dClass.size(), "Should find exactly one class D");
-            var classD = dClass.getFirst();
-
-            // Verify direct ancestors of D are B and C
-            var directAncestors = testAnalyzer.getDirectAncestors(classD);
-            assertEquals(2, directAncestors.size(), "D should have exactly 2 direct ancestors (B and C)");
-            var ancestorNames =
-                    directAncestors.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
-            assertEquals(Set.of("B", "C"), ancestorNames, "D's direct ancestors should be B and C");
-
-            // Create a SummaryFragment for D and check supportingFragments
-            var summaryFragment = new ContextFragments.SummaryFragment(
-                    cm, "diamond.d.D", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-
-            var supporting = summaryFragment.supportingFragments();
-
-            // Should return SummaryFragments for B and C (direct ancestors)
-            var supportingIdentifiers = supporting.stream()
-                    .filter(f -> f instanceof ContextFragments.SummaryFragment)
-                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
-                    .collect(Collectors.toSet());
-
-            assertEquals(
-                    Set.of("diamond.b.B", "diamond.c.C"),
-                    supportingIdentifiers,
-                    "supportingFragments should return B and C");
-
-            // Verify that B and C each have A as their ancestor
-            var bClass = testAnalyzer.getDefinitions("diamond.b.B").getFirst();
-            var cClass = testAnalyzer.getDefinitions("diamond.c.C").getFirst();
-
-            var bAncestors = testAnalyzer.getDirectAncestors(bClass);
-            var cAncestors = testAnalyzer.getDirectAncestors(cClass);
-
-            assertEquals(1, bAncestors.size(), "B should have 1 direct ancestor (A)");
-            assertEquals(1, cAncestors.size(), "C should have 1 direct ancestor (A)");
-            assertEquals("A", bAncestors.getFirst().identifier(), "B's ancestor should be A");
-            assertEquals("A", cAncestors.getFirst().identifier(), "C's ancestor should be A");
-
-            // Now verify that adding D's fragment to Context correctly expands all supporting fragments
-            // without infinite loops or duplicates (the diamond pattern means A would be reached twice)
-            var context = new Context(cm);
-            context = context.addFragments(summaryFragment);
-
-            // Context should contain the original fragment plus supporting fragments
-            var allFragments = context.allFragments().toList();
-            assertTrue(!allFragments.isEmpty(), "Context should contain at least the original fragment");
-
-            // Verify no duplicate supporting fragments by checking unique target identifiers
-            var summaryFragmentsInContext = allFragments.stream()
-                    .filter(f -> f instanceof ContextFragments.SummaryFragment)
-                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
-                    .toList();
-
-            var uniqueIdentifiers = new HashSet<>(summaryFragmentsInContext);
-            assertEquals(
-                    uniqueIdentifiers.size(),
-                    summaryFragmentsInContext.size(),
-                    "Context should not contain duplicate SummaryFragments");
         }
     }
 

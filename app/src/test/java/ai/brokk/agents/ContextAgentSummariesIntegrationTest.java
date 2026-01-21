@@ -7,7 +7,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextFragments.SummaryFragment;
@@ -38,9 +37,7 @@ public class ContextAgentSummariesIntegrationTest {
 
         Map<CodeUnit, String> summaries = filtered.stream()
                 .map(cu -> {
-                    final String skeleton = analyzer.as(SkeletonProvider.class)
-                            .flatMap(skp -> skp.getSkeleton(cu))
-                            .orElse("");
+                    final String skeleton = analyzer.getSkeleton(cu).orElse("");
                     return Map.entry(cu, skeleton);
                 })
                 .filter(entry -> !entry.getValue().isEmpty())

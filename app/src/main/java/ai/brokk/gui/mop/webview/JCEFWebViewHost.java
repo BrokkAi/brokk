@@ -178,7 +178,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                                 logger.info("Retrying load after connection error...");
                                 // Retry after a short delay
                                 var delayedExecutor = CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS);
-                                LoggingFuture.supplyAsync(browser::reload, delayedExecutor);
+                                LoggingFuture.runAsync(browser::reload, delayedExecutor);
                             }
                         } catch (Throwable t) {
                             logger.error("Exception in onLoadError callback", t);
@@ -380,9 +380,10 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                                 if (cefApp != null) {
                                     var version = cefApp.getVersion();
                                     if (version != null) {
-                                        logger.info("CEF version: {} (Chromium {})",
-                                                    version.getCefVersion(),
-                                                    version.getChromeVersion());
+                                        logger.info(
+                                                "CEF version: {} (Chromium {})",
+                                                version.getCefVersion(),
+                                                version.getChromeVersion());
                                     }
                                     cefAppFuture.complete(cefApp);
                                 }

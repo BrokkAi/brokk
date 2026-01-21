@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.concurrent.AtomicWrites;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -68,7 +69,7 @@ public class ProjectFile implements BrokkFile {
 
     public void write(String st) throws IOException {
         Files.createDirectories(absPath().getParent());
-        Files.writeString(absPath(), st);
+        AtomicWrites.save(absPath(), st);
     }
 
     /** Also relative (but unlike raw Path.getParent, ours returns empty path instead of null) */

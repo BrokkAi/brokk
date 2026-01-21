@@ -44,6 +44,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -104,6 +105,14 @@ public class Brokk {
     private record KeyValidationResult(boolean isValid, @Nullable Path dialogProjectPath) {}
 
     static {
+        // Suppress java-diff-utils JUL warnings
+        // produced by java-diff-utils via JUL
+        // Set level on root JUL logger's console handler to suppress WARNING messages
+        var rootLogger = java.util.logging.Logger.getLogger("");
+        for (var handler : rootLogger.getHandlers()) {
+            handler.setLevel(Level.SEVERE);
+        }
+
         // Register Bouncy Castle provider for JGit SSH operations if not already present.
         if (Security.getProvider("BC") == null) {
             Security.addProvider(new BouncyCastleProvider());
@@ -246,8 +255,10 @@ public class Brokk {
                 try {
                     super.dispatchEvent(event);
                 } catch (Throwable t) {
-                    logger.error("Exception during AWT event dispatch on thread {}",
-                                 Thread.currentThread().getName(), t);
+                    logger.error(
+                            "Exception during AWT event dispatch on thread {}",
+                            Thread.currentThread().getName(),
+                            t);
                     GlobalExceptionHandler.handle(Thread.currentThread(), t, s -> {});
                 }
             }
@@ -269,7 +280,6 @@ public class Brokk {
                                                     currentTheme, popupMenu.getClientProperty(THEME_CLIENT_PROPERTY))) {
                                                 popupMenu.putClientProperty(THEME_CLIENT_PROPERTY, currentTheme);
                                                 SwingUtilities.updateComponentTreeUI(popupMenu);
-                                                System.out.println("hierarchy added");
                                             }
                                         }
                                     }

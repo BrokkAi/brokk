@@ -108,8 +108,7 @@ public class WorkspaceChip extends JPanel {
         materialChip.setCloseToolTipText("Remove from Workspace");
         materialChip.setCloseAccessibleName("Remove " + safeShortDescription);
         materialChip.addCloseListener(e -> onCloseClick());
-        materialChip.addSeparatorCloseListener(this::onCloseClick);
-        materialChip.addChipClickListener(this::onPrimaryClick);
+        materialChip.addChipClickListener(this::onPrimaryClick, this::onCloseClick);
 
         installInteractionHandlers();
         installHoverListeners();

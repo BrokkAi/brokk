@@ -46,7 +46,7 @@ Or via Gradle:
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, `SEARCH`, `REVIEW`, or `ISSUE` |
+| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, `SEARCH`, `REVIEW`, `ISSUE`, or `ISSUE_WRITER` |
 | `--planner-model MODEL` | String | **Yes** | N/A | LLM model for planning and reasoning (e.g., `gpt-5`, `claude-3-opus`) |
 | `--scan-model MODEL` | String | No | Project default | LLM model to use for repository scanning (used by `SEARCH` mode; if omitted, the project's default scan model is used) |
 | `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes). Note: `--code-model` is ignored when using `--mode SEARCH` or `--mode ASK`. |
@@ -58,9 +58,9 @@ Or via Gradle:
 | `--token TOKEN` | String | No | Random UUID | Authentication token for the executor (defaults to a randomly generated UUID if not provided) |
 | `--auto-commit` | Flag | No | `false` | Enable automatic git commits after task completion |
 | `--auto-compress` | Flag | No | `false` | Enable automatic context compression to reduce token usage |
-| `--github-token TOKEN` | String | See `ISSUE`/`REVIEW` | N/A | GitHub API token (required for `ISSUE` and `REVIEW` modes) |
-| `--repo-owner OWNER` | String | See `ISSUE`/`REVIEW` | N/A | GitHub repository owner (required for `ISSUE` and `REVIEW` modes) |
-| `--repo-name REPO` | String | See `ISSUE`/`REVIEW` | N/A | GitHub repository name (required for `ISSUE` and `REVIEW` modes) |
+| `--github-token TOKEN` | String | See `ISSUE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub API token (required for `ISSUE`, `REVIEW`, and `ISSUE_WRITER` modes) |
+| `--repo-owner OWNER` | String | See `ISSUE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub repository owner (required for `ISSUE`, `REVIEW`, and `ISSUE_WRITER` modes) |
+| `--repo-name REPO` | String | See `ISSUE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub repository name (required for `ISSUE`, `REVIEW`, and `ISSUE_WRITER` modes) |
 | `--issue-number NUMBER` | Integer | See `ISSUE` | N/A | GitHub issue number (required for `ISSUE` mode) |
 | `--pr-number NUMBER` | Integer | See `REVIEW` | N/A | GitHub PR number (required for `REVIEW` mode) |
 | `--max-issue-fix-attempts N`| Integer | No | `5` | Maximum number of attempts to fix a failing build in `ISSUE` mode |
@@ -190,6 +190,27 @@ Characteristics:
 - `--repo-owner`: The owner of the repository.
 - `--repo-name`: The name of the repository.
 - `--issue-number`: The numeric ID of the issue to process.
+
+### ISSUE_WRITER Mode: Create a GitHub Issue
+
+ISSUE_WRITER mode discovers evidence in the repository and creates a new GitHub issue with a high-quality title and body.
+
+Characteristics:
+- Read-only to the local repo (no edits/commits)
+- Uses repository discovery to cite evidence and provide a useful issue report
+- Creates a GitHub issue via the GitHub API
+
+**Required for ISSUE_WRITER mode:**
+- `--github-token`: A valid GitHub PAT with repository access.
+- `--repo-owner`: The owner of the repository.
+- `--repo-name`: The name of the repository.
+- A prompt describing what issue to create (positional `<prompt>`).
+
+Example:
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode ISSUE_WRITER --planner-model gpt-5 --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api 'Create a GitHub issue describing the NPE we hit when AuthenticationProvider receives a null user.'"
+```
 
 ### REVIEW Mode: Pull Request Review
 
