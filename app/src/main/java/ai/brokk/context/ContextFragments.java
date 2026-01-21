@@ -1420,22 +1420,18 @@ public class ContextFragments {
             String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
             boolean hasSourceCode = false;
-            if (unit.isFunction()) {
-                var codeOpt = analyzer.getSource(unit, true);
-                if (codeOpt.isPresent()) {
-                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                    hasSourceCode = true;
-                } else {
-                    text = "No source found for method: " + fqName;
+
+            var codeOpt = analyzer.getSource(unit, true);
+            if (codeOpt.isPresent()) {
+                text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                hasSourceCode = true;
+
+                List<String> imports = analyzer.importStatementsOf(unit.source());
+                if (!imports.isEmpty()) {
+                    text = String.join("\n", imports) + "\n\n" + text;
                 }
             } else {
-                var codeOpt = analyzer.getSource(unit, true);
-                if (codeOpt.isPresent()) {
-                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                    hasSourceCode = true;
-                } else {
-                    text = "No source found for class: " + fqName;
-                }
+                text = "No source found for %s: %s".formatted(unit.isFunction() ? "method" : "class", fqName);
             }
 
             return new ContentSnapshot(text, Set.of(unit), Set.of(unit.source()), (List<Byte>) null, hasSourceCode);
