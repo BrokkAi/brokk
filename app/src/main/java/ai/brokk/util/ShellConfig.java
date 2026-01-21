@@ -31,7 +31,7 @@ public record ShellConfig(String executable, List<String> args) {
         }
     }
 
-    public static ShellConfig fromConfig(@Nullable String executor, @Nullable String argsStr) {
+    public static ShellConfig fromConfigsOrDefault(@Nullable String executor, @Nullable String argsStr) {
         if (executor == null || executor.isBlank()) {
             return basic();
         }

@@ -44,21 +44,21 @@ class ShellConfigTest {
 
     @Test
     void testFromConfigWithNullExecutor() {
-        var config = ShellConfig.fromConfig(null, null);
+        var config = ShellConfig.fromConfigsOrDefault(null, null);
         assertNotNull(config);
         assertEquals(ShellConfig.basic().executable(), config.executable());
     }
 
     @Test
     void testFromConfigWithBlankExecutor() {
-        var config = ShellConfig.fromConfig("  ", null);
+        var config = ShellConfig.fromConfigsOrDefault("  ", null);
         assertNotNull(config);
         assertEquals(ShellConfig.basic().executable(), config.executable());
     }
 
     @Test
     void testFromConfigWithValidExecutor() {
-        var config = ShellConfig.fromConfig("/bin/bash", null);
+        var config = ShellConfig.fromConfigsOrDefault("/bin/bash", null);
         assertNotNull(config);
         assertEquals("/bin/bash", config.executable());
         assertEquals(List.of("-lc"), config.args());
@@ -66,7 +66,7 @@ class ShellConfigTest {
 
     @Test
     void testFromConfigWithCustomArgs() {
-        var config = ShellConfig.fromConfig("/bin/zsh", "-x -c");
+        var config = ShellConfig.fromConfigsOrDefault("/bin/zsh", "-x -c");
         assertNotNull(config);
         assertEquals("/bin/zsh", config.executable());
         assertEquals(List.of("-x", "-c"), config.args());
@@ -74,7 +74,7 @@ class ShellConfigTest {
 
     @Test
     void testFromConfigWithBlankArgs() {
-        var config = ShellConfig.fromConfig("/bin/bash", "  ");
+        var config = ShellConfig.fromConfigsOrDefault("/bin/bash", "  ");
         assertNotNull(config);
         assertEquals("/bin/bash", config.executable());
         assertEquals(List.of("-lc"), config.args());

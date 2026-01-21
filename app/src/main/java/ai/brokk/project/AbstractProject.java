@@ -518,7 +518,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public ShellConfig getShellConfig() {
         String executor = workspaceProps.getProperty(PROP_COMMAND_EXECUTOR);
         String argsStr = workspaceProps.getProperty(PROP_EXECUTOR_ARGS);
-        return ShellConfig.fromConfig(executor, argsStr);
+        return ShellConfig.fromConfigsOrDefault(executor, argsStr);
     }
 
     @Override
