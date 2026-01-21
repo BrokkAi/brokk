@@ -265,13 +265,13 @@ public class PythonLanguage implements Language {
         return true;
     }
 
-    // ---- helpers moved from ImportPythonPanel ----
+    // ---- helpers moved from ImportPythonPanel (public for reuse by DependencyTools) ----
 
-    private record PyMeta(String name, String version) {}
+    public record PyMeta(String name, String version) {}
 
-    private static final List<String> PY_DOC_PREFIXES = List.of("readme", "license", "copying");
+    public static final List<String> PY_DOC_PREFIXES = List.of("readme", "license", "copying");
 
-    private @Nullable PyMeta readPyMetadata(Path distInfoDir) throws IOException {
+    public static @Nullable PyMeta readPyMetadata(Path distInfoDir) throws IOException {
         var meta = Files.exists(distInfoDir.resolve("METADATA"))
                 ? distInfoDir.resolve("METADATA")
                 : distInfoDir.resolve("PKG-INFO");
@@ -294,7 +294,7 @@ public class PythonLanguage implements Language {
         return new PyMeta(name, version);
     }
 
-    private static boolean pyIsAllowedFile(String fileNameLower) {
+    public static boolean pyIsAllowedFile(String fileNameLower) {
         if (fileNameLower.endsWith(".py") || fileNameLower.endsWith(".pyi")) return true;
         for (var prefix : PY_DOC_PREFIXES) {
             if (fileNameLower.startsWith(prefix)) return true;
@@ -302,7 +302,7 @@ public class PythonLanguage implements Language {
         return false;
     }
 
-    private List<Path> enumerateInstalledFiles(Path sitePackages, Path distInfoDir, String distName)
+    public static List<Path> enumerateInstalledFiles(Path sitePackages, Path distInfoDir, String distName)
             throws IOException {
         var record = distInfoDir.resolve("RECORD");
         if (Files.exists(record)) {
@@ -367,7 +367,7 @@ public class PythonLanguage implements Language {
         return rels;
     }
 
-    private void copyPythonFiles(Path sitePackages, List<Path> rels, Path dest) throws IOException {
+    public static void copyPythonFiles(Path sitePackages, List<Path> rels, Path dest) throws IOException {
         Files.createDirectories(dest);
         for (var rel : rels) {
             var src = sitePackages.resolve(rel);

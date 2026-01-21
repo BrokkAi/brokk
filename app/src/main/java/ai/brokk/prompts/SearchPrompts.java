@@ -149,11 +149,14 @@ public class SearchPrompts {
                     no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
 
-                External library discovery (Java projects only):
-                  - When the goal requires using an external Java library, search for its key classes first
-                  - If the library classes are NOT found in Code Intelligence, use `importMavenDependency`
-                    to import the library. Example: `importMavenDependency("com.fasterxml.jackson.core:jackson-databind")`
-                  - Once imported, the library's classes become searchable and can be added to the Workspace.
+                External library discovery:
+                  - When the goal requires using an external library, search for its key classes/modules first
+                  - If NOT found in Code Intelligence, use `importDependency` to import it:
+                    * Java: `importDependency("com.fasterxml.jackson.core:jackson-databind")`
+                    * Python: `importDependency("requests")` or `importDependency("numpy 2.0.0")`
+                    * Rust: `importDependency("serde")` or `importDependency("tokio 1.0")`
+                    * Node.js: `importDependency("lodash")` or `importDependency("@types/node")`
+                  - Once imported, the library becomes searchable and can be added to the Workspace.
                   - This helps Code Agent see actual API signatures and write more accurate code.
                 </instructions>
                 """

@@ -212,7 +212,7 @@ public final class NodeJsDependencyHelper {
         }
     }
 
-    private static void copyNodePackage(Path source, Path destination) throws IOException {
+    public static void copyNodePackage(Path source, Path destination) throws IOException {
         // do not skip build/dist, that's where you find usually the lib code
         var skipDirs = Set.of("node_modules", ".pnpm", ".git", "coverage", "test", "tests", ".nyc_output");
         // pnpm is based on symlinks, we need to follow it to find deps
@@ -286,7 +286,7 @@ public final class NodeJsDependencyHelper {
 
     // ---- helpers ----
 
-    private static String toSafeFolderName(String name, String version) {
+    public static String toSafeFolderName(String name, String version) {
         var base = version.isEmpty() ? name : name + "@" + version;
         return base.replace("/", "__");
     }

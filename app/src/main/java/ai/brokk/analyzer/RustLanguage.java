@@ -277,7 +277,7 @@ public class RustLanguage implements Language {
         }
     }
 
-    private static void copyRustCrate(Path source, Path destination) throws IOException {
+    public static void copyRustCrate(Path source, Path destination) throws IOException {
         try (var stream = Files.walk(source)) {
             stream.forEach(src -> {
                 try {

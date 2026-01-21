@@ -7,6 +7,8 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.NodeJsDependencyHelper;
+import ai.brokk.analyzer.PythonLanguage;
+import ai.brokk.analyzer.RustLanguage;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Decompiler;
@@ -17,18 +19,12 @@ import ai.brokk.util.MavenArtifactFetcher;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystemLoopException;
-import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.aether.artifact.DefaultArtifact;
@@ -39,10 +35,13 @@ import org.jetbrains.annotations.Nullable;
  * Unified tool for importing dependencies across all supported languages.
  * Automatically detects the project language and routes to the appropriate importer.
  * Designed for use by ArchitectAgent during the exploration phase.
+ *
+ * <p>This class delegates to the shared copy helpers in the Language classes
+ * (PythonLanguage, RustLanguage, NodeJsDependencyHelper) to avoid code duplication
+ * with the GUI import functionality.
  */
 public class DependencyTools implements AutoCloseable {
     private static final Logger logger = LogManager.getLogger(DependencyTools.class);
-    private static final List<String> PY_DOC_PREFIXES = List.of("readme", "license", "copying");
 
     private final IContextManager contextManager;
     private final MavenArtifactFetcher fetcher;
@@ -319,9 +318,11 @@ public class DependencyTools implements AutoCloseable {
                 }
             }
 
-            var meta = readPyMetadata(distInfoDir);
-            var rels = enumeratePythonFiles(sitePackages, distInfoDir, meta != null ? meta.name() : packageName);
-            copyPythonFiles(sitePackages, rels, targetRoot);
+            // Use shared helpers from PythonLanguage
+            var meta = PythonLanguage.readPyMetadata(distInfoDir);
+            var rels = PythonLanguage.enumerateInstalledFiles(sitePackages, distInfoDir,
+                                                              meta != null ? meta.name() : packageName);
+            PythonLanguage.copyPythonFiles(sitePackages, rels, targetRoot);
         } catch (IOException e) {
             logger.error("Error copying Python package {} from {} to {}",
                          matchedPkg.displayName(), sitePackages, targetRoot, e);
@@ -334,7 +335,8 @@ public class DependencyTools implements AutoCloseable {
         var relativeOutput = projectRoot.relativize(targetRoot);
 
         return "Successfully imported %s to %s (%d Python files). %s"
-                .formatted(matchedPkg.displayName(), relativeOutput, countFiles(targetRoot, ".py", ".pyi"), intelligenceStatus);
+                .formatted(matchedPkg.displayName(), relativeOutput,
+                           countFiles(targetRoot, ".py", ".pyi"), intelligenceStatus);
     }
 
     private @Nullable Language.DependencyCandidate findPythonPackage(
@@ -413,7 +415,8 @@ public class DependencyTools implements AutoCloseable {
                     throw new IOException("Failed to delete existing destination: " + targetRoot);
                 }
             }
-            copyRustCrate(sourceRoot, targetRoot);
+            // Use shared helper from RustLanguage
+            RustLanguage.copyRustCrate(sourceRoot, targetRoot);
         } catch (IOException e) {
             logger.error("Error copying Rust crate {} from {} to {}",
                          matchedCrate.displayName(), sourceRoot, targetRoot, e);
@@ -426,7 +429,8 @@ public class DependencyTools implements AutoCloseable {
         var relativeOutput = projectRoot.relativize(targetRoot);
 
         return "Successfully imported %s to %s (%d Rust files). %s"
-                .formatted(matchedCrate.displayName(), relativeOutput, countFiles(targetRoot, ".rs"), intelligenceStatus);
+                .formatted(matchedCrate.displayName(), relativeOutput,
+                           countFiles(targetRoot, ".rs"), intelligenceStatus);
     }
 
     private @Nullable Language.DependencyCandidate findRustCrate(
@@ -483,7 +487,7 @@ public class DependencyTools implements AutoCloseable {
 
         var meta = NodeJsDependencyHelper.readPackageJsonFromDir(sourceRoot);
         var folderName = (meta != null && !meta.name.isEmpty())
-                ? toSafeFolderName(meta.name, meta.version)
+                ? NodeJsDependencyHelper.toSafeFolderName(meta.name, meta.version)
                 : matchedPkg.displayName().replace("/", "__");
 
         var projectRoot = project.getMasterRootPathForConfig();
@@ -502,7 +506,8 @@ public class DependencyTools implements AutoCloseable {
                     throw new IOException("Failed to delete existing destination: " + targetRoot);
                 }
             }
-            copyNodePackage(sourceRoot, targetRoot);
+            // Use shared helper from NodeJsDependencyHelper
+            NodeJsDependencyHelper.copyNodePackage(sourceRoot, targetRoot);
         } catch (IOException e) {
             logger.error("Error copying npm package {} from {} to {}",
                          matchedPkg.displayName(), sourceRoot, targetRoot, e);
@@ -583,196 +588,6 @@ public class DependencyTools implements AutoCloseable {
                     .count();
         } catch (IOException e) {
             return 0L;
-        }
-    }
-
-    private static String toSafeFolderName(String name, String version) {
-        var base = version.isEmpty() ? name : name + "@" + version;
-        return base.replace("/", "__");
-    }
-
-    // ========== Python Helpers ==========
-
-    private record PyMeta(String name, String version) {}
-
-    private @Nullable PyMeta readPyMetadata(Path distInfoDir) throws IOException {
-        var meta = Files.exists(distInfoDir.resolve("METADATA"))
-                ? distInfoDir.resolve("METADATA")
-                : distInfoDir.resolve("PKG-INFO");
-        if (!Files.exists(meta)) return null;
-
-        String name = "";
-        String version = "";
-        try (var reader = Files.newBufferedReader(meta, StandardCharsets.UTF_8)) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.regionMatches(true, 0, "Name:", 0, 5)) {
-                    name = line.substring(5).trim();
-                } else if (line.regionMatches(true, 0, "Version:", 0, 8)) {
-                    version = line.substring(8).trim();
-                }
-                if (!name.isEmpty() && !version.isEmpty()) break;
-            }
-        }
-        if (name.isEmpty() || version.isEmpty()) return null;
-        return new PyMeta(name, version);
-    }
-
-    private static boolean pyIsAllowedFile(String fileNameLower) {
-        if (fileNameLower.endsWith(".py") || fileNameLower.endsWith(".pyi")) return true;
-        for (var prefix : PY_DOC_PREFIXES) {
-            if (fileNameLower.startsWith(prefix)) return true;
-        }
-        return false;
-    }
-
-    private List<Path> enumeratePythonFiles(Path sitePackages, Path distInfoDir, String distName)
-            throws IOException {
-        var record = distInfoDir.resolve("RECORD");
-        if (Files.exists(record)) {
-            var rels = new ArrayList<Path>();
-            for (var line : Files.readAllLines(record, StandardCharsets.UTF_8)) {
-                if (line.isEmpty()) continue;
-                String pathStr = line.split(",", 2)[0];
-                var rel = Path.of(pathStr);
-                var abs = rel.isAbsolute() ? rel : sitePackages.resolve(rel).normalize();
-                if (!abs.startsWith(sitePackages)) continue;
-                if (Files.isDirectory(abs)) continue;
-                var lower = abs.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (pyIsAllowedFile(lower)) rels.add(sitePackages.relativize(abs));
-            }
-            if (!rels.isEmpty()) return rels;
-        }
-
-        var installedFiles = distInfoDir.resolve("installed-files.txt");
-        if (Files.exists(installedFiles)) {
-            var rels = new ArrayList<Path>();
-            for (var line : Files.readAllLines(installedFiles, StandardCharsets.UTF_8)) {
-                if (line.isBlank()) continue;
-                var rel = Path.of(line.trim());
-                var abs = rel.isAbsolute() ? rel : sitePackages.resolve(rel).normalize();
-                if (!abs.startsWith(sitePackages)) continue;
-                if (Files.isDirectory(abs)) continue;
-                var lower = abs.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (pyIsAllowedFile(lower)) rels.add(sitePackages.relativize(abs));
-            }
-            if (!rels.isEmpty()) return rels;
-        }
-
-        // Fallback heuristic
-        var normalized = distName.toLowerCase(Locale.ROOT).replace('-', '_');
-        var rels = new ArrayList<Path>();
-        var dirCandidate = sitePackages.resolve(normalized);
-        var fileCandidate = sitePackages.resolve(normalized + ".py");
-        if (Files.isDirectory(dirCandidate)) {
-            try (var walk = Files.walk(dirCandidate)) {
-                for (var abs : walk.filter(p -> !Files.isDirectory(p)).toList()) {
-                    var lower = abs.getFileName().toString().toLowerCase(Locale.ROOT);
-                    if (pyIsAllowedFile(lower)) rels.add(sitePackages.relativize(abs));
-                }
-            }
-        } else if (Files.exists(fileCandidate)) {
-            rels.add(sitePackages.relativize(fileCandidate));
-        }
-
-        var meta = distInfoDir.resolve("METADATA");
-        if (Files.exists(meta)) rels.add(sitePackages.relativize(meta));
-        try (var s = Files.list(distInfoDir)) {
-            for (var f : s.toList()) {
-                var lower = f.getFileName().toString().toLowerCase(Locale.ROOT);
-                for (var prefix : PY_DOC_PREFIXES) {
-                    if (lower.startsWith(prefix)) {
-                        rels.add(sitePackages.relativize(f));
-                        break;
-                    }
-                }
-            }
-        }
-        return rels;
-    }
-
-    private void copyPythonFiles(Path sitePackages, List<Path> rels, Path dest) throws IOException {
-        Files.createDirectories(dest);
-        for (var rel : rels) {
-            var src = sitePackages.resolve(rel);
-            if (!Files.exists(src) || Files.isDirectory(src)) continue;
-            var dst = dest.resolve(rel);
-            Files.createDirectories(dst.getParent());
-            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    // ========== Rust Helpers ==========
-
-    private static void copyRustCrate(Path source, Path destination) throws IOException {
-        try (var stream = Files.walk(source)) {
-            stream.forEach(src -> {
-                try {
-                    var rel = source.relativize(src);
-                    if (rel.toString().startsWith("target")) return;
-                    var dst = destination.resolve(rel);
-                    if (Files.isDirectory(src)) {
-                        Files.createDirectories(dst);
-                    } else {
-                        var name = src.getFileName().toString().toLowerCase(Locale.ROOT);
-                        boolean isRs = name.endsWith(".rs");
-                        boolean isManifest = name.equals("cargo.toml") || name.equals("cargo.lock");
-                        boolean isDoc = name.startsWith("readme") || name.startsWith("license") || name.startsWith("copying");
-                        if (isRs || isManifest || isDoc) {
-                            Files.createDirectories(requireNonNull(dst.getParent()));
-                            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
-                        }
-                    }
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        }
-    }
-
-    // ========== Node.js Helpers ==========
-
-    private static void copyNodePackage(Path source, Path destination) throws IOException {
-        var skipDirs = Set.of("node_modules", ".pnpm", ".git", "coverage", "test", "tests", ".nyc_output");
-        try (var stream = Files.walk(source, FileVisitOption.FOLLOW_LINKS)) {
-            stream.forEach(src -> {
-                try {
-                    var rel = source.relativize(src);
-                    var relStr = rel.toString().replace('\\', '/');
-                    if (!relStr.isEmpty()) {
-                        for (var d : skipDirs) {
-                            if (relStr.equals(d) || relStr.startsWith(d + "/")) {
-                                return;
-                            }
-                        }
-                    }
-                    var dst = destination.resolve(rel);
-                    if (Files.isDirectory(src)) {
-                        Files.createDirectories(dst);
-                    } else {
-                        var name = src.getFileName().toString().toLowerCase(Locale.ROOT);
-                        boolean isAllowed = name.equals("package.json")
-                                || name.startsWith("readme")
-                                || name.startsWith("license")
-                                || name.startsWith("copying")
-                                || name.endsWith(".js")
-                                || name.endsWith(".mjs")
-                                || name.endsWith(".cjs")
-                                || name.endsWith(".jsx")
-                                || name.endsWith(".ts")
-                                || name.endsWith(".tsx")
-                                || name.endsWith(".d.ts");
-                        if (isAllowed) {
-                            Files.createDirectories(requireNonNull(dst.getParent()));
-                            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
-                        }
-                    }
-                } catch (FileSystemLoopException e) {
-                    logger.warn("Circular symlink detected at {}, skipping", src);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
         }
     }
 
