@@ -3,7 +3,6 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -500,17 +499,17 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     public static Set<CodeUnit> resolveJavaScriptLikeImports(
-                IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
-            Path root = analyzer.getProject().getRoot();
-            Set<ProjectFile> projectFiles = analyzer.getProject().getAllFiles();
-            return importStatements.stream()
-                    .map(JavascriptAnalyzer::extractModulePathFromImport)
-                    .flatMap(Optional::stream)
-                    .map(path -> resolveJavaScriptLikeModulePath(root, projectFiles, file, path))
-                    .filter(Objects::nonNull)
-                    .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
-                    .collect(Collectors.toSet());
-        }
+            IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
+        Path root = analyzer.getProject().getRoot();
+        Set<ProjectFile> projectFiles = analyzer.getProject().getAllFiles();
+        return importStatements.stream()
+                .map(JavascriptAnalyzer::extractModulePathFromImport)
+                .flatMap(Optional::stream)
+                .map(path -> resolveJavaScriptLikeModulePath(root, projectFiles, file, path))
+                .filter(Objects::nonNull)
+                .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
+                .collect(Collectors.toSet());
+    }
 
     public static Optional<String> extractModulePathFromImport(String importStatement) {
         // Try ES6 pattern first (imports with 'from')
@@ -554,9 +553,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             return null;
         }
 
-        Set<Path> absolutePaths = projectFiles.stream()
-                .map(ProjectFile::absPath)
-                .collect(Collectors.toSet());
+        Set<Path> absolutePaths =
+                projectFiles.stream().map(ProjectFile::absPath).collect(Collectors.toSet());
 
         Path parentDir = importingFile.absPath().getParent();
         if (parentDir == null) {

@@ -393,8 +393,7 @@ public class JavaScriptImportTest {
         try (var testProject = InlineTestProjectCreator.code(
                         """
                 export function fromFile() { return 1; }
-                """,
-                        "util-dir.js")
+                """, "util-dir.js")
                 .addFileContents(
                         """
                 export function fromIndex() { return 2; }
