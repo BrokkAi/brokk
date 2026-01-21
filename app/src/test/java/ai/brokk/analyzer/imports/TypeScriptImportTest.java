@@ -284,4 +284,114 @@ public class TypeScriptImportTest {
             assertTrue(foundOtherVal, "Should resolve CommonJS require");
         }
     }
+
+    @Test
+    public void testImportFromDirectoryIndex() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export function libFunc(): string { return 'lib'; }
+                """,
+                        "lib/index.ts")
+                .addFileContents(
+                        """
+                import { libFunc } from './lib/index.ts';
+                import { libFunc as libFunc2 } from './lib';
+                libFunc();
+                """,
+                        "main.ts")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var mainFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(mainFile);
+
+            var expectedPath = java.nio.file.Path.of("lib", "index.ts");
+            boolean foundLibFunc = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("libFunc")
+                            && cu.source().getRelPath().equals(expectedPath));
+
+            assertTrue(foundLibFunc, "Should have resolved 'libFunc' from lib/index.ts via directory import");
+        }
+    }
+
+    @Test
+    public void testRequireFromDirectoryIndex() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export function libFunc(): string { return 'lib'; }
+                """,
+                        "lib/index.ts")
+                .addFileContents(
+                        """
+                const { libFunc } = require('./lib/index');
+                libFunc();
+                """,
+                        "main.ts")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var mainFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(mainFile);
+
+            var expectedPath = java.nio.file.Path.of("lib", "index.ts");
+            boolean foundLibFunc = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("libFunc")
+                            && cu.source().getRelPath().equals(expectedPath));
+
+            assertTrue(foundLibFunc, "Should have resolved 'libFunc' from lib/index.ts via require");
+        }
+    }
+
+    @Test
+    public void testExplicitFileNotFallbackToDirectoryIndex() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                export function fromFile(): number { return 1; }
+                """,
+                        "util-dir.ts")
+                .addFileContents(
+                        """
+                export function fromIndex(): number { return 2; }
+                """,
+                        "util-dir/index.ts")
+                .addFileContents(
+                        """
+                import { fromFile } from './util-dir.ts';
+                fromFile();
+                """,
+                        "main.ts")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var mainFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(mainFile);
+
+            var filePath = java.nio.file.Path.of("util-dir.ts");
+            var indexPath = java.nio.file.Path.of("util-dir", "index.ts");
+
+            boolean foundFromFile = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("fromFile")
+                            && cu.source().getRelPath().equals(filePath));
+            boolean foundFromIndex = importedUnits.stream()
+                    .anyMatch(cu -> cu.source().getRelPath().equals(indexPath));
+
+            assertTrue(foundFromFile, "Should resolve from util-dir.ts");
+            assertTrue(!foundFromIndex, "Should NOT resolve from util-dir/index.ts when explicit file exists");
+        }
+    }
 }
