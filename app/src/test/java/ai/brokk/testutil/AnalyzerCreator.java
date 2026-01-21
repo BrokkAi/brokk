@@ -20,8 +20,25 @@ public class AnalyzerCreator {
     public static TreeSitterAnalyzer createTreeSitterAnalyzer(IProject project) {
         var language = project.getBuildLanguage();
         var analyzer = language.createAnalyzer(project);
-        return (TreeSitterAnalyzer) analyzer.subAnalyzer(language)
-                .orElseThrow(() -> new NoSupportedAnalyzerForTestProjectException(language));
+
+        return analyzer.subAnalyzer(language)
+                .filter(TreeSitterAnalyzer.class::isInstance)
+                .map(TreeSitterAnalyzer.class::cast)
+                .orElseGet(() -> {
+                    // For MultiLanguage projects, the analyzer itself may be a TreeSitterAnalyzer
+                    if (analyzer instanceof TreeSitterAnalyzer tsa) {
+                        return tsa;
+                    }
+                    // For MultiAnalyzer, find the first TreeSitterAnalyzer delegate
+                    if (analyzer instanceof MultiAnalyzer multi) {
+                        return multi.getDelegates().values().stream()
+                                .filter(TreeSitterAnalyzer.class::isInstance)
+                                .map(TreeSitterAnalyzer.class::cast)
+                                .findFirst()
+                                .orElseThrow(() -> new NoSupportedAnalyzerForTestProjectException(language));
+                    }
+                    throw new NoSupportedAnalyzerForTestProjectException(language);
+                });
     }
 
     /**
