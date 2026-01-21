@@ -164,7 +164,7 @@ public class CodeFragmentTest {
                 import java.util.List;
                 import java.util.Map;
                 </imports>
-                
+
                 <class file="Example.java">
                 class Example {}
                 </class>
