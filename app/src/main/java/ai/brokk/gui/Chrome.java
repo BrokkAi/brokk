@@ -2421,13 +2421,15 @@ public class Chrome
 
             add(Box.createHorizontalStrut(8));
 
-            // Progress bar - compact size for status strip
+            // Progress bar - compact size for status strip (half height, centered)
             progressBar = new JProgressBar(0, 100);
-            progressBar.setPreferredSize(new Dimension(150, 14));
-            progressBar.setMaximumSize(new Dimension(200, 14));
-            progressBar.setMinimumSize(new Dimension(100, 14));
+            progressBar.setPreferredSize(new Dimension(150, 7));
+            progressBar.setMaximumSize(new Dimension(200, 7));
+            progressBar.setMinimumSize(new Dimension(100, 7));
             progressBar.setStringPainted(false);
             progressBar.setAlignmentY(Component.CENTER_ALIGNMENT);
+            // Start progress bar hidden until we receive actual progress callbacks
+            progressBar.setVisible(false);
             add(progressBar);
 
             add(Box.createHorizontalStrut(6));
@@ -2458,6 +2460,8 @@ public class Chrome
         void setProgress(int completed, int total, String phase) {
             SwingUtil.runOnEdt(() -> {
                 if (total > 0) {
+                    // Show progress bar only when we have actual progress data
+                    progressBar.setVisible(true);
                     int percent = (int) ((completed * 100L) / total);
                     progressBar.setValue(percent);
                     progressBar.setIndeterminate(false);
@@ -2468,7 +2472,8 @@ public class Chrome
                     label.setToolTipText(tooltip);
                     progressBar.setToolTipText(tooltip);
                 } else {
-                    // Indeterminate mode when total is unknown
+                    // Indeterminate mode when total is unknown - show progress bar
+                    progressBar.setVisible(true);
                     progressBar.setIndeterminate(true);
                     progressLabel.setText("");
                     label.setText("Rebuilding Code Intelligence");
@@ -2485,6 +2490,8 @@ public class Chrome
             SwingUtil.runOnEdt(() -> {
                 progressBar.setValue(0);
                 progressBar.setIndeterminate(false);
+                // Hide progress bar until next progress callback
+                progressBar.setVisible(false);
                 progressLabel.setText("");
                 label.setText("Rebuilding Code Intelligence");
                 label.setToolTipText(null);
