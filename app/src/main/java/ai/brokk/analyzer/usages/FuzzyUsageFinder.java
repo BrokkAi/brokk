@@ -277,31 +277,30 @@ public final class FuzzyUsageFinder {
             return new FuzzyResult.Failure(fqName, "No definitions found");
         }
 
-        // Aggregate usages from all definitions (handles overloads)
+        // FUF is signature-blind, so we can collapse overloads to reduce the work
+        var def = definitions.iterator().next();
+        CodeUnit cu = new CodeUnit(def.source(), def.kind(), def.packageName(), def.shortName(), null);
+
+        // Aggregate usages from all definitions
         Set<UsageHit> allHits = new HashSet<>();
-        for (var cu : definitions) {
-            var result = findUsages(cu, maxFiles, maxUsages);
-            switch (result) {
-                case FuzzyResult.Success success -> {
-                    allHits.addAll(success.hits());
-                }
-                case FuzzyResult.Ambiguous ambiguous -> {
-                    allHits.addAll(ambiguous.hits());
-                }
-                case FuzzyResult.TooManyCallsites tooMany -> {
-                    logger.debug(
-                            "Too many callsites for {} when finding usages of {}: {} > {}",
-                            cu.fqName(),
-                            fqName,
-                            tooMany.totalCallsites(),
-                            tooMany.limit());
-                }
-                case FuzzyResult.Failure failure -> {
-                    logger.debug("Failure for {} when finding usages of {}: {}", cu.fqName(), fqName, failure.reason());
-                }
+        var result = findUsages(cu, maxFiles, maxUsages);
+        switch (result) {
+            case FuzzyResult.Success success -> {
+                allHits.addAll(success.hits());
             }
-            if (allHits.size() >= maxUsages) {
-                break;
+            case FuzzyResult.Ambiguous ambiguous -> {
+                allHits.addAll(ambiguous.hits());
+            }
+            case FuzzyResult.TooManyCallsites tooMany -> {
+                logger.debug(
+                        "Too many callsites for {} when finding usages of {}: {} > {}",
+                        cu.fqName(),
+                        fqName,
+                        tooMany.totalCallsites(),
+                        tooMany.limit());
+            }
+            case FuzzyResult.Failure failure -> {
+                logger.debug("Failure for {} when finding usages of {}: {}", cu.fqName(), fqName, failure.reason());
             }
         }
         logger.debug("Total aggregated hits for {}: {}", fqName, allHits.size());
