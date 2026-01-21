@@ -2102,7 +2102,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-            // Handle ES6 import statements
+            // Extract typical top-level imports
             TSNode importNode =
                     capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
             if (importNode != null && !importNode.isNull()) {
@@ -2112,6 +2112,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 }
             }
 
+            // Extract inline/call-based imports typical of interpreted languages
             extractAdditionalImports(capturedNodesForMatch, sourceContent, localImportStatements);
 
             for (var captureEntry : capturedNodesForMatch.entrySet()) {
