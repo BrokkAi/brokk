@@ -273,6 +273,8 @@ class JobRunnerIssueModeTest {
         var calls = new ArrayList<String>();
         var prompts = new ArrayList<String>();
 
+        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
         java.util.function.Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
             return "TEST FAILED OUTPUT";
@@ -284,6 +286,7 @@ class JobRunnerIssueModeTest {
                 IssueExecutionException.class,
                 () -> JobRunner.runIssueModeTestLintRetryLoop(
                         cancelled::get,
+                        progressSink,
                         commandRunner,
                         fixTaskRunner,
                         new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
@@ -304,6 +307,8 @@ class JobRunnerIssueModeTest {
 
         var calls = new ArrayList<String>();
 
+        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
         java.util.function.Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
 
@@ -323,6 +328,7 @@ class JobRunnerIssueModeTest {
                 IssueExecutionException.class,
                 () -> JobRunner.runIssueModeTestLintRetryLoop(
                         cancelled::get,
+                        progressSink,
                         commandRunner,
                         fixTaskRunner,
                         new BuildAgent.BuildDetails(lintCmd, testCmd, "", java.util.Set.of()),
@@ -339,6 +345,8 @@ class JobRunnerIssueModeTest {
         String lintCmd = "./gradlew lintAll";
 
         var calls = new ArrayList<String>();
+
+        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
         java.util.function.Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
@@ -357,6 +365,7 @@ class JobRunnerIssueModeTest {
 
         JobRunner.runIssueModeTestLintRetryLoop(
                 cancelled::get,
+                progressSink,
                 commandRunner,
                 fixTaskRunner,
                 new BuildAgent.BuildDetails(lintCmd, testCmd, "", java.util.Set.of()),
@@ -372,6 +381,8 @@ class JobRunnerIssueModeTest {
         var calls = new ArrayList<String>();
         var fixPrompts = new ArrayList<String>();
 
+        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
         java.util.function.Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
             if (calls.size() % 2 == 1) {
@@ -386,6 +397,7 @@ class JobRunnerIssueModeTest {
                 IssueExecutionException.class,
                 () -> JobRunner.runIssueModeTestLintRetryLoop(
                         cancelled::get,
+                        progressSink,
                         commandRunner,
                         fixTaskRunner,
                         new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
@@ -403,6 +415,8 @@ class JobRunnerIssueModeTest {
         var calls = new ArrayList<String>();
         var fixCalls = new AtomicInteger(0);
 
+        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
         java.util.function.Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
             return "";
@@ -412,6 +426,7 @@ class JobRunnerIssueModeTest {
 
         JobRunner.runIssueModeTestLintRetryLoop(
                 cancelled::get,
+                progressSink,
                 commandRunner,
                 fixTaskRunner,
                 new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
@@ -425,6 +440,8 @@ class JobRunnerIssueModeTest {
     void issueModeTestLintRetryLoop_throwsIssueCancelledException_whenCancelled() {
         var cancelled = new AtomicBoolean(true);
 
+        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
         java.util.function.Function<String, String> commandRunner = cmd -> fail("Command must not run when cancelled");
         java.util.function.Consumer<String> fixTaskRunner = out -> fail("Fix task must not run when cancelled");
 
@@ -432,6 +449,7 @@ class JobRunnerIssueModeTest {
                 JobRunner.IssueCancelledException.class,
                 () -> JobRunner.runIssueModeTestLintRetryLoop(
                         cancelled::get,
+                        progressSink,
                         commandRunner,
                         fixTaskRunner,
                         new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
@@ -445,6 +463,8 @@ class JobRunnerIssueModeTest {
         var fixCalls = new AtomicInteger(0);
         var testCalls = new AtomicInteger(0);
 
+        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
         java.util.function.Function<String, String> commandRunner = cmd -> {
             testCalls.incrementAndGet();
             return "always failing";
@@ -456,6 +476,7 @@ class JobRunnerIssueModeTest {
                 IssueExecutionException.class,
                 () -> JobRunner.runIssueModeTestLintRetryLoop(
                         cancelled::get,
+                        progressSink,
                         commandRunner,
                         fixTaskRunner,
                         new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
@@ -478,6 +499,8 @@ class JobRunnerIssueModeTest {
         var lintCalls = new AtomicInteger(0);
         var fixCalls = new AtomicInteger(0);
 
+        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
         java.util.function.Function<String, String> commandRunner = cmd -> {
             if (cmd.equals(testCmd)) {
                 return fail("Test command must not be invoked when testAllCommand() is blank");
@@ -495,6 +518,7 @@ class JobRunnerIssueModeTest {
                 IssueExecutionException.class,
                 () -> JobRunner.runIssueModeTestLintRetryLoop(
                         cancelled::get,
+                        progressSink,
                         commandRunner,
                         fixTaskRunner,
                         new BuildAgent.BuildDetails(lintCmd, testCmd, "", java.util.Set.of()),

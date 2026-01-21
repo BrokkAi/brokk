@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -1124,6 +1125,27 @@ public final class JobRunner {
 
                                                         runIssueModeTestLintRetryLoop(
                                                                 cancelled::get,
+                                                                (attempt, message) -> {
+                                                                    try {
+                                                                        store.appendEvent(
+                                                                                jobId, JobEvent.of("NOTIFICATION", message));
+                                                                    } catch (IOException ioe) {
+                                                                        logger.warn(
+                                                                                "Failed to append final verification notification event for job {}: {}",
+                                                                                jobId,
+                                                                                ioe.getMessage(),
+                                                                                ioe);
+                                                                    }
+
+                                                                    try {
+                                                                        (console != null ? console : cm.getIo())
+                                                                                .showNotification(
+                                                                                        IConsoleIO.NotificationRole.INFO,
+                                                                                        message);
+                                                                    } catch (Throwable ignore) {
+                                                                        // best-effort only
+                                                                    }
+                                                                },
                                                                 commandRunner,
                                                                 out -> {
                                                                     String prompt = "fix this build error:\n" + out;
@@ -1995,6 +2017,7 @@ public final class JobRunner {
 
     static void runIssueModeTestLintRetryLoop(
             BooleanSupplier isCancelled,
+            BiConsumer<Integer, String> progressSink,
             Function<String, String> commandRunner,
             Consumer<String> fixTaskRunner,
             BuildAgent.BuildDetails buildDetailsOverride,
@@ -2002,13 +2025,32 @@ public final class JobRunner {
         String testCmd = buildDetailsOverride.testAllCommand();
         String lintCmd = buildDetailsOverride.buildLintCommand();
 
+        boolean testsSkipped = testCmd.isBlank();
+        boolean lintSkipped = lintCmd.isBlank();
+
         for (int i = 0; i < maxIterations; i++) {
+            int attemptNumber = i + 1;
+
             if (isCancelled.getAsBoolean()) {
                 throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
             }
 
-            String testOut = testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
-            if (!testOut.isBlank()) {
+            String startMsg = "Final verification attempt %d/%d: tests=%s, lint=%s"
+                    .formatted(
+                            attemptNumber,
+                            maxIterations,
+                            testsSkipped ? "SKIP" : "RUN",
+                            lintSkipped ? "SKIP" : "RUN");
+            progressSink.accept(attemptNumber, startMsg);
+
+            String testOut = testsSkipped ? "" : commandRunner.apply(testCmd);
+            boolean testsPassed = testsSkipped || testOut.isBlank();
+
+            if (!testsPassed) {
+                String resultMsg = "Final verification attempt %d/%d results: tests=FAIL, lint=SKIP"
+                        .formatted(attemptNumber, maxIterations);
+                progressSink.accept(attemptNumber, resultMsg);
+
                 fixTaskRunner.accept(testOut);
                 continue;
             }
@@ -2017,8 +2059,18 @@ public final class JobRunner {
                 throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
             }
 
-            String lintOut = lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
-            if (!lintOut.isBlank()) {
+            String lintOut = lintSkipped ? "" : commandRunner.apply(lintCmd);
+            boolean lintPassed = lintSkipped || lintOut.isBlank();
+
+            String resultMsg = "Final verification attempt %d/%d results: tests=%s, lint=%s"
+                    .formatted(
+                            attemptNumber,
+                            maxIterations,
+                            testsSkipped ? "SKIP" : "PASS",
+                            lintSkipped ? "SKIP" : (lintPassed ? "PASS" : "FAIL"));
+            progressSink.accept(attemptNumber, resultMsg);
+
+            if (!lintPassed) {
                 fixTaskRunner.accept(lintOut);
                 continue;
             }
