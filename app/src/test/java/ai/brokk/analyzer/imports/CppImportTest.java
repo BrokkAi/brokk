@@ -2,6 +2,7 @@ package ai.brokk.analyzer.imports;
 
 import static ai.brokk.testutil.InlineTestProjectCreator.code;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -109,7 +110,7 @@ class CppImportTest {
             // (iostream declarations should not be in the set because the file doesn't exist in project)
             boolean foundStd =
                     importedUnits.stream().anyMatch(cu -> cu.source().toString().contains("iostream"));
-            assertTrue(!foundStd, "System headers should not be resolved to CodeUnits");
+            assertFalse(foundStd, "System headers should not be resolved to CodeUnits");
 
             // 5. Verify referencingFilesOf
             Set<ProjectFile> referencers = ((ImportAnalysisProvider) analyzer).referencingFilesOf(mathHeader);
