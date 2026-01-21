@@ -2407,7 +2407,6 @@ public class Chrome
     private class AnalyzerStatusStrip extends JPanel implements ThemeAware {
         private final JLabel label;
         private final JProgressBar progressBar;
-        private final JLabel progressLabel;
 
         private AnalyzerStatusStrip() {
             super();
@@ -2431,13 +2430,6 @@ public class Chrome
             // Start progress bar hidden until we receive actual progress callbacks
             progressBar.setVisible(false);
             add(progressBar);
-
-            add(Box.createHorizontalStrut(6));
-
-            // Progress label showing "X/Y" or percentage
-            progressLabel = new JLabel("");
-            progressLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
-            add(progressLabel);
 
             setOpaque(true);
             // Start hidden by default. Visibility controlled by Chrome methods.
@@ -2465,7 +2457,6 @@ public class Chrome
                     int percent = (int) ((completed * 100L) / total);
                     progressBar.setValue(percent);
                     progressBar.setIndeterminate(false);
-                    progressLabel.setText("");
                     label.setText("Rebuilding Code Intelligence");
                     // Show phase details in tooltip only
                     String tooltip = String.format("%s (%d/%d - %d%%)", phase, completed, total, percent);
@@ -2475,7 +2466,6 @@ public class Chrome
                     // Indeterminate mode when total is unknown - show progress bar
                     progressBar.setVisible(true);
                     progressBar.setIndeterminate(true);
-                    progressLabel.setText("");
                     label.setText("Rebuilding Code Intelligence");
                     label.setToolTipText(phase.isEmpty() ? null : phase);
                     progressBar.setToolTipText(phase.isEmpty() ? null : phase);
@@ -2492,7 +2482,6 @@ public class Chrome
                 progressBar.setIndeterminate(false);
                 // Hide progress bar until next progress callback
                 progressBar.setVisible(false);
-                progressLabel.setText("");
                 label.setText("Rebuilding Code Intelligence");
                 label.setToolTipText(null);
                 progressBar.setToolTipText(null);
@@ -2506,7 +2495,6 @@ public class Chrome
             Color fg = UIManager.getColor("Label.foreground");
             setBackground(bg != null ? bg : getBackground());
             label.setForeground(fg != null ? fg : label.getForeground());
-            progressLabel.setForeground(fg != null ? fg : progressLabel.getForeground());
             if (isVisible()) {
                 refreshSpinnerIcon();
             }
