@@ -2413,14 +2413,14 @@ public class Chrome
             super();
             setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
             setBorder(new EmptyBorder(2, 6, 2, 6));
-            
+
             label = new JLabel("Rebuilding Code Intelligence");
             label.setIcon(null); // set on show to ensure theme-correct icon
             label.setAlignmentY(Component.CENTER_ALIGNMENT);
             add(label);
-            
+
             add(Box.createHorizontalStrut(8));
-            
+
             // Progress bar - compact size for status strip
             progressBar = new JProgressBar(0, 100);
             progressBar.setPreferredSize(new Dimension(150, 14));
@@ -2429,14 +2429,14 @@ public class Chrome
             progressBar.setStringPainted(false);
             progressBar.setAlignmentY(Component.CENTER_ALIGNMENT);
             add(progressBar);
-            
+
             add(Box.createHorizontalStrut(6));
-            
+
             // Progress label showing "X/Y" or percentage
             progressLabel = new JLabel("");
             progressLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
             add(progressLabel);
-            
+
             setOpaque(true);
             // Start hidden by default. Visibility controlled by Chrome methods.
             setVisible(false);
@@ -2491,7 +2491,6 @@ public class Chrome
                 progressBar.setToolTipText(null);
             });
         }
-
 
         @Override
         public void applyTheme(GuiTheme guiTheme) {
@@ -2601,7 +2600,6 @@ public class Chrome
             analyzerStatusStrip.repaint();
         });
     }
-
 
     /**
      * Updates the analyzer rebuild status strip with structured progress. Safe to call from any thread.
