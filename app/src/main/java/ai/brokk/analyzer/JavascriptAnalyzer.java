@@ -533,6 +533,19 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return Optional.empty();
     }
 
+    /**
+     * Resolves a relative module path (starting with "./" or "../") to a ProjectFile within the project.
+     * Returns null for non-relative specifiers (e.g., bare module names like "react").
+     *
+     * <p>Note: The containment check uses lexical path comparison (startsWith), not filesystem-level
+     * resolution. Symlinks inside the repository that point outside the project root are allowed
+     * and will resolve successfully. This is intentional for performance and flexibility reasons.
+     *
+     * @param projectRoot the project root path
+     * @param importingFile the file containing the import statement
+     * @param modulePath the module specifier from the import/require
+     * @return the resolved ProjectFile, or null if not resolvable within the project
+     */
     public static @Nullable ProjectFile resolveJavaScriptLikeModulePath(
             Path projectRoot, ProjectFile importingFile, String modulePath) {
         if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
