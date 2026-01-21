@@ -465,10 +465,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         void reportFinal() {
             notifyProgressListener(total, total, phase);
         }
-
-        int getCompleted() {
-            return completed.get();
-        }
     }
 
     private void notifyProgressListener(int completed, int total, String phase) {
