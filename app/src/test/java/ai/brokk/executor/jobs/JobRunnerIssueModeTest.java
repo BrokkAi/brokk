@@ -267,6 +267,119 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void issueModeBuildLintRetryLoop_buildFailure_triggersFixTaskWithExactPrefix_andSkipsLintThatIteration() {
+        var cancelled = new AtomicBoolean(false);
+
+        var calls = new ArrayList<String>();
+        var prompts = new ArrayList<String>();
+
+        java.util.function.Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+            return "BUILD FAILED OUTPUT";
+        };
+
+        java.util.function.Consumer<String> fixTaskRunner = out -> prompts.add("fix this build error:\n" + out);
+
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeBuildLintRetryLoop(
+                        cancelled::get,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildAgent.BuildDetails("./gradlew build", "", "", java.util.Set.of()),
+                        2));
+
+        assertEquals(List.of("./gradlew build", "./gradlew build"), calls, "Lint must be skipped when build fails");
+        assertEquals(2, prompts.size());
+        assertTrue(prompts.get(0).startsWith("fix this build error:"), "Prefix must be exact and first");
+        assertEquals("fix this build error:\nBUILD FAILED OUTPUT", prompts.get(0));
+    }
+
+    @Test
+    void issueModeBuildLintRetryLoop_lintFailure_triggersFixTaskWithExactPrefix() {
+        var cancelled = new AtomicBoolean(false);
+
+        var calls = new ArrayList<String>();
+        var fixPrompts = new ArrayList<String>();
+
+        java.util.function.Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+            if (calls.size() % 2 == 1) {
+                return "";
+            }
+            return "LINT FAILED OUTPUT";
+        };
+
+        java.util.function.Consumer<String> fixTaskRunner = out -> fixPrompts.add("fix this build error:\n" + out);
+
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeBuildLintRetryLoop(
+                        cancelled::get,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildAgent.BuildDetails("./gradlew build", "", "", java.util.Set.of()),
+                        2));
+
+        assertEquals(List.of("./gradlew build", "./gradlew build", "./gradlew build", "./gradlew build"), calls);
+        assertEquals(2, fixPrompts.size());
+        assertEquals("fix this build error:\nLINT FAILED OUTPUT", fixPrompts.get(0));
+    }
+
+    @Test
+    void issueModeBuildLintRetryLoop_exitsEarlyWhenBothPass() {
+        var cancelled = new AtomicBoolean(false);
+
+        var calls = new ArrayList<String>();
+        var fixCalls = new AtomicInteger(0);
+
+        java.util.function.Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+            return "";
+        };
+
+        java.util.function.Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+
+        JobRunner.runIssueModeBuildLintRetryLoop(
+                cancelled::get,
+                commandRunner,
+                fixTaskRunner,
+                new BuildAgent.BuildDetails("./gradlew build", "", "", java.util.Set.of()),
+                20);
+
+        assertEquals(List.of("./gradlew build", "./gradlew build"), calls, "Should run build then lint once");
+        assertEquals(0, fixCalls.get(), "No fix tasks when both pass");
+    }
+
+    @Test
+    void issueModeBuildLintRetryLoop_throwsAfter20IterationsIfNeverSucceeds() {
+        var cancelled = new AtomicBoolean(false);
+
+        var fixCalls = new AtomicInteger(0);
+        var buildCalls = new AtomicInteger(0);
+
+        java.util.function.Function<String, String> commandRunner = cmd -> {
+            buildCalls.incrementAndGet();
+            return "always failing";
+        };
+
+        java.util.function.Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+
+        IssueExecutionException ex = assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeBuildLintRetryLoop(
+                        cancelled::get,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildAgent.BuildDetails("./gradlew build", "", "", java.util.Set.of()),
+                        20));
+
+        assertEquals(20, buildCalls.get(), "Must run exactly 20 iterations");
+        assertEquals(20, fixCalls.get(), "Must perform exactly one fix per iteration");
+        assertTrue(ex.getMessage().contains("Build/lint failed after 20 iteration(s)"));
+    }
+
+    @Test
     void issueReviewTaskSequence_convertsCommentsToPrompts_andRunsInOrder_andCallsBranchHook_andFinalVerificationAfter()
             throws Exception {
         var comments = List.of(

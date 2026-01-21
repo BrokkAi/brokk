@@ -1106,76 +1106,35 @@ public final class JobRunner {
                                                     };
 
                                                     Runnable finalVerificationPass = () -> {
-                                                        // After review-driven fixes complete, run a final end-of-run
-                                                        // verification/fix pass using the single-fix helper.
                                                         Function<String, String> commandRunner = cmd -> {
                                                             try {
                                                                 return BuildAgent.runExplicitCommand(
                                                                         cm, cmd, buildDetailsOverride);
                                                             } catch (InterruptedException ie) {
-                                                                Thread.currentThread()
-                                                                        .interrupt();
+                                                                Thread.currentThread().interrupt();
                                                                 throw new RuntimeException(ie);
                                                             }
                                                         };
 
-                                                        Supplier<String> finalVerificationRunner = () -> {
-                                                            // Run tests and lint once each and compose combined
-                                                            // output if any
-                                                            // failed.
-                                                            String testCmd = buildDetailsOverride.testAllCommand();
-                                                            String lintCmd = buildDetailsOverride.buildLintCommand();
-
-                                                            String testOut = testCmd.isBlank()
-                                                                    ? ""
-                                                                    : commandRunner.apply(testCmd);
-                                                            String lintOut = lintCmd.isBlank()
-                                                                    ? ""
-                                                                    : commandRunner.apply(lintCmd);
-
-                                                            boolean testsPassed = testOut.isBlank();
-                                                            boolean lintPassed = lintOut.isBlank();
-
-                                                            if (testsPassed && lintPassed) {
-                                                                return "";
-                                                            }
-
-                                                            var parts = new ArrayList<String>();
-                                                            if (!testsPassed) {
-                                                                parts.add(
-                                                                        "Tests failed (" + testCmd + "):\n" + testOut);
-                                                            }
-                                                            if (!lintPassed) {
-                                                                parts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
-                                                            }
-                                                            return String.join("\n\n", parts);
-                                                        };
-
-                                                        Consumer<String> finalFixTaskRunner = prompt -> {
-                                                            String finalFixPrompt =
-                                                                    "Final checks failed. Output:\n" + prompt
-                                                                            + "\n\nPlease make a single fix attempt to resolve these failures.";
-                                                            var finalFixTask =
-                                                                    TaskList.TaskItem.createFixTask(finalFixPrompt);
-                                                            try {
-                                                                cm.executeTask(
-                                                                        finalFixTask,
-                                                                        issuePlannerModel,
-                                                                        issueCodeModel);
-                                                            } catch (Exception e) {
-                                                                logger.warn(
-                                                                        "Final fix attempt failed for job {}: {}",
-                                                                        jobId,
-                                                                        e.getMessage());
-                                                            }
-                                                        };
-
-                                                        runSingleFixVerificationGate(
-                                                                jobId,
-                                                                store,
-                                                                console != null ? console : cm.getIo(),
-                                                                finalVerificationRunner,
-                                                                finalFixTaskRunner);
+                                                        runIssueModeBuildLintRetryLoop(
+                                                                cancelled::get,
+                                                                commandRunner,
+                                                                out -> {
+                                                                    String prompt = "fix this build error:\n" + out;
+                                                                    try {
+                                                                        cm.executeTask(
+                                                                                TaskList.TaskItem.createFixTask(prompt),
+                                                                                issuePlannerModel,
+                                                                                issueCodeModel);
+                                                                    } catch (Exception e) {
+                                                                        logger.warn(
+                                                                                "Final fix attempt failed for job {}: {}",
+                                                                                jobId,
+                                                                                e.getMessage());
+                                                                    }
+                                                                },
+                                                                buildDetailsOverride,
+                                                                20);
                                                     };
 
                                                     runIssueReviewTaskSequence(
@@ -2111,6 +2070,42 @@ public final class JobRunner {
         }
 
         throw new IssueExecutionException("Final gate failed unexpectedly");
+    }
+
+    static void runIssueModeBuildLintRetryLoop(
+            BooleanSupplier isCancelled,
+            Function<String, String> commandRunner,
+            Consumer<String> fixTaskRunner,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            int maxIterations) {
+        String buildCmd = buildDetailsOverride.buildLintCommand();
+        String lintCmd = buildDetailsOverride.buildLintCommand();
+
+        for (int i = 0; i < maxIterations; i++) {
+            if (isCancelled.getAsBoolean()) {
+                return;
+            }
+
+            String buildOut = buildCmd.isBlank() ? "" : commandRunner.apply(buildCmd);
+            if (!buildOut.isBlank()) {
+                fixTaskRunner.accept(buildOut);
+                continue;
+            }
+
+            if (isCancelled.getAsBoolean()) {
+                return;
+            }
+
+            String lintOut = lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
+            if (!lintOut.isBlank()) {
+                fixTaskRunner.accept(lintOut);
+                continue;
+            }
+
+            return;
+        }
+
+        throw new IssueExecutionException("Build/lint failed after " + maxIterations + " iteration(s)");
     }
 
     private static final Pattern DIFF_FENCE_PATTERN = Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
