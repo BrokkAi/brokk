@@ -1,30 +1,152 @@
 package ai.brokk.analyzer.imports;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.GoAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class GoImportTest {
 
     @Test
-    void testNoImports() throws IOException {
+    void testResolveImports_NoImports() throws IOException {
         String code = """
                 package main
                 func main() {}
                 """;
         IProject project = InlineTestProjectCreator.code(code, "main.go").build();
-        IAnalyzer analyzer = new GoAnalyzer(project);
+        GoAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
-        List<String> imports = analyzer.importStatementsOf(file);
-        assertEquals(List.of(), imports);
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(file);
+        assertTrue(resolved.isEmpty(), "Expected no resolved imports for file with no imports");
+    }
+
+    @Test
+    void testResolveImports_StandardImport() throws IOException {
+        IProject project = InlineTestProjectCreator.code("""
+                package fmt
+                func Println(a ...any) {}
+                """, "fmt/print.go")
+                .addFileContents("""
+                package main
+                import "fmt"
+                func main() { fmt.Println("hi") }
+                """, "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+
+        // Should resolve to the Println function in the fmt package
+        boolean found = resolved.stream()
+                .anyMatch(cu -> cu.isFunction() && "Println".equals(cu.shortName()) && "fmt".equals(cu.packageName()));
+        assertTrue(found, "Should have resolved to fmt.Println");
+    }
+
+    @Test
+    void testResolveImports_GroupedImports() throws IOException {
+        IProject project = InlineTestProjectCreator.code("""
+                package fmt
+                func Println() {}
+                """, "fmt/fmt.go")
+                .addFileContents("""
+                package os
+                func Exit(code int) {}
+                """, "os/os.go")
+                .addFileContents("""
+                package main
+                import (
+                    "fmt"
+                    "os"
+                )
+                func main() { fmt.Println(); os.Exit(0) }
+                """, "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+
+        boolean foundFmt = resolved.stream().anyMatch(cu -> "fmt".equals(cu.packageName()));
+        boolean foundOs = resolved.stream().anyMatch(cu -> "os".equals(cu.packageName()));
+
+        assertTrue(foundFmt, "Should resolve fmt package from group");
+        assertTrue(foundOs, "Should resolve os package from group");
+    }
+
+    @Test
+    void testResolveImports_BlankImportSkipped() throws IOException {
+        IProject project = InlineTestProjectCreator.code("""
+                package png
+                func Decode() {}
+                """, "image/png/png.go")
+                .addFileContents("""
+                package main
+                import _ "image/png"
+                func main() {}
+                """, "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+        assertTrue(resolved.isEmpty(), "Blank import should not resolve to CodeUnits");
+    }
+
+    @Test
+    void testResolveImports_AliasedImport() throws IOException {
+        IProject project = InlineTestProjectCreator.code("""
+                package fmt
+                func Println() {}
+                """, "fmt/fmt.go")
+                .addFileContents("""
+                package main
+                import f "fmt"
+                func main() { f.Println() }
+                """, "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+        boolean found = resolved.stream().anyMatch(cu -> "fmt".equals(cu.packageName()));
+        assertTrue(found, "Aliased import should still resolve the underlying package symbols");
+    }
+
+    @Test
+    void testResolveImports_DotImport() throws IOException {
+        IProject project = InlineTestProjectCreator.code("""
+                package fmt
+                func Println() {}
+                """, "fmt/fmt.go")
+                .addFileContents("""
+                package main
+                import . "fmt"
+                func main() { Println() }
+                """, "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+        boolean found = resolved.stream().anyMatch(cu -> "fmt".equals(cu.packageName()));
+        assertTrue(found, "Dot import should resolve the underlying package symbols");
     }
 
     @Test
