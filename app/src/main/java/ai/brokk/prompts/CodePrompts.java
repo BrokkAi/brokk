@@ -31,6 +31,7 @@ import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public class CodePrompts {
@@ -543,20 +544,24 @@ public class CodePrompts {
     }
 
     public List<ChatMessage> getHistoryMessages(Context ctx) {
+        return getHistoryMessages(ctx, null);
+    }
+
+    public List<ChatMessage> getHistoryMessages(Context ctx, @Nullable String currentModelName) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
 
         // Merge compressed messages into a single taskhistory message
         var compressed = taskHistory.stream()
                 .filter(TaskEntry::isCompressed)
-                .map(TaskEntry::toString) // This will use raw messages if TaskEntry was created with them
+                .map(TaskEntry::toString)
                 .collect(Collectors.joining("\n\n"));
         if (!compressed.isEmpty()) {
             messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
             messages.add(new AiMessage("Ok, I see the history."));
         }
 
-        // Uncompressed messages: process for S/R block redaction
+        // Uncompressed messages: process for tool and S/R block redaction
         taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
             var entryRawMessages = castNonNull(e.log()).messages();
             if (entryRawMessages.isEmpty()) {
@@ -568,15 +573,14 @@ public class CodePrompts {
                     ? entryRawMessages
                     : entryRawMessages.subList(0, entryRawMessages.size() - 1);
 
-            List<ChatMessage> processedMessages = new ArrayList<>();
-            for (var chatMessage : relevantEntryMessages) {
-                if (chatMessage instanceof AiMessage aiMessage) {
-                    redactAiMessage(aiMessage).ifPresent(processedMessages::add);
-                } else {
-                    // Not an AiMessage (e.g., UserMessage, CustomMessage), add as is
-                    processedMessages.add(chatMessage);
-                }
-            }
+            // Determine if we should redact tool calls (different model)
+            var meta = e.meta();
+            String entryModelName = (meta != null && meta.primaryModel() != null) ? meta.primaryModel().name() : null;
+            boolean shouldRedact =
+                    currentModelName != null && entryModelName != null && !currentModelName.equals(entryModelName);
+
+            // Use the centralized helper to process messages
+            var processedMessages = redactToolCallsFromOtherModels(relevantEntryMessages, shouldRedact);
             messages.addAll(processedMessages);
         });
 
