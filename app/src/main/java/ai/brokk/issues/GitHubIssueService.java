@@ -63,9 +63,6 @@ public class GitHubIssueService implements IssueService {
 
     @Override
     public IssueHeader createIssue(String title, String bodyMarkdown) throws IOException {
-        Objects.requireNonNull(title, "title must not be null");
-        bodyMarkdown = Objects.requireNonNullElse(bodyMarkdown, "");
-
         if (title.isBlank()) {
             throw new IllegalArgumentException("title must not be blank");
         }
