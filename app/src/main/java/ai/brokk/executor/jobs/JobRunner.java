@@ -1116,7 +1116,7 @@ public final class JobRunner {
                                                             }
                                                         };
 
-                                                        runIssueModeBuildLintRetryLoop(
+                                                        runIssueModeTestLintRetryLoop(
                                                                 cancelled::get,
                                                                 commandRunner,
                                                                 out -> {
@@ -2072,13 +2072,13 @@ public final class JobRunner {
         throw new IssueExecutionException("Final gate failed unexpectedly");
     }
 
-    static void runIssueModeBuildLintRetryLoop(
+    static void runIssueModeTestLintRetryLoop(
             BooleanSupplier isCancelled,
             Function<String, String> commandRunner,
             Consumer<String> fixTaskRunner,
             BuildAgent.BuildDetails buildDetailsOverride,
             int maxIterations) {
-        String buildCmd = buildDetailsOverride.buildLintCommand();
+        String testCmd = buildDetailsOverride.testAllCommand();
         String lintCmd = buildDetailsOverride.buildLintCommand();
 
         for (int i = 0; i < maxIterations; i++) {
@@ -2086,9 +2086,9 @@ public final class JobRunner {
                 return;
             }
 
-            String buildOut = buildCmd.isBlank() ? "" : commandRunner.apply(buildCmd);
-            if (!buildOut.isBlank()) {
-                fixTaskRunner.accept(buildOut);
+            String testOut = testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
+            if (!testOut.isBlank()) {
+                fixTaskRunner.accept(testOut);
                 continue;
             }
 
@@ -2105,7 +2105,7 @@ public final class JobRunner {
             return;
         }
 
-        throw new IssueExecutionException("Build/lint failed after " + maxIterations + " iteration(s)");
+        throw new IssueExecutionException("Tests/lint failed after " + maxIterations + " iteration(s)");
     }
 
     private static final Pattern DIFF_FENCE_PATTERN = Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
