@@ -1485,10 +1485,8 @@ public class Llm {
             if (usage != null) {
                 var service = contextManager.getService();
                 var modelName = service.nameOf(model);
-                // Filter out cost notifications for 2.0 flash and flash-lite unless explicitly enabled
-                boolean isFreeInternalLLM =
-                        "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.0-flash".equals(modelName);
-                if (isFreeInternalLLM && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
+                // Filter out cost notifications for free-tier models unless explicitly enabled
+                if (service.isFreeTier(modelName) && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
                     logger.debug(
                             "Skipping cost notification for {} (user preference for Free Internal LLM logging)",
                             modelName);
