@@ -3,11 +3,16 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +25,7 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
 
-public final class GoAnalyzer extends TreeSitterAnalyzer {
+public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
     // GO_LANGUAGE field removed, createTSLanguage will provide new instances.
@@ -435,6 +440,90 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForGo(reference);
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    /**
+     * Resolves Go import statements into a set of {@link CodeUnit}s.
+     * <p>
+     * Go imports are package-based. This method extracts the import paths,
+     * identifies the package name (usually the last segment), and resolves
+     * it to the module's exported members or the module itself.
+     * Blank imports ('_') are skipped as they are for side-effects only.
+     */
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        if (importStatements.isEmpty()) {
+            return Set.of();
+        }
+
+        List<String> importPaths = new ArrayList<>();
+        // Pattern to match import paths like "fmt" or "github.com/user/repo"
+        // Handles: import "path", import alias "path", import . "path", import _ "path"
+        // Also used to extract paths from grouped imports.
+        Pattern pathPattern = Pattern.compile("\"([^\"]+)\"");
+
+        for (String statement : importStatements) {
+            String trimmed = statement.trim();
+            if (trimmed.isEmpty()) continue;
+
+            // Handle grouped imports: import (\n "a"\n "b"\n)
+            if (trimmed.startsWith("import") && trimmed.contains("(") && trimmed.contains(")")) {
+                Matcher m = pathPattern.matcher(trimmed);
+                while (m.find()) {
+                    String path = m.group(1);
+                    // Check if this specific path in the group is a blank import
+                    // We look at the line containing the path to see if '_' precedes it
+                    if (!isBlankImport(trimmed, m.start())) {
+                        importPaths.add(path);
+                    }
+                }
+            } else if (trimmed.startsWith("import")) {
+                // Single import
+                if (trimmed.contains("_")) {
+                    // Quick check for blank import before expensive regex/substrings
+                    if (isBlankImport(trimmed, trimmed.indexOf("\""))) {
+                        continue;
+                    }
+                }
+                Matcher m = pathPattern.matcher(trimmed);
+                if (m.find()) {
+                    importPaths.add(m.group(1));
+                }
+            }
+        }
+
+        Set<CodeUnit> resolved = new LinkedHashSet<>();
+        for (String path : importPaths) {
+            // In Go, the package name is usually the last segment of the import path.
+            String packageName = path;
+            int lastSlash = path.lastIndexOf('/');
+            if (lastSlash != -1) {
+                packageName = path.substring(lastSlash + 1);
+            }
+
+            // Resolve the package. In Go, an import brings in the package's exported symbols.
+            // We look for CodeUnits matching this package name.
+            getDefinitions(packageName).stream()
+                    .forEach(resolved::add);
+        }
+
+        return Collections.unmodifiableSet(resolved);
+    }
+
+    private boolean isBlankImport(String text, int quoteStart) {
+        // Look backwards from the start of the quoted path for a '_'
+        String prefix = text.substring(0, quoteStart).trim();
+        return prefix.endsWith("_");
     }
 
     @Override
