@@ -234,6 +234,27 @@ public class Brokk {
         UIManager.put("FileChooser.readOnly", true);
     }
 
+    /**
+     * Installs a custom EventQueue to capture exceptions on AWT threads (including AWT-AppKit on macOS).
+     * The default uncaught exception handler doesn't reliably catch exceptions on native AWT threads,
+     * so we wrap event dispatch to log full stack traces.
+     */
+    private static void installAwtExceptionHandler() {
+        Toolkit.getDefaultToolkit().getSystemEventQueue().push(new EventQueue() {
+            @Override
+            protected void dispatchEvent(AWTEvent event) {
+                try {
+                    super.dispatchEvent(event);
+                } catch (Throwable t) {
+                    logger.error("Exception during AWT event dispatch on thread {}",
+                                 Thread.currentThread().getName(), t);
+                    GlobalExceptionHandler.handle(Thread.currentThread(), t, s -> {});
+                }
+            }
+        });
+        logger.debug("Installed custom AWT EventQueue for exception handling");
+    }
+
     private static void addPopupMenusThemeChangeListener() {
         SwingUtilities.invokeLater(() -> {
             Toolkit.getDefaultToolkit()
@@ -495,6 +516,7 @@ public class Brokk {
 
         String themeName = MainProject.getTheme();
         initializeLookAndFeelAndSplashScreen(themeName);
+        installAwtExceptionHandler();
         addPopupMenusThemeChangeListener();
 
         // Initialize theme border manager with current theme state

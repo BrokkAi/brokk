@@ -141,12 +141,18 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 client.addMessageRouter(messageRouter);
 
                 // Add load handler to inject bridge script after page loads
+                // Note: All callbacks wrapped in try-catch since JCEF native callbacks
+                // bypass Java's uncaught exception handler on macOS AWT-AppKit thread
                 client.addLoadHandler(new CefLoadHandlerAdapter() {
                     @Override
                     public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
-                        if (frame.isMain()) {
-                            logger.info("Page loaded with status {}, injecting bridge script", httpStatusCode);
-                            injectBridgeScript(browser);
+                        try {
+                            if (frame.isMain()) {
+                                logger.info("Page loaded with status {}, injecting bridge script", httpStatusCode);
+                                injectBridgeScript(browser);
+                            }
+                        } catch (Throwable t) {
+                            logger.error("Exception in onLoadEnd callback", t);
                         }
                     }
 
@@ -157,21 +163,25 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                             CefLoadHandler.ErrorCode errorCode,
                             String errorText,
                             String failedUrl) {
-                        // ERR_ABORTED is common during navigation changes and usually not fatal
-                        if (errorCode == CefLoadHandler.ErrorCode.ERR_ABORTED) {
-                            logger.debug("Load aborted (non-fatal): {} for URL: {}", errorText, failedUrl);
-                            return;
-                        }
-                        logger.error("Load error: {} - {} for URL: {}", errorCode, errorText, failedUrl);
+                        try {
+                            // ERR_ABORTED is common during navigation changes and usually not fatal
+                            if (errorCode == CefLoadHandler.ErrorCode.ERR_ABORTED) {
+                                logger.debug("Load aborted (non-fatal): {} for URL: {}", errorText, failedUrl);
+                                return;
+                            }
+                            logger.error("Load error: {} - {} for URL: {}", errorCode, errorText, failedUrl);
 
-                        // Retry once for connection errors (server may not be ready)
-                        if (frame.isMain()
-                                && (errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_REFUSED
-                                        || errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_RESET)) {
-                            logger.info("Retrying load after connection error...");
-                            // Retry after a short delay
-                            var delayedExecutor = CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS);
-                            LoggingFuture.supplyAsync(browser::reload, delayedExecutor);
+                            // Retry once for connection errors (server may not be ready)
+                            if (frame.isMain()
+                                    && (errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_REFUSED
+                                            || errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_RESET)) {
+                                logger.info("Retrying load after connection error...");
+                                // Retry after a short delay
+                                var delayedExecutor = CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS);
+                                LoggingFuture.supplyAsync(browser::reload, delayedExecutor);
+                            }
+                        } catch (Throwable t) {
+                            logger.error("Exception in onLoadError callback", t);
                         }
                     }
                 });
@@ -363,19 +373,22 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 app = provider.createCefApp(new CefAppHandlerAdapter(null) {
                     @Override
                     public void stateHasChanged(CefApp.CefAppState state) {
-                        logger.info("CefApp state changed: {}", state);
-                        if (state == CefApp.CefAppState.INITIALIZED) {
-                            var cefApp = cefAppRef.get();
-                            if (cefApp != null) {
-                                var version = cefApp.getVersion();
-                                if (version != null) {
-                                    logger.info(
-                                            "CEF version: {} (Chromium {})",
-                                            version.getCefVersion(),
-                                            version.getChromeVersion());
+                        try {
+                            logger.info("CefApp state changed: {}", state);
+                            if (state == CefApp.CefAppState.INITIALIZED) {
+                                var cefApp = cefAppRef.get();
+                                if (cefApp != null) {
+                                    var version = cefApp.getVersion();
+                                    if (version != null) {
+                                        logger.info("CEF version: {} (Chromium {})",
+                                                    version.getCefVersion(),
+                                                    version.getChromeVersion());
+                                    }
+                                    cefAppFuture.complete(cefApp);
                                 }
-                                cefAppFuture.complete(cefApp);
                             }
+                        } catch (Throwable t) {
+                            logger.error("Exception in CefApp stateHasChanged callback", t);
                         }
                     }
                 });

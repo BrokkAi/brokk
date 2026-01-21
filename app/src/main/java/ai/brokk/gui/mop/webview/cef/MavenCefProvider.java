@@ -93,12 +93,17 @@ public class MavenCefProvider implements CefAppProvider {
         CefSettingsHelper.configureCachePath(settings, "maven", null);
 
         // Wrap the state handler if provided
+        // Note: Wrapped in try-catch since JCEF callbacks bypass Java's uncaught exception handler
         builder.setAppHandler(new MavenCefAppHandlerAdapter() {
             @Override
             public void stateHasChanged(CefApp.CefAppState state) {
-                logger.info("CefApp state changed: {}", state);
-                if (stateHandler != null) {
-                    stateHandler.stateHasChanged(state);
+                try {
+                    logger.info("CefApp state changed: {}", state);
+                    if (stateHandler != null) {
+                        stateHandler.stateHasChanged(state);
+                    }
+                } catch (Throwable t) {
+                    logger.error("Exception in MavenCefProvider stateHasChanged callback", t);
                 }
             }
         });
