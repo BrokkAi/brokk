@@ -352,6 +352,23 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void issueModeTestLintRetryLoop_throwsIssueCancelledException_whenCancelled() {
+        var cancelled = new AtomicBoolean(true);
+
+        java.util.function.Function<String, String> commandRunner = cmd -> fail("Command must not run when cancelled");
+        java.util.function.Consumer<String> fixTaskRunner = out -> fail("Fix task must not run when cancelled");
+
+        assertThrows(
+                JobRunner.IssueCancelledException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
+                        20));
+    }
+
+    @Test
     void issueModeTestLintRetryLoop_throwsAfter20IterationsIfNeverSucceeds() {
         var cancelled = new AtomicBoolean(false);
 
@@ -728,5 +745,22 @@ class JobRunnerIssueModeTest {
 
         assertTrue(comments.isEmpty(), "Empty diff must short-circuit to no inline comments");
         assertEquals(0, reviewCalls.get(), "Review callback must not be invoked when diff is blank");
+    }
+
+    @Test
+    void issueModeBuildLintRetryLoop_throwsIssueCancelledException_whenCancelled() {
+        var cancelled = new AtomicBoolean(true);
+
+        java.util.function.Function<String, String> commandRunner = cmd -> fail("Command must not run when cancelled");
+        java.util.function.Consumer<String> fixTaskRunner = out -> fail("Fix task must not run when cancelled");
+
+        assertThrows(
+                JobRunner.IssueCancelledException.class,
+                () -> JobRunner.runIssueModeBuildLintRetryLoop(
+                        cancelled::get,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildAgent.BuildDetails("./gradlew build", "", "", java.util.Set.of()),
+                        20));
     }
 }

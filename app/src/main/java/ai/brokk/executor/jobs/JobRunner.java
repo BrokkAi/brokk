@@ -59,6 +59,12 @@ import org.jetbrains.annotations.Nullable;
 public final class JobRunner {
     private static final Logger logger = LogManager.getLogger(JobRunner.class);
 
+    static final class IssueCancelledException extends IssueExecutionException {
+        IssueCancelledException(String message) {
+            super(message);
+        }
+    }
+
     private static final PrReviewService.Severity DEFAULT_REVIEW_SEVERITY_THRESHOLD = PrReviewService.Severity.HIGH;
     private static final int DEFAULT_REVIEW_MAX_INLINE_COMMENTS = 5;
 
@@ -1145,6 +1151,13 @@ public final class JobRunner {
                                                             finalVerificationPass);
                                                 }
 
+                                                if (cancelled.get()) {
+                                                    logger.info(
+                                                            "ISSUE job {} cancelled after final verification; skipping PR creation",
+                                                            jobId);
+                                                    return;
+                                                }
+
                                                 // 7. Commit and Create Pull Request (conditional)
                                                 // Only create a PR if:
                                                 //  - delivery policy enables PR creation (issue_delivery != "none")
@@ -2083,7 +2096,7 @@ public final class JobRunner {
 
         for (int i = 0; i < maxIterations; i++) {
             if (isCancelled.getAsBoolean()) {
-                return;
+                throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
             }
 
             String testOut = testCmd.isBlank() ? "" : commandRunner.apply(testCmd);
@@ -2093,7 +2106,7 @@ public final class JobRunner {
             }
 
             if (isCancelled.getAsBoolean()) {
-                return;
+                throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
             }
 
             String lintOut = lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
@@ -2106,6 +2119,42 @@ public final class JobRunner {
         }
 
         throw new IssueExecutionException("Tests/lint failed after " + maxIterations + " iteration(s)");
+    }
+
+    static void runIssueModeBuildLintRetryLoop(
+            BooleanSupplier isCancelled,
+            Function<String, String> commandRunner,
+            Consumer<String> fixTaskRunner,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            int maxIterations) {
+        String buildCmd = buildDetailsOverride.buildLintCommand();
+        String lintCmd = buildDetailsOverride.buildLintCommand();
+
+        for (int i = 0; i < maxIterations; i++) {
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("Cancelled during final verification (build/lint)");
+            }
+
+            String buildOut = buildCmd.isBlank() ? "" : commandRunner.apply(buildCmd);
+            if (!buildOut.isBlank()) {
+                fixTaskRunner.accept(buildOut);
+                continue;
+            }
+
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("Cancelled during final verification (build/lint)");
+            }
+
+            String lintOut = lintCmd.isBlank() ? "" : commandRunner.apply(lintCmd);
+            if (!lintOut.isBlank()) {
+                fixTaskRunner.accept(lintOut);
+                continue;
+            }
+
+            return;
+        }
+
+        throw new IssueExecutionException("Build/lint failed after " + maxIterations + " iteration(s)");
     }
 
     private static final Pattern DIFF_FENCE_PATTERN = Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
