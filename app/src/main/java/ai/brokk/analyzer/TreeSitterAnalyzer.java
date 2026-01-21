@@ -3689,6 +3689,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
+        // Progress reporter for incremental updates
+        var progressReporter = new DebouncedProgressReporter(total, "Updating " + language.name() + " files", 100);
+
         try (var executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
             for (var file : relevantFiles) {
                 futures.add(CompletableFuture.runAsync(
@@ -3746,11 +3749,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                 log.debug("File {} deleted; state cleaned.", file);
                             }
                         },
-                        executor));
+                        executor).whenComplete((ignored, ex) -> progressReporter.increment()));
             }
             if (!futures.isEmpty())
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                         .join();
+
+            // Final progress update (ensures 100% is always reported)
+            progressReporter.reportFinal();
         }
 
         // Build new immutable snapshot and return a new analyzer instance
