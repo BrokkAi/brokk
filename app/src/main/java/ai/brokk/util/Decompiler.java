@@ -72,10 +72,20 @@ public class Decompiler {
         if (coordsOpt.isPresent()) {
             var coords = coordsOpt.get();
             logger.info("Detected Maven coordinates: {}. Attempting to download sources...", coords);
-            var effectiveFetcher = fetcher != null ? fetcher : new MavenArtifactFetcher();
-            var sourcesOpt = effectiveFetcher.fetch(coords, "sources");
-            if (sourcesOpt.isPresent()) {
-                return sourcesOpt;
+            if (fetcher != null) {
+                // Caller owns the fetcher lifecycle
+                var sourcesOpt = fetcher.fetch(coords, "sources");
+                if (sourcesOpt.isPresent()) {
+                    return sourcesOpt;
+                }
+            } else {
+                // We create it, we close it
+                try (var ownedFetcher = new MavenArtifactFetcher()) {
+                    var sourcesOpt = ownedFetcher.fetch(coords, "sources");
+                    if (sourcesOpt.isPresent()) {
+                        return sourcesOpt;
+                    }
+                }
             }
         }
 
@@ -120,8 +130,9 @@ public class Decompiler {
                             IConsoleIO.NotificationRole.INFO,
                             "Detected Maven coordinates: " + coordsOpt.get() + ". Attempting to download sources...");
                 } else {
-                    logger.info("No pom.properties found in {}. Checking for local *-sources.jar before decompiling.",
-                                jarPath.getFileName());
+                    logger.info(
+                            "No pom.properties found in {}. Checking for local *-sources.jar before decompiling.",
+                            jarPath.getFileName());
                 }
 
                 var sourcesJarPathOpt = findSourcesJar(jarPath, null);

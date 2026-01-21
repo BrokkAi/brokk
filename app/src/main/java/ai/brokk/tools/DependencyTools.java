@@ -19,7 +19,7 @@ import org.jetbrains.annotations.Blocking;
  * Tools for discovering and importing dependencies.
  * Designed for use by ArchitectAgent during the exploration phase.
  */
-public class DependencyTools {
+public class DependencyTools implements AutoCloseable {
     private static final Logger logger = LogManager.getLogger(DependencyTools.class);
 
     private final IContextManager contextManager;
@@ -200,5 +200,10 @@ public class DependencyTools {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException("Import cancelled");
         }
+    }
+
+    @Override
+    public void close() {
+        fetcher.close();
     }
 }

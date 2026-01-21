@@ -33,7 +33,7 @@ import org.eclipse.aether.transfer.TransferEvent;
 import org.eclipse.aether.transport.http.HttpTransporterFactory;
 import org.jetbrains.annotations.Nullable;
 
-public class MavenArtifactFetcher {
+public class MavenArtifactFetcher implements AutoCloseable {
     private static final Logger logger = LogManager.getLogger(MavenArtifactFetcher.class);
 
     private final RepositorySystem system;
@@ -222,5 +222,10 @@ public class MavenArtifactFetcher {
                     resource.getResourceName(),
                     event.getException());
         }
+    }
+
+    @Override
+    public void close() {
+        httpClient.close();
     }
 }
