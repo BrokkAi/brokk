@@ -467,7 +467,8 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void issueModeTestLintRetryLoop_throwsIllegalArgumentException_whenMaxIterationsIsNegative_andDoesNotInvokeCallbacks() {
+    void
+            issueModeTestLintRetryLoop_throwsIllegalArgumentException_whenMaxIterationsIsNegative_andDoesNotInvokeCallbacks() {
         var cancelled = new AtomicBoolean(false);
 
         BiConsumer<Integer, String> progressSink = (attempt, msg) -> fail("progressSink must not be invoked");
