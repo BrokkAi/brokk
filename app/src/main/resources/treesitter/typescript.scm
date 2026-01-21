@@ -291,7 +291,6 @@
 ; ============================================================================
 
 ; ES6 import statements
-; Note: TypeScript Tree-sitter grammar may use import_statement or import_declaration
 (import_statement) @module.import_statement
 
 ; CommonJS require statements - captured as call_expression, filtered in Java code
