@@ -44,6 +44,7 @@ public class HeadlessExecCli {
     private static final int READY_POLL_TIMEOUT_MS = 30000;
     private static final int READY_POLL_INTERVAL_MS = 500;
     private static final int JOB_POLL_INTERVAL_MS = 1000;
+    private static final long JOB_STREAM_TIMEOUT_MS = 3 * 60 * 60 * 1000L; // 3 hours
 
     private String mode = "ARCHITECT";
     private String plannerModel = "claude-opus-4-5";
@@ -397,7 +398,7 @@ public class HeadlessExecCli {
      */
     private int streamJobEvents(String baseUrl, String jobId) {
         long afterSeq = -1;
-        long pollDeadline = System.currentTimeMillis() + 3600000; // 1 hour
+        long pollDeadline = System.currentTimeMillis() + JOB_STREAM_TIMEOUT_MS;
 
         while (System.currentTimeMillis() < pollDeadline) {
             try {
