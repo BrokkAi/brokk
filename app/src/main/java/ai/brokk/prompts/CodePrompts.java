@@ -140,6 +140,58 @@ public class CodePrompts {
         return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
     }
 
+    /**
+     * Processes a list of chat messages, optionally redacting tool-related content from messages
+     * produced by a different model.
+     *
+     * @param messages The list of messages to process (typically from an uncompressed TaskEntry)
+     * @param shouldRedact If true, tool execution results are omitted and AiMessages with tool requests
+     *                     are converted to plain-text historical descriptions. If false, only S/R block
+     *                     redaction is applied to AiMessages.
+     * @return A new list with the appropriate transformations applied
+     */
+    public static List<ChatMessage> redactToolCallsFromOtherModels(List<ChatMessage> messages, boolean shouldRedact) {
+        var result = new ArrayList<ChatMessage>();
+
+        for (var message : messages) {
+            if (message instanceof ToolExecutionResultMessage) {
+                if (!shouldRedact) {
+                    result.add(message);
+                }
+            } else if (message instanceof AiMessage aiMessage) {
+                if (shouldRedact && aiMessage.hasToolExecutionRequests()) {
+                    var existingText = aiMessage.text();
+                    var prefix = (existingText != null && !existingText.isBlank()) ? existingText + "\n\n" : "";
+
+                    var toolDescriptions = aiMessage.toolExecutionRequests().stream()
+                            .map(Messages::getRedactedRepr)
+                            .collect(Collectors.joining("\n"));
+
+                    var rewrittenText = prefix + "[Historical tool usage by a different model]\n" + toolDescriptions;
+                    result.add(new AiMessage(rewrittenText));
+                } else {
+                    var text = aiMessage.text();
+                    if (text == null) {
+                        result.add(aiMessage);
+                        continue;
+                    }
+
+                    redactAiMessage(aiMessage).ifPresent(redacted -> {
+                        if (!shouldRedact && aiMessage.hasToolExecutionRequests()) {
+                            result.add(new AiMessage(redacted.text(), aiMessage.toolExecutionRequests()));
+                        } else {
+                            result.add(redacted);
+                        }
+                    });
+                }
+            } else {
+                result.add(message);
+            }
+        }
+
+        return result;
+    }
+
     public final List<ChatMessage> collectCodeMessages(
             StreamingChatModel model,
             Context ctx,
