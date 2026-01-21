@@ -579,9 +579,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
             // Final progress update (ensures 100% is always reported)
-            if (progressReporter.getCompleted() < totalFiles) {
-                progressReporter.reportFinal();
-            }
+            progressReporter.reportFinal();
         }
 
         // Build immutable snapshot state from accumulated maps
@@ -3770,9 +3768,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         .join();
 
             // Final progress update (ensures 100% is always reported)
-            if (progressReporter.getCompleted() < total) {
-                progressReporter.reportFinal();
-            }
+            progressReporter.reportFinal();
         }
 
         // Build new immutable snapshot and return a new analyzer instance
