@@ -533,10 +533,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onProgress(int completed, int total, String description) {
-                // Update tooltip on "Rebuilding Code Intelligence" label with progress details
-                String progressMsg = String.format("%s (%d/%d)", description, completed, total);
+                // Update progress bar on "Rebuilding Code Intelligence" status strip
                 if (io instanceof Chrome chrome) {
-                    chrome.updateAnalyzerProgress(progressMsg);
+                    chrome.updateAnalyzerProgress(completed, total, description);
                 }
             }
         };
