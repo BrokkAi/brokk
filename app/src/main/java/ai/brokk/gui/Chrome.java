@@ -2400,21 +2400,43 @@ public class Chrome
     }
 
     /**
-     * Shared "Rebuilding Code Intelligence" status strip with spinner and text.
+     * Shared "Rebuilding Code Intelligence" status strip with spinner, text, and progress bar.
      * Hidden by default. Other panels can embed this component via getAnalyzerStatusStrip().
      * The spinner icon is refreshed against the current theme whenever it is shown or a theme is applied.
      */
     private class AnalyzerStatusStrip extends JPanel implements ThemeAware {
         private final JLabel label;
+        private final JProgressBar progressBar;
+        private final JLabel progressLabel;
 
         private AnalyzerStatusStrip() {
             super();
             setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
             setBorder(new EmptyBorder(2, 6, 2, 6));
-            label = new JLabel("Rebuilding Code Intelligence...");
+            
+            label = new JLabel("Rebuilding Code Intelligence");
             label.setIcon(null); // set on show to ensure theme-correct icon
             label.setAlignmentY(Component.CENTER_ALIGNMENT);
             add(label);
+            
+            add(Box.createHorizontalStrut(8));
+            
+            // Progress bar - compact size for status strip
+            progressBar = new JProgressBar(0, 100);
+            progressBar.setPreferredSize(new Dimension(150, 14));
+            progressBar.setMaximumSize(new Dimension(200, 14));
+            progressBar.setMinimumSize(new Dimension(100, 14));
+            progressBar.setStringPainted(false);
+            progressBar.setAlignmentY(Component.CENTER_ALIGNMENT);
+            add(progressBar);
+            
+            add(Box.createHorizontalStrut(6));
+            
+            // Progress label showing "X/Y" or percentage
+            progressLabel = new JLabel("");
+            progressLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+            add(progressLabel);
+            
             setOpaque(true);
             // Start hidden by default. Visibility controlled by Chrome methods.
             setVisible(false);
@@ -2427,13 +2449,47 @@ public class Chrome
         }
 
         /**
-         * Updates the tooltip to show progress details. Safe to call from any thread.
+         * Updates the progress bar and label. Safe to call from any thread.
          *
-         * @param tooltip The tooltip text, or null to clear
+         * @param completed number of items completed
+         * @param total total number of items
+         * @param phase description of current phase
          */
-        void setProgressTooltip(String tooltip) {
-            SwingUtil.runOnEdt(() -> label.setToolTipText(tooltip));
+        void setProgress(int completed, int total, String phase) {
+            SwingUtil.runOnEdt(() -> {
+                if (total > 0) {
+                    int percent = (int) ((completed * 100L) / total);
+                    progressBar.setValue(percent);
+                    progressBar.setIndeterminate(false);
+                    progressLabel.setText(completed + "/" + total);
+                    label.setText(phase.isEmpty() ? "Rebuilding Code Intelligence" : phase);
+                    // Also set tooltip for detailed info
+                    String tooltip = String.format("%s (%d/%d - %d%%)", phase, completed, total, percent);
+                    label.setToolTipText(tooltip);
+                    progressBar.setToolTipText(tooltip);
+                } else {
+                    // Indeterminate mode when total is unknown
+                    progressBar.setIndeterminate(true);
+                    progressLabel.setText("");
+                    label.setText(phase.isEmpty() ? "Rebuilding Code Intelligence" : phase);
+                }
+            });
         }
+
+        /**
+         * Resets the progress bar to initial state.
+         */
+        void resetProgress() {
+            SwingUtil.runOnEdt(() -> {
+                progressBar.setValue(0);
+                progressBar.setIndeterminate(false);
+                progressLabel.setText("");
+                label.setText("Rebuilding Code Intelligence");
+                label.setToolTipText(null);
+                progressBar.setToolTipText(null);
+            });
+        }
+
 
         @Override
         public void applyTheme(GuiTheme guiTheme) {
@@ -2442,6 +2498,7 @@ public class Chrome
             Color fg = UIManager.getColor("Label.foreground");
             setBackground(bg != null ? bg : getBackground());
             label.setForeground(fg != null ? fg : label.getForeground());
+            progressLabel.setForeground(fg != null ? fg : progressLabel.getForeground());
             if (isVisible()) {
                 refreshSpinnerIcon();
             }
@@ -2537,19 +2594,22 @@ public class Chrome
     public void hideAnalyzerRebuildStatus() {
         SwingUtil.runOnEdt(() -> {
             analyzerStatusStrip.setVisible(false);
-            analyzerStatusStrip.setProgressTooltip(""); // Clear tooltip when hiding
+            analyzerStatusStrip.resetProgress();
             analyzerStatusStrip.revalidate();
             analyzerStatusStrip.repaint();
         });
     }
 
+
     /**
-     * Updates the analyzer rebuild status strip tooltip with progress details. Safe to call from any thread.
+     * Updates the analyzer rebuild status strip with structured progress. Safe to call from any thread.
      *
-     * @param progressMessage The progress message to display as a tooltip
+     * @param completed number of items completed
+     * @param total total number of items
+     * @param phase description of current phase
      */
-    public void updateAnalyzerProgress(String progressMessage) {
-        analyzerStatusStrip.setProgressTooltip(progressMessage);
+    public void updateAnalyzerProgress(int completed, int total, String phase) {
+        analyzerStatusStrip.setProgress(completed, total, phase);
     }
 
     /**
