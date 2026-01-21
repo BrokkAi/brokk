@@ -71,7 +71,7 @@ public interface IContextManager {
     }
 
     default Collection<ChatMessage> getHistoryMessages() {
-        return CodePrompts.instance.getHistoryMessages(liveContext());
+        return CodePrompts.instance.getHistoryMessages(liveContext(), getService().nameOf(getCodeModel()));
     }
 
     /**

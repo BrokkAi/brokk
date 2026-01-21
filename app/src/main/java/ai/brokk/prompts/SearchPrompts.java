@@ -17,6 +17,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Generates prompts for the Search Agent and Ask requests.
@@ -99,12 +100,16 @@ public class SearchPrompts {
     }
 
     public final List<ChatMessage> buildAskPrompt(Context ctx, String input) {
+        return buildAskPrompt(ctx, input, null);
+    }
+
+    public final List<ChatMessage> buildAskPrompt(Context ctx, String input, @Nullable String modelName) {
         var messages = new ArrayList<ChatMessage>();
         messages.add(new SystemMessage(
                 "Act as an expert software developer when answering the user's question based on the code in the Workspace.\n\n"
                         + SystemPrompts.MARKDOWN_REMINDER));
         messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-        messages.addAll(CodePrompts.instance.getHistoryMessages(ctx));
+        messages.addAll(CodePrompts.instance.getHistoryMessages(ctx, modelName));
         messages.add(askRequest(input));
         return messages;
     }
@@ -309,7 +314,7 @@ public class SearchPrompts {
         messages.addAll(workspaceMessages);
 
         // Conversation history plus this agent's messages
-        messages.addAll(cm.getHistoryMessages());
+        messages.addAll(CodePrompts.instance.getHistoryMessages(context, cm.getService().nameOf(model)));
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)

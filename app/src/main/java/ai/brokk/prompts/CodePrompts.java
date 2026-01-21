@@ -337,7 +337,7 @@ public class CodePrompts {
                                 reminder,
                                 goal));
         messages.add(sys);
-        messages.addAll(getHistoryMessages(ctx));
+        messages.addAll(getHistoryMessages(ctx, cm.getService().nameOf(model)));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
         messages.addAll(taskMessages);

@@ -1431,7 +1431,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var list = new ArrayList<ChatMessage>();
                     list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
+                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx, service.nameOf(perFileModel)));
                     var text = "";
                     for (var m : list) {
                         text += m + "\n";
@@ -1600,7 +1600,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 if (fIncludeWorkspace) {
                     readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             context, EnumSet.of(SpecialTextType.TASK_LIST)));
-                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
+                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context, service.nameOf(model)));
                 }
                 if (fRelatedK != null) {
                     var acList = cm.liveContext().buildAutoContext(fRelatedK);
@@ -1661,7 +1661,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var ctx = new Context(cm)
                             .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages, instructions)))
                             .addFragments(cm.toPathFragments(List.of(file)));
-                    var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions);
+                    var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions, service.nameOf(model));
                     var llm = cm.getLlm(model, "Ask", true);
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
