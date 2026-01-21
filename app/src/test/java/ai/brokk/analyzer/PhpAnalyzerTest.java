@@ -248,7 +248,7 @@ public class PhpAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();

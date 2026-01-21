@@ -69,7 +69,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesMethodExistingTest() {
+    public void getUsesMethodExistingTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "A.method2";
         var either = finder.findUsages(symbol).toEither();
@@ -87,7 +87,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesNestedClassConstructorTest() {
+    public void getUsesNestedClassConstructorTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "A$AInner$AInnerInner";
         var either = finder.findUsages(symbol).toEither();
@@ -103,7 +103,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesMethodNonexistentTest() {
+    public void getUsesMethodNonexistentTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "A.noSuchMethod:java.lang.String()";
         var result = finder.findUsages(symbol);
@@ -112,7 +112,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesFieldExistingTest() {
+    public void getUsesFieldExistingTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "D.field1";
         var either = finder.findUsages(symbol).toEither();
@@ -129,7 +129,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesFieldNonexistentTest() {
+    public void getUsesFieldNonexistentTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "D.notAField";
         var result = finder.findUsages(symbol);
@@ -138,7 +138,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesFieldFromUseETest() {
+    public void getUsesFieldFromUseETest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "UseE.e";
         var either = finder.findUsages(symbol).toEither();
@@ -154,7 +154,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesClassBasicTest() {
+    public void getUsesClassBasicTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "A";
         var either = finder.findUsages(symbol).toEither();
@@ -174,7 +174,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesClassNonexistentTest() {
+    public void getUsesClassNonexistentTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "NoSuchClass";
         var result = finder.findUsages(symbol);
@@ -183,7 +183,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesNestedClassTest() {
+    public void getUsesNestedClassTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "A$AInner";
         var either = finder.findUsages(symbol).toEither();
@@ -199,7 +199,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesClassWithStaticMembersTest() {
+    public void getUsesClassWithStaticMembersTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "E";
         var either = finder.findUsages(symbol).toEither();
@@ -215,7 +215,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesClassInheritanceTest() {
+    public void getUsesClassInheritanceTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();
@@ -233,7 +233,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesFunctionNoPrefixMatchTest() {
+    public void getUsesFunctionNoPrefixMatchTest() throws InterruptedException {
         // Ensure that searching for A$AInner does NOT prefix-match A$AInner$AInnerInner
         var finder = newFinder(testProject, analyzer);
         var symbol = "A$AInner";
@@ -260,7 +260,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesFunctionVsFieldAmbiguityTest() {
+    public void getUsesFunctionVsFieldAmbiguityTest() throws InterruptedException {
         // Test that searching for a method foo() correctly identifies usages within the right enclosing methods
         // and does NOT match field usages like E.foo.
         var finder = newFinder(testProject, analyzer);
@@ -278,7 +278,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesMethodReferenceTest() {
+    public void getUsesMethodReferenceTest() throws InterruptedException {
         // Test that method references (e.g., this::transform) are correctly identified
         var finder = newFinder(testProject, analyzer);
         var symbol = "MethodReferenceUsage.transform";
@@ -295,7 +295,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesOverloadedMethodsAggregationTest() {
+    public void getUsesOverloadedMethodsAggregationTest() throws InterruptedException {
         // Test that findUsages aggregates usages from all overloaded methods
         var finder = newFinder(testProject, analyzer);
         var symbol = "Overloads.process";
@@ -316,7 +316,7 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         // Test that all class usage patterns are detected:
         // - Constructor calls (new BaseClass())
         // - Inheritance (extends BaseClass)

@@ -1282,8 +1282,9 @@ public class ContextFragments {
         }
 
         private static ContentSnapshot computeSnapshotFor(
-                String targetIdentifier, boolean includeTestFiles, IContextManager contextManager) {
-            var analyzer = contextManager.getAnalyzerUninterrupted();
+                String targetIdentifier, boolean includeTestFiles, IContextManager contextManager)
+                throws InterruptedException {
+            var analyzer = contextManager.getAnalyzer();
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
             var either = usageResult.toEither();
 

@@ -70,7 +70,7 @@ public final class FuzzyUsageFinder {
      *
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
-    private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) {
+    private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) throws InterruptedException {
         // non-nested identifier
         var shortName = target.identifier().replace("$", ".");
         if (shortName.contains(".")) {
@@ -139,41 +139,35 @@ public final class FuzzyUsageFinder {
             var alternatives = matchingCodeUnits.stream()
                     .filter(cu -> !cu.fqName().equals(target.fqName()))
                     .collect(Collectors.toSet());
-            try {
-                var tasks = new ArrayList<RelevanceTask>(hits.size());
-                var mapping = new ArrayList<UsageHit>(hits.size());
-                for (var hit : hits) {
-                    var prompt = UsagePromptBuilder.buildPrompt(hit, target, alternatives, analyzer, identifier, 8_000);
-                    // Use the rich prompt text as the candidate text for classification
-                    tasks.add(new RelevanceTask(prompt.filterDescription(), prompt.promptText()));
-                    mapping.add(hit);
-                }
+            var tasks = new ArrayList<RelevanceTask>(hits.size());
+            var mapping = new ArrayList<UsageHit>(hits.size());
+            for (var hit : hits) {
+                var prompt = UsagePromptBuilder.buildPrompt(hit, target, alternatives, analyzer, identifier, 8_000);
+                // Use the rich prompt text as the candidate text for classification
+                tasks.add(new RelevanceTask(prompt.filterDescription(), prompt.promptText()));
+                mapping.add(hit);
+            }
 
-                if (UsageConfig.isBooleanUsageMode()) {
-                    var decisions = RelevanceClassifier.relevanceBooleanBatch(llm, service, tasks);
-                    for (int i = 0; i < tasks.size(); i++) {
-                        var task = tasks.get(i);
-                        var decision = decisions.getOrDefault(task, false);
-                        var base = mapping.get(i);
-                        var scored = base.withConfidence(decision ? 1.0 : 0.0);
-                        scoredHits.add(scored);
-                        unscoredHits.remove(base);
-                    }
-                } else {
-                    var scores = RelevanceClassifier.relevanceScoreBatch(project.getDiskCache(), llm, service, tasks);
-                    for (int i = 0; i < tasks.size(); i++) {
-                        var task = tasks.get(i);
-                        var score = scores.getOrDefault(task, 0.0);
-                        var base = mapping.get(i);
-                        var scored = base.withConfidence(score);
-                        scoredHits.add(scored);
-                        unscoredHits.remove(base);
-                    }
+            if (UsageConfig.isBooleanUsageMode()) {
+                var decisions = RelevanceClassifier.relevanceBooleanBatch(llm, service, tasks);
+                for (int i = 0; i < tasks.size(); i++) {
+                    var task = tasks.get(i);
+                    var decision = decisions.getOrDefault(task, false);
+                    var base = mapping.get(i);
+                    var scored = base.withConfidence(decision ? 1.0 : 0.0);
+                    scoredHits.add(scored);
+                    unscoredHits.remove(base);
                 }
-            } catch (InterruptedException e) {
-                logger.error(
-                        "Unable to batch classify relevance with {} due to exception. Leaving hits unscored.", llm, e);
-                Thread.currentThread().interrupt();
+            } else {
+                var scores = RelevanceClassifier.relevanceScoreBatch(project.getDiskCache(), llm, service, tasks);
+                for (int i = 0; i < tasks.size(); i++) {
+                    var task = tasks.get(i);
+                    var score = scores.getOrDefault(task, 0.0);
+                    var base = mapping.get(i);
+                    var scored = base.withConfidence(score);
+                    scoredHits.add(scored);
+                    unscoredHits.remove(base);
+                }
             }
             var combined = new HashSet<UsageHit>(scoredHits.size() + unscoredHits.size());
             combined.addAll(scoredHits);
@@ -266,7 +260,7 @@ public final class FuzzyUsageFinder {
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      * <p>If multiple definitions exist (e.g., overloaded methods), aggregates usages from all of them.
      */
-    public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) {
+    public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) throws InterruptedException {
         if (isEffectivelyEmpty()) {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
             return new FuzzyResult.Success(Set.of());
@@ -315,7 +309,7 @@ public final class FuzzyUsageFinder {
         return allHits.stream().filter(h -> h.confidence() >= 0.1).collect(Collectors.toSet());
     }
 
-    public FuzzyResult findUsages(String fqName) {
+    public FuzzyResult findUsages(String fqName) throws InterruptedException {
         return findUsages(fqName, DEFAULT_MAX_FILES, DEFAULT_MAX_USAGES);
     }
 
