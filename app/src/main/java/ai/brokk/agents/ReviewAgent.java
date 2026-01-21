@@ -8,7 +8,6 @@ import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
-import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Language;
@@ -907,10 +906,16 @@ public class ReviewAgent {
 
                 Every section except Overview is optional; omit them if there is nothing important to say.
                 </instructions>
-                <environment>
-                Unless there is overwhelming evidence to the contrary, you should assume that the code compiles and runs.
+                <review_content>
+                Unless there is strong evidence to the contrary, you should assume that the code compiles and runs.
+                You should be especially cautious about drawing conclusions of compile errors from diffs alone.
+
+                If you have Patch Instructions available, call out important incomplete or unimplemented functionality that
+                was asked for but not delivered, but be aware that instructions may be neither complete nor authoritative;
+                the instructions may include false starts, and the patch may include external changes.
+
                 You should NOT assume that more tests exist besides what you see.
-                </environment>
+                </review_content>
                 <excerpt_format>
                 When referencing code, use the following format with the file path and line number on a separate line before the code block:
 
@@ -992,19 +997,23 @@ public class ReviewAgent {
         // the Architect's task description. If that fails, Architect will issue new instructions to the code agent,
         // which we will also capture with Type.CODE. When architect succeeds, it just echos the original task again.
         var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.BLITZFORGE);
-        var contexts = sessionIds.stream()
+        var allContexts = sessionIds.stream()
                 .parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
                 .flatMap(h -> h.getHistory().stream())
                 .toList();
+        var relevantContexts = allContexts.stream()
+                .filter(ctx -> !ctx.getTaskHistory().isEmpty())
+                .filter(ctx -> {
+                    var te = ctx.getTaskHistory().getLast();
+                    return te.meta() != null && relevantTypes.contains(te.meta().type());
+                })
+                .toList();
 
         // Extract instructions
-        List<String> instructions = contexts.stream() // Stream<Context>
-                .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
-                .filter(te ->
-                        te.meta() != null && relevantTypes.contains(te.meta().type()))
-                .map(TaskEntry::log)
+        List<String> instructions = relevantContexts.stream()
+                .map(ctx -> ctx.getTaskHistory().getLast().log())
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(log -> log.id()))
                 .map(log -> log.description().join())
@@ -1018,10 +1027,16 @@ public class ReviewAgent {
                 .flatMap(fd -> Stream.of(fd.oldFile(), fd.newFile()))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        List<String> fragmentHints = contexts.stream()
+        // TODO allow git and usage fragments
+        var relevantFragmentsClasses = Set.of(
+                ContextFragments.ProjectPathFragment.class,
+                ContextFragments.CodeFragment.class,
+                ContextFragments.SummaryFragment.class);
+        List<String> fragmentHints = relevantContexts.stream()
                 .flatMap(Context::allFragments)
-                .filter(cf ->
-                        !(cf instanceof ContextFragments.ProjectPathFragment ppf && editedFiles.contains(ppf.file())))
+                .filter(cf -> relevantFragmentsClasses.contains(cf.getClass())
+                        && !(cf instanceof ContextFragments.ProjectPathFragment ppf
+                                && editedFiles.contains(ppf.file())))
                 .map(cf -> cf.description().join())
                 .distinct()
                 .toList();
@@ -1029,9 +1044,13 @@ public class ReviewAgent {
         List<ContextFragments.StringFragment> results = new ArrayList<>();
         if (!instructions.isEmpty()) {
             String mergedInstructions =
-                    instructions.stream().map(desc -> "- " + desc).collect(Collectors.joining("\n"));
+                    """
+                    These are the instructions given to the Code Agent to generate this patch.
+
+                    """
+                            + String.join("\n-----\n", instructions);
             results.add(new ContextFragments.StringFragment(
-                    cm, mergedInstructions, "User Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
+                    cm, mergedInstructions, "Patch Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
         }
 
         if (!fragmentHints.isEmpty()) {
