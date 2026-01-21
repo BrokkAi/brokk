@@ -2096,9 +2096,8 @@ public final class JobRunner {
 
         String baseMessage = "Tests/lint failed after " + maxIterations + " iteration(s)";
         if (lastFailStage != null && lastFailCommand != null && lastFailOutput != null && !lastFailOutput.isBlank()) {
-            throw new IssueExecutionException(
-                    baseMessage + ". Last failure: stage=" + lastFailStage + ", command=" + lastFailCommand
-                            + "\nOutput:\n" + lastFailOutput);
+            throw new IssueExecutionException(baseMessage + ". Last failure: stage=" + lastFailStage + ", command="
+                    + lastFailCommand + "\nOutput:\n" + lastFailOutput);
         }
 
         throw new IssueExecutionException(baseMessage);
