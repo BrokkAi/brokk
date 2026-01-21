@@ -525,19 +525,8 @@ public class Languages {
 
     public static final Language SCALA = new ScalaLanguage();
 
-    public static final List<Language> ALL_LANGUAGES = List.of(
-            C_SHARP,
-            JAVA,
-            JAVASCRIPT,
-            PYTHON,
-            C_CPP,
-            GO,
-            RUST,
-            PHP,
-            TYPESCRIPT,
-            SCALA,
-            SQL,
-            NONE);
+    public static final List<Language> ALL_LANGUAGES =
+            List.of(C_SHARP, JAVA, JAVASCRIPT, PYTHON, C_CPP, GO, RUST, PHP, TYPESCRIPT, SCALA, SQL, NONE);
 
     /**
      * Returns the Language constant corresponding to the given file extension. Comparison is case-insensitive.
