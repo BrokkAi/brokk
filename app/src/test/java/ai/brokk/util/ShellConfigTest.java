@@ -171,6 +171,14 @@ class ShellConfigTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void testIsValidWithInvalidPathCharactersWindows() {
+        // "<" and ">" are invalid in Windows paths and should cause InvalidPathException
+        var config = new ShellConfig("invalid<name>", List.of("-c"));
+        assertFalse(config.isValid());
+    }
+
+    @Test
     void testGetCommonExecutorsReturnsValidExecutables() {
         ShellConfig[] executors = ShellConfig.getCommonExecutors();
         assertNotNull(executors);

@@ -4,6 +4,7 @@ import ai.brokk.project.IProject;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -123,16 +124,21 @@ public record ShellConfig(String executable, List<String> args) {
         if (executable.isBlank() || executable.contains("\0")) {
             return false;
         }
-        Path execPath = Path.of(executable);
 
-        // If it's an absolute path, check directly
-        if (execPath.isAbsolute()) {
-            return Files.exists(execPath) && Files.isExecutable(execPath);
-        }
+        try {
+            Path execPath = Path.of(executable);
 
-        // For relative paths or bare executables, check if it exists as-is first
-        if (Files.exists(execPath) && Files.isExecutable(execPath)) {
-            return true;
+            // If it's an absolute path, check directly
+            if (execPath.isAbsolute()) {
+                return Files.exists(execPath) && Files.isExecutable(execPath);
+            }
+
+            // For relative paths or bare executables, check if it exists as-is first
+            if (Files.exists(execPath) && Files.isExecutable(execPath)) {
+                return true;
+            }
+        } catch (InvalidPathException e) {
+            return false;
         }
 
         // If not found locally, search in PATH
