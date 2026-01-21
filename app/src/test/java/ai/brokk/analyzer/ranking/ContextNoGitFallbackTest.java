@@ -79,12 +79,6 @@ public class ContextNoGitFallbackTest {
 
             IGitRepo stubRepo = new IGitRepo() {
                 @Override
-                public Set<IGitRepo.ModifiedFile> getModifiedFiles() {
-                    repoInvoked.set(true);
-                    return Set.of();
-                }
-
-                @Override
                 public Set<ProjectFile> getTrackedFiles() {
                     repoInvoked.set(true);
                     return Set.of();

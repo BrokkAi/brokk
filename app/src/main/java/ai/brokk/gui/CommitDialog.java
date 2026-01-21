@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
@@ -12,9 +13,10 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
-import java.util.List;
+import java.util.Collection;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -32,7 +34,7 @@ public class CommitDialog extends BaseThemedDialog {
     private final MaterialButton regenerateButton;
     private final transient IContextManager contextManager;
     private final transient GitWorkflow workflowService;
-    private final transient List<ProjectFile> filesToCommit;
+    private final transient Collection<ProjectFile> filesToCommit;
     private final transient Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback;
     private final transient Chrome chrome;
 
@@ -40,7 +42,7 @@ public class CommitDialog extends BaseThemedDialog {
             @Nullable Window owner,
             Chrome chrome,
             IContextManager contextManager,
-            List<ProjectFile> filesToCommit,
+            Collection<ProjectFile> filesToCommit,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
         this(owner, chrome, contextManager, filesToCommit, null, onCommitSuccessCallback);
     }
@@ -49,7 +51,7 @@ public class CommitDialog extends BaseThemedDialog {
             @Nullable Window owner,
             Chrome chrome,
             IContextManager contextManager,
-            List<ProjectFile> filesToCommit,
+            Collection<ProjectFile> filesToCommit,
             @Nullable String prefilledMessage,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
         super(owner, "Commit Changes");
@@ -92,9 +94,19 @@ public class CommitDialog extends BaseThemedDialog {
         buttonPanel.add(cancelButton);
         buttonPanel.add(commitButton);
 
+        // File list header
+        String fileNames =
+                filesToCommit.stream().limit(3).map(BrokkFile::getFileName).collect(Collectors.joining(", "));
+        if (filesToCommit.size() > 3) {
+            fileNames += " and " + (filesToCommit.size() - 3) + " more";
+        }
+        JLabel fileLabel = new JLabel("<html><b>Files:</b> " + fileNames + "</html>");
+        fileLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+
         // Add padding around the dialog content
         JPanel contentPanel = new JPanel(new BorderLayout(0, 5));
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        contentPanel.add(fileLabel, BorderLayout.NORTH);
         contentPanel.add(scrollPane, BorderLayout.CENTER);
         contentPanel.add(buttonPanel, BorderLayout.SOUTH);
 

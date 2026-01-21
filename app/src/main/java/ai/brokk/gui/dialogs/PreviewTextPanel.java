@@ -7,10 +7,7 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
@@ -104,14 +101,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private final Future<Set<CodeUnit>> fileDeclarations;
 
     @Nullable
-    private final Future<Map<Language, AnalyzerCapabilities>> analyzerCapabilities;
-
-    @Nullable
     private Future<Set<String>> symbolsFuture;
 
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
-
-    private record AnalyzerCapabilities(boolean hasUsages, boolean hasSource) {}
 
     // Font size state - implements EditorFontSizeControl
     private int currentFontIndex = -1; // -1 = uninitialized
@@ -341,31 +333,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 var analyzer = cm.getAnalyzerUninterrupted();
                 return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarations(file);
             });
-            analyzerCapabilities = cm.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
-                var analyzer = cm.getAnalyzerUninterrupted();
-                final var capabilityMap = new HashMap<Language, AnalyzerCapabilities>();
-                if (analyzer instanceof MultiAnalyzer multiAnalyzer) {
-                    multiAnalyzer.getDelegates().forEach((language, an) -> {
-                        final AnalyzerCapabilities capabilities;
-                        if (an.isEmpty()) {
-                            capabilities = new AnalyzerCapabilities(false, false);
-                        } else {
-                            var hasSource = an.as(SourceCodeProvider.class).isPresent();
-                            capabilities = new AnalyzerCapabilities(true, hasSource);
-                        }
-                        capabilityMap.put(language, capabilities);
-                    });
-                } else {
-                    cm.getProject().getAnalyzerLanguages().stream().findFirst().ifPresent(language -> {
-                        var hasSource = analyzer.as(SourceCodeProvider.class).isPresent();
-                        capabilityMap.put(language, new AnalyzerCapabilities(true, hasSource));
-                    });
-                }
-                return capabilityMap;
-            });
         } else {
             fileDeclarations = null; // Ensure @Nullable field is explicitly null if file is null
-            analyzerCapabilities = null;
         }
     }
 
@@ -490,12 +459,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
                 private void populateDynamicMenuItems() {
                     // Add "Capture usages" items if it's a project file and declarations are available
-                    if (file == null || fileDeclarations == null || analyzerCapabilities == null) {
+                    if (file == null || fileDeclarations == null) {
                         logger.warn("Cannot populate dynamic menu items: file or futures are null.");
                         return;
                     }
 
-                    if (!fileDeclarations.isDone() || !analyzerCapabilities.isDone()) {
+                    if (!fileDeclarations.isDone()) {
                         var item = new JMenuItem("Waiting for Code Intelligence...");
                         item.setEnabled(false);
                         dynamicMenuItems.add(item);
@@ -510,7 +479,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
                     try {
                         var codeUnits = fileDeclarations.get();
-                        var capabilitiesMap = analyzerCapabilities.get();
                         var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
 
                         if (analyzer == null) {
@@ -528,11 +496,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
                         List<JMenuItem> items;
                         if (maybeEnclosingUnit.isPresent()) {
-                            items = createPositionalMenuItems(
-                                    maybeEnclosingUnit.get(), lineNum, offset, capabilitiesMap, analyzer);
+                            items = createPositionalMenuItems(maybeEnclosingUnit.get(), lineNum, offset, analyzer);
                         } else {
-                            items = createStringMatchingMenuItems(
-                                    codeUnits, lineNum, offset, capabilitiesMap, analyzer);
+                            items = createStringMatchingMenuItems(codeUnits, lineNum, offset, analyzer);
                         }
                         dynamicMenuItems.addAll(items);
 
@@ -544,12 +510,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 }
 
                 private List<JMenuItem> createPositionalMenuItems(
-                        CodeUnit unit,
-                        int lineNum,
-                        int offset,
-                        Map<Language, AnalyzerCapabilities> capabilitiesMap,
-                        IAnalyzer analyzer)
-                        throws BadLocationException {
+                        CodeUnit unit, int lineNum, int offset, IAnalyzer analyzer) throws BadLocationException {
                     // We have a unit by position. We still need an identifier from text for display.
                     var token = getTokenListForLine(lineNum);
                     String clickedIdentifier = null;
@@ -572,16 +533,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     }
 
                     var items = new ArrayList<JMenuItem>();
-                    addMenuItemsForCodeUnit(items, clickedIdentifier, unit, capabilitiesMap, analyzer);
+                    addMenuItemsForCodeUnit(items, clickedIdentifier, unit, analyzer);
                     return items;
                 }
 
                 private List<JMenuItem> createStringMatchingMenuItems(
-                        Set<CodeUnit> codeUnits,
-                        int lineNum,
-                        int offset,
-                        Map<Language, AnalyzerCapabilities> capabilitiesMap,
-                        IAnalyzer analyzer)
+                        Set<CodeUnit> codeUnits, int lineNum, int offset, IAnalyzer analyzer)
                         throws BadLocationException {
                     // Determine the identifier (token) that the mouse is currently over
                     var token = getTokenListForLine(lineNum);
@@ -629,33 +586,20 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
                     var items = new ArrayList<JMenuItem>();
                     for (Map.Entry<String, CodeUnit> entry : unitsToProcess.entrySet()) {
-                        addMenuItemsForCodeUnit(items, entry.getKey(), entry.getValue(), capabilitiesMap, analyzer);
+                        addMenuItemsForCodeUnit(items, entry.getKey(), entry.getValue(), analyzer);
                     }
                     return items;
                 }
 
                 private void addMenuItemsForCodeUnit(
-                        List<JMenuItem> menuItems,
-                        String identifier,
-                        CodeUnit codeUnit,
-                        Map<Language, AnalyzerCapabilities> capabilitiesMap,
-                        @Nullable IAnalyzer analyzer) {
+                        List<JMenuItem> menuItems, String identifier, CodeUnit codeUnit, @Nullable IAnalyzer analyzer) {
                     if (file == null) {
                         return;
                     }
-                    final String extension = file.extension();
-                    capabilitiesMap.entrySet().stream()
-                            .filter(entry -> entry.getKey().getExtensions().contains(extension))
-                            .findFirst()
-                            .ifPresent(entry -> {
-                                final var capabilities = entry.getValue();
-                                menuItems.addAll(createUsagesMenuItems(identifier, capabilities.hasUsages(), codeUnit));
-                                boolean sourceCodeAvailable = analyzer != null
-                                        && SourceCaptureUtil.isSourceCaptureAvailable(
-                                                codeUnit, capabilities.hasSource(), analyzer);
-                                menuItems.addAll(
-                                        createSourceMenuItems(identifier, sourceCodeAvailable, codeUnit, analyzer));
-                            });
+                    menuItems.addAll(createUsagesMenuItems(identifier, true, codeUnit));
+                    boolean sourceCodeAvailable =
+                            analyzer != null && SourceCaptureUtil.isSourceCaptureAvailable(codeUnit, analyzer);
+                    menuItems.addAll(createSourceMenuItems(identifier, sourceCodeAvailable, codeUnit, analyzer));
                 }
 
                 private List<JMenuItem> createSourceMenuItems(
@@ -677,7 +621,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             codeUnit.shortName() + "." + identifier);
                     var hasConstructorSourceCode = codeUnit.isClass()
                             && analyzer != null
-                            && SourceCaptureUtil.isSourceCaptureAvailable(constructorCu, sourceCodeAvailable, analyzer);
+                            && SourceCaptureUtil.isSourceCaptureAvailable(constructorCu, analyzer);
 
                     if (hasConstructorSourceCode) {
                         constructorSourceItem = new JMenuItem(

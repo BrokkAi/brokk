@@ -5,8 +5,6 @@ import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import java.nio.file.Path;
@@ -25,57 +23,42 @@ public class AnalyzerUtil {
     public static List<CodeWithSource> processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
         List<CodeWithSource> results = new ArrayList<>();
 
-        var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
-        if (maybeSourceCodeProvider.isEmpty()) {
-            logger.warn("Analyzer ({}) does not provide source code, skipping", analyzer.getClass());
-        }
-        maybeSourceCodeProvider.ifPresent(sourceCodeProvider -> {
-            var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
-            for (var cu : methodUses) {
-                var source = sourceCodeProvider.getMethodSource(cu, true);
-                if (source.isPresent()) {
-                    results.add(new CodeWithSource(source.get(), cu));
-                } else {
-                    logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
-                }
+        var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
+        for (var cu : methodUses) {
+            var source = analyzer.getSource(cu, true);
+            if (source.isPresent()) {
+                results.add(new CodeWithSource(source.get(), cu));
+            } else if (!(analyzer instanceof DisabledAnalyzer)) {
+                logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
             }
-        });
+        }
 
-        var maybeSkeletonProvider = analyzer.as(SkeletonProvider.class);
-        if (maybeSkeletonProvider.isEmpty()) {
-            logger.warn("Analyzer ({}) does not provide skeletons, skipping", analyzer.getClass());
+        var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
+        for (var cu : typeUses) {
+            var skeletonHeader = analyzer.getSkeletonHeader(cu);
+            skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, cu)));
         }
-        maybeSkeletonProvider.ifPresent(skeletonProvider -> {
-            var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
-            for (var cu : typeUses) {
-                var skeletonHeader = skeletonProvider.getSkeletonHeader(cu);
-                skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, cu)));
-            }
-        });
 
         // Handle fields by showing their containing class skeleton
-        maybeSkeletonProvider.ifPresent(skeletonProvider -> {
-            var fieldUses = uses.stream().filter(CodeUnit::isField).sorted().toList();
-            for (var field : fieldUses) {
-                // Get the parent class by parsing the fqName (e.g., "com.example.Class.field" -> "com.example.Class")
-                var fqName = field.fqName();
-                var lastDot = fqName.lastIndexOf('.');
-                if (lastDot > 0) {
-                    var parentClassName = fqName.substring(0, lastDot);
-                    var parentClasses = analyzer.getDefinitions(parentClassName);
-                    if (!parentClasses.isEmpty()) {
-                        var parentClass =
-                                analyzer.sortDefinitions(parentClasses).getFirst();
-                        var skeletonHeader = skeletonProvider.getSkeletonHeader(parentClass);
-                        skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, parentClass)));
-                    } else {
-                        logger.warn("Unable to find parent class {} for field {}", parentClassName, field.fqName());
-                    }
-                } else {
-                    logger.warn("Unable to parse parent class from field fqName: {}", field.fqName());
+        var fieldUses = uses.stream().filter(CodeUnit::isField).sorted().toList();
+        for (var field : fieldUses) {
+            // Get the parent class by parsing the fqName (e.g., "com.example.Class.field" -> "com.example.Class")
+            var fqName = field.fqName();
+            var lastDot = fqName.lastIndexOf('.');
+            if (lastDot > 0) {
+                var parentClassName = fqName.substring(0, lastDot);
+                var parentClasses = analyzer.getDefinitions(parentClassName);
+                if (!parentClasses.isEmpty()) {
+                    var parentClass = analyzer.sortDefinitions(parentClasses).getFirst();
+                    var skeletonHeader = analyzer.getSkeletonHeader(parentClass);
+                    skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, parentClass)));
+                } else if (!(analyzer instanceof DisabledAnalyzer)) {
+                    logger.warn("Unable to find parent class {} for field {}", parentClassName, field.fqName());
                 }
+            } else {
+                logger.warn("Unable to parse parent class from field fqName: {}", field.fqName());
             }
-        });
+        }
 
         return results;
     }
@@ -143,73 +126,24 @@ public class AnalyzerUtil {
      * Get skeleton for a symbol by fully qualified name.
      */
     public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
-                .flatMap(skp -> skp.getSkeleton(cu)));
+        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(analyzer::getSkeleton);
     }
 
     /**
      * Get skeleton header (class signature + fields without method bodies) for a class by name.
      */
     public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
-        return analyzer.getDefinitions(className).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
-                .flatMap(skp -> skp.getSkeletonHeader(cu)));
+        return analyzer.getDefinitions(className).stream().findFirst().flatMap(analyzer::getSkeletonHeader);
     }
 
     /**
-     * Get all source code versions for a method (handles overloads) by fully qualified name.
+     * Get source code for a code unit by fully qualified name. Currently, only methods and classes are supported.
      */
-    public static Set<String> getMethodSources(IAnalyzer analyzer, String fqName, boolean includeComments) {
+    public static Optional<String> getSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
-                .filter(CodeUnit::isFunction)
+                .filter(cu -> cu.isFunction() || cu.isClass())
                 .findFirst()
-                .flatMap(cu ->
-                        analyzer.as(SourceCodeProvider.class).map(scp -> scp.getMethodSources(cu, includeComments)))
-                .orElse(Collections.emptySet());
-    }
-
-    /**
-     * Get source code for a method by fully qualified name. If multiple versions exist (overloads), they are
-     * concatenated.
-     */
-    public static Optional<String> getMethodSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
-        return analyzer.getDefinitions(fqName).stream()
-                .filter(CodeUnit::isFunction)
-                .findFirst()
-                .flatMap(cu ->
-                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(cu, includeComments)));
-    }
-
-    /**
-     * Get source code for a class by fully qualified name.
-     */
-    public static Optional<String> getClassSource(IAnalyzer analyzer, String fqcn, boolean includeComments) {
-        return analyzer.getDefinitions(fqcn).stream()
-                .filter(CodeUnit::isClass)
-                .findFirst()
-                .flatMap(cu ->
-                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(cu, includeComments)));
-    }
-
-    /**
-     * Get call graph showing what calls the given method.
-     */
-    public static Map<String, List<CallSite>> getCallgraphTo(IAnalyzer analyzer, String methodName, int depth) {
-        return analyzer.getDefinitions(methodName).stream()
-                .filter(CodeUnit::isFunction)
-                .findFirst()
-                .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphTo(cu, depth)))
-                .orElse(Collections.emptyMap());
-    }
-
-    /**
-     * Get call graph showing what the given method calls.
-     */
-    public static Map<String, List<CallSite>> getCallgraphFrom(IAnalyzer analyzer, String methodName, int depth) {
-        return analyzer.getDefinitions(methodName).stream()
-                .filter(CodeUnit::isFunction)
-                .findFirst()
-                .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphFrom(cu, depth)))
-                .orElse(Collections.emptyMap());
+                .flatMap(cu -> analyzer.getSource(cu, includeComments));
     }
 
     /**
@@ -455,21 +389,18 @@ public class AnalyzerUtil {
     /**
      * Builds a fragment for a usage selection.
      *
-     * <p>If the input resolves to a method and {@code summarize} is true, returns a
-     * {@link ContextFragments.CallGraphFragment} showing callees at depth 1. Otherwise returns a
-     * {@link ContextFragments.UsageFragment}. If no symbol can be resolved, a {@link ContextFragments.UsageFragment}
-     * is still created using the raw input.
+     * <p>Returns a {@link ContextFragments.UsageFragment}. If no symbol can be resolved, a
+     * {@link ContextFragments.UsageFragment} is still created using the raw input.
      *
      * @param analyzer the analyzer used to resolve the target symbol; if null, returns empty
      * @param cm the context manager used to construct fragments
      * @param input a symbol identifier (short or fully qualified); blank yields empty
      * @param includeTestFiles whether to include tests when building the {@link ContextFragments.UsageFragment}
-     * @param summarize whether to return a {@link ContextFragments.CallGraphFragment} for a method target
-     * @return an Optional containing {@link ContextFragments.CallGraphFragment} (for summarize+method) or
-     *         {@link ContextFragments.UsageFragment}; empty if analyzer is null or input is blank
+     * @return an Optional containing {@link ContextFragments.UsageFragment}; empty if analyzer is null or input is
+     * blank
      */
     public static Optional<ContextFragment> selectUsageFragment(
-            IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles, boolean summarize) {
+            IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles) {
         if (input.trim().isEmpty()) return Optional.empty();
 
         Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
@@ -480,11 +411,6 @@ public class AnalyzerUtil {
                 : analyzer.getDefinitions(input).stream()
                         .findFirst()
                         .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
-
-        if (summarize && any.isPresent() && any.get().isFunction()) {
-            var methodFqn = any.get().fqName();
-            return Optional.of(new ContextFragments.CallGraphFragment(cm, methodFqn, 1, false));
-        }
 
         var target = any.map(CodeUnit::fqName).orElse(input);
         return Optional.of(new ContextFragments.UsageFragment(cm, target, includeTestFiles));

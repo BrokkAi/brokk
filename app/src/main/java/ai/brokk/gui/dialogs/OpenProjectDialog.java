@@ -903,10 +903,13 @@ public class OpenProjectDialog extends BaseThemedDialog {
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
-                // Validate token with a simple API call
-                GitHubAuth.createClient().getMyself();
+                // Validate token
+                var validation = GitHubAuth.validateStoredTokenWithResult();
+                if (validation == GitHubAuth.TokenValidationResult.INVALID) {
+                    throw new HttpException("Unauthorized", 401, null, null);
+                }
 
-                // Token is valid, now load repositories
+                // Token is valid (or transient error), load repositories
                 return getUserRepositories();
             }
 

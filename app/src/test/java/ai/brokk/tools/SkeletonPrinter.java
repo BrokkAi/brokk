@@ -9,7 +9,6 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.analyzer.TypescriptAnalyzer;
 import ai.brokk.project.IProject;
@@ -275,9 +274,7 @@ public class SkeletonPrinter {
                 }
 
                 // Count skeletons for this file - use projectFile from singleFileProject
-                var skeletons = analyzer.as(SkeletonProvider.class)
-                        .map(skp -> skp.getSkeletons(projectFile))
-                        .orElse(Collections.emptyMap());
+                var skeletons = analyzer.getSkeletons(projectFile);
                 skeletonsProduced += skeletons.size();
 
                 // Accumulate TreeSitter statistics
@@ -358,9 +355,7 @@ public class SkeletonPrinter {
             }
 
             // Count skeletons for this file
-            var skeletons = analyzer.as(SkeletonProvider.class)
-                    .map(skp -> skp.getSkeletons(projectFile))
-                    .orElse(Collections.emptyMap());
+            var skeletons = analyzer.getSkeletons(projectFile);
             skeletonsProduced += skeletons.size();
         } catch (Exception e) {
             var errorMsg = "Error processing file " + filePath + ": " + e.getMessage();
@@ -422,7 +417,7 @@ public class SkeletonPrinter {
 
         System.out.println(colorize(BOLD + GREEN, "--- SKELETON OUTPUT ---"));
 
-        var skeletons = ((SkeletonProvider) analyzer).getSkeletons(file);
+        var skeletons = analyzer.getSkeletons(file);
         if (skeletons.isEmpty()) {
             System.out.println(colorize(YELLOW, "No skeletons found in this file."));
             return;

@@ -170,7 +170,7 @@ public class VoiceInputButton extends JButton {
 
         // Initialize enabled state based on whether an STT model is available.
         // We move this off the EDT as it may involve network/model checks.
-        LoggingFuture.supplyAsync(() -> {
+        LoggingFuture.runAsync(() -> {
             boolean sttAvailable = contextManager.getService().hasSttModel();
             SwingUtilities.invokeLater(() -> {
                 setEnabled(sttAvailable);
@@ -207,7 +207,7 @@ public class VoiceInputButton extends JButton {
 
     /** Update the button enabled/tooltip state based on current STT availability. This moves the check off the EDT. */
     private void updateSttAvailability() {
-        LoggingFuture.supplyAsync(() -> {
+        LoggingFuture.runAsync(() -> {
             boolean available = contextManager.getService().hasSttModel();
             SwingUtilities.invokeLater(() -> {
                 setEnabled(available);
@@ -269,7 +269,7 @@ public class VoiceInputButton extends JButton {
 
         // Move audio device initialization to background thread to avoid blocking EDT
         AudioFormat format = new AudioFormat(16000.0f, 16, 1, true, true);
-        LoggingFuture.supplyAsync(() -> {
+        LoggingFuture.runAsync(() -> {
             try {
                 // Initialize audio device (blocking I/O)
                 TargetDataLine line = initializeAudioDevice(format);

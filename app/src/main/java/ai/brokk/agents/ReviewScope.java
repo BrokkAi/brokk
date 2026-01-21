@@ -15,6 +15,7 @@ import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
+import com.google.common.collect.Sets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -31,6 +32,8 @@ import org.jetbrains.annotations.Blocking;
 public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Metadata metadata) {
     private static final Logger logger = LogManager.getLogger(ReviewScope.class);
 
+    // sessionIds is left as UUID keys instead of materializing to ContextHistory, because we need to serialize
+    // through json for Activity History
     public record Metadata(String fromRef, String toRef, List<UUID> sessionIds) {
         public String toJson() {
             try {
@@ -210,13 +213,6 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
             return List.of();
         }
 
-        SessionManager sessionManager;
-        try {
-            sessionManager = cm.getProject().getSessionManager();
-        } catch (UnsupportedOperationException e) {
-            logger.debug("SessionManager not supported by project; skipping overlapping session lookup");
-            return List.of();
-        }
         Instant minBound = commits.stream()
                 .map(CommitInfo::date)
                 .min(Comparator.naturalOrder())
@@ -227,18 +223,31 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                 .orElse(Instant.now());
 
         Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());
-
-        return sessionManager.listSessions().stream()
-                .parallel()
-                .filter(s -> s.lastModified().isAfter(minBound) && s.createdAt().isBefore(maxBound))
+        SessionManager sessionManager;
+        try {
+            sessionManager = cm.getProject().getSessionManager();
+        } catch (UnsupportedOperationException e) {
+            // fucking tight coupling
+            return List.of();
+        }
+        var localSessions = sessionManager.filterSessions(minBound, maxBound).stream()
                 .map(SessionManager.SessionInfo::id)
+                .collect(Collectors.toSet());
+        var foreignSessions = sessionManager.filterForeignSessions(minBound, maxBound).stream()
+                .map(SessionManager.MinimalSessionInfo::id)
+                .collect(Collectors.toSet());
+
+        return Sets.union(localSessions, foreignSessions).stream()
                 .filter(id -> {
+                    if (sessionManager.countAiResponses(id) <= 0) {
+                        return false;
+                    }
                     var history = sessionManager.loadHistory(id, cm);
                     return history != null
                             && history.getGitStates().values().stream()
                                     .map(ContextHistory.GitState::commitHash)
                                     .anyMatch(changeCommitIds::contains);
                 })
-                .toList();
+                .collect(Collectors.toList());
     }
 }

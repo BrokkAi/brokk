@@ -125,10 +125,7 @@ public class MutedConsoleIO implements IConsoleIO {
         delegate.enableHistoryPanel();
     }
 
-    @Override
-    public void updateCommitPanel() {
-        delegate.updateCommitPanel();
-    }
+    public void updateCommitPanel() {}
 
     @Override
     public void updateGitRepo() {

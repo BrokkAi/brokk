@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -158,7 +159,7 @@ public final class DependencyUpdater {
         try {
             Files.createDirectories(dependencyRoot);
             String json = objectMapper.writeValueAsString(metadata);
-            Files.writeString(metadataPath, json);
+            AtomicWrites.save(metadataPath, json);
         } catch (Exception e) {
             logger.warn("Error writing dependency metadata to {}: {}", metadataPath, e.getMessage());
         }

@@ -81,8 +81,8 @@ public class TestRepo implements IGitRepo {
     }
 
     @Override
-    public String diffFiles(List<ProjectFile> selectedFiles) {
-        var selectedPaths = selectedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+    public String diffFiles(Collection<ProjectFile> files) {
+        var selectedPaths = files.stream().map(ProjectFile::toString).collect(Collectors.toSet());
         var sb = new StringBuilder();
         for (ProjectFile file : addedFiles) {
             if (selectedPaths.contains(file.toString())) {
@@ -137,11 +137,6 @@ public class TestRepo implements IGitRepo {
     @Override
     public String getCurrentCommitId() {
         return "in-memory-commit-id";
-    }
-
-    @Override
-    public Set<ModifiedFile> getModifiedFiles() {
-        return Collections.emptySet();
     }
 
     @Override

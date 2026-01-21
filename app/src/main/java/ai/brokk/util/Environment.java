@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import ai.brokk.Brokk;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import com.google.common.base.Splitter;
@@ -191,7 +192,7 @@ public class Environment {
                 Path policyFile;
                 try {
                     policyFile = Files.createTempFile("brokk-seatbelt-", ".sb");
-                    Files.writeString(policyFile, fullPolicy, StandardCharsets.UTF_8);
+                    AtomicWrites.save(policyFile, fullPolicy);
                 } catch (IOException e) {
                     throw new StartupException("unable to create seatbelt policy file: " + e.getMessage(), "");
                 }

@@ -8,10 +8,9 @@ import java.util.stream.Collectors;
 /**
  * Core analyzer interface providing code intelligence capabilities.
  *
- * <p><b>API Pattern:</b> Capability providers ({@link SkeletonProvider}, {@link SourceCodeProvider},
- * {@link CallGraphProvider}) accept {@link CodeUnit} parameters. When you have a CodeUnit, call
- * provider methods directly. When you only have a String FQN, use {@link ai.brokk.AnalyzerUtil}
- * convenience methods to convert and delegate.
+ * <p><b>API Pattern:</b> Capability providers (e.g., {@link ImportAnalysisProvider}, {@link TypeHierarchyProvider})
+ * accept {@link CodeUnit} parameters. When you have a CodeUnit, call provider methods directly. When you only have a
+ * String FQN, use {@link ai.brokk.AnalyzerUtil} convenience methods to convert and delegate.
  */
 public interface IAnalyzer {
     /**
@@ -168,23 +167,6 @@ public interface IAnalyzer {
     List<String> importStatementsOf(ProjectFile file);
 
     /**
-     * Retrieves the resolved import CodeUnits for a given file.
-     *
-     * @param file the project file
-     * @return an unmodifiable set of resolved CodeUnits from import statements
-     */
-    default Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return Set.of();
-    }
-
-    /**
-     * Returns the set of files that import the given file.
-     */
-    default Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return Set.of();
-    }
-
-    /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      * invalid.
      */
@@ -203,20 +185,6 @@ public interface IAnalyzer {
         public boolean isContainedWithin(Range other) {
             return startByte >= other.startByte && endByte <= other.endByte;
         }
-    }
-
-    /**
-     * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
-     * Implementations should return only the immediate ancestors.
-     */
-    List<CodeUnit> getDirectAncestors(CodeUnit cu);
-
-    /**
-     * Returns the direct subtypes/descendants (non-transitive) for the given CodeUnit.
-     * Implementations should return only the immediate descendants.
-     */
-    default Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
-        return Set.of();
     }
 
     // Things most implementations won't have to override
@@ -404,98 +372,6 @@ public interface IAnalyzer {
     }
 
     /**
-     * Returns the transitive set of supertypes/basetypes for the given CodeUnit.
-     * This is computed via a fixed-point iterative traversal using getDirectAncestors:
-     * - Direct ancestors are listed first, followed by their ancestors in discovery order (BFS).
-     * - Duplicates are removed by fqName.
-     * - Cycles are handled gracefully via a visited set.
-     * <p>
-     * Implementations should override {@link #getDirectAncestors(CodeUnit)} to provide language-specific direct
-     * ancestor resolution. This method composes those results into a transitive closure.
-     */
-    default List<CodeUnit> getAncestors(CodeUnit cu) {
-        // Seed with direct ancestors
-        List<CodeUnit> direct = getDirectAncestors(cu);
-        if (direct.isEmpty()) {
-            return List.of();
-        }
-
-        // Fixed-point traversal: BFS over direct ancestors
-        var result = new ArrayList<CodeUnit>(direct.size());
-        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
-        var queue = new ArrayDeque<CodeUnit>(direct.size());
-
-        for (var d : direct) {
-            if (visited.add(d.fqName())) {
-                result.add(d);
-                queue.add(d);
-            }
-        }
-
-        while (!queue.isEmpty()) {
-            var current = queue.removeFirst();
-            List<CodeUnit> parents = getDirectAncestors(current);
-            if (parents.isEmpty()) continue;
-
-            for (var p : parents) {
-                String key = p.fqName();
-                if (visited.add(key)) {
-                    result.add(p);
-                    queue.addLast(p);
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * Returns the transitive set of subtypes/descendants for the given CodeUnit.
-     * This is computed via a fixed-point iterative traversal using getDirectDescendants:
-     * - Direct descendants are listed first, followed by their descendants in discovery order (BFS).
-     * - Duplicates are removed by fqName.
-     * - Cycles are handled gracefully via a visited set.
-     * <p>
-     * Implementations should override {@link #getDirectDescendants(CodeUnit)} to provide language-specific direct
-     * descendant resolution. This method composes those results into a transitive closure.
-     */
-    default List<CodeUnit> getDescendants(CodeUnit cu) {
-        // Seed with direct descendants
-        Set<CodeUnit> direct = getDirectDescendants(cu);
-        if (direct.isEmpty()) {
-            return List.of();
-        }
-
-        // Fixed-point traversal: BFS over direct descendants
-        var result = new ArrayList<CodeUnit>(direct.size());
-        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
-        var queue = new ArrayDeque<CodeUnit>(direct.size());
-
-        for (var d : direct) {
-            if (visited.add(d.fqName())) {
-                result.add(d);
-                queue.add(d);
-            }
-        }
-
-        while (!queue.isEmpty()) {
-            var current = queue.removeFirst();
-            Set<CodeUnit> children = getDirectDescendants(current);
-            if (children.isEmpty()) continue;
-
-            for (var child : children) {
-                String key = child.fqName();
-                if (visited.add(key)) {
-                    result.add(child);
-                    queue.addLast(child);
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
      * Returns an analyzer that targets the given language if one is available. For single-analyzers, it will be the
      * analyzer instance itself if there is a match. For multi-analyzers, it will be a matching delegate, if any.
      *
@@ -543,4 +419,54 @@ public interface IAnalyzer {
         }
         return sb.toString().stripTrailing();
     }
+
+    /**
+     * Return a summary of the given type or method.
+     *
+     * @param cu the code unit to get skeleton for
+     * @return skeleton if available, empty otherwise
+     */
+    Optional<String> getSkeleton(CodeUnit cu);
+
+    /**
+     * Returns just the class signature and field declarations, without method details. Used in symbol usages lookup.
+     * (Show the "header" of the class that uses the referenced symbol in a field declaration.)
+     *
+     * @param classUnit the class code unit to get header for
+     * @return skeleton header if available, empty otherwise
+     */
+    Optional<String> getSkeletonHeader(CodeUnit classUnit);
+
+    /**
+     * Get skeletons for all top-level declarations in a file.
+     *
+     * @param file the file to get skeletons for
+     * @return map of code units to their skeletons
+     */
+    default Map<CodeUnit, String> getSkeletons(ProjectFile file) {
+        final Map<CodeUnit, String> skeletons = new HashMap<>();
+        for (CodeUnit symbol : getTopLevelDeclarations(file)) {
+            getSkeleton(symbol).ifPresent(s -> skeletons.put(symbol, s));
+        }
+        return skeletons;
+    }
+
+    /**
+     * Gets the source code for a given CodeUnit. Currently only supports classes and methods.
+     *
+     * @param codeUnit the code unit to get source for
+     * @param includeComments whether to include preceding comments in the source
+     * @return source code if found, empty otherwise
+     */
+    Optional<String> getSource(CodeUnit codeUnit, boolean includeComments);
+
+    /**
+     * Gets all source code versions for a given CodeUnit. For methods, this includes overloads.
+     * For classes, this typically returns a singleton set.
+     *
+     * @param codeUnit the code unit to get sources for
+     * @param includeComments whether to include preceding comments in the source
+     * @return set of source code snippets, empty set if none found
+     */
+    Set<String> getSources(CodeUnit codeUnit, boolean includeComments);
 }

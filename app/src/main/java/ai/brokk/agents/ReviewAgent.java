@@ -184,7 +184,7 @@ public class ReviewAgent {
                         if (token.contains("\n")) {
                             int lines = linesSeen.addAndGet(
                                     (int) token.chars().filter(ch -> ch == '\n').count());
-                            int p = turn1Floor + (lines / 8);
+                            int p = turn1Floor + (lines / 6);
                             updateProgress("Analyzing changes", min(100, p));
                         }
                     }

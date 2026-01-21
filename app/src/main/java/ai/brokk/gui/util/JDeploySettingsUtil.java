@@ -1,5 +1,6 @@
 package ai.brokk.gui.util;
 
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -121,7 +122,7 @@ public class JDeploySettingsUtil {
 
         try {
             String json = Json.toJson(config);
-            Files.writeString(configFile, json, StandardCharsets.UTF_8);
+            AtomicWrites.save(configFile, json);
         } catch (IOException e) {
             logger.warn("Failed to write user config file {}: {}", configFile, e.getMessage());
         }

@@ -33,20 +33,20 @@ Build the shadow JAR containing the CLI:
 Run directly:
 
 ```bash
-java -cp app/build/libs/brokk-<version>.jar ai.brokk.tools.HeadlessExecCli [options] <prompt>
+java -cp app/build/libs/brokk-<version>.jar ai.brokk.tools.HeadlessExecCli [options] [prompt]
 ```
 
 Or via Gradle:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "[options] <prompt>"
+./gradlew :app:runHeadlessCli --args "[options] [prompt]"
 ```
 
 ## Command-Line Options
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, `SEARCH`, or `REVIEW` |
+| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, `SEARCH`, `REVIEW`, or `ISSUE` |
 | `--planner-model MODEL` | String | **Yes** | N/A | LLM model for planning and reasoning (e.g., `gpt-5`, `claude-3-opus`) |
 | `--scan-model MODEL` | String | No | Project default | LLM model to use for repository scanning (used by `SEARCH` mode; if omitted, the project's default scan model is used) |
 | `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes). Note: `--code-model` is ignored when using `--mode SEARCH` or `--mode ASK`. |
@@ -58,8 +58,16 @@ Or via Gradle:
 | `--token TOKEN` | String | No | Random UUID | Authentication token for the executor (defaults to a randomly generated UUID if not provided) |
 | `--auto-commit` | Flag | No | `false` | Enable automatic git commits after task completion |
 | `--auto-compress` | Flag | No | `false` | Enable automatic context compression to reduce token usage |
+| `--github-token TOKEN` | String | See `ISSUE`/`REVIEW` | N/A | GitHub API token (required for `ISSUE` and `REVIEW` modes) |
+| `--repo-owner OWNER` | String | See `ISSUE`/`REVIEW` | N/A | GitHub repository owner (required for `ISSUE` and `REVIEW` modes) |
+| `--repo-name REPO` | String | See `ISSUE`/`REVIEW` | N/A | GitHub repository name (required for `ISSUE` and `REVIEW` modes) |
+| `--issue-number NUMBER` | Integer | See `ISSUE` | N/A | GitHub issue number (required for `ISSUE` mode) |
+| `--pr-number NUMBER` | Integer | See `REVIEW` | N/A | GitHub PR number (required for `REVIEW` mode) |
+| `--max-issue-fix-attempts N`| Integer | No | `5` | Maximum number of attempts to fix a failing build in `ISSUE` mode |
+| `--build-settings JSON` | String | No | N/A | JSON string describing build/test commands for `ISSUE` mode verification |
+| `--issue-delivery MODE` | String | No | N/A | Control PR creation in `ISSUE` mode. Set to `none` to disable PR creation. |
 | `--help` | Flag | No | N/A | Display usage information and exit |
-| `<prompt>` | Positional | **Yes** | N/A | The task or question to submit to the executor |
+| `<prompt>` | Positional | Conditional | N/A | The task or question to submit to the executor (optional in ISSUE/REVIEW mode, required otherwise) |
 
 ## Usage Examples
 
@@ -69,6 +77,8 @@ Or via Gradle:
 | SEARCH Mode: Read-Only Repository Scan | Explicit scan-only mode where you can choose the scanning LLM via `--scan-model` |
 | CODE Mode: Single-Shot Code Generation | Use `--mode CODE` and provide `--code-model` for code generation |
 | ARCHITECT / LUTZ | Multi-step planning and execution flows |
+| ISSUE Mode: GitHub Issue Processing | Solve a GitHub issue, verify the fix, and optionally create a PR |
+| REVIEW Mode: Pull Request Review | Analyze a Pull Request and provide review comments |
 
 ### ASK Mode: Read-Only Codebase Search
 
@@ -160,6 +170,46 @@ Characteristics:
 - `ArchitectAgent` executes each subtask sequentially
 - Respects `--auto-commit` and `--auto-compress` per task
 - Ideal for complex objectives that benefit from structured decomposition
+
+### ISSUE Mode: GitHub Issue Processing
+
+Processes a specific GitHub issue by fetching its content, attempting to fix it, verifying the fix via builds/tests, and optionally creating a Pull Request.
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api --issue-number 42 --build-settings '{\"build_command\": \"./gradlew build\"}' 'Fix the reported NPE in AuthenticationProvider'"
+```
+
+Characteristics:
+- **Automated Verification**: Runs build/test commands to verify the fix before delivery.
+- **Iterative Fixing**: Will attempt to fix build failures up to `--max-issue-fix-attempts` times.
+- **PR Creation**: Automatically creates a branch and a Pull Request unless `--issue-delivery none` is specified.
+- **Context Aware**: Uses the issue description and repository state to inform the solution.
+
+**Required for ISSUE mode:**
+- `--github-token`: A valid GitHub PAT with repository access.
+- `--repo-owner`: The owner of the repository.
+- `--repo-name`: The name of the repository.
+- `--issue-number`: The numeric ID of the issue to process.
+
+### REVIEW Mode: Pull Request Review
+
+Analyzes a GitHub Pull Request by fetching the diff and providing automated review feedback in the form of inline comments.
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode REVIEW --planner-model gpt-5 --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api --pr-number 101 'Review this PR for security vulnerabilities and performance bottlenecks'"
+```
+
+Characteristics:
+- **Read-only**: Does not modify the source code in the repository.
+- **Automated Feedback**: Posts inline comments directly to the Pull Request on GitHub.
+- **Uses Planner Model**: Utilizes the `--planner-model` for analyzing the diff and generating review feedback.
+- **Context Aware**: Analyzes the specific changes introduced in the PR compared to the base branch.
+
+**Required for REVIEW mode:**
+- `--github-token`: A valid GitHub PAT with repository access.
+- `--repo-owner`: The owner of the repository.
+- `--repo-name`: The name of the repository.
+- `--pr-number`: The numeric ID of the Pull Request to process.
 
 ## Authentication and Tokens
 
@@ -311,6 +361,18 @@ Optimize cost and performance by using different models:
 - Ensure no other services are running on local ports
 - Check available disk space for the temporary workspace
 - Verify OkHttp timeouts (default: 10s connect, 30s read)
+
+### Issue: "ISSUE mode required fields missing"
+
+**Cause:** One or more required fields for `ISSUE` mode (`--github-token`, `--repo-owner`, `--repo-name`, or `--issue-number`) were omitted while using `--mode ISSUE`.
+
+**Solution:** Ensure all four required GitHub parameters are provided when running in `ISSUE` mode.
+
+### Issue: "REVIEW mode required fields missing"
+
+**Cause:** One or more required fields for `REVIEW` mode (`--github-token`, `--repo-owner`, `--repo-name`, or `--pr-number`) were omitted while using `--mode REVIEW`.
+
+**Solution:** Ensure all four required GitHub parameters are provided when running in `REVIEW` mode.
 
 ### Issue: "Job streaming timeout"
 

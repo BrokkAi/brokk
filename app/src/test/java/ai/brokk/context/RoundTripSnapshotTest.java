@@ -42,7 +42,7 @@ public class RoundTripSnapshotTest {
         var ctx = reloaded.getHistory().get(reloaded.getHistory().size() - 1);
 
         // Find the project path fragment and assert its text is the snapshot ("v1")
-        var fragment = ctx.fileFragments()
+        var fragment = ctx.allFragments()
                 .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
                 .map(f -> (ContextFragments.ProjectPathFragment) f)
                 .findFirst()
@@ -76,7 +76,7 @@ public class RoundTripSnapshotTest {
         var ctx = reloaded.getHistory().get(reloaded.getHistory().size() - 1);
 
         // Find the external path fragment and assert its text is the snapshot ("v1")
-        var fragment = ctx.fileFragments()
+        var fragment = ctx.allFragments()
                 .filter(f -> f instanceof ContextFragments.ExternalPathFragment)
                 .map(f -> (ContextFragments.ExternalPathFragment) f)
                 .findFirst()

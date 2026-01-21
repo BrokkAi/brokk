@@ -18,7 +18,6 @@ import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
 import ai.brokk.gui.git.GitIssuesTab;
 import ai.brokk.gui.git.GitLogTab;
@@ -495,9 +494,6 @@ public class Chrome
             disableHistoryPanel();
             rightPanel.getInstructionsPanel().disableButtons();
             rightPanel.getTaskListPanel().disablePlay();
-            if (toolsPane.getGitCommitTab() != null) {
-                toolsPane.getGitCommitTab().disableButtons();
-            }
             blitzForgeMenuItem.setEnabled(false);
         });
     }
@@ -507,18 +503,8 @@ public class Chrome
         SwingUtil.runOnEdt(() -> {
             rightPanel.getInstructionsPanel().enableButtons();
             rightPanel.getTaskListPanel().enablePlay();
-            if (toolsPane.getGitCommitTab() != null) {
-                toolsPane.getGitCommitTab().enableButtons();
-            }
             blitzForgeMenuItem.setEnabled(true);
         });
-    }
-
-    @Override
-    public void updateCommitPanel() {
-        if (toolsPane.getGitCommitTab() != null) {
-            toolsPane.getGitCommitTab().requestUpdate();
-        }
     }
 
     @Override
@@ -566,12 +552,6 @@ public class Chrome
                 logger.trace("updateGitRepo: branch unchanged ({}), skipping branch UI refresh", display);
             }
             // Continue to update git panels even if branch unchanged (e.g., new commits)
-        }
-
-        // Update individual Git-related panels and log what is being updated
-        if (toolsPane.getGitCommitTab() != null) {
-            logger.trace("updateGitRepo: updating GitCommitTab");
-            toolsPane.getGitCommitTab().requestUpdate();
         }
 
         if (toolsPane.getGitLogTab() != null) {
@@ -658,13 +638,11 @@ public class Chrome
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
         // Submit action (configurable; default Cmd/Ctrl+Enter) - only when instructions area is focused
-        KeyStroke submitKeyStroke = GlobalUiSettings.getKeybinding(
-                "instructions.submit",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        // Bind directly to instructions area instead of globally to avoid interfering with other components
         var ip = rightPanel.getInstructionsPanel();
-        ip.getInstructionsArea().getInputMap(JComponent.WHEN_FOCUSED).put(submitKeyStroke, "submitAction");
+        KeyStroke submitKeyStroke =
+                GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
+        // Bind directly to instructions area instead of globally to avoid interfering with other components
+        bindKey(ip.getInstructionsArea().getInputMap(JComponent.WHEN_FOCUSED), submitKeyStroke, "submitAction");
         ip.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -717,8 +695,12 @@ public class Chrome
         }
 
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
+        @Nullable
         KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.closeWindow", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        if (closeWindowKeyStroke == null) {
+            closeWindowKeyStroke = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+        }
         if (closeWindowKeyStroke.getKeyCode() == KeyEvent.VK_ESCAPE && closeWindowKeyStroke.getModifiers() == 0) {
             closeWindowKeyStroke = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
         }
@@ -756,25 +738,10 @@ public class Chrome
             }
         });
 
-        // Alt/Cmd+3 for Changes (GitCommitTab)
-        if (toolsPane.getGitCommitTab() != null) {
-            KeyStroke switchToChanges = GlobalUiSettings.getKeybinding(
-                    "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-            bindKey(rootPane, switchToChanges, "switchToChanges");
-            rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getGitCommitTab());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Alt/Cmd+4 for Log
+        // Alt/Cmd+3 for Log
         if (toolsPane.getGitLogTab() != null) {
             KeyStroke switchToLog = GlobalUiSettings.getKeybinding(
-                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
             bindKey(rootPane, switchToLog, "switchToLog");
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
                 @Override
@@ -786,10 +753,10 @@ public class Chrome
             });
         }
 
-        // Alt/Cmd+5 for Worktrees
+        // Alt/Cmd+4 for Worktrees
         if (toolsPane.getGitWorktreeTab() != null) {
             KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
             bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
             rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
                 @Override
@@ -801,10 +768,10 @@ public class Chrome
             });
         }
 
-        // Alt/Cmd+6 for Pull Requests panel (if available)
+        // Alt/Cmd+5 for Pull Requests panel (if available)
         if (toolsPane.getPullRequestsPanel() != null) {
             KeyStroke switchToPR = GlobalUiSettings.getKeybinding(
-                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
+                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
             bindKey(rootPane, switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
@@ -816,10 +783,10 @@ public class Chrome
             });
         }
 
-        // Alt/Cmd+7 for Issues panel (if available)
+        // Alt/Cmd+6 for Issues panel (if available)
         if (toolsPane.getIssuesPanel() != null) {
             KeyStroke switchToIssues = GlobalUiSettings.getKeybinding(
-                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
             bindKey(rootPane, switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
@@ -944,17 +911,45 @@ public class Chrome
         });
     }
 
-    private static void bindKey(JRootPane rootPane, KeyStroke stroke, String actionKey) {
+    private static void bindKey(JRootPane rootPane, @Nullable KeyStroke stroke, String actionKey) {
         // Remove any previous stroke bound to this actionKey to avoid duplicates
         var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        // Remove all existing inputs mapping to actionKey
-        for (KeyStroke ks : im.allKeys() == null ? new KeyStroke[0] : im.allKeys()) {
+
+        // Only clean up bindings owned by this InputMap (not inherited from parents)
+        KeyStroke[] localKeys = im.keys();
+        if (localKeys == null) {
+            localKeys = new KeyStroke[0];
+        }
+        for (KeyStroke ks : localKeys) {
             Object val = im.get(ks);
             if (actionKey.equals(val)) {
                 im.remove(ks);
             }
         }
+
+        if (stroke == null) {
+            return;
+        }
         im.put(stroke, actionKey);
+    }
+
+    private static void bindKey(InputMap inputMap, @Nullable KeyStroke stroke, String actionKey) {
+        // Only clean up bindings owned by this InputMap (not inherited from parents)
+        KeyStroke[] localKeys = inputMap.keys();
+        if (localKeys == null) {
+            localKeys = new KeyStroke[0];
+        }
+        for (KeyStroke ks : localKeys) {
+            Object val = inputMap.get(ks);
+            if (actionKey.equals(val)) {
+                inputMap.remove(ks);
+            }
+        }
+
+        if (stroke == null) {
+            return;
+        }
+        inputMap.put(stroke, actionKey);
     }
 
     /** Re-registers global keyboard shortcuts from current GlobalUiSettings. */
@@ -969,6 +964,8 @@ public class Chrome
         im.clear();
         am.clear();
         registerGlobalKeyboardShortcuts();
+
+        rightPanel.getInstructionsPanel().refreshPlaceholderTextIfShowing();
     }
 
     @Override
@@ -1510,7 +1507,7 @@ public class Chrome
 
     @Override
     public void updateWorkspace() {
-        // No-op for now; WorkspaceItemsChipPanel updates via ContextListener
+        rightPanel.requestReviewUpdate();
     }
 
     public ContextManager getContextManager() {
@@ -1646,11 +1643,6 @@ public class Chrome
     }
 
     @Nullable
-    public GitCommitTab getGitCommitTab() {
-        return toolsPane.getGitCommitTab();
-    }
-
-    @Nullable
     public GitLogTab getGitLogTab() {
         return toolsPane.getGitLogTab();
     }
@@ -1701,7 +1693,8 @@ public class Chrome
         SwingUtilities.invokeLater(() -> {
             rightPanel.applyAdvancedModeVisibility();
             toolsPane.applyAdvancedModeVisibility();
-            updateGitTabBadge(getModifiedFiles().size());
+            contextManager.getProject().getRepo().getModifiedProjectFiles();
+            assert SwingUtilities.isEventDispatchThread() : "updateGitTabBadge(int) must be called on EDT";
             refreshKeybindings();
         });
     }
@@ -2456,15 +2449,6 @@ public class Chrome
         }
     }
 
-    /**
-     * Updates the git tab badge with the current number of modified files. Should be called whenever the git status
-     * changes
-     */
-    public void updateGitTabBadge(int modifiedCount) {
-        assert SwingUtilities.isEventDispatchThread() : "updateGitTabBadge(int) must be called on EDT";
-        toolsPane.updateGitTabBadge(modifiedCount);
-    }
-
     public void refreshBranchUi(@Nullable String branchName) {
         SwingUtilities.invokeLater(() -> {
             rightPanel.setBranchLabel(branchName);
@@ -2533,18 +2517,6 @@ public class Chrome
         int frameWidth = frame.getWidth();
         int byFraction = (int) (frameWidth * MIN_SIDEBAR_WIDTH_FRACTION);
         return Math.max(MIN_SIDEBAR_WIDTH_PX, byFraction);
-    }
-
-    /**
-     * Get the list of uncommitted modified files from GCT's cache.
-     * No repo call needed—uses the already-computed list from GitCommitTab.
-     * Safe to call from any thread.
-     */
-    public List<ProjectFile> getModifiedFiles() {
-        if (toolsPane.getGitCommitTab() == null) {
-            return List.of();
-        }
-        return toolsPane.getGitCommitTab().getModifiedFiles();
     }
 
     /**
