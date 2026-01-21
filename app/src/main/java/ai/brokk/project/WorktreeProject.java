@@ -8,12 +8,14 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
+import ai.brokk.util.ShellConfig;
 import ai.brokk.util.StringDiskCache;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 public final class WorktreeProject extends AbstractProject {
     private final MainProject parent;
@@ -146,6 +148,16 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public boolean getArchitectRunInWorktree() {
         return parent.getArchitectRunInWorktree();
+    }
+
+    @Override
+    public ShellConfig getShellConfig() {
+        return parent.getShellConfig();
+    }
+
+    @Override
+    public void setShellConfig(@Nullable ShellConfig config) {
+        parent.setShellConfig(config);
     }
 
     @Override
