@@ -1433,37 +1433,62 @@ public final class JobRunner {
 
                 future.complete(null);
             } catch (Throwable t) {
-                logger.error("Job {} execution failed", jobId, t);
-
                 var failure = unwrapFailure(t);
-                var errorMessage = formatThrowableMessage(failure);
 
-                // Emit error event
-                if (console != null) {
+                boolean isCancellation =
+                        cancelled.get() || failure instanceof IssueCancelledException || t instanceof IssueCancelledException;
+
+                if (isCancellation) {
+                    logger.info("Job {} cancelled", jobId, failure);
+
                     try {
-                        console.toolError(errorMessage, "Job error");
-                    } catch (Throwable ignore) {
-                        // Non-critical: event writing failed
+                        JobStatus s = store.loadStatus(jobId);
+                        if (s == null) {
+                            s = JobStatus.queued(jobId);
+                        }
+                        s = s.cancelled();
+                        if (console != null) {
+                            long lastSeq = console.getLastSeq();
+                            s = s.withMetadata("lastSeq", Long.toString(lastSeq));
+                        }
+                        store.updateStatus(jobId, s);
+                    } catch (Exception e2) {
+                        logger.warn("Failed to persist CANCELLED status for job {}", jobId, e2);
                     }
-                }
 
-                // Update status to FAILED
-                try {
-                    JobStatus s = store.loadStatus(jobId);
-                    if (s == null) {
-                        s = JobStatus.queued(jobId);
-                    }
-                    s = s.failed(errorMessage);
+                    future.complete(null);
+                } else {
+                    logger.error("Job {} execution failed", jobId, t);
+
+                    var errorMessage = formatThrowableMessage(failure);
+
+                    // Emit error event
                     if (console != null) {
-                        long lastSeq = console.getLastSeq();
-                        s = s.withMetadata("lastSeq", Long.toString(lastSeq));
+                        try {
+                            console.toolError(errorMessage, "Job error");
+                        } catch (Throwable ignore) {
+                            // Non-critical: event writing failed
+                        }
                     }
-                    store.updateStatus(jobId, s);
-                } catch (Exception e2) {
-                    logger.warn("Failed to persist FAILED status for job {}", jobId, e2);
-                }
 
-                future.completeExceptionally(failure);
+                    // Update status to FAILED
+                    try {
+                        JobStatus s = store.loadStatus(jobId);
+                        if (s == null) {
+                            s = JobStatus.queued(jobId);
+                        }
+                        s = s.failed(errorMessage);
+                        if (console != null) {
+                            long lastSeq = console.getLastSeq();
+                            s = s.withMetadata("lastSeq", Long.toString(lastSeq));
+                        }
+                        store.updateStatus(jobId, s);
+                    } catch (Exception e2) {
+                        logger.warn("Failed to persist FAILED status for job {}", jobId, e2);
+                    }
+
+                    future.completeExceptionally(failure);
+                }
             } finally {
                 // Clean up
                 if (console != null) {
