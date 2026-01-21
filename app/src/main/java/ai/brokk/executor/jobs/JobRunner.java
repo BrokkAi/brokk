@@ -1899,7 +1899,7 @@ public final class JobRunner {
     private static final Pattern DIFF_FENCE_PATTERN = Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
 
     static String maybeAnnotateDiffBlocks(String bodyMarkdown) {
-        if (bodyMarkdown == null || bodyMarkdown.isBlank() || !bodyMarkdown.contains("```diff")) {
+        if (bodyMarkdown.isBlank() || !bodyMarkdown.contains("```diff")) {
             return bodyMarkdown;
         }
 
