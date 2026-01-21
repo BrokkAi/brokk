@@ -76,42 +76,26 @@ class JobRunnerIssueModeTest {
     @Test
     void testIssueWriterModeParseMode_isCaseInsensitive() {
         JobSpec specUpper = JobSpec.of(
-                "task",
-                false,
-                false,
-                "gpt-4",
-                null,
-                null,
-                false,
-                Map.of("mode", "ISSUE_WRITER"),
-                (String) null);
+                "task", false, false, "gpt-4", null, null, false, Map.of("mode", "ISSUE_WRITER"), (String) null);
         assertEquals(JobRunner.Mode.ISSUE_WRITER, JobRunner.parseMode(specUpper));
 
         JobSpec specLower = JobSpec.of(
-                "task",
-                false,
-                false,
-                "gpt-4",
-                null,
-                null,
-                false,
-                Map.of("mode", "issue_writer"),
-                (String) null);
+                "task", false, false, "gpt-4", null, null, false, Map.of("mode", "issue_writer"), (String) null);
         assertEquals(JobRunner.Mode.ISSUE_WRITER, JobRunner.parseMode(specLower));
     }
 
     @Test
     void testParseMode_fallsBackToArchitect_onMissingBlankOrInvalidMode() {
-        JobSpec missingMode = JobSpec.of(
-                "task", false, false, "gpt-4", null, null, false, Map.of("x", "y"), (String) null);
+        JobSpec missingMode =
+                JobSpec.of("task", false, false, "gpt-4", null, null, false, Map.of("x", "y"), (String) null);
         assertEquals(JobRunner.Mode.ARCHITECT, JobRunner.parseMode(missingMode));
 
-        JobSpec blankMode = JobSpec.of(
-                "task", false, false, "gpt-4", null, null, false, Map.of("mode", "   "), (String) null);
+        JobSpec blankMode =
+                JobSpec.of("task", false, false, "gpt-4", null, null, false, Map.of("mode", "   "), (String) null);
         assertEquals(JobRunner.Mode.ARCHITECT, JobRunner.parseMode(blankMode));
 
-        JobSpec invalidMode = JobSpec.of(
-                "task", false, false, "gpt-4", null, null, false, Map.of("mode", "NOPE"), (String) null);
+        JobSpec invalidMode =
+                JobSpec.of("task", false, false, "gpt-4", null, null, false, Map.of("mode", "NOPE"), (String) null);
         assertEquals(JobRunner.Mode.ARCHITECT, JobRunner.parseMode(invalidMode));
     }
 

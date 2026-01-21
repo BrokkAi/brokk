@@ -1,8 +1,8 @@
 package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import org.junit.jupiter.api.Test;
 
@@ -47,12 +47,10 @@ class IssueWriterServiceTest {
 
     @Test
     void testParseIssueResponse_MissingFields_ReturnsNull() {
-        String onlyTitle =
-                """
+        String onlyTitle = """
                 { "title": "Bug: NPE in Foo" }
                 """;
-        String onlyBody =
-                """
+        String onlyBody = """
                 { "bodyMarkdown": "Steps..." }
                 """;
 
@@ -68,8 +66,7 @@ class IssueWriterServiceTest {
 
     @Test
     void testParseIssueResponse_WrongTypes_ReturnsNull() {
-        String wrongTypes =
-                """
+        String wrongTypes = """
                 { "title": 123, "bodyMarkdown": true }
                 """;
         assertNull(IssueWriterService.parseIssueResponse(wrongTypes));

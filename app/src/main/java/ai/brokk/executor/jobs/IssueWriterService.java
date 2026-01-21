@@ -56,6 +56,7 @@ public final class IssueWriterService {
             return null;
         }
 
-        return new IssueResponse(root.get("title").asText(), root.get("bodyMarkdown").asText());
+        return new IssueResponse(
+                root.get("title").asText(), root.get("bodyMarkdown").asText());
     }
 }

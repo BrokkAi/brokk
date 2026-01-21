@@ -109,8 +109,7 @@ public class GitTestCleanupUtil {
                 lastException = e;
 
                 if (attempt < DELETE_RETRY_BACKOFF_MS.length) {
-                    System.err.println(
-                            "Attempt " + attempt + " to delete " + directory + " failed: " + e.getMessage());
+                    System.err.println("Attempt " + attempt + " to delete " + directory + " failed: " + e.getMessage());
 
                     if (Environment.isWindows()) {
                         performWindowsFileHandleCleanup();

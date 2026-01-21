@@ -148,7 +148,9 @@ public class HeadlessExecCli {
 
     static WorkspaceSelection chooseWorkspaceRootForMode(String mode, String repoOwner, String repoName) {
         String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
-        if ("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode) || "ISSUE_WRITER".equals(normalizedMode)) {
+        if ("ISSUE".equals(normalizedMode)
+                || "REVIEW".equals(normalizedMode)
+                || "ISSUE_WRITER".equals(normalizedMode)) {
             String safeOwner = repoOwner.isBlank() ? "unknown-owner" : repoOwner.replaceAll("[^A-Za-z0-9._-]", "-");
             String safeRepo = repoName.isBlank() ? "unknown-repo" : repoName.replaceAll("[^A-Za-z0-9._-]", "-");
             String prefix = "brokk-headless-" + safeOwner + "-" + safeRepo + "-";
@@ -615,7 +617,8 @@ public class HeadlessExecCli {
         System.out.println("  --auto-compress          Enable auto-compress of context");
         System.out.println("  --help                   Show this help message");
         System.out.println();
-        System.out.println("ISSUE/REVIEW/ISSUE_WRITER Mode Options (required when --mode ISSUE, REVIEW, or ISSUE_WRITER):");
+        System.out.println(
+                "ISSUE/REVIEW/ISSUE_WRITER Mode Options (required when --mode ISSUE, REVIEW, or ISSUE_WRITER):");
         System.out.println("  --github-token TOKEN     GitHub API token");
         System.out.println("  --repo-owner OWNER       Repository owner (user or organization)");
         System.out.println("  --repo-name REPO         Repository name");

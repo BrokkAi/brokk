@@ -1076,10 +1076,12 @@ public final class JobRunner {
                                                     "ISSUE_WRITER requires github_token in tags");
                                         }
                                         if (repoOwner == null || repoOwner.isBlank()) {
-                                            throw new IllegalArgumentException("ISSUE_WRITER requires repo_owner in tags");
+                                            throw new IllegalArgumentException(
+                                                    "ISSUE_WRITER requires repo_owner in tags");
                                         }
                                         if (repoName == null || repoName.isBlank()) {
-                                            throw new IllegalArgumentException("ISSUE_WRITER requires repo_name in tags");
+                                            throw new IllegalArgumentException(
+                                                    "ISSUE_WRITER requires repo_name in tags");
                                         }
 
                                         if (cm.getProject().isEmptyProject()) {
@@ -1161,8 +1163,7 @@ public final class JobRunner {
                                                         ioe);
                                             }
 
-                                            String finalBodyMarkdown =
-                                                    maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
+                                            String finalBodyMarkdown = maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
 
                                             var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
 
@@ -1173,11 +1174,13 @@ public final class JobRunner {
                                                 }
                                             };
 
-                                            IssueHeader created = issueService.createIssue(parsed.title(), finalBodyMarkdown);
+                                            IssueHeader created =
+                                                    issueService.createIssue(parsed.title(), finalBodyMarkdown);
 
                                             String createdMsg = "ISSUE_WRITER: issue created";
                                             if (created != null) {
-                                                if (created.id() != null && !created.id().isBlank()) {
+                                                if (created.id() != null
+                                                        && !created.id().isBlank()) {
                                                     createdMsg += " " + created.id();
                                                 }
                                                 if (created.htmlUrl() != null) {
@@ -1896,8 +1899,7 @@ public final class JobRunner {
         throw new IssueExecutionException("Final gate failed unexpectedly");
     }
 
-    private static final Pattern DIFF_FENCE_PATTERN =
-            Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
+    private static final Pattern DIFF_FENCE_PATTERN = Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
 
     static String maybeAnnotateDiffBlocks(String bodyMarkdown) {
         if (bodyMarkdown == null || bodyMarkdown.isBlank() || !bodyMarkdown.contains("```diff")) {
