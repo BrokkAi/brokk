@@ -29,7 +29,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
-            IMPORT_DECLARATION,
+            "import.declaration", // importNodeType - matches @import.declaration capture in go.scm
             "name", // identifierFieldName (used as fallback if specific .name capture is missing)
             "body", // bodyFieldName (e.g. function_declaration.body -> block)
             "parameters", // parametersFieldName
