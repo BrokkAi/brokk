@@ -571,8 +571,12 @@ public class ArchitectAgent {
 
                 // Agent tools
                 allowed.add("callCodeAgent");
-                allowed.add("setBuildDetails");
-                allowed.add("verifyBuildCommand");
+
+                // only allow to run the tools when build settings are empty (mostly for new projects)
+                if (cm.getProject().loadBuildDetails().buildLintCommand().isBlank()) {
+                    allowed.add("setBuildDetails");
+                    allowed.add("verifyBuildCommand");
+                }
 
                 if (this.offerUndoToolNext) {
                     allowed.add("undoLastChanges");
@@ -1053,7 +1057,7 @@ public class ArchitectAgent {
                     """;
         }
 
-        if (cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+        if (cm.getProject().loadBuildDetails().buildLintCommand().isBlank()) {
             finalInstructions +=
                     """
 
