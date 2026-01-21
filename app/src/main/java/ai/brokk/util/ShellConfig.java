@@ -137,12 +137,12 @@ public record ShellConfig(String executable, List<String> args) {
             if (Files.exists(execPath) && Files.isExecutable(execPath)) {
                 return true;
             }
+
+            // If not found locally, search in PATH
+            return isExecutableOnPath(executable);
         } catch (InvalidPathException e) {
             return false;
         }
-
-        // If not found locally, search in PATH
-        return isExecutableOnPath(executable);
     }
 
     /** Check if an executable can be found on the system PATH */
