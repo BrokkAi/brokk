@@ -446,6 +446,48 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void issueModeTestLintRetryLoop_throwsIllegalArgumentException_whenMaxIterationsIsZero_andDoesNotInvokeCallbacks() {
+        var cancelled = new AtomicBoolean(false);
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> fail("progressSink must not be invoked");
+        Function<String, String> commandRunner = cmd -> fail("commandRunner must not be invoked");
+        Consumer<String> fixTaskRunner = out -> fail("fixTaskRunner must not be invoked");
+
+        var ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        0));
+
+        assertEquals("maxIterations must be >= 1", ex.getMessage());
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_throwsIllegalArgumentException_whenMaxIterationsIsNegative_andDoesNotInvokeCallbacks() {
+        var cancelled = new AtomicBoolean(false);
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> fail("progressSink must not be invoked");
+        Function<String, String> commandRunner = cmd -> fail("commandRunner must not be invoked");
+        Consumer<String> fixTaskRunner = out -> fail("fixTaskRunner must not be invoked");
+
+        var ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        -1));
+
+        assertEquals("maxIterations must be >= 1", ex.getMessage());
+    }
+
+    @Test
     void issueModeTestLintRetryLoop_throwsIssueCancelledException_whenCancelled() {
         var cancelled = new AtomicBoolean(true);
 

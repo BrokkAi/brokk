@@ -2025,6 +2025,10 @@ public final class JobRunner {
             Consumer<String> fixTaskRunner,
             BuildAgent.BuildDetails buildDetailsOverride,
             int maxIterations) {
+        if (maxIterations < 1) {
+            throw new IllegalArgumentException("maxIterations must be >= 1");
+        }
+
         String testCmd = buildDetailsOverride.testAllCommand();
         String lintCmd = buildDetailsOverride.buildLintCommand();
 
