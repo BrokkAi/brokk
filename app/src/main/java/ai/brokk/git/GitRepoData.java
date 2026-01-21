@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -84,7 +85,7 @@ public class GitRepoData {
     }
 
     /** Produces a combined diff of staged + unstaged changes, restricted to the given files. */
-    public String diffFiles(List<ProjectFile> files) throws GitAPIException {
+    public String diffFiles(Collection<ProjectFile> files) throws GitAPIException {
         var filters = files.stream()
                 .map(file -> PathFilter.create(repo.toRepoRelativePath(file)))
                 .collect(Collectors.toCollection(ArrayList::new));

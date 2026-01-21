@@ -702,6 +702,14 @@ public class ReviewParser {
                     // Reset pending metadata once consumed by a code block
                     pendingFile = null;
                     pendingLine = -1;
+                } else {
+                    // Non-excerpt code blocks are preserved as part of the text
+                    String fenced = fcb.getChars().toString();
+                    if (inRecommendation) {
+                        recommendation.append(fenced).append("\n");
+                    } else {
+                        description.append(fenced).append("\n");
+                    }
                 }
             } else if (node instanceof ListBlock) {
                 String filtered = filterAtFileLines(rawChars.trim());

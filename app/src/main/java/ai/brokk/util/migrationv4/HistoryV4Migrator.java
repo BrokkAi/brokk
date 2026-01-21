@@ -1,12 +1,12 @@
 package ai.brokk.util.migrationv4;
 
 import ai.brokk.IContextManager;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.util.HistoryIo;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -80,8 +80,7 @@ public class HistoryV4Migrator {
                 if (pathInZip.getParent() != null) {
                     Files.createDirectories(pathInZip.getParent());
                 }
-                Files.write(
-                        pathInZip, entry.getValue(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                AtomicWrites.save(pathInZip, entry.getValue());
             }
         }
     }

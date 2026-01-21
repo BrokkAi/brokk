@@ -222,7 +222,7 @@ class BrokkConfigPathsTest {
             Properties props = new Properties();
             props.setProperty("test.key", "test.value");
             props.setProperty("another.key", "another.value");
-            AtomicWrites.atomicSaveProperties(legacyFile, props, "Test properties");
+            AtomicWrites.save(legacyFile, props, "Test properties");
 
             // When: attempt migration
             boolean migrated = BrokkConfigPaths.attemptMigration(Optional.of(newConfigDir.toString()));
@@ -432,7 +432,7 @@ class BrokkConfigPathsTest {
             for (int i = 0; i < 1000; i++) {
                 props.setProperty("key" + i, "value" + i + "_".repeat(100)); // Add some bulk
             }
-            AtomicWrites.atomicSaveProperties(legacyFile, props, "Large test properties");
+            AtomicWrites.save(legacyFile, props, "Large test properties");
 
             // When: attempt migration
             boolean migrated = BrokkConfigPaths.attemptMigration(Optional.of(newConfigDir.toString()));

@@ -159,8 +159,14 @@ public class DtoMapper {
                 })
                 .toList();
 
-        var editableIds = ctx.fileFragments().map(ContextFragment::id).toList();
-        var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
+        var pathFragmentIds = ctx.allFragments()
+                .filter(f -> f.getType().isPath())
+                .map(ContextFragment::id)
+                .toList();
+        var nonPathFragmentIds = ctx.allFragments()
+                .filter(f -> !f.getType().isPath())
+                .map(ContextFragment::id)
+                .toList();
         var readonlyIds =
                 ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
         var pinnedIds = ctx.allFragments()
@@ -170,9 +176,9 @@ public class DtoMapper {
 
         return new CompactContextDto(
                 ctx.id().toString(),
-                editableIds,
+                pathFragmentIds,
                 readonlyIds,
-                virtualIds,
+                nonPathFragmentIds,
                 pinnedIds,
                 taskEntryRefs,
                 ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null);

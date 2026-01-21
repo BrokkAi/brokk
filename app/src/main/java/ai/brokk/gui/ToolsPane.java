@@ -1,7 +1,6 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitIssuesTab;
 import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.git.GitPullRequestsTab;
@@ -9,7 +8,6 @@ import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.tests.TestRunnerPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
@@ -46,9 +44,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
     private final TestRunnerPanel testRunnerPanel;
 
     @Nullable
-    private GitCommitTab gitCommitTab;
-
-    @Nullable
     private GitLogTab gitLogTab;
 
     @Nullable
@@ -59,12 +54,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
 
     @Nullable
     private GitIssuesTab issuesPanel;
-
-    @Nullable
-    private BadgedIcon gitTabBadgedIcon;
-
-    @Nullable
-    private JLabel gitTabLabel;
 
     @Nullable
     private JLabel projectFilesTabLabel;
@@ -125,7 +114,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
         });
 
         if (chrome.getProject().hasGit()) {
-            gitCommitTab = new GitCommitTab(chrome, contextManager);
             gitLogTab = new GitLogTab(chrome, contextManager);
             gitWorktreeTab = new GitWorktreeTab(chrome, contextManager);
         }
@@ -188,7 +176,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
     }
 
     private void removeAdvancedTabs() {
-        if (gitCommitTab != null) removeTab(gitCommitTab);
         if (gitLogTab != null) removeTab(gitLogTab);
         if (gitWorktreeTab != null) removeTab(gitWorktreeTab);
         if (pullRequestsPanel != null) removeTab(pullRequestsPanel);
@@ -205,22 +192,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
     }
 
     private void readdAdvancedTabs() {
-        if (gitCommitTab != null && toolsPane.indexOfComponent(gitCommitTab) == -1) {
-            gitTabBadgedIcon = new BadgedIcon(Icons.COMMIT, chrome.getTheme());
-            toolsPane.addTab(null, gitTabBadgedIcon, gitCommitTab);
-            int idx = toolsPane.indexOfComponent(gitCommitTab);
-            KeyStroke ks = GlobalUiSettings.getKeybinding(
-                    "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-            gitTabLabel = createSquareTabLabel(
-                    gitTabBadgedIcon, "Changes (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
-            toolsPane.setTabComponentAt(idx, gitTabLabel);
-            gitTabLabel.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mousePressed(MouseEvent e) {
-                    handleTabToggle(idx);
-                }
-            });
-        }
         if (gitLogTab != null && toolsPane.indexOfComponent(gitLogTab) == -1) {
             toolsPane.addTab(null, Icons.FLOWSHEET, gitLogTab);
             int idx = toolsPane.indexOfComponent(gitLogTab);
@@ -285,23 +256,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
                     handleTabToggle(idx);
                 }
             });
-        }
-    }
-
-    public void updateGitTabBadge(int count) {
-        if (gitTabBadgedIcon != null) {
-            gitTabBadgedIcon.setCount(count, toolsPane);
-            if (gitTabLabel != null) {
-                KeyStroke ks = GlobalUiSettings.getKeybinding(
-                        "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-                String shortcut = KeyboardShortcutUtil.formatKeyStroke(ks);
-                gitTabLabel.setToolTipText(
-                        count > 0
-                                ? String.format(
-                                        "Changes (%d modified file%s) (%s)", count, count == 1 ? "" : "s", shortcut)
-                                : "Changes (" + shortcut + ")");
-                gitTabLabel.repaint();
-            }
         }
     }
 
@@ -432,10 +386,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
 
     public JTabbedPane getToolsPane() {
         return toolsPane;
-    }
-
-    public @Nullable GitCommitTab getGitCommitTab() {
-        return gitCommitTab;
     }
 
     public @Nullable GitLogTab getGitLogTab() {

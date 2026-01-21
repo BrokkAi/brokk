@@ -763,6 +763,36 @@ class ReviewParserTest {
     }
 
     @Test
+    void testParseMarkdownReview_PreservesOrphanedCodeBlocks() {
+        String markdown =
+                """
+                ## Design Notes
+                ### Code Example
+                Check out this code:
+                ```java
+                int x = 1;
+                ```
+                **Recommendation:** Use this:
+                ```java
+                int x = 2;
+                ```
+                """
+                        .stripIndent();
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        assertEquals(1, review.designNotes().size());
+        ReviewParser.DesignFeedback note = review.designNotes().get(0);
+
+        // Description should contain the first code block
+        assertTrue(note.description().contains("```java\nint x = 1;\n```"));
+        // Recommendation should contain the second code block
+        assertTrue(note.recommendation().contains("```java\nint x = 2;\n```"));
+        // No excerpts should be created
+        assertTrue(note.excerpts().isEmpty());
+    }
+
+    @Test
     void testSectionRoundTrip() {
         String markdown =
                 """

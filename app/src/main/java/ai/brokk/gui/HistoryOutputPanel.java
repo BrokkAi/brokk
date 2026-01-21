@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
 import ai.brokk.LlmOutputMeta;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -931,7 +932,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         return "2|" + n.role.name() + "|" + n.timestamp + "|" + msgB64;
                     })
                     .toList();
-            Files.write(notificationsFile, linesToPersist, StandardCharsets.UTF_8);
+            AtomicWrites.save(notificationsFile, String.join("\n", linesToPersist) + "\n");
         } catch (Exception e) {
             logger.warn("Failed to persist notifications to {}", notificationsFile, e);
         }
@@ -942,7 +943,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             if (!Files.exists(notificationsFile)) {
                 return;
             }
-            var lines = Files.readAllLines(notificationsFile, StandardCharsets.UTF_8);
+            var lines = java.nio.file.Files.readAllLines(notificationsFile, StandardCharsets.UTF_8);
             for (var line : lines) {
                 if (line == null || line.isBlank()) continue;
                 var parts = line.split("\\|", 4);

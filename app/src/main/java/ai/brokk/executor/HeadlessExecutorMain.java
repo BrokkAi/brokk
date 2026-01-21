@@ -7,6 +7,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.http.SimpleHttpServer;
@@ -24,7 +25,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -879,7 +879,7 @@ public final class HeadlessExecutorMain {
         var cmSessionsDir = contextManager.getProject().getSessionManager().getSessionsDir();
         Files.createDirectories(cmSessionsDir);
         var sessionZipPath = cmSessionsDir.resolve(sessionId.toString() + ".zip");
-        Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        AtomicWrites.save(sessionZipPath, zipData);
 
         logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
 
@@ -1527,7 +1527,7 @@ public final class HeadlessExecutorMain {
 
             for (var projectFile : addedFiles) {
                 var fragId = liveContext
-                        .fileFragments()
+                        .allFragments()
                         .filter(f -> f instanceof ContextFragments.PathFragment)
                         .map(f -> (ContextFragments.PathFragment) f)
                         .filter(p -> {
@@ -1835,7 +1835,7 @@ public final class HeadlessExecutorMain {
 
             for (var className : validClassNames) {
                 var fragId = liveContext
-                        .virtualFragments()
+                        .allFragments()
                         .filter(f -> f instanceof ContextFragments.SummaryFragment)
                         .map(f -> (ContextFragments.SummaryFragment) f)
                         .filter(s -> s.getTargetIdentifier().contains(className))

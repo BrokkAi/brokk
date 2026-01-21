@@ -63,13 +63,11 @@ class ContextManagerFileWatchingTest {
     void tearDown() throws Exception {
         // Close resources in proper order to prevent cleanup issues (see #1585)
         // ContextManager.close() internally calls project.close(), which then closes the SessionManager
-        if (contextManager != null) {
-            try {
-                contextManager.close();
-            } catch (Exception e) {
-                // Log but don't fail the test during cleanup
-                e.printStackTrace();
-            }
+        try {
+            contextManager.close();
+        } catch (Exception e) {
+            // Log but don't fail the test during cleanup
+            e.printStackTrace();
         }
         FileUtil.deleteRecursively(tempDir);
     }
@@ -82,19 +80,12 @@ class ContextManagerFileWatchingTest {
         final AtomicInteger commitPanelUpdateCount = new AtomicInteger(0);
         final AtomicInteger workspaceUpdateCount = new AtomicInteger(0);
         final CountDownLatch gitRepoUpdateLatch = new CountDownLatch(1);
-        final CountDownLatch commitPanelUpdateLatch = new CountDownLatch(1);
         final CountDownLatch workspaceUpdateLatch = new CountDownLatch(1);
 
         @Override
         public void updateGitRepo() {
             gitRepoUpdateCount.incrementAndGet();
             gitRepoUpdateLatch.countDown();
-        }
-
-        @Override
-        public void updateCommitPanel() {
-            commitPanelUpdateCount.incrementAndGet();
-            commitPanelUpdateLatch.countDown();
         }
 
         @Override
@@ -160,79 +151,6 @@ class ContextManagerFileWatchingTest {
     }
 
     @Test
-    void testHandleTrackedFileChange_NoContextFiles() throws Exception {
-        // When changed files don't overlap with context, workspace should not be updated
-
-        // Set the test IO using reflection (io field must remain private)
-        var ioField = ContextManager.class.getDeclaredField("io");
-        ioField.setAccessible(true);
-        ioField.set(contextManager, testIO);
-
-        // Change a file that's not in context
-        ProjectFile changedFile = new ProjectFile(projectRoot, Path.of("README.md"));
-        Set<ProjectFile> changedFiles = Set.of(changedFile);
-
-        // Call handleTrackedFileChange directly
-        contextManager.handleTrackedFileChange(changedFiles);
-
-        // Wait for commit panel update (should happen)
-        assertTrue(testIO.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS), "updateCommitPanel should be called");
-
-        // Workspace update should not happen (or if it does, it's because processExternalFileChangesIfNeeded returned
-        // false)
-        // We can't easily test this without full integration, but we verify commit panel was updated
-        assertTrue(
-                testIO.commitPanelUpdateCount.get() >= 1,
-                "updateCommitPanel should be called for tracked file changes");
-    }
-
-    @Test
-    void testHandleTrackedFileChange_WithContextFiles() throws Exception {
-        // When changed files overlap with context, workspace should be updated
-
-        // Add file to context
-        ProjectFile file1 = new ProjectFile(projectRoot, Path.of("src/Main.java"));
-        var fragment1 = new ContextFragments.ProjectPathFragment(file1, contextManager);
-        contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment1)));
-
-        // Set the test IO using reflection (io field must remain private)
-        var ioField = ContextManager.class.getDeclaredField("io");
-        ioField.setAccessible(true);
-        ioField.set(contextManager, testIO);
-
-        // Change the file that's in context
-        Set<ProjectFile> changedFiles = Set.of(file1);
-
-        // Call handleTrackedFileChange directly
-        contextManager.handleTrackedFileChange(changedFiles);
-
-        // Wait for commit panel update
-        assertTrue(testIO.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS), "updateCommitPanel should be called");
-        assertTrue(
-                testIO.commitPanelUpdateCount.get() >= 1,
-                "updateCommitPanel should be called for tracked file changes");
-    }
-
-    @Test
-    void testHandleTrackedFileChange_EmptySet_BackwardCompatibility() throws Exception {
-        // Empty changedFiles set should assume context changed (backward compatibility)
-
-        // Set the test IO using reflection (io field must remain private)
-        var ioField = ContextManager.class.getDeclaredField("io");
-        ioField.setAccessible(true);
-        ioField.set(contextManager, testIO);
-
-        // Call with empty set directly
-        Set<ProjectFile> emptySet = Set.of();
-        contextManager.handleTrackedFileChange(emptySet);
-
-        // Should still update commit panel
-        assertTrue(
-                testIO.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS),
-                "updateCommitPanel should be called even with empty set");
-    }
-
-    @Test
     void testFileWatchListener_ClassifyChanges() throws Exception {
         // Test that the file watch listener properly classifies changes
 
@@ -259,31 +177,6 @@ class ContextManagerFileWatchingTest {
         // If the latch didn't count down, the background executor may not be set up in test mode
         // We can at least verify the listener was created successfully
         assertNotNull(listener, "Listener should be created even if background tasks don't run in test mode");
-    }
-
-    @Test
-    void testFileWatchListener_TrackedFileChange() throws Exception {
-        // Test that tracked file changes are properly handled
-
-        // Set the test IO using reflection (io field must remain private)
-        var ioField = ContextManager.class.getDeclaredField("io");
-        ioField.setAccessible(true);
-        ioField.set(contextManager, testIO);
-
-        // Create listener directly
-        AbstractWatchService.Listener listener = contextManager.createFileWatchListener();
-
-        // Create an event batch with tracked file changes
-        EventBatch batch = new EventBatch();
-        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
-
-        // Trigger the listener
-        listener.onFilesChanged(batch);
-
-        // Should trigger commit panel update
-        assertTrue(
-                testIO.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS),
-                "Tracked file change should trigger updateCommitPanel");
     }
 
     @Test

@@ -1598,11 +1598,16 @@ public class ContextFragments {
         @Blocking
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-            if (summaryType != SummaryType.CODEUNIT_SKELETON) {
-                return Set.of();
-            }
-
-            return resolveAncestorFragments(analyzer.getDefinitions(targetIdentifier), contextManager);
+            var codeUnits =
+                    switch (summaryType) {
+                        case CODEUNIT_SKELETON -> analyzer.getDefinitions(targetIdentifier);
+                        case FILE_SKELETONS -> {
+                            // In this case, targetIdentifier is a relative file path so we extract the TLDs first
+                            var file = contextManager.toFile(targetIdentifier);
+                            yield analyzer.getTopLevelDeclarations(file);
+                        }
+                    };
+            return resolveAncestorFragments(codeUnits, contextManager);
         }
 
         private static ContentSnapshot computeSnapshotFor(

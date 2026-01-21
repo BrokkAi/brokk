@@ -7,6 +7,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
@@ -127,7 +128,7 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
-    default String diffFiles(List<ProjectFile> selectedFiles) throws GitAPIException {
+    default String diffFiles(Collection<ProjectFile> files) throws GitAPIException {
         throw new UnsupportedOperationException();
     }
 
@@ -256,7 +257,15 @@ public interface IGitRepo {
     }
 
     default Set<ModifiedFile> getModifiedFiles() throws GitAPIException {
-        throw new UnsupportedOperationException("getModifiedFiles not implemented");
+        return Set.of();
+    }
+
+    default Set<ProjectFile> getModifiedProjectFiles() {
+        try {
+            return getModifiedFiles().stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toSet());
+        } catch (GitAPIException e) {
+            return Set.of();
+        }
     }
 
     default void checkout(String branchOrCommit) throws GitAPIException {

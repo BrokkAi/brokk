@@ -204,8 +204,10 @@ public class ContextActionsHandler {
 
                     // Check if already editable
                     var ctx = actions.contextManager.selectedContext();
-                    boolean isAlreadyEditable =
-                            ctx != null && ctx.fileFragments().anyMatch(f -> f == fragment);
+                    boolean isAlreadyEditable = ctx != null
+                            && ctx.allFragments()
+                                    .filter(f -> f.getType().isPath())
+                                    .anyMatch(f -> f == fragment);
 
                     if (isAlreadyEditable) {
                         list.add(WorkspaceAction.EDIT_FILE.createDisabledAction("Already in edit mode"));

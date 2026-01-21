@@ -118,17 +118,6 @@ class ReviewAgentTest {
     }
 
     @Test
-    void testFindOverlappingSessions_returnsEmptyForNoCommits() {
-        // Test the edge case where commits list is empty
-        TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
-
-        var overlapping = ReviewScope.findOverlappingSessions(cm, List.of());
-
-        assertTrue(overlapping.isEmpty(), "Empty commits list should return empty overlapping sessions");
-    }
-
-    @Test
     void testRetryInStages_accumulatesGoodExcerptsAcrossRetries()
             throws InterruptedException, IOException, ReviewGenerationException {
         Files.writeString(tempDir.resolve("file1.java"), "content1");

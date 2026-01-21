@@ -148,11 +148,7 @@ public final class JobStore {
         // Append as JSONL (one JSON object per line)
         var eventLine = objectMapper.writeValueAsString(eventWithSeq) + "\n";
         Files.createDirectories(jobDir);
-        Files.write(
-                eventsFile,
-                eventLine.getBytes(StandardCharsets.UTF_8),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND);
+        Files.writeString(eventsFile, eventLine, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
 
         logger.debug("Appended event {} to job {} with seq {}", event.type(), jobId, seq);
         return seq;
