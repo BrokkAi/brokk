@@ -1178,8 +1178,7 @@ public final class JobRunner {
                                                     issueService.createIssue(parsed.title(), finalBodyMarkdown);
 
                                             String createdMsg = "ISSUE_WRITER: issue created";
-                                            if (created.id() != null
-                                                    && !created.id().isBlank()) {
+                                            if (!created.id().isBlank()) {
                                                 createdMsg += " " + created.id();
                                             }
                                             if (created.htmlUrl() != null) {
