@@ -1,6 +1,7 @@
 package ai.brokk.context;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -157,9 +158,18 @@ public class CodeFragmentTest {
         var fragment = new ContextFragments.CodeFragment(contextManager, cls);
         String text = fragment.text().join();
 
-        String expectedImports = String.join("\n", imports);
-        assertTrue(text.startsWith(expectedImports), "Text should start with import statements");
-        assertCodeContains(text, "class Example {}");
+        assertCodeContains(
+                """
+                <imports>
+                import java.util.List;
+                import java.util.Map;
+                </imports>
+                
+                <class file="Example.java">
+                class Example {}
+                </class>
+                """,
+                text);
     }
 
     @Test
@@ -175,10 +185,13 @@ public class CodeFragmentTest {
         var fragment = new ContextFragments.CodeFragment(contextManager, cls);
         String text = fragment.text().join();
 
-        // The text is wrapped in a <file> tag by CodeWithSource.
-        // We check that the very first character is '<', meaning no leading newlines or imports.
-        assertTrue(text.startsWith("<"), "Text should start with the file tag, not whitespace or imports");
-        assertCodeContains(text, code);
+        assertCodeContains(
+                """
+                <class file="NoImports.java">
+                class NoImports {}
+                </class>
+                """,
+                text);
     }
 
     @Test
@@ -194,8 +207,17 @@ public class CodeFragmentTest {
         var fragment = new ContextFragments.CodeFragment(contextManager, method);
         String text = fragment.text().join();
 
-        assertTrue(text.startsWith("import java.util.List;"), "Text should start with import statements");
-        assertCodeContains(text, "void run() {}");
+        assertCodeEquals(
+                """
+                <imports>
+                import java.util.List;
+                </imports>
+
+                <methods class="com.example.Example" file="Example.java">
+                void run() {}
+                </methods>
+                """,
+                text);
     }
 
     @Test

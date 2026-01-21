@@ -1428,7 +1428,7 @@ public class ContextFragments {
 
                 List<String> imports = analyzer.importStatementsOf(unit.source());
                 if (!imports.isEmpty()) {
-                    text = String.join("\n", imports) + "\n\n" + text;
+                    text = "<imports>\n" + String.join("\n", imports) + "\n</imports>\n\n" + text;
                 }
             } else {
                 text = "No source found for %s: %s".formatted(unit.isFunction() ? "method" : "class", fqName);
