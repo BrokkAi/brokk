@@ -18,9 +18,6 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.DependencyTools;
-import ai.brokk.tools.NodeDependencyTools;
-import ai.brokk.tools.PythonDependencyTools;
-import ai.brokk.tools.RustDependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -543,25 +540,13 @@ public class ArchitectAgent {
 
             // Create a local registry for this planning turn
             var wst = new WorkspaceTools(this.context);
-            // Language-specific dependency tools
-            var javaDeps = DependencyTools.isSupported(cm.getProject())
+            // Unified dependency tools (supports Java, Python, Rust, Node.js)
+            var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))
                     : Optional.<DependencyTools>empty();
-            var pythonDeps = PythonDependencyTools.isSupported(cm.getProject())
-                    ? Optional.of(new PythonDependencyTools(cm))
-                    : Optional.<PythonDependencyTools>empty();
-            var rustDeps = RustDependencyTools.isSupported(cm.getProject())
-                    ? Optional.of(new RustDependencyTools(cm))
-                    : Optional.<RustDependencyTools>empty();
-            var nodeDeps = NodeDependencyTools.isSupported(cm.getProject())
-                    ? Optional.of(new NodeDependencyTools(cm))
-                    : Optional.<NodeDependencyTools>empty();
 
             var builder = cm.getToolRegistry().builder().register(this).register(wst);
-            javaDeps.ifPresent(builder::register);
-            pythonDeps.ifPresent(builder::register);
-            rustDeps.ifPresent(builder::register);
-            nodeDeps.ifPresent(builder::register);
+            depTools.ifPresent(builder::register);
             var tr = builder.build();
 
             // Decide tool availability for this step
@@ -590,18 +575,9 @@ public class ArchitectAgent {
                 allowed.add("setBuildDetails");
                 allowed.add("verifyBuildCommand");
 
-                // Dependency tools (language-scoped)
-                if (javaDeps.isPresent()) {
-                    allowed.add("importMavenDependency");
-                }
-                if (pythonDeps.isPresent()) {
-                    allowed.add("importPythonPackage");
-                }
-                if (rustDeps.isPresent()) {
-                    allowed.add("importRustCrate");
-                }
-                if (nodeDeps.isPresent()) {
-                    allowed.add("importNpmPackage");
+                // Unified dependency import tool (supports Java, Python, Rust, Node.js)
+                if (depTools.isPresent()) {
+                    allowed.add("importDependency");
                 }
 
                 if (this.offerUndoToolNext) {
