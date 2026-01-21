@@ -14,6 +14,8 @@ import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
+import ai.brokk.issues.GitHubIssueService;
+import ai.brokk.issues.IssueHeader;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -35,6 +37,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -1062,6 +1066,131 @@ public final class JobRunner {
                                                     jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
                                         }
                                     }
+                                    case ISSUE_WRITER -> {
+                                        String githubToken = spec.getGithubToken();
+                                        String repoOwner = spec.getRepoOwner();
+                                        String repoName = spec.getRepoName();
+
+                                        if (githubToken == null || githubToken.isBlank()) {
+                                            throw new IllegalArgumentException(
+                                                    "ISSUE_WRITER requires github_token in tags");
+                                        }
+                                        if (repoOwner == null || repoOwner.isBlank()) {
+                                            throw new IllegalArgumentException("ISSUE_WRITER requires repo_owner in tags");
+                                        }
+                                        if (repoName == null || repoName.isBlank()) {
+                                            throw new IllegalArgumentException("ISSUE_WRITER requires repo_name in tags");
+                                        }
+
+                                        try {
+                                            store.appendEvent(
+                                                    jobId,
+                                                    JobEvent.of(
+                                                            "NOTIFICATION",
+                                                            "ISSUE_WRITER: starting repository discovery"));
+                                        } catch (IOException ioe) {
+                                            logger.warn(
+                                                    "Failed to append ISSUE_WRITER start notification for job {}: {}",
+                                                    jobId,
+                                                    ioe.getMessage(),
+                                                    ioe);
+                                        }
+
+                                        try (var scope = cm.beginTaskUngrouped("Issue Writer")) {
+                                            var context = cm.liveContext();
+
+                                            var model = resolveModelOrThrow(
+                                                    spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
+
+                                            String goal =
+                                                    """
+                                                    You are an Issue Writer. Your task: write a high-quality GitHub issue based on the user's request.
+
+                                                    User request:
+                                                    %s
+
+                                                    OUTPUT FORMAT (STRICT):
+                                                    Output ONLY a single JSON object with this exact schema:
+
+                                                    { "title": "...", "bodyMarkdown": "..." }
+
+                                                    Rules:
+                                                    - Output ONLY the JSON object (no markdown fences, no extra text).
+                                                    - "title" must be a concise issue title.
+                                                    - "bodyMarkdown" must be GitHub-flavored Markdown describing the problem, expected behavior, actual behavior (if known), steps to reproduce (if known), and any relevant context.
+                                                    """
+                                                            .formatted(spec.taskInput());
+
+                                            var agent = new LutzAgent(
+                                                    context,
+                                                    goal,
+                                                    model,
+                                                    SearchPrompts.Objective.ANSWER_ONLY,
+                                                    scope);
+                                            var result = agent.execute();
+                                            scope.append(result);
+
+                                            String raw = result.output().text().join();
+                                            var parsed = IssueWriterService.parseIssueResponse(raw);
+                                            if (parsed == null) {
+                                                String preview = raw == null
+                                                        ? "(null)"
+                                                        : (raw.length() > 500 ? raw.substring(0, 500) + "..." : raw);
+                                                throw new IllegalStateException(
+                                                        "ISSUE_WRITER discovery output was not valid JSON with required fields. Output preview: "
+                                                                + preview);
+                                            }
+
+                                            try {
+                                                store.appendEvent(
+                                                        jobId,
+                                                        JobEvent.of(
+                                                                "NOTIFICATION",
+                                                                "ISSUE_WRITER: discovery complete (title: "
+                                                                        + parsed.title() + ")"));
+                                            } catch (IOException ioe) {
+                                                logger.warn(
+                                                        "Failed to append ISSUE_WRITER discovery-complete notification for job {}: {}",
+                                                        jobId,
+                                                        ioe.getMessage(),
+                                                        ioe);
+                                            }
+
+                                            String finalBodyMarkdown =
+                                                    maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
+
+                                            var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+
+                                            var issueService = new GitHubIssueService(cm.getProject()) {
+                                                @Override
+                                                protected GitHubAuth getAuth() {
+                                                    return auth;
+                                                }
+                                            };
+
+                                            IssueHeader created = issueService.createIssue(parsed.title(), finalBodyMarkdown);
+
+                                            String createdMsg = "ISSUE_WRITER: issue created";
+                                            if (created != null) {
+                                                if (created.id() != null && !created.id().isBlank()) {
+                                                    createdMsg += " " + created.id();
+                                                }
+                                                if (created.htmlUrl() != null) {
+                                                    createdMsg += " " + created.htmlUrl();
+                                                }
+                                            }
+
+                                            try {
+                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
+                                            } catch (IOException ioe) {
+                                                logger.warn(
+                                                        "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
+                                                        jobId,
+                                                        ioe.getMessage(),
+                                                        ioe);
+                                            }
+                                        }
+                                    }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                 }
 
@@ -1760,6 +1889,34 @@ public final class JobRunner {
         }
 
         throw new IssueExecutionException("Final gate failed unexpectedly");
+    }
+
+    private static final Pattern DIFF_FENCE_PATTERN =
+            Pattern.compile("```diff\\R(.*?)\\R```", Pattern.DOTALL);
+
+    private static String maybeAnnotateDiffBlocks(String bodyMarkdown) {
+        if (bodyMarkdown == null || bodyMarkdown.isBlank() || !bodyMarkdown.contains("```diff")) {
+            return bodyMarkdown;
+        }
+
+        Matcher matcher = DIFF_FENCE_PATTERN.matcher(bodyMarkdown);
+        if (!matcher.find()) {
+            return bodyMarkdown;
+        }
+
+        matcher.reset();
+
+        var out = new StringBuilder();
+        int lastEnd = 0;
+        while (matcher.find()) {
+            out.append(bodyMarkdown, lastEnd, matcher.start());
+            String content = matcher.group(1);
+            String annotated = PrReviewService.annotateDiffWithLineNumbers(content);
+            out.append("```diff\n").append(annotated).append("\n```");
+            lastEnd = matcher.end();
+        }
+        out.append(bodyMarkdown.substring(lastEnd));
+        return out.toString();
     }
 
     static boolean issueDeliveryEnabled(JobSpec spec) {
