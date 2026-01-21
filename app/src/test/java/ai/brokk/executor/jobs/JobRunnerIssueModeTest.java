@@ -3,6 +3,7 @@ package ai.brokk.executor.jobs;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
 import java.nio.file.Files;
@@ -10,9 +11,14 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -181,7 +187,7 @@ class JobRunnerIssueModeTest {
                 }
                 """;
 
-        BuildAgent.BuildDetails details = IssueService.parseBuildSettings(json);
+        BuildDetails details = IssueService.parseBuildSettings(json);
         assertEquals("./gradlew classes", details.buildLintCommand());
         assertEquals("./gradlew test", details.testAllCommand());
         assertEquals("./gradlew test --tests", details.testSomeCommand());
@@ -190,9 +196,9 @@ class JobRunnerIssueModeTest {
     @Test
     void testParseBuildSettingsEmpty() {
         // Null or blank input should return EMPTY
-        assertEquals(BuildAgent.BuildDetails.EMPTY, IssueService.parseBuildSettings(null));
-        assertEquals(BuildAgent.BuildDetails.EMPTY, IssueService.parseBuildSettings(""));
-        assertEquals(BuildAgent.BuildDetails.EMPTY, IssueService.parseBuildSettings("   "));
+        assertEquals(BuildDetails.EMPTY, IssueService.parseBuildSettings(null));
+        assertEquals(BuildDetails.EMPTY, IssueService.parseBuildSettings(""));
+        assertEquals(BuildDetails.EMPTY, IssueService.parseBuildSettings("   "));
     }
 
     @Test
@@ -249,12 +255,12 @@ class JobRunnerIssueModeTest {
         var fixCalls = new AtomicInteger(0);
         var io = new TestConsoleIO();
 
-        java.util.function.Supplier<String> verificationRunner = () -> {
+        Supplier<String> verificationRunner = () -> {
             int c = verificationCalls.incrementAndGet();
             // First verification fails, second verification also fails to exercise exception path.
             return c == 1 ? "initial failure" : "still failing";
         };
-        java.util.function.Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
+        Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
@@ -273,14 +279,14 @@ class JobRunnerIssueModeTest {
         var calls = new ArrayList<String>();
         var prompts = new ArrayList<String>();
 
-        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
-        java.util.function.Function<String, String> commandRunner = cmd -> {
+        Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
             return "TEST FAILED OUTPUT";
         };
 
-        java.util.function.Consumer<String> fixTaskRunner = out -> prompts.add("fix this build error:\n" + out);
+        Consumer<String> fixTaskRunner = out -> prompts.add("fix this build error:\n" + out);
 
         assertThrows(
                 IssueExecutionException.class,
@@ -289,7 +295,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
                         2));
 
         assertEquals(List.of("./gradlew test", "./gradlew test"), calls, "Lint must be skipped when tests fail");
@@ -307,9 +313,9 @@ class JobRunnerIssueModeTest {
 
         var calls = new ArrayList<String>();
 
-        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
-        java.util.function.Function<String, String> commandRunner = cmd -> {
+        Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
 
             if (cmd.equals(testCmd)) {
@@ -322,7 +328,7 @@ class JobRunnerIssueModeTest {
             return fail("Unexpected command: " + cmd);
         };
 
-        java.util.function.Consumer<String> fixTaskRunner = out -> {};
+        Consumer<String> fixTaskRunner = out -> {};
 
         assertThrows(
                 IssueExecutionException.class,
@@ -331,7 +337,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildAgent.BuildDetails(lintCmd, testCmd, "", java.util.Set.of()),
+                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
                         2));
 
         assertEquals(List.of(testCmd, testCmd), calls, "Should run only tests each iteration; lint is skipped");
@@ -346,9 +352,9 @@ class JobRunnerIssueModeTest {
 
         var calls = new ArrayList<String>();
 
-        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
-        java.util.function.Function<String, String> commandRunner = cmd -> {
+        Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
 
             if (cmd.equals(testCmd)) {
@@ -361,14 +367,14 @@ class JobRunnerIssueModeTest {
             return fail("Unexpected command: " + cmd);
         };
 
-        java.util.function.Consumer<String> fixTaskRunner = out -> fail("No fix tasks when both pass");
+        Consumer<String> fixTaskRunner = out -> fail("No fix tasks when both pass");
 
         JobRunner.runIssueModeTestLintRetryLoop(
                 cancelled::get,
                 progressSink,
                 commandRunner,
                 fixTaskRunner,
-                new BuildAgent.BuildDetails(lintCmd, testCmd, "", java.util.Set.of()),
+                new BuildDetails(lintCmd, testCmd, "", Set.of()),
                 20);
 
         assertEquals(List.of(testCmd, lintCmd), calls, "Must run tests first, then lint second");
@@ -381,9 +387,9 @@ class JobRunnerIssueModeTest {
         var calls = new ArrayList<String>();
         var fixPrompts = new ArrayList<String>();
 
-        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
-        java.util.function.Function<String, String> commandRunner = cmd -> {
+        Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
             if (calls.size() % 2 == 1) {
                 return "";
@@ -391,7 +397,7 @@ class JobRunnerIssueModeTest {
             return "LINT FAILED OUTPUT";
         };
 
-        java.util.function.Consumer<String> fixTaskRunner = out -> fixPrompts.add("fix this build error:\n" + out);
+        Consumer<String> fixTaskRunner = out -> fixPrompts.add("fix this build error:\n" + out);
 
         assertThrows(
                 IssueExecutionException.class,
@@ -400,7 +406,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
                         2));
 
         assertEquals(List.of("./gradlew test", "./gradlew lint", "./gradlew test", "./gradlew lint"), calls);
@@ -415,21 +421,21 @@ class JobRunnerIssueModeTest {
         var calls = new ArrayList<String>();
         var fixCalls = new AtomicInteger(0);
 
-        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
-        java.util.function.Function<String, String> commandRunner = cmd -> {
+        Function<String, String> commandRunner = cmd -> {
             calls.add(cmd);
             return "";
         };
 
-        java.util.function.Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+        Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
 
         JobRunner.runIssueModeTestLintRetryLoop(
                 cancelled::get,
                 progressSink,
                 commandRunner,
                 fixTaskRunner,
-                new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
+                new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
                 20);
 
         assertEquals(List.of("./gradlew test", "./gradlew lint"), calls, "Should run tests then lint once");
@@ -440,10 +446,10 @@ class JobRunnerIssueModeTest {
     void issueModeTestLintRetryLoop_throwsIssueCancelledException_whenCancelled() {
         var cancelled = new AtomicBoolean(true);
 
-        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
-        java.util.function.Function<String, String> commandRunner = cmd -> fail("Command must not run when cancelled");
-        java.util.function.Consumer<String> fixTaskRunner = out -> fail("Fix task must not run when cancelled");
+        Function<String, String> commandRunner = cmd -> fail("Command must not run when cancelled");
+        Consumer<String> fixTaskRunner = out -> fail("Fix task must not run when cancelled");
 
         assertThrows(
                 JobRunner.IssueCancelledException.class,
@@ -452,7 +458,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
                         20));
     }
 
@@ -463,14 +469,14 @@ class JobRunnerIssueModeTest {
         var fixCalls = new AtomicInteger(0);
         var testCalls = new AtomicInteger(0);
 
-        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
-        java.util.function.Function<String, String> commandRunner = cmd -> {
+        Function<String, String> commandRunner = cmd -> {
             testCalls.incrementAndGet();
             return "always failing";
         };
 
-        java.util.function.Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+        Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
@@ -479,7 +485,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildAgent.BuildDetails("./gradlew lint", "./gradlew test", "", java.util.Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
                         20));
 
         assertEquals(20, testCalls.get(), "Must run exactly 20 iterations");
@@ -499,9 +505,9 @@ class JobRunnerIssueModeTest {
         var lintCalls = new AtomicInteger(0);
         var fixCalls = new AtomicInteger(0);
 
-        java.util.function.BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
-        java.util.function.Function<String, String> commandRunner = cmd -> {
+        Function<String, String> commandRunner = cmd -> {
             if (cmd.equals(testCmd)) {
                 return fail("Test command must not be invoked when testAllCommand() is blank");
             }
@@ -512,7 +518,7 @@ class JobRunnerIssueModeTest {
             return fail("Unexpected command: " + cmd);
         };
 
-        java.util.function.Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+        Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
@@ -521,7 +527,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildAgent.BuildDetails(lintCmd, testCmd, "", java.util.Set.of()),
+                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
                         maxIterations));
 
         assertEquals(maxIterations, lintCalls.get(), "Lint must be invoked once per iteration");
@@ -546,13 +552,18 @@ class JobRunnerIssueModeTest {
 
         var currentPhase = new AtomicReference<String>("START");
 
-        java.util.function.Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
+        Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
             String prompt = JobRunner.buildInlineCommentFixPrompt(c);
             prompts.add(prompt);
             return prompt;
         };
 
-        java.util.function.Consumer<String> taskRunner = prompt -> {
+        Consumer<String> taskRunner = prompt -> {
+            assertEquals("TASKS", currentPhase.get(), "Tasks must run during TASKS phase");
+            int idx = taskIndex.incrementAndGet();
+            observed.add("task-" + idx);
+            observed.add("prompt-" + idx + ":" + prompt);
+        };
             assertEquals("TASKS", currentPhase.get(), "Tasks must run during TASKS phase");
             int idx = taskIndex.incrementAndGet();
             observed.add("task-" + idx);
@@ -625,12 +636,18 @@ class JobRunnerIssueModeTest {
 
         var observed = new ArrayList<String>();
 
-        java.util.function.Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
+        Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
             promptsBuilt.incrementAndGet();
             return JobRunner.buildInlineCommentFixPrompt(c);
         };
 
-        java.util.function.Consumer<String> taskRunner = prompt -> {
+        Consumer<String> taskRunner = prompt -> {
+            int idx = tasksRun.incrementAndGet();
+            observed.add("task-" + idx);
+            if (idx == 1) {
+                cancelled.set(true);
+            }
+        };
             int idx = tasksRun.incrementAndGet();
             observed.add("task-" + idx);
             if (idx == 1) {
@@ -688,11 +705,11 @@ class JobRunnerIssueModeTest {
         var io = new TestConsoleIO();
         var prCreated = new AtomicBoolean(false);
 
-        java.util.function.Supplier<String> verificationRunner = () -> {
+        Supplier<String> verificationRunner = () -> {
             verificationCalls.incrementAndGet();
             return "still failing";
         };
-        java.util.function.Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
+        Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
         assertThrows(IssueExecutionException.class, () -> {
             JobRunner.runSingleFixVerificationGate("job-pr-skip-1", store, io, verificationRunner, fixRunner);
