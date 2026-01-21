@@ -342,13 +342,6 @@ public class DtoMapper {
                         stDto.exception(),
                         reader.readContent(stDto.codeContentId()));
             }
-            case CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.CallGraphFragment(
-                        callGraphDto.id(),
-                        mgr,
-                        callGraphDto.methodName(),
-                        callGraphDto.depth(),
-                        callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto -> {
                 String snapshot = codeDto.snapshotText() != null ? reader.readContent(codeDto.snapshotText()) : null;
                 yield new ContextFragments.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);
@@ -487,8 +480,6 @@ public class DtoMapper {
                 yield new StacktraceFragmentDto(
                         stf.id(), sourcesDto, originalContentId, stf.getException(), codeContentId);
             }
-            case ContextFragments.CallGraphFragment cgf ->
-                new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
             case ContextFragments.CodeFragment cf -> {
                 String snapshotId = null;
                 String snapshot = cf.text().tryGet().orElse(null);
@@ -743,19 +734,6 @@ public class DtoMapper {
                             ? reader.readContent(ffd.contentId())
                             : null;
                     return new ContextFragments.UsageFragment(mgr, targetIdentifier, true, snapshot);
-                }
-                case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
-                        "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
-                    var methodName = meta.get("methodName");
-                    var depthStr = meta.get("depth");
-                    var isCalleeGraphStr = meta.get("isCalleeGraph");
-                    if (methodName == null || depthStr == null || isCalleeGraphStr == null) {
-                        throw new IllegalArgumentException(
-                                "Missing 'methodName', 'depth' or 'isCalleeGraph' for CallGraphFragment");
-                    }
-                    int depth = Integer.parseInt(depthStr);
-                    boolean isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                    return new ContextFragments.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {

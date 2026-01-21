@@ -95,11 +95,6 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        return List.of();
-    }
-
-    @Override
     public List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return List.of();
     }
@@ -112,5 +107,25 @@ public class DisabledAnalyzer implements IAnalyzer {
     @Override
     public boolean containsTests(ProjectFile file) {
         return false;
+    }
+
+    @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        return Set.of();
     }
 }

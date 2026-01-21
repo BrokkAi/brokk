@@ -27,6 +27,10 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * Mapper for legacy V3 DTOs.
+ *
+ */
 public class V3_DtoMapper {
     private static final Logger logger = LogManager.getLogger(V3_DtoMapper.class);
 
@@ -266,16 +270,8 @@ public class V3_DtoMapper {
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
                         "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
-                    var methodName = meta.get("methodName");
-                    var depthStr = meta.get("depth");
-                    var isCalleeGraphStr = meta.get("isCalleeGraph");
-                    if (methodName == null || depthStr == null || isCalleeGraphStr == null) {
-                        throw new IllegalArgumentException(
-                                "Missing 'methodName', 'depth' or 'isCalleeGraph' for CallGraphFragment");
-                    }
-                    int depth = Integer.parseInt(depthStr);
-                    boolean isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                    return new ContextFragments.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
+                    logger.warn("CallGraph fragments are no longer supported, dropping fragment");
+                    return null;
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {
@@ -380,13 +376,10 @@ public class V3_DtoMapper {
                         stDto.exception(),
                         reader.readContent(stDto.codeContentId()));
             }
-            case V3_FragmentDtos.CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.CallGraphFragment(
-                        callGraphDto.id(),
-                        mgr,
-                        callGraphDto.methodName(),
-                        callGraphDto.depth(),
-                        callGraphDto.isCalleeGraph());
+            case V3_FragmentDtos.CallGraphFragmentDto ignored -> {
+                logger.warn("CallGraph fragments are no longer supported, dropping fragment");
+                yield null;
+            }
             case V3_FragmentDtos.CodeFragmentDto codeDto -> {
                 // Extract fully qualified name from the V3 CodeUnitDto and preserve the ID
                 String fqName = buildFullyQualifiedName(codeDto.unit());

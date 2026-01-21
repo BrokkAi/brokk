@@ -12,7 +12,6 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.dialogs.AttachContextDialog;
-import ai.brokk.gui.dialogs.CallGraphDialog;
 import ai.brokk.gui.dialogs.SymbolSelectionDialog;
 import ai.brokk.prompts.CopyExternalPrompts;
 import ai.brokk.tools.WorkspaceTools;
@@ -848,70 +847,6 @@ public class ContextActionsHandler {
         });
     }
 
-    public void findMethodCallersAsync() {
-        if (!isAnalyzerReady()) {
-            return;
-        }
-
-        contextManager.submitContextTask(() -> {
-            try {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
-                if (analyzer.isEmpty()) {
-                    chrome.toolError("Code Intelligence is empty; nothing to add");
-                    return;
-                }
-
-                var dialog = showCallGraphDialog("Select Method", true);
-                if (dialog == null || !dialog.isConfirmed()) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No method selected.");
-                } else {
-                    var selectedMethod = dialog.getSelectedMethod();
-                    var callGraph = dialog.getCallGraph();
-                    if (selectedMethod != null && callGraph != null) {
-                        contextManager.addCallersForMethod(selectedMethod, dialog.getDepth(), callGraph);
-                    } else {
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO, "Method selection incomplete or cancelled.");
-                    }
-                }
-            } catch (CancellationException cex) {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Method selection canceled.");
-            }
-        });
-    }
-
-    public void findMethodCalleesAsync() {
-        if (!isAnalyzerReady()) {
-            return;
-        }
-
-        contextManager.submitContextTask(() -> {
-            try {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
-                if (analyzer.isEmpty()) {
-                    chrome.toolError("Code Intelligence is empty; nothing to add");
-                    return;
-                }
-
-                var dialog = showCallGraphDialog("Select Method for Callees", false);
-                if (dialog == null || !dialog.isConfirmed()) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No method selected.");
-                } else {
-                    var selectedMethod = dialog.getSelectedMethod();
-                    var callGraph = dialog.getCallGraph();
-                    if (selectedMethod != null && callGraph != null) {
-                        contextManager.calleesForMethod(selectedMethod, dialog.getDepth(), callGraph);
-                    } else {
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO, "Method selection incomplete or cancelled.");
-                    }
-                }
-            } catch (CancellationException cex) {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Method selection canceled.");
-            }
-        });
-    }
-
     private @Nullable SymbolSelectionDialog.SymbolSelection showSymbolSelectionDialog(
             String title, Set<CodeUnitType> typeFilter) {
         var analyzer = contextManager.getAnalyzerUninterrupted();
@@ -925,21 +860,6 @@ public class ContextActionsHandler {
         });
         var dialog = castNonNull(dialogRef.get());
         return dialog.isConfirmed() ? dialog.getSelection() : null;
-    }
-
-    private @Nullable CallGraphDialog showCallGraphDialog(String title, boolean isCallerGraph) {
-        var analyzer = contextManager.getAnalyzerUninterrupted();
-        var dialogRef = new AtomicReference<CallGraphDialog>();
-        SwingUtil.runOnEdt(() -> {
-            var dialog = new CallGraphDialog(chrome.getFrame(), analyzer, title, isCallerGraph);
-            dialog.setSize((int) (chrome.getFrame().getWidth() * 0.9), dialog.getHeight());
-            dialog.setLocationRelativeTo(chrome.getFrame());
-            dialog.setVisible(true);
-            dialogRef.set(dialog);
-        });
-
-        var dialog = castNonNull(dialogRef.get());
-        return dialog.isConfirmed() ? dialog : null;
     }
 
     private boolean isAnalyzerReady() {

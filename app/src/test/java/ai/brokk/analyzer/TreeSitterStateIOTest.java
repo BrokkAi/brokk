@@ -347,7 +347,8 @@ public class TreeSitterStateIOTest {
             CodeUnit derivedCu = analyzer.getDefinitions("com.example.Derived").getFirst();
 
             // Trigger hierarchy computation (lazily populates the internal TypeHierarchyGraph)
-            Set<CodeUnit> descendants = analyzer.getDirectDescendants(baseCu);
+            Set<CodeUnit> descendants =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertTrue(descendants.contains(derivedCu), "Base should have Derived as descendant");
 
             // Save state - this serializes the populated TypeHierarchyGraph
@@ -358,7 +359,8 @@ public class TreeSitterStateIOTest {
             IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
 
             // Verify descendants from loaded state without re-triggering full analysis
-            Set<CodeUnit> loadedDescendants = loaded.getDirectDescendants(baseCu);
+            Set<CodeUnit> loadedDescendants =
+                    loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertTrue(loadedDescendants.contains(derivedCu), "Loaded analyzer should retain descendants");
             assertEquals(descendants.size(), loadedDescendants.size());
         }
@@ -383,7 +385,8 @@ public class TreeSitterStateIOTest {
             CodeUnit bCu = analyzer.getDefinitions("com.example.B").getFirst();
 
             // Trigger lazy computation of subtypes for Base
-            Set<CodeUnit> originalDescendants = analyzer.getDirectDescendants(baseCu);
+            Set<CodeUnit> originalDescendants =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertTrue(originalDescendants.contains(aCu));
             assertTrue(originalDescendants.contains(bCu));
 
@@ -397,7 +400,8 @@ public class TreeSitterStateIOTest {
             // Verify that getDirectDescendants returns the same results
             // In TreeSitterAnalyzer, if the state contains the results in TypeHierarchyGraph,
             // they are returned immediately.
-            Set<CodeUnit> loadedDescendants = loaded.getDirectDescendants(baseCu);
+            Set<CodeUnit> loadedDescendants =
+                    loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertEquals(originalDescendants, loadedDescendants, "Subtypes should match after round-trip");
 
             // Specifically verify that no re-computation happened by checking the loaded state directly

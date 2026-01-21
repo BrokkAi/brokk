@@ -497,8 +497,7 @@ public class TreeSitterAnalyzerRustTest {
     @Test
     void testGetClassSource_Rust() {
         // Source for struct Point
-        String pointSource =
-                AnalyzerUtil.getClassSource(rsAnalyzer, "Point", true).get();
+        String pointSource = AnalyzerUtil.getSource(rsAnalyzer, "Point", true).get();
         String expectedPointSource =
                 """
                                      pub struct Point {
@@ -510,7 +509,7 @@ public class TreeSitterAnalyzerRustTest {
 
         // Source for trait Drawable
         String drawableSource =
-                AnalyzerUtil.getClassSource(rsAnalyzer, "Drawable", true).get();
+                AnalyzerUtil.getSource(rsAnalyzer, "Drawable", true).get();
         String expectedDrawableSource =
                 """
                                         pub trait Drawable {
@@ -520,8 +519,7 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(normalizeSource.apply(expectedDrawableSource), normalizeSource.apply(drawableSource));
 
         // Source for enum Color
-        String colorSource =
-                AnalyzerUtil.getClassSource(rsAnalyzer, "Color", true).get();
+        String colorSource = AnalyzerUtil.getSource(rsAnalyzer, "Color", true).get();
         String expectedColorSource =
                 """
                                      // To test package name with subdirectories
@@ -539,8 +537,7 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(normalizeSource.apply(expectedColorSource), normalizeSource.apply(colorSource));
 
         // Source for trait Shape
-        String shapeSource =
-                AnalyzerUtil.getClassSource(rsAnalyzer, "Shape", true).get();
+        String shapeSource = AnalyzerUtil.getSource(rsAnalyzer, "Shape", true).get();
         String expectedShapeSource =
                 """
                                      pub trait Shape {
@@ -549,28 +546,11 @@ public class TreeSitterAnalyzerRustTest {
                                      }
                                      """;
         assertEquals(normalizeSource.apply(expectedShapeSource), normalizeSource.apply(shapeSource));
-
-        // Note: For `impl Point` or `impl Drawable for Point`, getClassSource might be tricky.
-        // The CodeUnit "Point" combines struct and impls in its skeleton.
-        // getClassSource typically returns the primary definition (struct for "Point").
-        // If `impl Item` also created a distinct CodeUnit.cls (e.g. `ImplPoint`), that could be queried.
-        // Current RustAnalyzer creates `CodeUnit.cls(file, pkg, "Point")` for `impl Point`.
-        // This means `getDefinition("Point")` would return the struct definition's CodeUnit if sorted first,
-        // or the impl's CU if that's how `uniqueCodeUnitList` resolves it.
-        // The base `getClassSource` uses `getDefinition`, so it depends on which CU is returned for "Point".
-        // Let's assume the `struct_item` is primary for `getClassSource("Point")`.
-
-        assertTrue(AnalyzerUtil.getClassSource(rsAnalyzer, "distance", true).isEmpty()); // function, not class
-        assertTrue(
-                AnalyzerUtil.getClassSource(rsAnalyzer, "_module_.ORIGIN", true).isEmpty()); // field, not class
-        assertTrue(AnalyzerUtil.getClassSource(rsAnalyzer, "Color.Red", true).isEmpty()); // enum variant, not class
-        assertTrue(AnalyzerUtil.getClassSource(rsAnalyzer, "Shape.ID", true).isEmpty()); // associated const, not class
-        assertTrue(AnalyzerUtil.getClassSource(rsAnalyzer, "NonExistent", true).isEmpty());
     }
 
     @Test
     void testGetMethodSource_Rust() throws IOException {
-        Optional<String> translateSourceOpt = AnalyzerUtil.getMethodSource(rsAnalyzer, "Point.translate", true);
+        Optional<String> translateSourceOpt = AnalyzerUtil.getSource(rsAnalyzer, "Point.translate", true);
         assertTrue(translateSourceOpt.isPresent(), "Source for Point.translate should be found.");
         String expectedTranslateSource =
                 """
@@ -581,13 +561,13 @@ public class TreeSitterAnalyzerRustTest {
                                          """;
         assertEquals(normalizeSource.apply(expectedTranslateSource), normalizeSource.apply(translateSourceOpt.get()));
 
-        Optional<String> drawInTraitSourceOpt = AnalyzerUtil.getMethodSource(rsAnalyzer, "Drawable.draw", true);
+        Optional<String> drawInTraitSourceOpt = AnalyzerUtil.getSource(rsAnalyzer, "Drawable.draw", true);
         assertTrue(drawInTraitSourceOpt.isPresent(), "Source for Drawable.draw (trait method) should be found.");
         String expectedDrawInTraitSource = "fn draw(&self);"; // From trait definition
         assertEquals(
                 normalizeSource.apply(expectedDrawInTraitSource), normalizeSource.apply(drawInTraitSourceOpt.get()));
 
-        Optional<String> drawInImplSourceOpt = AnalyzerUtil.getMethodSource(rsAnalyzer, "Point.draw", true);
+        Optional<String> drawInImplSourceOpt = AnalyzerUtil.getSource(rsAnalyzer, "Point.draw", true);
         assertTrue(drawInImplSourceOpt.isPresent(), "Source for Point.draw (impl method) should be found.");
         String expectedDrawInImplSource =
                 """
@@ -598,8 +578,7 @@ public class TreeSitterAnalyzerRustTest {
                                           """;
         assertEquals(normalizeSource.apply(expectedDrawInImplSource), normalizeSource.apply(drawInImplSourceOpt.get()));
 
-        Optional<String> distanceSourceOpt =
-                AnalyzerUtil.getMethodSource(rsAnalyzer, "distance", true); // Free function
+        Optional<String> distanceSourceOpt = AnalyzerUtil.getSource(rsAnalyzer, "distance", true); // Free function
         assertTrue(distanceSourceOpt.isPresent(), "Source for distance function should be found.");
         String expectedDistanceSource =
                 """
@@ -612,17 +591,13 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(normalizeSource.apply(expectedDistanceSource), normalizeSource.apply(distanceSourceOpt.get()));
 
         // Test getMethodSource for associated const (should be empty as it's not a method)
-        Optional<String> shapeIdSourceOpt = AnalyzerUtil.getMethodSource(rsAnalyzer, "Shape.ID", true);
+        Optional<String> shapeIdSourceOpt = AnalyzerUtil.getSource(rsAnalyzer, "Shape.ID", true);
         assertFalse(
                 shapeIdSourceOpt.isPresent(),
                 "Associated constant Shape.ID should not return source via getMethodSource.");
 
-        Optional<String> nonExistentSourceOpt = AnalyzerUtil.getMethodSource(rsAnalyzer, "NonExistent.method", true);
+        Optional<String> nonExistentSourceOpt = AnalyzerUtil.getSource(rsAnalyzer, "NonExistent.method", true);
         assertFalse(nonExistentSourceOpt.isPresent());
-
-        Optional<String> classAsMethodSourceOpt =
-                AnalyzerUtil.getMethodSource(rsAnalyzer, "Point", true); // Class, not method
-        assertFalse(classAsMethodSourceOpt.isPresent());
     }
 
     @Test

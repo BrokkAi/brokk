@@ -13,7 +13,6 @@ import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
@@ -445,8 +444,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 && !project.getRemoteProjectName().isBlank();
 
         // Load saved context history or create a new one
-        var contextTask =
-                submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
+        CompletableFuture<Void> contextTask = submitBackgroundTask("Loading saved context", () -> {
+            initializeCurrentSessionAndHistory(false);
+        });
 
         // Ensure build details are loaded/generated asynchronously
         // (style and review guides are handled by ensureGuidesAsync() called earlier)
@@ -1207,9 +1207,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public void sourceCodeForCodeUnit(IAnalyzer analyzer, CodeUnit codeUnit) {
-        String sourceCode = analyzer.as(SourceCodeProvider.class)
-                .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
-                .orElse(null);
+        String sourceCode = analyzer.getSource(codeUnit, true).orElse(null);
 
         if (sourceCode != null) {
             var fragment = new ContextFragments.StringFragment(
@@ -1238,11 +1236,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     IConsoleIO.NotificationRole.INFO, "No callers found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragments.CallGraphFragment(this, methodName, depth, false);
+        var fragment = new ContextFragments.UsageFragment(this, methodName);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Add call graph for callers of " + methodName + " with depth " + depth);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Add usages for callers of " + methodName);
     }
 
     /** callees for method */
@@ -1252,11 +1248,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     IConsoleIO.NotificationRole.INFO, "No callees found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragments.CallGraphFragment(this, methodName, depth, true);
+        var fragment = new ContextFragments.UsageFragment(this, methodName);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Add call graph for methods called by " + methodName + " with depth " + depth);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Add usages for methods called by " + methodName);
     }
 
     /** parse stacktrace */
@@ -1266,26 +1260,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var content = new StringBuilder();
         IAnalyzer localAnalyzer = getAnalyzerUninterrupted();
 
-        localAnalyzer.as(SourceCodeProvider.class).ifPresent(sourceCodeProvider -> {
-            for (var element : stacktrace.getFrames()) {
-                var methodFullName = element.getClassName() + "." + element.getMethodName();
-                localAnalyzer.getDefinitions(methodFullName).stream()
-                        .findFirst()
-                        .filter(CodeUnit::isFunction)
-                        .ifPresent(methodCu -> {
-                            var methodSource = sourceCodeProvider.getMethodSource(methodCu, true);
-                            if (methodSource.isPresent()) {
-                                String className = CodeUnit.toClassname(methodFullName);
-                                localAnalyzer.getDefinitions(className).stream()
-                                        .findFirst()
-                                        .filter(CodeUnit::isClass)
-                                        .ifPresent(sources::add);
-                                content.append(methodFullName).append(":\n");
-                                content.append(methodSource.get()).append("\n\n");
-                            }
-                        });
-            }
-        });
+        for (var element : stacktrace.getFrames()) {
+            var methodFullName = element.getClassName() + "." + element.getMethodName();
+            localAnalyzer.getDefinitions(methodFullName).stream()
+                    .findFirst()
+                    .filter(CodeUnit::isFunction)
+                    .ifPresent(methodCu -> {
+                        var methodSource = localAnalyzer.getSource(methodCu, true);
+                        if (methodSource.isPresent()) {
+                            String className = CodeUnit.toClassname(methodFullName);
+                            localAnalyzer.getDefinitions(className).stream()
+                                    .findFirst()
+                                    .filter(CodeUnit::isClass)
+                                    .ifPresent(sources::add);
+                            content.append(methodFullName).append(":\n");
+                            content.append(methodSource.get()).append("\n\n");
+                        }
+                    });
+        }
 
         if (content.isEmpty()) {
             logger.debug("No relevant methods found in stacktrace -- adding as text");

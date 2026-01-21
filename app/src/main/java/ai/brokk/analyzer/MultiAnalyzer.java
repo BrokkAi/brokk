@@ -8,8 +8,7 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MultiAnalyzer
-        implements IAnalyzer, CallGraphProvider, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
+public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalysisProvider, TypeHierarchyProvider {
     private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
     private final Map<Language, IAnalyzer> delegates;
 
@@ -72,6 +71,21 @@ public class MultiAnalyzer
     }
 
     @Override
+    public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+        // We only return 'this' for these specific capabilities if at least one delegate supports them.
+        // Otherwise, we throw an AssertionError
+        if (capability == ImportAnalysisProvider.class
+                || capability == TypeHierarchyProvider.class
+                || capability == TypeAliasProvider.class) {
+            boolean anyDelegateSupports =
+                    delegates.values().stream().anyMatch(d -> d.as(capability).isPresent());
+            return anyDelegateSupports ? Optional.of(capability.cast(this)) : Optional.empty();
+        }
+
+        throw new AssertionError("MultiAnalyzer does not support casting to " + capability);
+    }
+
+    @Override
     public List<String> importStatementsOf(ProjectFile file) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.importStatementsOf(file).stream())
@@ -81,14 +95,16 @@ public class MultiAnalyzer
     @Override
     public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
         return delegateFor(file)
-                .map(delegate -> delegate.importedCodeUnitsOf(file))
+                .flatMap(delegate -> delegate.as(ImportAnalysisProvider.class))
+                .map(provider -> provider.importedCodeUnitsOf(file))
                 .orElse(Set.of());
     }
 
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return delegates.values().stream()
-                .flatMap(analyzer -> analyzer.referencingFilesOf(file).stream())
+                .flatMap(analyzer -> analyzer.as(ImportAnalysisProvider.class).stream())
+                .flatMap(provider -> provider.referencingFilesOf(file).stream())
                 .collect(Collectors.toSet());
     }
 
@@ -112,33 +128,13 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Map<String, List<CallSite>> getCallgraphTo(CodeUnit method, int depth) {
-        return delegateFor(method)
-                .flatMap(delegate -> delegate.as(CallGraphProvider.class))
-                .map(cgp -> cgp.getCallgraphTo(method, depth))
-                .orElse(Collections.emptyMap());
-    }
-
-    @Override
-    public Map<String, List<CallSite>> getCallgraphFrom(CodeUnit method, int depth) {
-        return delegateFor(method)
-                .flatMap(delegate -> delegate.as(CallGraphProvider.class))
-                .map(cgp -> cgp.getCallgraphFrom(method, depth))
-                .orElse(Collections.emptyMap());
-    }
-
-    @Override
     public Optional<String> getSkeleton(CodeUnit cu) {
-        return delegateFor(cu)
-                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
-                .flatMap(skp -> skp.getSkeleton(cu));
+        return delegateFor(cu).flatMap(analyzer -> analyzer.getSkeleton(cu));
     }
 
     @Override
     public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
-        return delegateFor(classUnit)
-                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
-                .flatMap(skp -> skp.getSkeletonHeader(classUnit));
+        return delegateFor(classUnit).flatMap(analyzer -> analyzer.getSkeletonHeader(classUnit));
     }
 
     @Override
@@ -154,32 +150,20 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
-        return delegateFor(method)
-                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
-                .map(scp -> scp.getMethodSources(method, includeComments))
-                .orElse(Collections.emptySet());
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        return delegateFor(codeUnit).flatMap(analyzer -> analyzer.getSource(codeUnit, includeComments));
     }
 
     @Override
-    public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
-        return delegateFor(classUnit)
-                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
-                .flatMap(scp -> scp.getClassSource(classUnit, includeComments));
-    }
-
-    @Override
-    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
-        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class)
-                .flatMap(scp -> scp.getSourceForCodeUnit(codeUnit, includeComments)));
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        return delegateFor(codeUnit)
+                .map(analyzer -> analyzer.getSources(codeUnit, includeComments))
+                .orElse(Set.of());
     }
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        return delegateFor(file)
-                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
-                .map(sk -> sk.getSkeletons(file))
-                .orElse(Collections.emptyMap());
+        return delegateFor(file).map(analyzer -> analyzer.getSkeletons(file)).orElse(Collections.emptyMap());
     }
 
     @Override
@@ -316,10 +300,10 @@ public class MultiAnalyzer
 
     @Override
     public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        return delegates.values().stream()
-                .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
-                .distinct()
-                .toList();
+        return delegateFor(cu)
+                .flatMap(analyzer -> analyzer.as(TypeHierarchyProvider.class))
+                .map(provider -> provider.getDirectAncestors(cu))
+                .orElse(List.of());
     }
 
     @Override
@@ -329,8 +313,9 @@ public class MultiAnalyzer
 
     @Override
     public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
-        return delegates.values().stream()
-                .flatMap(analyzer -> analyzer.getDirectDescendants(cu).stream())
-                .collect(Collectors.toSet());
+        return delegateFor(cu)
+                .flatMap(analyzer -> analyzer.as(TypeHierarchyProvider.class))
+                .map(provider -> provider.getDirectDescendants(cu))
+                .orElse(Set.of());
     }
 }
