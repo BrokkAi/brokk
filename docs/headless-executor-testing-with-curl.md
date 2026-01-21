@@ -654,12 +654,10 @@ Additionally, you can cap the overall issue remediation workflow using `maxIssue
 
 #### Verification and fix contract (ISSUE mode)
 
-For ISSUE mode the executor follows a simplified verification contract:
+For ISSUE mode the executor follows this verification contract:
 
-- For each verification point (per-task verification and final gate), Brokk runs verification once.
-- If verification fails, Brokk performs at most one fix attempt and then re-runs verification exactly once.
-- If verification still fails after the single fix attempt, the ISSUE workflow fails and no Pull Request is created.
-- The `buildSettings.maxBuildAttempts` and job-level `maxIssueFixAttempts` fields are currently not used as iterative retry budgets in the headless executor; they may be reserved for future enhancements.
+- Per-task verification: verify once; if it fails, do one fix attempt; verify once; fail if it is still failing.
+- Final verification (tests/lint final gate): retries up to `maxIssueFixAttempts` (default: 5) using the test-then-lint loop; each failing attempt triggers exactly one fix task.
 
 #### Option 1: Convenience Endpoint (Recommended)
 

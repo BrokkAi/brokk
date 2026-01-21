@@ -349,6 +349,8 @@ class JobRunnerIssueModeTest {
         String testCmd = "./gradlew testAll";
         String lintCmd = "./gradlew lintAll";
 
+        int maxIterations = 3;
+
         var calls = new ArrayList<String>();
 
         BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
@@ -374,7 +376,7 @@ class JobRunnerIssueModeTest {
                 commandRunner,
                 fixTaskRunner,
                 new BuildDetails(lintCmd, testCmd, "", Set.of()),
-                20);
+                maxIterations);
 
         assertEquals(List.of(testCmd, lintCmd), calls, "Must run tests first, then lint second");
     }
@@ -417,6 +419,8 @@ class JobRunnerIssueModeTest {
     void issueModeTestLintRetryLoop_exitsEarlyWhenBothPass() {
         var cancelled = new AtomicBoolean(false);
 
+        int maxIterations = 3;
+
         var calls = new ArrayList<String>();
         var fixCalls = new AtomicInteger(0);
 
@@ -435,7 +439,7 @@ class JobRunnerIssueModeTest {
                 commandRunner,
                 fixTaskRunner,
                 new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
-                20);
+                maxIterations);
 
         assertEquals(List.of("./gradlew test", "./gradlew lint"), calls, "Should run tests then lint once");
         assertEquals(0, fixCalls.get(), "No fix tasks when both pass");
@@ -444,6 +448,8 @@ class JobRunnerIssueModeTest {
     @Test
     void issueModeTestLintRetryLoop_throwsIssueCancelledException_whenCancelled() {
         var cancelled = new AtomicBoolean(true);
+
+        int maxIterations = 3;
 
         BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
 
@@ -458,12 +464,14 @@ class JobRunnerIssueModeTest {
                         commandRunner,
                         fixTaskRunner,
                         new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
-                        20));
+                        maxIterations));
     }
 
     @Test
-    void issueModeTestLintRetryLoop_throwsAfter20IterationsIfNeverSucceeds() {
+    void issueModeTestLintRetryLoop_throwsAfterMaxIterationsIfNeverSucceeds() {
         var cancelled = new AtomicBoolean(false);
+
+        int maxIterations = 3;
 
         var fixCalls = new AtomicInteger(0);
         var testCalls = new AtomicInteger(0);
@@ -485,11 +493,11 @@ class JobRunnerIssueModeTest {
                         commandRunner,
                         fixTaskRunner,
                         new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
-                        20));
+                        maxIterations));
 
-        assertEquals(20, testCalls.get(), "Must run exactly 20 iterations");
-        assertEquals(20, fixCalls.get(), "Must perform exactly one fix per iteration");
-        assertTrue(ex.getMessage().contains("Tests/lint failed after 20 iteration(s)"));
+        assertEquals(maxIterations, testCalls.get(), "Must run exactly maxIterations iterations");
+        assertEquals(maxIterations, fixCalls.get(), "Must perform exactly one fix per iteration");
+        assertTrue(ex.getMessage().contains("Tests/lint failed after " + maxIterations + " iteration(s)"));
     }
 
     @Test
