@@ -19,6 +19,14 @@ public interface IssueService {
 
     OkHttpClient httpClient() throws IOException; // For reusing authenticated client for attachments
 
+    /**
+     * Create a new issue in the backing provider and return an IssueHeader for the created issue.
+     *
+     * <p>Implementations should use their existing authenticated integration (e.g., GitHubAuth) and must
+     * not require callers to handle tokens directly.</p>
+     */
+    IssueHeader createIssue(String title, String bodyMarkdown) throws IOException;
+
     default List<String> listAvailableStatuses() throws IOException {
         return List.of();
     }

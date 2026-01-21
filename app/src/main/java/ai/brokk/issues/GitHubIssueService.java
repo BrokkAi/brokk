@@ -62,6 +62,28 @@ public class GitHubIssueService implements IssueService {
     }
 
     @Override
+    public IssueHeader createIssue(String title, String bodyMarkdown) throws IOException {
+        if (title.isBlank()) {
+            throw new IllegalArgumentException("title must not be blank");
+        }
+
+        var repo = getAuth().getGhRepository();
+        var builder = repo.createIssue(title.strip());
+
+        if (!bodyMarkdown.isBlank()) {
+            builder.body(bodyMarkdown);
+        }
+
+        GHIssue created = builder.create();
+        IssueHeader header = mapToIssueHeader(created);
+        if (header == null) {
+            throw new IOException(
+                    "Failed to map created GitHub issue to IssueHeader (issue #" + created.getNumber() + ")");
+        }
+        return header;
+    }
+
+    @Override
     public List<IssueHeader> listIssues(FilterOptions rawFilterOptions) throws IOException {
         if (!(rawFilterOptions instanceof GitHubFilterOptions filterOptions)) {
             throw new IllegalArgumentException("GitHubIssueService requires GitHubFilterOptions, got "
