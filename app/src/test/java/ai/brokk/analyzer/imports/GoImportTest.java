@@ -14,6 +14,20 @@ import org.junit.jupiter.api.Test;
 class GoImportTest {
 
     @Test
+    void testNoImports() throws IOException {
+        String code = """
+                package main
+                func main() {}
+                """;
+        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        IAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
+
+        List<String> imports = analyzer.importStatementsOf(file);
+        assertEquals(List.of(), imports);
+    }
+
+    @Test
     void testSingleImport() throws IOException {
         String code = """
                 package main
