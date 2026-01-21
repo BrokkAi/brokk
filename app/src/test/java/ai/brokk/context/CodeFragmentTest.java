@@ -163,6 +163,23 @@ public class CodeFragmentTest {
     }
 
     @Test
+    void testCodeFragmentIncludesImportStatementsForMethod() {
+        ProjectFile file = new ProjectFile(tempDir, "Example.java");
+        CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
+
+        analyzer.addDeclaration(method);
+        analyzer.setSource(method, "void run() {}");
+        List<String> imports = List.of("import java.util.List;");
+        analyzer.setImportStatements(file, imports);
+
+        var fragment = new ContextFragments.CodeFragment(contextManager, method);
+        String text = fragment.text().join();
+
+        assertTrue(text.startsWith("import java.util.List;"), "Text should start with import statements");
+        assertCodeContains(text, "void run() {}");
+    }
+
+    @Test
     void testProjectPathFragmentIncludesAncestorSkeletons() {
         ProjectFile parentFile = new ProjectFile(tempDir, "Parent.java");
         ProjectFile childFile = new ProjectFile(tempDir, "Child.java");
