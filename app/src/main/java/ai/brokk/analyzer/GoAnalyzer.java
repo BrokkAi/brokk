@@ -512,8 +512,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // Look backwards from the start of the quoted path for a '_'
         // We look only at the immediate prefix on the same line or after the last space/newline/carriage return
         String prefix = text.substring(0, quoteStart).trim();
-        int lastSpace =
-                Math.max(Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('\n')), prefix.lastIndexOf('\r'));
+        int lastSpace = Math.max(Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('\n')), prefix.lastIndexOf('\r'));
         String lastToken =
                 lastSpace == -1 ? prefix : prefix.substring(lastSpace).trim();
         return "_".equals(lastToken);
