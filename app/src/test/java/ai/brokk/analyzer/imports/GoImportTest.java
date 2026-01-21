@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.GoAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -33,15 +32,19 @@ class GoImportTest {
 
     @Test
     void testResolveImports_StandardImport() throws IOException {
-        IProject project = InlineTestProjectCreator.code("""
+        IProject project = InlineTestProjectCreator.code(
+                        """
                 package fmt
                 func Println(a ...any) {}
-                """, "fmt/print.go")
-                .addFileContents("""
+                """,
+                        "fmt/print.go")
+                .addFileContents(
+                        """
                 package main
                 import "fmt"
                 func main() { fmt.Println("hi") }
-                """, "main.go")
+                """,
+                        "main.go")
                 .build();
 
         GoAnalyzer analyzer = new GoAnalyzer(project);
@@ -57,22 +60,28 @@ class GoImportTest {
 
     @Test
     void testResolveImports_GroupedImports() throws IOException {
-        IProject project = InlineTestProjectCreator.code("""
+        IProject project = InlineTestProjectCreator.code(
+                        """
                 package fmt
                 func Println() {}
-                """, "fmt/fmt.go")
-                .addFileContents("""
+                """,
+                        "fmt/fmt.go")
+                .addFileContents(
+                        """
                 package os
                 func Exit(code int) {}
-                """, "os/os.go")
-                .addFileContents("""
+                """,
+                        "os/os.go")
+                .addFileContents(
+                        """
                 package main
                 import (
                     "fmt"
                     "os"
                 )
                 func main() { fmt.Println(); os.Exit(0) }
-                """, "main.go")
+                """,
+                        "main.go")
                 .build();
 
         GoAnalyzer analyzer = new GoAnalyzer(project);
@@ -89,15 +98,19 @@ class GoImportTest {
 
     @Test
     void testResolveImports_BlankImportSkipped() throws IOException {
-        IProject project = InlineTestProjectCreator.code("""
+        IProject project = InlineTestProjectCreator.code(
+                        """
                 package png
                 func Decode() {}
-                """, "image/png/png.go")
-                .addFileContents("""
+                """,
+                        "image/png/png.go")
+                .addFileContents(
+                        """
                 package main
                 import _ "image/png"
                 func main() {}
-                """, "main.go")
+                """,
+                        "main.go")
                 .build();
 
         GoAnalyzer analyzer = new GoAnalyzer(project);
@@ -109,15 +122,19 @@ class GoImportTest {
 
     @Test
     void testResolveImports_AliasedImport() throws IOException {
-        IProject project = InlineTestProjectCreator.code("""
+        IProject project = InlineTestProjectCreator.code(
+                        """
                 package fmt
                 func Println() {}
-                """, "fmt/fmt.go")
-                .addFileContents("""
+                """,
+                        "fmt/fmt.go")
+                .addFileContents(
+                        """
                 package main
                 import f "fmt"
                 func main() { f.Println() }
-                """, "main.go")
+                """,
+                        "main.go")
                 .build();
 
         GoAnalyzer analyzer = new GoAnalyzer(project);
@@ -130,15 +147,19 @@ class GoImportTest {
 
     @Test
     void testResolveImports_DotImport() throws IOException {
-        IProject project = InlineTestProjectCreator.code("""
+        IProject project = InlineTestProjectCreator.code(
+                        """
                 package fmt
                 func Println() {}
-                """, "fmt/fmt.go")
-                .addFileContents("""
+                """,
+                        "fmt/fmt.go")
+                .addFileContents(
+                        """
                 package main
                 import . "fmt"
                 func main() { Println() }
-                """, "main.go")
+                """,
+                        "main.go")
                 .build();
 
         GoAnalyzer analyzer = new GoAnalyzer(project);
@@ -151,7 +172,8 @@ class GoImportTest {
 
     @Test
     void testSingleImport() throws IOException {
-        String code = """
+        String code =
+                """
                 package main
                 import "fmt"
                 func main() {}
@@ -167,7 +189,8 @@ class GoImportTest {
     @Test
     void testGroupedImports() throws IOException {
         // Tree-sitter Go grammar treats the entire import (...) block as one import_declaration
-        String code = """
+        String code =
+                """
                 package main
                 import (
                     "fmt"
@@ -181,16 +204,19 @@ class GoImportTest {
 
         List<String> imports = analyzer.importStatementsOf(file);
         assertEquals(1, imports.size());
-        assertEquals("""
+        assertEquals(
+                """
                 import (
                     "fmt"
                     "os"
-                )""", imports.getFirst());
+                )""",
+                imports.getFirst());
     }
 
     @Test
     void testAliasedImport() throws IOException {
-        String code = """
+        String code =
+                """
                 package main
                 import f "fmt"
                 func main() { f.Println("hello") }
@@ -205,7 +231,8 @@ class GoImportTest {
 
     @Test
     void testDotImport() throws IOException {
-        String code = """
+        String code =
+                """
                 package main
                 import . "fmt"
                 func main() { Println("hello") }
@@ -220,7 +247,8 @@ class GoImportTest {
 
     @Test
     void testBlankImport() throws IOException {
-        String code = """
+        String code =
+                """
                 package main
                 import _ "image/png"
                 func main() {}
@@ -235,7 +263,8 @@ class GoImportTest {
 
     @Test
     void testMultipleImportDeclarations() throws IOException {
-        String code = """
+        String code =
+                """
                 package main
                 import "fmt"
                 import (
