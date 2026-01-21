@@ -6,6 +6,7 @@ import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
 import java.nio.file.InvalidPathException;
 import java.util.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -332,12 +333,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             }
 
             // Extract content between "" or <>
-            int startQuote = trimmed.indexOf('"');
-            int endQuote = trimmed.lastIndexOf('"');
-
-            if (startQuote != -1 && endQuote > startQuote) {
+            Matcher m = Pattern.compile("^#\\s*include\\s*\"([^\"]+)\"").matcher(trimmed);
+            if (m.find()) {
                 // Quoted include: resolve relative to current file
-                String includePath = trimmed.substring(startQuote + 1, endQuote);
+                String includePath = m.group(1);
                 resolveRelativeInclude(file, includePath).ifPresent(resolvedFile -> {
                     resolved.addAll(getDeclarations(resolvedFile));
                 });

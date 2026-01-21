@@ -117,4 +117,60 @@ class CppImportTest {
             assertTrue(referencers.contains(mainFile), "main.cpp should be a referencing file of math.h");
         }
     }
+
+    @Test
+    void testImportExtractionIgnoresCommentsWithQuotes() throws IOException {
+        String content =
+                """
+                #include "header.h" // "note"
+                #include "other.h" /* "comment" */
+                
+                int main() { return 0; }
+                """;
+
+        try (IProject project = code(content, "main.cpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile projectFile = new ProjectFile(project.getRoot(), "main.cpp");
+
+            List<String> imports = analyzer.importStatementsOf(projectFile);
+
+            assertEquals(2, imports.size(), "Should detect 2 include statements");
+            // The raw import statements include the full line from the source
+            assertTrue(imports.stream().anyMatch(i -> i.contains("header.h")));
+            assertTrue(imports.stream().anyMatch(i -> i.contains("other.h")));
+        }
+    }
+
+    @Test
+    void testImportResolutionIgnoresTrailingCommentQuotes() throws IOException {
+        String headerContent =
+                """
+                void helperFunction();
+                """;
+
+        String sourceContent =
+                """
+                #include "helper.h" // "some note"
+                
+                int main() { return 0; }
+                """;
+
+        try (IProject project = code(headerContent, "helper.h")
+                .addFileContents(sourceContent, "main.cpp")
+                .build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.cpp");
+
+            Set<CodeUnit> importedUnits = ((ImportAnalysisProvider) analyzer).importedCodeUnitsOf(mainFile);
+
+            boolean foundFn = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("helperFunction") && cu.isFunction());
+
+            assertTrue(foundFn, "Should resolve helperFunction from helper.h despite trailing comment with quotes");
+        }
+    }
 }
