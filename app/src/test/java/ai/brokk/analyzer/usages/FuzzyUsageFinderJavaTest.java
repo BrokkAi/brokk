@@ -350,4 +350,29 @@ public class FuzzyUsageFinderJavaTest {
                 classUsageHits.size() >= 5,
                 "Expected at least 5 different usage patterns, found: " + classUsageHits.size());
     }
+
+    @Test
+    public void filterByConfidenceFiltersLowConfidenceHits() {
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var file = new ProjectFile(root, Path.of("A.java"));
+
+        var enclosingIncluded =
+                new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.CLASS, "", "A1", null);
+        var enclosingExcluded =
+                new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.CLASS, "", "A2", null);
+        var enclosingHigh = new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.CLASS, "", "A3", null);
+
+        UsageHit hitIncluded = new UsageHit(file, 1, 0, 1, enclosingIncluded, 0.1, "");
+        UsageHit hitExcluded = new UsageHit(file, 1, 10, 11, enclosingExcluded, 0.099, "");
+        UsageHit hitHigh = new UsageHit(file, 2, 20, 21, enclosingHigh, 1.0, "");
+
+        var allHits = new HashSet<UsageHit>();
+        allHits.add(hitIncluded);
+        allHits.add(hitExcluded);
+        allHits.add(hitHigh);
+
+        var filtered = FuzzyUsageFinder.filterByConfidence(allHits);
+
+        assertEquals(Set.of(hitIncluded, hitHigh), filtered);
+    }
 }

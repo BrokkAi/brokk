@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -303,14 +304,16 @@ public final class FuzzyUsageFinder {
                 logger.debug("Failure for {} when finding usages of {}: {}", cu.fqName(), fqName, failure.reason());
             }
         }
-        logger.debug("Total aggregated hits for {}: {}", fqName, allHits.size());
 
-        // Apply maxUsages limit to total
-        if (allHits.size() > maxUsages) {
-            allHits = allHits.stream().limit(maxUsages).collect(Collectors.toSet());
-        }
+        // Throw out very low confidence
+        var filteredHits = filterByConfidence(allHits);
+        logger.debug("Filtered to {} hits for {} out of {}", filteredHits.size(), fqName, allHits.size());
 
-        return new FuzzyResult.Success(allHits);
+        return new FuzzyResult.Success(filteredHits);
+    }
+
+    static Set<UsageHit> filterByConfidence(Set<UsageHit> allHits) {
+        return allHits.stream().filter(h -> h.confidence() >= 0.1).collect(Collectors.toSet());
     }
 
     public FuzzyResult findUsages(String fqName) {
