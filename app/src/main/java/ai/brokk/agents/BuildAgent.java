@@ -818,11 +818,17 @@ public class BuildAgent {
                 ? System.getenv("BRK_TESTSOME_CMD")
                 : details.testSomeCommand();
 
+        // No test-some command configured - silently fall back to build/lint
+        if (testSomeTemplate.isBlank()) {
+            return details.buildLintCommand();
+        }
+
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
         boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
 
+        // Template is defined but misconfigured - warn the user
         if (!isFilesBased && !isClassesBased && !isModulesBased) {
             cm.getIo()
                     .systemNotify(
