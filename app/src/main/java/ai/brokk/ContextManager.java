@@ -156,7 +156,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
             ExecutorsUtil.createNamedThreadFactory("BackgroundTask")));
 
-    private final ScheduledExecutorService periodicTasks = Executors.newSingleThreadScheduledExecutor();
+    private final LoggingExecutorService syncExecutor = createLoggingExecutorService(
+            Executors.newSingleThreadExecutor(ExecutorsUtil.createNamedThreadFactory("SessionSync")));
 
     private final Service.Provider serviceProvider;
 
@@ -330,27 +331,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         updateActiveSession(currentSessionId);
 
         finalizeSessionActivation(currentSessionId);
-        migrateToSessionsV3IfNeeded().thenRun(() -> {
-            if (sessionsSyncActive) {
-                startPeriodicSessionSync();
-            }
-        });
-    }
-
-    private void startPeriodicSessionSync() {
-        logger.debug("Starting periodic session sync every 5 minutes");
-        periodicTasks.scheduleWithFixedDelay(
-                () -> {
-                    try {
-                        new SessionSynchronizer(this).synchronize();
-                        project.getMainProject().sessionsListChanged();
-                    } catch (Exception e) {
-                        logger.warn("Session sync failed: {}", e.getMessage());
-                    }
-                },
-                0,
-                5,
-                TimeUnit.MINUTES);
+        migrateToSessionsV3IfNeeded().thenRun(this::submitSessionSyncIfActive);
     }
 
     private CompletableFuture<Void> migrateToSessionsV3IfNeeded() {
@@ -438,8 +419,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var fileWatchListener = createFileWatchListener();
         watchService.addListener(fileWatchListener);
 
-        this.sessionsSyncActive = !project.getRepo().isWorktree()
-                && MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
+        this.sessionsSyncActive = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
                 && !MainProject.getBrokkKey().isBlank()
                 && !project.getRemoteProjectName().isBlank();
 
@@ -1410,41 +1390,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         lowMemoryWatcherManager.close();
 
-        var periodicTasksFuture =
-                new LoggingExecutorService(periodicTasks, th -> {}).shutdownAndAwait(awaitMillis, "periodicTasks");
+        submitSessionSyncIfActive(); // Queue a final sync before shutting down the sync executor
+
+        var syncExecutorFuture = syncExecutor.shutdownAndAwait(awaitMillis, "syncExecutor");
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
 
-        return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, periodicTasksFuture)
-                .whenComplete((v, t) -> {
-                    if (sessionsSyncActive) {
-                        syncSessionsAndWait(awaitMillis);
-                    }
-                    project.close();
-                });
+        return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, syncExecutorFuture)
+                .whenComplete((v, t) -> project.close());
     }
 
-    private void syncSessionsAndWait(long awaitMillis) {
-        var future = syncSessionsAsync();
-        try {
-            future.get(awaitMillis, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            future.cancel(true);
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException e) {
-            logger.warn("Session sync failed during shutdown", e);
-        } catch (TimeoutException e) {
-            logger.warn("Session sync timed out after {} ms, cancelling", awaitMillis);
-            future.cancel(true);
+    private CompletableFuture<Void> submitSessionSyncIfActive() {
+        if (sessionsSyncActive) {
+            return syncExecutor.submit(() -> {
+                new SessionSynchronizer(this).synchronize();
+                project.getMainProject().sessionsListChanged();
+                return null;
+            });
+        } else {
+            return CompletableFuture.completedFuture(null);
         }
     }
 
+    /**
+     * Queues a session sync operation and returns a future for tracking completion.
+     * Used by dialogs that need to wait for sync before proceeding.
+     */
     public CompletableFuture<Void> syncSessionsAsync() {
-        return LoggingFuture.supplyCallableVirtual(() -> {
-            new SessionSynchronizer(this).synchronize();
-            return null;
-        });
+        return submitSessionSyncIfActive();
     }
 
     public boolean isLlmTaskInProgress() {
@@ -2477,6 +2451,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             notifyContextListeners(liveContext());
             io.updateContextHistoryTable(liveContext());
         }
+        submitSessionSyncIfActive();
     }
 
     private Optional<SessionInfo> getEmptySessionToReuseInsteadOfCreatingNew(String name) {
@@ -2635,6 +2610,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Activate session: migrate legacy tasks then notify UI on EDT
             finalizeSessionActivation(sessionId);
         }
+
+        submitSessionSyncIfActive();
     }
 
     /**
