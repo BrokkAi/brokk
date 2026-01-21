@@ -116,7 +116,7 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
 
     @Override
     public List<String> importStatementsOf(ProjectFile file) {
-        return importStatementsByFile.getOrDefault(file, List.of());
+        return List.copyOf(importStatementsByFile.getOrDefault(file, List.of()));
     }
 
     @Override
