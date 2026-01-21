@@ -538,14 +538,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         return;
                     }
 
-                    lastCumulativeChanges = computed.ctx.changes();
+                    if (!computed.scope.changes().equals(lastCumulativeChanges)) {
+                        lastCumulativeChanges = computed.scope.changes();
 
-                    SwingUtilities.invokeLater(() -> {
-                        if (thisGeneration != updateGeneration.get()) return;
-                        emitReviewTabStateFromResult(computed.ctx.changes(), computed.state.baselineLabel());
-                    });
+                        SwingUtilities.invokeLater(() -> {
+                            if (thisGeneration != updateGeneration.get()) return;
+                            emitReviewTabStateFromResult(computed.scope.changes(), computed.state.baselineLabel());
+                        });
 
-                    deferredUpdateHelper.requestUpdate();
+                        deferredUpdateHelper.requestUpdate();
+                    }
                 })
                 .exceptionally(ex -> {
                     if (thisGeneration != updateGeneration.get()) return null;
@@ -559,7 +561,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 });
     }
 
-    private record ComputedUpdate(BaselineState state, ReviewScope ctx) {}
+    private record ComputedUpdate(BaselineState state, ReviewScope scope) {}
 
     /**
      * Result of baseline resolution.
