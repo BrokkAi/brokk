@@ -650,16 +650,14 @@ JSON
 
 ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (controlled by `buildSettings.maxBuildAttempts`, per task).
 
-Additionally, you can cap the overall issue remediation workflow using `maxIssueFixAttempts`: this is the maximum number of ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). Default: 5.
+Additionally, you can cap the overall issue remediation workflow using `maxIssueFixAttempts`: this is the maximum number of ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). Default: 20.
 
 #### Verification and fix contract (ISSUE mode)
 
-For ISSUE mode the executor follows a simplified verification contract:
+For ISSUE mode the executor follows this verification contract:
 
-- For each verification point (per-task verification and final gate), Brokk runs verification once.
-- If verification fails, Brokk performs at most one fix attempt and then re-runs verification exactly once.
-- If verification still fails after the single fix attempt, the ISSUE workflow fails and no Pull Request is created.
-- The `buildSettings.maxBuildAttempts` and job-level `maxIssueFixAttempts` fields are currently not used as iterative retry budgets in the headless executor; they may be reserved for future enhancements.
+- Per-task verification: verify once; if it fails, do one fix attempt; verify once; fail if it is still failing.
+- Final verification (tests/lint final gate): retries up to `maxIssueFixAttempts` (default: 20) using the test-then-lint loop; each failing attempt triggers exactly one fix task.
 
 #### Option 1: Convenience Endpoint (Recommended)
 
@@ -676,7 +674,7 @@ curl -sS -X POST "${BASE}/v1/jobs/issue" \
   "githubToken": "ghp_xxxxxxxxxxxx",
   "plannerModel": "gpt-5",
   "codeModel": "gpt-5-mini",
-  "maxIssueFixAttempts": 5,
+  "maxIssueFixAttempts": 20,
   "buildSettings": {
     "buildLintCommand": "./gradlew classes",
     "testAllCommand": "./gradlew test",
@@ -802,7 +800,7 @@ curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
 - Executes each task with ArchitectAgent (uses `plannerModel` + `codeModel`).
 - Runs build verification after each task.
 - Retries failed builds per task (default: 3 attempts per task, configurable via `buildSettings.maxBuildAttempts`).
-- Caps overall issue remediation attempts (default: 5, configurable via `maxIssueFixAttempts`).
+- Caps overall issue remediation attempts (default: 20, configurable via `maxIssueFixAttempts`).
 - **PR Creation**: On success, pushes changes and creates a Pull Request with an AI-generated title and description.
 - `buildSettings` overrides project defaults for the job duration.
 - `codeModel` is optional; defaults to project default if omitted.

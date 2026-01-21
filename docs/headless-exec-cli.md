@@ -63,7 +63,7 @@ Or via Gradle:
 | `--repo-name REPO` | String | See `ISSUE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub repository name (required for `ISSUE`, `REVIEW`, and `ISSUE_WRITER` modes) |
 | `--issue-number NUMBER` | Integer | See `ISSUE` | N/A | GitHub issue number (required for `ISSUE` mode) |
 | `--pr-number NUMBER` | Integer | See `REVIEW` | N/A | GitHub PR number (required for `REVIEW` mode) |
-| `--max-issue-fix-attempts N`| Integer | No | `5` | Maximum number of attempts to fix a failing build in `ISSUE` mode |
+| `--max-issue-fix-attempts N`| Integer | No | `20` | Maximum number of attempts to fix a failing build in `ISSUE` mode |
 | `--build-settings JSON` | String | No | N/A | JSON string describing build/test commands for `ISSUE` mode verification |
 | `--issue-delivery MODE` | String | No | N/A | Control PR creation in `ISSUE` mode. Set to `none` to disable PR creation. |
 | `--help` | Flag | No | N/A | Display usage information and exit |
