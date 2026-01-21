@@ -8,14 +8,11 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.analyzer.CallGraphProvider;
-import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
-import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
@@ -86,7 +83,12 @@ public class ContextFragments {
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         return units.stream()
                 .filter(CodeUnit::isClass)
-                .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                .flatMap(cu ->
+                        analyzer
+                                .as(TypeHierarchyProvider.class)
+                                .map(p -> p.getDirectAncestors(cu))
+                                .orElse(List.of())
+                                .stream())
                 .filter(anc -> !anc.isAnonymous())
                 .distinct()
                 .map(anc -> new SummaryFragment(
@@ -1417,28 +1419,22 @@ public class ContextFragments {
 
             String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            var scpOpt = analyzer.as(SourceCodeProvider.class);
             boolean hasSourceCode = false;
-            if (scpOpt.isEmpty()) {
-                text = "Code Intelligence cannot extract source for: " + fqName;
-            } else {
-                var scp = scpOpt.get();
-                if (unit.isFunction()) {
-                    var codeOpt = scp.getMethodSource(unit, true);
-                    if (codeOpt.isPresent()) {
-                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                        hasSourceCode = true;
-                    } else {
-                        text = "No source found for method: " + fqName;
-                    }
+            if (unit.isFunction()) {
+                var codeOpt = analyzer.getSource(unit, true);
+                if (codeOpt.isPresent()) {
+                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                    hasSourceCode = true;
                 } else {
-                    var codeOpt = scp.getClassSource(unit, true);
-                    if (codeOpt.isPresent()) {
-                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                        hasSourceCode = true;
-                    } else {
-                        text = "No source found for class: " + fqName;
-                    }
+                    text = "No source found for method: " + fqName;
+                }
+            } else {
+                var codeOpt = analyzer.getSource(unit, true);
+                if (codeOpt.isPresent()) {
+                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                    hasSourceCode = true;
+                } else {
+                    text = "No source found for class: " + fqName;
                 }
             }
 
@@ -1455,92 +1451,6 @@ public class ContextFragments {
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
             return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager);
-        }
-    }
-
-    public static class CallGraphFragment extends AbstractComputedFragment {
-        private final String methodName;
-        private final int depth;
-        private final boolean isCalleeGraph;
-
-        public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
-            this(UUID.randomUUID().toString(), contextManager, methodName, depth, isCalleeGraph);
-        }
-
-        public CallGraphFragment(
-                String id, IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
-            super(
-                    id,
-                    contextManager,
-                    "%s of %s (depth %d)".formatted(isCalleeGraph ? "Callees" : "Callers", methodName, depth),
-                    "%s of %s (depth %d)".formatted(isCalleeGraph ? "Callees" : "Callers", methodName, depth),
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    null,
-                    () -> computeSnapshotFor(methodName, depth, isCalleeGraph, contextManager));
-            this.methodName = methodName;
-            this.depth = depth;
-            this.isCalleeGraph = isCalleeGraph;
-        }
-
-        @Override
-        public FragmentType getType() {
-            return FragmentType.CALL_GRAPH;
-        }
-
-        public String getMethodName() {
-            return methodName;
-        }
-
-        public int getDepth() {
-            return depth;
-        }
-
-        public boolean isCalleeGraph() {
-            return isCalleeGraph;
-        }
-
-        @Override
-        public String repr() {
-            return "CallGraph('%s', depth=%d, direction=%s)".formatted(methodName, depth, isCalleeGraph ? "OUT" : "IN");
-        }
-
-        private static ContentSnapshot computeSnapshotFor(
-                String methodName, int depth, boolean isCalleeGraph, IContextManager contextManager) {
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-            var methodCodeUnit = analyzer.getDefinitions(methodName).stream()
-                    .filter(CodeUnit::isFunction)
-                    .findFirst();
-
-            String text;
-            Set<CodeUnit> sources = Set.of();
-            if (methodCodeUnit.isPresent()) {
-                sources = Set.of(methodCodeUnit.get());
-                var cpgOpt = analyzer.as(CallGraphProvider.class);
-                if (cpgOpt.isPresent()) {
-                    var cpg = cpgOpt.get();
-                    Map<String, List<CallSite>> graphData = isCalleeGraph
-                            ? cpg.getCallgraphFrom(methodCodeUnit.get(), depth)
-                            : cpg.getCallgraphTo(methodCodeUnit.get(), depth);
-
-                    text = graphData.isEmpty()
-                            ? "No call graph available for " + methodName
-                            : AnalyzerUtil.formatCallGraph(graphData, methodName, !isCalleeGraph);
-                } else {
-                    text = "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
-                }
-            } else {
-                text = "Method not found: " + methodName;
-            }
-
-            Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-
-            boolean valid = analyzer.getDefinitions(methodName).stream().anyMatch(CodeUnit::isFunction);
-            return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
-        }
-
-        @Override
-        public ContextFragment refreshCopy() {
-            return new CallGraphFragment(id, contextManager, methodName, depth, isCalleeGraph);
         }
     }
 
@@ -1704,15 +1614,11 @@ public class ContextFragments {
                 String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
-            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
             Set<CodeUnit> primaryTargets =
                     resolvePrimaryTargets(targetIdentifier, summaryType, analyzer, contextManager);
 
-            if (skeletonProviderOpt.isPresent()) {
-                var skeletonProvider = skeletonProviderOpt.get();
-                for (CodeUnit cu : primaryTargets) {
-                    skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
-                }
+            for (CodeUnit cu : primaryTargets) {
+                analyzer.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
             }
 
             String text;
@@ -1736,19 +1642,12 @@ public class ContextFragments {
         @Blocking
         private Map<String, CodeUnitSkeleton> skeletonsByFqName() {
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
-            if (skeletonProviderOpt.isEmpty()) {
-                return Map.of();
-            }
-            SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
-
             Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
             for (CodeUnit cu : sources().join()) {
                 if (cu.isAnonymous()) {
                     continue;
                 }
-                skeletonProvider
-                        .getSkeleton(cu)
+                analyzer.getSkeleton(cu)
                         .filter(s -> !s.isBlank())
                         .ifPresent(skeleton -> out.putIfAbsent(cu.fqName(), new CodeUnitSkeleton(cu, skeleton)));
             }
@@ -1762,7 +1661,7 @@ public class ContextFragments {
          * - Union CodeUnits across fragments via sources()
          * - Deduplicate by CodeUnit.fqName() (stable first-seen)
          * - Exclude anonymous units
-         * - Use each fragment's own analyzer via SkeletonProvider to obtain skeleton text
+         * - Use each fragment's own analyzer to obtain skeleton text
          * - Format via SkeletonFragmentFormatter in by-package mode
          */
         @Blocking

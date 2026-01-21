@@ -20,6 +20,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHDirection;
 import org.kohsuke.github.GHIssue;
@@ -283,28 +284,33 @@ public class GitHubAuth {
         return !token.isBlank();
     }
 
-    public static boolean validateStoredToken() {
+    public enum TokenValidationResult {
+        VALID, // Token works
+        INVALID, // 401 - token rejected by GitHub
+        TRANSIENT_ERROR // Network/rate-limit/timeout - token may still be valid
+    }
+
+    @Blocking
+    public static TokenValidationResult validateStoredTokenWithResult() {
         if (getStoredToken().isEmpty()) {
-            return false;
+            return TokenValidationResult.INVALID;
         }
 
         try {
             createClient().getMyself();
             logger.debug("Stored GitHub token is valid");
-            return true;
+            return TokenValidationResult.VALID;
         } catch (HttpException e) {
             if (e.getResponseCode() == 401) {
-                logger.warn("Stored GitHub token is invalid");
+                logger.warn("Stored GitHub token is invalid (401)");
                 invalidateInstance();
-            } else {
-                // Rate limit or other HTTP errors - don't clear token
-                logger.warn("GitHub API error during token validation: {}", e.getMessage());
+                return TokenValidationResult.INVALID;
             }
-            return false;
+            logger.warn("GitHub API error during token validation ({}): {}", e.getResponseCode(), e.getMessage());
+            return TokenValidationResult.TRANSIENT_ERROR;
         } catch (Exception e) {
-            // Network errors, timeouts, etc. - don't clear token
-            logger.warn("Error validating GitHub token: {}", e.getMessage());
-            return false;
+            logger.warn("Error validating GitHub token (transient): {}", e.getMessage());
+            return TokenValidationResult.TRANSIENT_ERROR;
         }
     }
 

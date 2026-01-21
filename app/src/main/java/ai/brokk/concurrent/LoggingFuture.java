@@ -7,6 +7,33 @@ import java.util.function.Supplier;
 public final class LoggingFuture {
     private LoggingFuture() {}
 
+    private static <T> CompletableFuture<T> supplyCallableOnVirtualThread(Callable<T> callable) {
+        var cf = new EdtAwareFuture<T>();
+
+        Thread virtualThread = Thread.ofVirtual().unstarted(() -> {
+            try {
+                if (!cf.isCancelled()) {
+                    cf.complete(callable.call());
+                }
+            } catch (Throwable th) {
+                if (cf.isCancelled() && (th instanceof InterruptedException || th instanceof CancellationException)) {
+                    return;
+                }
+                GlobalExceptionHandler.handle(th, st -> {});
+                cf.completeExceptionally(th);
+            }
+        });
+
+        cf.whenComplete((v, th) -> {
+            if (th instanceof CancellationException) {
+                virtualThread.interrupt();
+            }
+        });
+
+        virtualThread.start();
+        return cf;
+    }
+
     public static <T> CompletableFuture<T> supplyCallableAsync(Callable<T> callable) {
         return supplyCallableAsync(callable, ForkJoinPool.commonPool());
     }
@@ -32,12 +59,24 @@ public final class LoggingFuture {
         return supplyCallableAsync(supplier::get, executor);
     }
 
-    public static CompletableFuture<Void> supplyAsync(Runnable runnable) {
+    public static CompletableFuture<Void> runAsync(Runnable runnable) {
         return supplyCallableAsync(Executors.callable(runnable, null), ForkJoinPool.commonPool());
     }
 
-    public static CompletableFuture<Void> supplyAsync(Runnable runnable, Executor executor) {
+    public static CompletableFuture<Void> runAsync(Runnable runnable, Executor executor) {
         return supplyCallableAsync(Executors.callable(runnable, null), executor);
+    }
+
+    public static <T> CompletableFuture<T> supplyVirtual(Supplier<T> supplier) {
+        return supplyCallableVirtual(supplier::get);
+    }
+
+    public static <T> CompletableFuture<T> supplyCallableVirtual(Callable<T> callable) {
+        return supplyCallableOnVirtualThread(callable);
+    }
+
+    public static CompletableFuture<Void> runVirtual(Runnable runnable) {
+        return supplyCallableVirtual(Executors.callable(runnable, null));
     }
 
     public static CompletableFuture<Void> allOf(CompletableFuture<?>... cfs) {

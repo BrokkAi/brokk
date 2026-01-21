@@ -327,15 +327,6 @@ public class Context {
         return pinnedFragments.contains(fragment);
     }
 
-    public Stream<ContextFragment> fileFragments() {
-        return fragments.stream().filter(f -> f.getType().isPath());
-    }
-
-    public Stream<ContextFragment> virtualFragments() {
-        // Virtual fragments are non-path fragments
-        return fragments.stream().filter(f -> !f.getType().isPath());
-    }
-
     /**
      * Returns the fragments explicitly marked read-only in this Context.
      * Only fragments that have been setReadOnly(...) are included.
@@ -655,8 +646,8 @@ public class Context {
 
     public Optional<ContextFragments.StringFragment> getSpecial(String description) {
         // Since special looks for self-freezing fragments, we can reliably use `renderNow`
-        return virtualFragments()
-                .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
+        return allFragments()
+                .filter(f -> f instanceof ContextFragments.StringFragment sf
                         && description.equals(sf.description().renderNowOrNull()))
                 .map(ContextFragments.StringFragment.class::cast)
                 .findFirst();
@@ -671,8 +662,8 @@ public class Context {
             return this;
         }
 
-        var idsToDrop = virtualFragments()
-                .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
+        var idsToDrop = allFragments()
+                .filter(f -> f instanceof ContextFragments.StringFragment sf
                         && desc.equals(sf.description().renderNowOrNull()))
                 .map(ContextFragment::id)
                 .toList();
@@ -752,7 +743,7 @@ public class Context {
 
         var liveContext = context;
         var workspaceFiles = liveContext
-                .fileFragments()
+                .allFragments()
                 .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
                 .map(f -> (ContextFragments.ProjectPathFragment) f)
                 .map(ContextFragments.ProjectPathFragment::file)
@@ -852,7 +843,7 @@ public class Context {
             return context;
         }
 
-        var workspaceFiles = context.fileFragments()
+        var workspaceFiles = context.allFragments()
                 .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
                 .map(f -> (ContextFragments.ProjectPathFragment) f)
                 .map(ContextFragments.ProjectPathFragment::file)

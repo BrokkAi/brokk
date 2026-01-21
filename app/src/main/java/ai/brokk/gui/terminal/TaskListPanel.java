@@ -1001,7 +1001,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         assert SwingUtilities.isEventDispatchThread();
 
         // Check for dirty files using GCT's cached count (fast, no repo call)
-        var dirtyFiles = chrome.getModifiedFiles();
+        var dirtyFiles = cm.getProject().getRepo().getModifiedProjectFiles();
         if (dirtyFiles.isEmpty()) {
             action.run();
             return;
@@ -1059,7 +1059,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     chrome.getFrame(),
                     chrome,
                     chrome.getContextManager(),
-                    dirtyFiles,
+                    new ArrayList<>(dirtyFiles),
                     commitResult -> SwingUtilities.invokeLater(action));
             commitDialog.setVisible(true);
         } else if (choice[0] == 1) {

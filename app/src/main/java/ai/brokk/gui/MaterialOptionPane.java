@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.gui.components.MaterialButton;
 import java.awt.Component;
+import java.util.List;
 import javax.swing.Icon;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
@@ -13,16 +14,53 @@ public class MaterialOptionPane {
 
     /**
      * Shows a modal confirmation dialog with MaterialButtons, similar to {@link JOptionPane#showConfirmDialog}.
-     * Currently supports {@link JOptionPane#YES_NO_OPTION}.
      */
     public static int showConfirmDialog(
             @Nullable Component parent, String message, String title, int optionType, int messageType) {
-        if (optionType != JOptionPane.YES_NO_OPTION) {
-            throw new IllegalArgumentException("Only YES_NO_OPTION is currently supported");
+        ConfirmDialogSpec spec = confirmDialogSpec(optionType);
+        int index = showOptionDialog(
+                parent,
+                message,
+                title,
+                optionType,
+                messageType,
+                null,
+                spec.options().toArray(new String[0]),
+                spec.initial());
+
+        if (index == JOptionPane.CLOSED_OPTION) {
+            return JOptionPane.CLOSED_OPTION;
         }
 
-        String[] options = {"Yes", "No"};
-        return showOptionDialog(parent, message, title, optionType, messageType, null, options, "Yes");
+        return spec.returnValueForIndex(index);
+    }
+
+    private static ConfirmDialogSpec confirmDialogSpec(int optionType) {
+        return switch (optionType) {
+            case JOptionPane.YES_NO_OPTION ->
+                new ConfirmDialogSpec(
+                        List.of("Yes", "No"), "Yes", List.of(JOptionPane.YES_OPTION, JOptionPane.NO_OPTION));
+            case JOptionPane.YES_NO_CANCEL_OPTION ->
+                new ConfirmDialogSpec(
+                        List.of("Yes", "No", "Cancel"),
+                        "Yes",
+                        List.of(JOptionPane.YES_OPTION, JOptionPane.NO_OPTION, JOptionPane.CANCEL_OPTION));
+            case JOptionPane.OK_CANCEL_OPTION ->
+                new ConfirmDialogSpec(
+                        List.of("OK", "Cancel"), "OK", List.of(JOptionPane.OK_OPTION, JOptionPane.CANCEL_OPTION));
+            case JOptionPane.DEFAULT_OPTION ->
+                new ConfirmDialogSpec(List.of("OK"), "OK", List.of(JOptionPane.OK_OPTION));
+            default -> throw new IllegalArgumentException("Unsupported optionType: " + optionType);
+        };
+    }
+
+    private record ConfirmDialogSpec(List<String> options, String initial, List<Integer> returnValues) {
+        int returnValueForIndex(int index) {
+            if (index < 0 || index >= returnValues.size()) {
+                return JOptionPane.CLOSED_OPTION;
+            }
+            return returnValues.get(index);
+        }
     }
 
     /**

@@ -127,7 +127,8 @@ class HistoryV4MigrationTest {
             assertEquals("Virtual content 1", sf.text().join());
 
             var ctx2 = history.getHistory().get(1);
-            assertEquals(1, ctx2.virtualFragments().count());
+            assertEquals(
+                    1, ctx2.allFragments().filter(f -> !f.getType().isPath()).count());
             var pif = findFragment(ctx2, ContextFragments.AnonymousImageFragment.class, f -> true);
             assertNotNull(pif);
             assertEquals("Pasted Red Image", pif.description().join());
@@ -141,7 +142,7 @@ class HistoryV4MigrationTest {
         } else if ("v3-gitfile-fragment-only.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
-            assertEquals(1, ctx.fileFragments().count());
+            assertEquals(1, ctx.allFragments().filter(f -> f.getType().isPath()).count());
             var gff = findFragment(ctx, ContextFragments.GitFileFragment.class, f -> true);
             assertNotNull(gff);
             assertEquals("abcdef1234567890", gff.revision());
@@ -221,13 +222,7 @@ class HistoryV4MigrationTest {
         } else if ("v3-callgraph-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
-            assertEquals(1, ctx.allFragments().count());
-            var cgf = findFragment(ctx, ContextFragments.CallGraphFragment.class, f -> true);
-            assertNotNull(cgf);
-            assertTrue(cgf.description().join().contains("Callees of"));
-            assertEquals("com.example.MyClass.doStuff", cgf.getMethodName());
-            assertEquals(3, cgf.getDepth());
-            assertTrue(cgf.isCalleeGraph());
+            assertEquals(0, ctx.allFragments().count());
         } else if ("v3-history-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();

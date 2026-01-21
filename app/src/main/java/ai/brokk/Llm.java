@@ -3,6 +3,7 @@ package ai.brokk;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.ToolRegistry;
@@ -256,12 +257,9 @@ public class Llm {
             var dir = getOrCreateTaskHistoryDir();
             var filename = "%s %03d-request.json".formatted(logFileTimestamp(), assignedSequence);
             var requestPath = dir.resolve(filename);
-            var requestOptions = new StandardOpenOption[] {
-                StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
-            };
             var requestJson = requestJsonForLogging(request);
             logger.trace("Writing pre-send request JSON to {}", requestPath);
-            Files.writeString(requestPath, requestJson, requestOptions);
+            AtomicWrites.save(requestPath, requestJson);
         } catch (IOException e) {
             logger.error("Failed to write pre-send request JSON", e);
         }

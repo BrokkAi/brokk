@@ -14,9 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.*;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -540,7 +538,7 @@ public final class ContextExplorer extends JFrame {
                         .collect(Collectors.joining("\n"));
 
                 var exportPath = sessionsDir.resolve(sessionIdLocal.toString() + ".jsonl");
-                Files.writeString(exportPath, jsonl, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                ai.brokk.concurrent.AtomicWrites.save(exportPath, jsonl);
                 logger.info("Exported session {} to {}", sessionIdLocal, exportPath);
                 return exportPath;
             }

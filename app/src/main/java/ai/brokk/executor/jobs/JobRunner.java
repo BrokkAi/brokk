@@ -1690,7 +1690,9 @@ public final class JobRunner {
 
                     // If there are local modifications, attempt a best-effort stash and retry once.
                     try {
-                        var modified = gitRepo.getModifiedFiles();
+                        var modified = gitRepo.getModifiedFiles().stream()
+                                .map(GitRepo.ModifiedFile::file)
+                                .collect(java.util.stream.Collectors.toSet());
                         if (!modified.isEmpty()) {
                             try {
                                 var stash = gitRepo.createStash("brokk-autostash-for-cleanup");

@@ -3,7 +3,6 @@ package ai.brokk.testutil;
 import ai.brokk.analyzer.*;
 import ai.brokk.project.IProject;
 import java.util.*;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
@@ -12,13 +11,16 @@ import org.jetbrains.annotations.Nullable;
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
  * without requiring a full CPG.
  */
-public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvider {
+public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAnalysisProvider, TypeAliasProvider {
+    private boolean supportsImportAnalysis = true;
+    private boolean supportsTypeHierarchy = true;
+    private boolean supportsTypeAlias = true;
+
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
     private final Map<CodeUnit, String> skeletons = new HashMap<>();
     private final Map<CodeUnit, String> sources = new HashMap<>();
-    private Function<List<ProjectFile>, LintResult> lintBehavior = files -> new LintResult(List.of());
     private @Nullable IProject testProject;
 
     public TestAnalyzer(
@@ -38,10 +40,6 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     public void addDeclaration(CodeUnit cu) {
         this.allClasses.add(cu);
-    }
-
-    public void setLintBehavior(Function<List<ProjectFile>, LintResult> behavior) {
-        this.lintBehavior = behavior;
     }
 
     @Override
@@ -143,6 +141,17 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        return Optional.ofNullable(sources.get(codeUnit));
+    }
+
+    @Override
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        String source = sources.get(codeUnit);
+        return source != null ? Set.of(source) : Set.of();
+    }
+
+    @Override
     public Optional<String> getSkeleton(CodeUnit cu) {
         return Optional.ofNullable(skeletons.get(cu));
     }
@@ -161,49 +170,27 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
-    public LintResult lintFiles(List<ProjectFile> files) {
-        return lintBehavior.apply(files);
-    }
-
-    @Override
     public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
         return ancestorsMap.getOrDefault(cu, List.of());
     }
 
-    public void setDirectAncestors(CodeUnit cu, List<CodeUnit> ancestors) {
-        this.ancestorsMap.put(cu, ancestors);
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return Set.of();
     }
 
     @Override
-    @SuppressWarnings("unchecked")
-    public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
-        if (capability.isInstance(this)) {
-            return Optional.of((T) this);
-        }
-        if (capability == SourceCodeProvider.class) {
-            return Optional.of((T) new SourceCodeProvider() {
-                @Override
-                public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
-                    return getMethodSource(method, includeComments).map(Set::of).orElse(Set.of());
-                }
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return Set.of();
+    }
 
-                @Override
-                public Optional<String> getMethodSource(CodeUnit method, boolean includeComments) {
-                    return Optional.ofNullable(sources.get(method));
-                }
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return Set.of();
+    }
 
-                @Override
-                public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
-                    return Optional.ofNullable(sources.get(classUnit));
-                }
-
-                @Override
-                public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
-                    return Optional.ofNullable(sources.get(codeUnit));
-                }
-            });
-        }
-        return Optional.empty();
+    public void setDirectAncestors(CodeUnit cu, List<CodeUnit> ancestors) {
+        this.ancestorsMap.put(cu, ancestors);
     }
 
     @Override
@@ -214,5 +201,36 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return Optional.empty();
+    }
+
+    @Override
+    public boolean isTypeAlias(CodeUnit cu) {
+        return false;
+    }
+
+    public void setSupportsImportAnalysis(boolean supportsImportAnalysis) {
+        this.supportsImportAnalysis = supportsImportAnalysis;
+    }
+
+    public void setSupportsTypeHierarchy(boolean supportsTypeHierarchy) {
+        this.supportsTypeHierarchy = supportsTypeHierarchy;
+    }
+
+    public void setSupportsTypeAlias(boolean supportsTypeAlias) {
+        this.supportsTypeAlias = supportsTypeAlias;
+    }
+
+    @Override
+    public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+        if (capability == ImportAnalysisProvider.class && !supportsImportAnalysis) {
+            return Optional.empty();
+        }
+        if (capability == TypeHierarchyProvider.class && !supportsTypeHierarchy) {
+            return Optional.empty();
+        }
+        if (capability == TypeAliasProvider.class && !supportsTypeAlias) {
+            return Optional.empty();
+        }
+        return IAnalyzer.super.as(capability);
     }
 }

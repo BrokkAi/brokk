@@ -63,6 +63,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     // Review tab infrastructure
     private final JComponent reviewTabComponent;
     private @Nullable BadgedIcon buildTabBadgedIcon;
+    private @Nullable BadgedIcon reviewTabBadgedIcon;
 
     private int getReviewTabIndex() {
         return buildReviewTabs.indexOfComponent(reviewTabComponent);
@@ -159,8 +160,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         // Review Tab Setup - show placeholder if no Git repo
         if (chrome.getProject().hasGit()) {
-            var sessionChangesPanel =
-                    new SessionChangesPanel(chrome, contextManager, this::updateReviewTabTitleAndTooltip);
+            var sessionChangesPanel = new SessionChangesPanel(chrome, contextManager, this::onReviewTabStateChanged);
             reviewTabComponent = sessionChangesPanel;
         } else {
             var placeholder = new JLabel("Git repository required for Review", SwingConstants.CENTER);
@@ -498,7 +498,10 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        reviewFrame = new DetachableTabFrame("Review", reviewTabComponent, this::redockReview);
+        reviewFrame = new DetachableTabFrame("Review", reviewTabComponent, this::redockReview, chrome.getTheme());
+        if (reviewTabComponent instanceof SessionChangesPanel scp) {
+            scp.requestUpdate();
+        }
         reviewFrame.setVisible(true);
     }
 
@@ -510,6 +513,12 @@ public class RightPanel extends JPanel implements ThemeAware {
         int idx = Math.min(1, buildReviewTabs.getTabCount());
         buildReviewTabs.insertTab("Review", Icons.FLOWSHEET, reviewTabComponent, null, idx);
         buildReviewTabs.setSelectedIndex(idx);
+
+        updateReviewTabBadge(
+                contextManager.getProject().getRepo().getModifiedProjectFiles().size());
+        if (reviewTabComponent instanceof SessionChangesPanel scp) {
+            scp.requestUpdate();
+        }
 
         if (reviewFrame != null) {
             reviewFrame.dispose();
@@ -557,7 +566,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        terminalFrame = new DetachableTabFrame("Terminal", terminalPanel, this::redockTerminal);
+        terminalFrame = new DetachableTabFrame("Terminal", terminalPanel, this::redockTerminal, chrome.getTheme());
         terminalFrame.setVisible(true);
     }
 
@@ -764,12 +773,23 @@ public class RightPanel extends JPanel implements ThemeAware {
         return taskListPanel;
     }
 
-    private void updateReviewTabTitleAndTooltip(String title, String tooltip) {
-        int idx = getReviewTabIndex();
-        if (idx != -1) {
-            buildReviewTabs.setTitleAt(idx, title);
-            buildReviewTabs.setToolTipTextAt(idx, tooltip);
-        }
+    private void onReviewTabStateChanged(SessionChangesPanel.ReviewTabState state) {
+        SwingUtilities.invokeLater(() -> {
+            if (!GlobalUiSettings.isReviewDocked()) {
+                if (reviewFrame != null) {
+                    reviewFrame.setHeaderTitle(
+                            Icons.FLOWSHEET, state.title(), state.tooltip(), state.uncommittedCount());
+                }
+                return;
+            }
+
+            int idx = getReviewTabIndex();
+            if (idx != -1) {
+                buildReviewTabs.setTitleAt(idx, state.title());
+                buildReviewTabs.setToolTipTextAt(idx, state.tooltip());
+            }
+            updateReviewTabBadge(state.uncommittedCount());
+        });
     }
 
     public void requestReviewUpdate() {
@@ -841,6 +861,30 @@ public class RightPanel extends JPanel implements ThemeAware {
                 }
                 buildTabBadgedIcon.setCount(count, buildReviewTabs);
                 buildReviewTabs.setIconAt(idx, buildTabBadgedIcon);
+            }
+        });
+    }
+
+    /**
+     * Updates the "Review" tab icon with a numeric badge showing the uncommitted file count.
+     * @param count The number of uncommitted files.
+     */
+    public void updateReviewTabBadge(int count) {
+        SwingUtilities.invokeLater(() -> {
+            int idx = getReviewTabIndex();
+            if (idx == -1) {
+                return;
+            }
+
+            if (count <= 0) {
+                buildReviewTabs.setIconAt(idx, Icons.FLOWSHEET);
+                reviewTabBadgedIcon = null;
+            } else {
+                if (reviewTabBadgedIcon == null) {
+                    reviewTabBadgedIcon = new BadgedIcon(Icons.FLOWSHEET, chrome.getTheme());
+                }
+                reviewTabBadgedIcon.setCount(count, buildReviewTabs);
+                buildReviewTabs.setIconAt(idx, reviewTabBadgedIcon);
             }
         });
     }

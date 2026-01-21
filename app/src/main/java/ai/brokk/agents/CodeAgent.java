@@ -201,7 +201,8 @@ public class CodeAgent {
         try {
             contextManager
                     .getAnalyzerWrapper()
-                    .updateFiles(context.fileFragments()
+                    .updateFiles(context.allFragments()
+                            .filter(f -> f.getType().isPath())
                             .flatMap(cf -> cf.files().join().stream())
                             .collect(Collectors.toSet()))
                     .get();
@@ -779,7 +780,8 @@ public class CodeAgent {
                     ? ""
                     : Messages.getText(cs.taskMessages().getLast());
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
-            var filesInContext = context.fileFragments()
+            var filesInContext = context.allFragments()
+                    .filter(f -> f.getType().isPath())
                     .flatMap(f -> f.files().join().stream())
                     .collect(Collectors.toSet());
 
