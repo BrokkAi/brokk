@@ -66,11 +66,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     public CppAnalyzer(IProject project, ProgressListener listener) {
-        super(project, Languages.CPP_TREESITTER, listener);
+        super(project, Languages.C_CPP, listener);
     }
 
     private CppAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.CPP_TREESITTER, state, listener);
+        super(project, Languages.C_CPP, state, listener);
     }
 
     public static CppAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {

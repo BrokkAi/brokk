@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.imports;
 
+import static ai.brokk.testutil.InlineTestProjectCreator.code;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -9,7 +10,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.AnalyzerCreator;
-import static ai.brokk.testutil.InlineTestProjectCreator.code;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
@@ -19,11 +19,12 @@ class CppImportTest {
 
     @Test
     void testImportExtraction() throws IOException {
-        String content = """
+        String content =
+                """
                 #include <iostream>
                 #include "header.h"
                 #include <vector>
-                
+
                 int main() { return 0; }
                 """;
 
@@ -44,7 +45,8 @@ class CppImportTest {
 
     @Test
     void testNoImports() throws IOException {
-        String content = """
+        String content =
+                """
                 int add(int a, int b) {
                     return a + b;
                 }
@@ -63,20 +65,22 @@ class CppImportTest {
     @Test
     void testImportResolution() throws IOException {
         // 1. Create a header file with declarations
-        String headerContent = """
+        String headerContent =
+                """
                 class MathUtils {
                 public:
                     static int add(int a, int b);
                 };
-                
+
                 void globalFunction();
                 """;
 
         // 2. Create a source file that includes the header
-        String sourceContent = """
+        String sourceContent =
+                """
                 #include "math.h"
                 #include <iostream>
-                
+
                 int main() { return 0; }
                 """;
 
@@ -93,18 +97,18 @@ class CppImportTest {
             Set<CodeUnit> importedUnits = ((ImportAnalysisProvider) analyzer).importedCodeUnitsOf(mainFile);
 
             // Should find MathUtils and globalFunction from math.h
-            boolean foundClass = importedUnits.stream()
-                    .anyMatch(cu -> cu.shortName().equals("MathUtils") && cu.isClass());
-            boolean foundFn = importedUnits.stream()
-                    .anyMatch(cu -> cu.shortName().equals("globalFunction") && cu.isFunction());
+            boolean foundClass =
+                    importedUnits.stream().anyMatch(cu -> cu.shortName().equals("MathUtils") && cu.isClass());
+            boolean foundFn =
+                    importedUnits.stream().anyMatch(cu -> cu.shortName().equals("globalFunction") && cu.isFunction());
 
             assertTrue(foundClass, "Should resolve MathUtils class from header");
             assertTrue(foundFn, "Should resolve globalFunction from header");
 
             // 4. Verify angle-bracket includes are ignored in resolution
             // (iostream declarations should not be in the set because the file doesn't exist in project)
-            boolean foundStd = importedUnits.stream()
-                    .anyMatch(cu -> cu.source().toString().contains("iostream"));
+            boolean foundStd =
+                    importedUnits.stream().anyMatch(cu -> cu.source().toString().contains("iostream"));
             assertTrue(!foundStd, "System headers should not be resolved to CodeUnits");
 
             // 5. Verify referencingFilesOf

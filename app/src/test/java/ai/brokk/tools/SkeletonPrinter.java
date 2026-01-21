@@ -204,7 +204,7 @@ public class SkeletonPrinter {
             case "javascript", "js" -> Languages.JAVASCRIPT;
             case "java" -> Languages.JAVA;
             case "python", "py" -> Languages.PYTHON;
-            case "cpp", "c++" -> Languages.CPP_TREESITTER;
+            case "cpp", "c++" -> Languages.C_CPP;
             default -> null;
         };
     }
