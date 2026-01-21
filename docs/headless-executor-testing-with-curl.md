@@ -650,7 +650,7 @@ JSON
 
 ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (controlled by `buildSettings.maxBuildAttempts`, per task).
 
-Additionally, you can cap the overall issue remediation workflow using `maxIssueFixAttempts`: this is the maximum number of ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). Default: 5.
+Additionally, you can cap the overall issue remediation workflow using `maxIssueFixAttempts`: this is the maximum number of ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). Default: 20.
 
 #### Verification and fix contract (ISSUE mode)
 
@@ -674,7 +674,7 @@ curl -sS -X POST "${BASE}/v1/jobs/issue" \
   "githubToken": "ghp_xxxxxxxxxxxx",
   "plannerModel": "gpt-5",
   "codeModel": "gpt-5-mini",
-  "maxIssueFixAttempts": 5,
+  "maxIssueFixAttempts": 20,
   "buildSettings": {
     "buildLintCommand": "./gradlew classes",
     "testAllCommand": "./gradlew test",

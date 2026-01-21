@@ -628,7 +628,7 @@ public class HeadlessExecCli {
         System.out.println();
         System.out.println("ISSUE Mode Options (optional):");
         System.out.println(
-                "  --max-issue-fix-attempts NUMBER  Max final verification attempts (tests/lint loop) (default: 5)");
+                "  --max-issue-fix-attempts NUMBER  Max final verification attempts (tests/lint loop) (default: 20)");
         System.out.println("  --build-settings JSON    Build settings as JSON object");
         System.out.println("  --issue-delivery MODE    Delivery mode ('none' to skip PR creation)");
         System.out.println();

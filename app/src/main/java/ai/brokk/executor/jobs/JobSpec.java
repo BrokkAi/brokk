@@ -32,7 +32,7 @@ public record JobSpec(
         @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
         @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts) {
 
-    public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 5;
+    public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 20;
 
     public record ModelOverrides(
             @Nullable String reasoningLevel,
