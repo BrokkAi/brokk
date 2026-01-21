@@ -595,7 +595,7 @@ public class HeadlessExecCli {
         System.out.println();
         System.out.println("Options:");
         System.out.println(
-                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, or ISSUE (default: ARCHITECT)");
+                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER (default: ARCHITECT)");
         System.out.println("  --planner-model MODEL    Planner model name (required)");
         System.out.println(
                 "  --scan-model MODEL       Scan model name (optional; used by SEARCH mode; used by ASK only when --pre-scan is enabled)");
@@ -745,9 +745,9 @@ public class HeadlessExecCli {
                     return false;
                 }
                 mode = Ascii.toUpperCase(value);
-                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE)$")) {
+                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE|ISSUE_WRITER)$")) {
                     System.err.println("ERROR: Invalid mode: " + value
-                            + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, or ISSUE");
+                            + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER");
                     return false;
                 }
             }
