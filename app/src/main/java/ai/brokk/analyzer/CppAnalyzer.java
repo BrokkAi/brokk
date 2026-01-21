@@ -329,11 +329,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         Set<CodeUnit> resolved = new HashSet<>();
         for (String line : importStatements) {
             String trimmed = line.strip();
-            if (!trimmed.startsWith("#include")) {
-                continue;
-            }
 
-            // Extract content between "" or <>
+            // Extract content between "" (quoted includes only; angle-bracket includes are system headers)
             Matcher m = QUOTED_INCLUDE_PATTERN.matcher(trimmed);
             if (m.find()) {
                 // Quoted include: resolve relative to current file
