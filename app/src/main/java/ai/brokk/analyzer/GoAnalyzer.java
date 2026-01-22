@@ -1,14 +1,16 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
+
 import ai.brokk.project.IProject;
 import java.util.Collections;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
@@ -22,8 +24,6 @@ import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
-
-import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
