@@ -1431,7 +1431,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var list = new ArrayList<ChatMessage>();
                     list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx, service.nameOf(perFileModel)));
+                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx, null));
                     var text = "";
                     for (var m : list) {
                         text += m + "\n";
@@ -1600,7 +1600,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 if (fIncludeWorkspace) {
                     readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             context, EnumSet.of(SpecialTextType.TASK_LIST)));
-                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context, service.nameOf(model)));
+                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context, null));
                 }
                 if (fRelatedK != null) {
                     var acList = cm.liveContext().buildAutoContext(fRelatedK);

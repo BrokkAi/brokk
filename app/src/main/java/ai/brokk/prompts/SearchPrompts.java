@@ -109,7 +109,7 @@ public class SearchPrompts {
                 "Act as an expert software developer when answering the user's question based on the code in the Workspace.\n\n"
                         + SystemPrompts.MARKDOWN_REMINDER));
         messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-        messages.addAll(CodePrompts.instance.getHistoryMessages(ctx, modelName));
+        messages.addAll(CodePrompts.instance.getHistoryMessages(ctx, null));
         messages.add(askRequest(input));
         return messages;
     }
@@ -314,7 +314,7 @@ public class SearchPrompts {
         messages.addAll(workspaceMessages);
 
         // Conversation history plus this agent's messages
-        messages.addAll(CodePrompts.instance.getHistoryMessages(context, cm.getService().nameOf(model)));
+        messages.addAll(CodePrompts.instance.getHistoryMessages(context, null));
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)

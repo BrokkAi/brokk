@@ -8,6 +8,7 @@ import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult.TaskMeta;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
@@ -337,7 +338,7 @@ public class CodePrompts {
                                 reminder,
                                 goal));
         messages.add(sys);
-        messages.addAll(getHistoryMessages(ctx, cm.getService().nameOf(model)));
+        messages.addAll(getHistoryMessages(ctx, null));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
         messages.addAll(taskMessages);
@@ -543,11 +544,7 @@ public class CodePrompts {
         return (base + (base.endsWith("\n") ? "" : "\n") + guidance).trim();
     }
 
-    public List<ChatMessage> getHistoryMessages(Context ctx) {
-        return getHistoryMessages(ctx, null);
-    }
-
-    public List<ChatMessage> getHistoryMessages(Context ctx, @Nullable String currentModelName) {
+    public List<ChatMessage> getHistoryMessages(Context ctx, @Nullable TaskMeta currentMeta) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
 
@@ -573,13 +570,17 @@ public class CodePrompts {
                     ? entryRawMessages
                     : entryRawMessages.subList(0, entryRawMessages.size() - 1);
 
-            // Determine if we should redact tool calls (different model)
-            var meta = e.meta();
-            String entryModelName = (meta != null && meta.primaryModel() != null) ? meta.primaryModel().name() : null;
-            boolean shouldRedact =
-                    currentModelName != null && entryModelName != null && !currentModelName.equals(entryModelName);
+            var entryMeta = e.meta();
 
-            // Use the centralized helper to process messages
+            @Nullable ai.brokk.Service.ModelConfig currentPrimaryModel =
+                    currentMeta == null ? null : currentMeta.primaryModel();
+            @Nullable ai.brokk.Service.ModelConfig entryPrimaryModel =
+                    entryMeta == null ? null : entryMeta.primaryModel();
+
+            boolean shouldRedact = currentPrimaryModel != null
+                    && entryPrimaryModel != null
+                    && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
+
             var processedMessages = redactToolCallsFromOtherModels(relevantEntryMessages, shouldRedact);
             messages.addAll(processedMessages);
         });
