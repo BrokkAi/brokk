@@ -1323,11 +1323,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static void updateModeToggleLabelText(JLabel label, boolean isAdvanced) {
         if (isAdvanced) {
-            label.setText("<html><u>Adv mode &gt;</u></html>");
-            label.setToolTipText("Switch to simplified EZ mode");
+            label.setText("[Full Power]");
+            label.setToolTipText("Switch to Core Focus mode");
         } else {
-            label.setText("<html><u>EZ mode &gt;</u></html>");
-            label.setToolTipText("Switch to Advanced mode with more options");
+            label.setText("[Core Focus]");
+            label.setToolTipText("Switch to Full Power mode with more options");
         }
     }
 
@@ -1426,10 +1426,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         this.bottomToolbarPanel = bottomPanel;
 
-        // Flexible space before right-side controls (model selector + optional status strip + action button)
-        bottomPanel.add(Box.createHorizontalGlue());
-
-        // Mode toggle link (EZ/Adv mode)
+        // Mode toggle link (EZ/Adv mode) - left aligned
         var modeToggleLabel = new JLabel();
         modeToggleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         modeToggleLabel.setFocusable(false);
@@ -1453,7 +1450,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
         modeToggleLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
         bottomPanel.add(modeToggleLabel);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // Flexible space before right-side controls (model selector + optional status strip + action button)
+        bottomPanel.add(Box.createHorizontalGlue());
 
         // Build a compact container that hosts the ModelSelector and, if present, the status strip
         this.selectorStripPanel = new JPanel();
