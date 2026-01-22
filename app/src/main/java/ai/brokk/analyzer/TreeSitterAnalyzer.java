@@ -861,6 +861,100 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
+     * Returns the raw import snippets that are relevant to the given CodeUnit based on type references in its source.
+     * This analyzes the source text of the CodeUnit to find type identifiers and matches them against
+     * the file's imports. Wildcard imports are included only if there are unresolved type references.
+     *
+     * @param cu the CodeUnit to analyze
+     * @return set of raw import snippets relevant to this CodeUnit
+     */
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        // Get the source text for this CodeUnit
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+        String source = sourceOpt.get();
+
+        // Get all imports for the file
+        List<ImportInfo> allImports = importInfoOf(cu.source());
+        if (allImports.isEmpty()) {
+            return Set.of();
+        }
+
+        // Extract type identifiers from source using regex
+        // Matches capitalized identifiers that look like type names (e.g., Foo, List, StringBuilder)
+        Set<String> typeIdentifiers = extractTypeIdentifiers(source);
+        if (typeIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        // Separate explicit imports from wildcard imports
+        List<ImportInfo> explicitImports = allImports.stream()
+                .filter(imp -> !imp.isWildcard() && imp.identifier() != null)
+                .toList();
+        List<ImportInfo> wildcardImports =
+                allImports.stream().filter(ImportInfo::isWildcard).toList();
+
+        // Match type identifiers against explicit imports
+        Set<String> matchedImports = new HashSet<>();
+        Set<String> resolvedIdentifiers = new HashSet<>();
+
+        for (ImportInfo imp : explicitImports) {
+            String identifier = imp.identifier();
+            if (identifier != null && typeIdentifiers.contains(identifier)) {
+                matchedImports.add(imp.rawSnippet());
+                resolvedIdentifiers.add(identifier);
+            }
+        }
+
+        // Check if there are any unresolved type references
+        // These are identifiers that look like types but weren't matched by explicit imports
+        boolean hasUnresolvedReferences =
+                typeIdentifiers.stream().anyMatch(id -> !resolvedIdentifiers.contains(id));
+
+        // Include wildcard imports only if there are unresolved references
+        if (hasUnresolvedReferences) {
+            for (ImportInfo wildcardImp : wildcardImports) {
+                matchedImports.add(wildcardImp.rawSnippet());
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    /**
+     * Extracts potential type identifiers from source code.
+     * Uses a simple regex to find capitalized identifiers that look like type names.
+     * Comments are stripped before extraction to avoid false matches.
+     *
+     * @param source the source code to analyze
+     * @return set of potential type identifier names
+     */
+    protected Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+        // Strip comments before extracting identifiers to avoid false matches
+        // Remove single-line comments (// ...)
+        String noComments = source.replaceAll("//[^\n]*", "");
+        // Remove multi-line comments (/* ... */)
+        noComments = noComments.replaceAll("/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/", "");
+        
+        // Pattern matches capitalized identifiers (type names typically start with uppercase)
+        // Excludes common keywords and primitives
+        var pattern = Pattern.compile("\\b([A-Z][A-Za-z0-9_]*)\\b");
+        var matcher = pattern.matcher(noComments);
+        while (matcher.find()) {
+            String identifier = matcher.group(1);
+            // Exclude common Java keywords that start with uppercase (none by default)
+            // and very short identifiers that are likely constants (single letters)
+            if (identifier.length() > 1 || Character.isUpperCase(identifier.charAt(0))) {
+                identifiers.add(identifier);
+            }
+        }
+        return identifiers;
+    }
+
+    /**
      * Retrieves the resolved import CodeUnits for a given file.
      *
      * @param file the project file

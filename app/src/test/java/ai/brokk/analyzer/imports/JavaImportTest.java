@@ -517,4 +517,148 @@ public class JavaImportTest {
             assertNull(staticWildcardImport.identifier(), "Static wildcard imports should have null identifier");
         }
     }
+
+    @Test
+    public void testRelevantImportsForMethod() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+            package pkg;
+            public class Foo {}
+            """,
+                "Foo.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                    package consumer;
+                    import pkg.Foo;
+
+                    public class Consumer {
+                        public void bar(Foo a) {
+                            // uses Foo
+                        }
+                    }
+                    """,
+                        "Consumer.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var declarations = analyzer.getDeclarations(consumerFile);
+
+            var consumerClass = declarations.stream()
+                    .filter(cu -> cu.isClass() && cu.shortName().equals("Consumer"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Consumer class not found in declarations: " + declarations));
+            var barMethod = analyzer.getDirectChildren(consumerClass).stream()
+                    .filter(cu -> cu.identifier().equals("bar"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "bar method not found in children: " + analyzer.getDirectChildren(consumerClass)));
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(barMethod))
+                    .orElse(Set.of());
+
+            assertEquals(1, relevantImports.size(), "Should have exactly one relevant import");
+            assertTrue(relevantImports.contains("import pkg.Foo;"), "Should include import for Foo");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsExcludesUnused() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+            package pkg;
+            public class Foo {}
+            """,
+                "Foo.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                    package pkg;
+                    public class Bar {}
+                    """,
+                        "Bar.java")
+                .addFileContents(
+                        """
+                    package consumer;
+                    import pkg.Foo;
+                    import pkg.Bar;
+
+                    public class Consumer {
+                        public void methodUsingOnlyFoo(Foo a) {
+                            // only uses Foo, not Bar
+                        }
+                    }
+                    """,
+                        "Consumer.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var declarations = analyzer.getDeclarations(consumerFile);
+
+            var consumerClass = declarations.stream()
+                    .filter(cu -> cu.isClass() && cu.shortName().equals("Consumer"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Consumer class not found in declarations: " + declarations));
+            var method = analyzer.getDirectChildren(consumerClass).stream()
+                    .filter(cu -> cu.identifier().equals("methodUsingOnlyFoo"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("methodUsingOnlyFoo not found in children: "
+                            + analyzer.getDirectChildren(consumerClass)));
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(method))
+                    .orElse(Set.of());
+
+            assertEquals(1, relevantImports.size(), "Should have exactly one relevant import");
+            assertTrue(relevantImports.contains("import pkg.Foo;"), "Should include import for Foo");
+            assertFalse(relevantImports.contains("import pkg.Bar;"), "Should NOT include import for Bar");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsIncludesWildcardWhenNeeded() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+            package pkg;
+            public class Foo {}
+            """,
+                "Foo.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                    package consumer;
+                    import pkg.Foo;
+                    import other.*;
+
+                    public class Consumer {
+                        public void bar(Foo a, UnknownType b) {
+                            // Foo is explicitly imported, UnknownType might come from wildcard
+                        }
+                    }
+                    """,
+                        "Consumer.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var declarations = analyzer.getDeclarations(consumerFile);
+
+            var consumerClass = declarations.stream()
+                    .filter(cu -> cu.isClass() && cu.shortName().equals("Consumer"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Consumer class not found in declarations: " + declarations));
+            var barMethod = analyzer.getDirectChildren(consumerClass).stream()
+                    .filter(cu -> cu.identifier().equals("bar"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "bar method not found in children: " + analyzer.getDirectChildren(consumerClass)));
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(barMethod))
+                    .orElse(Set.of());
+
+            assertEquals(2, relevantImports.size(), "Should have two relevant imports");
+            assertTrue(relevantImports.contains("import pkg.Foo;"), "Should include explicit import for Foo");
+            assertTrue(
+                    relevantImports.contains("import other.*;"),
+                    "Should include wildcard import for unresolved UnknownType");
+        }
+    }
 }
