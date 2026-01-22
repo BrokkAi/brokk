@@ -958,6 +958,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomLinePanel.setOpaque(false);
         bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 5, 0, 0));
 
+        var modeToggleLabel = new JLabel();
+        modeToggleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        modeToggleLabel.setFocusable(false);
+        {
+            Color fg = UIManager.getColor("Label.foreground");
+            if (fg != null) {
+                modeToggleLabel.setForeground(fg);
+            }
+        }
+        updateModeToggleLabelText(modeToggleLabel, GlobalUiSettings.isAdvancedMode());
+        modeToggleLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                boolean currentMode = GlobalUiSettings.isAdvancedMode();
+                boolean newMode = !currentMode;
+                GlobalUiSettings.saveAdvancedMode(newMode);
+                updateModeToggleLabelText(modeToggleLabel, newMode);
+                chrome.applyAdvancedModeVisibility();
+                applyAdvancedModeForInstructions(newMode);
+            }
+        });
+
+        var modeTogglePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        modeTogglePanel.setOpaque(false);
+        modeTogglePanel.add(modeToggleLabel);
+        bottomLinePanel.add(modeTogglePanel, BorderLayout.WEST);
+
         // Ensure the token bar expands to fill available width
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
 
@@ -1319,6 +1346,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static String htmlEscape(String s) {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static void updateModeToggleLabelText(JLabel label, boolean isAdvanced) {
+        String text = isAdvanced ? "Switch to EZ" : "Switch to Advanced";
+        label.setText("<html><u>" + text + "</u></html>");
+        label.setToolTipText(isAdvanced ? "Switch to simplified EZ mode" : "Switch to Advanced mode with more options");
     }
 
     private String buildPlaceholderTextFromCurrentKeybindings() {
