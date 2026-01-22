@@ -145,9 +145,10 @@ public class CodePrompts {
             return Optional.empty();
         }
 
-        return Optional.of(aiMessage.hasToolExecutionRequests()
-                ? new AiMessage(redactedText, aiMessage.toolExecutionRequests())
-                : new AiMessage(redactedText));
+        return Optional.of(
+                aiMessage.hasToolExecutionRequests()
+                        ? new AiMessage(redactedText, aiMessage.toolExecutionRequests())
+                        : new AiMessage(redactedText));
     }
 
     /**
