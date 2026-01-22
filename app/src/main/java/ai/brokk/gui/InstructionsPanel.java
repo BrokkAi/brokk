@@ -1369,7 +1369,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     static boolean isPlaceholderMatch(@Nullable String text, @Nullable String placeholder) {
-        return text != null && placeholder != null && text.trim().equals(placeholder.trim());
+        if (text == null || placeholder == null) {
+            return false;
+        }
+        String normalizedText = text.replace("\r\n", "\n");
+        String normalizedPlaceholder = placeholder.replace("\r\n", "\n");
+        return normalizedText.equals(normalizedPlaceholder);
     }
 
     private boolean isPlaceholderText(String text) {
