@@ -1,6 +1,15 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.FUNCTION_DECLARATION;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.INTERFACE_TYPE;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.METHOD_DECLARATION;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.METHOD_ELEM;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.PARAMETER_DECLARATION;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.POINTER_TYPE;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.QUALIFIED_TYPE;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.STRUCT_TYPE;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.TYPE_IDENTIFIER;
+import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.TYPE_SPEC;
 
 import ai.brokk.project.IProject;
 import java.util.Collections;
@@ -27,6 +36,14 @@ import org.treesitter.TreeSitterGo;
 
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
+
+    private static final String TEST_MARKER = "test.marker";
+    private static final String CAPTURE_TEST_CANDIDATE_NAME = "test.candidate.name";
+    private static final String CAPTURE_TEST_CANDIDATE_PARAMS = "test.candidate.params";
+    private static final String TEST_FUNCTION_PREFIX = "Test";
+    private static final String TESTING_T = "testing.T";
+    private static final String POINTER_TESTING_T = "*testing.T";
+    private static final String FIELD_TYPE = "type";
 
     private final ConcurrentHashMap<String, String> importPathToPackageNameCache = new ConcurrentHashMap<>();
 
@@ -436,6 +453,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
      * <p>
      * Handles both double-quoted ("path") and backtick-quoted (`path`) import paths,
      * and ignores paths that appear inside comments.
+     * <p>
+     * NOTE: Regex-based comment stripping is necessary here because Tree-sitter node text
+     * (the raw strings in {@code importStatements}) represents the original source bytes
+     * between the node's start and end offsets, which includes comments and whitespace
+     * contained within the node's range.
      */
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
@@ -449,7 +471,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             String trimmed = statement.trim();
             if (trimmed.isEmpty() || !trimmed.startsWith("import")) continue;
 
-            // Strip comments to avoid matching paths inside them
+            // Strip comments to prevent the path regex from matching quoted strings inside comments
             String withoutComments = GO_COMMENT_PATTERN.matcher(trimmed).replaceAll("");
 
             // Find all quoted paths in the statement (handles both single and grouped imports)
