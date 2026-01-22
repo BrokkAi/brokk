@@ -1337,7 +1337,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         String bodyText =
                 "I think it's time to demonstrate the full power of this station.\nWith great power comes great responsibility.";
-        String linkText = "Learn how to use Full Power responsibly ->";
+        String linkText = "Learn how to use Full Power responsibly";
         String linkUrl = "https://brokk.ai/documentation/introduction";
 
         var messagePanel = new JPanel();
@@ -1365,8 +1365,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         messagePanel.add(linkLabel);
 
         String primary = "I understand. Let's do this.";
-        String cancel = "Cancel";
-        String[] options = {primary, cancel};
+        String[] options = {primary};
 
         int choice = MaterialOptionPane.showOptionDialog(
                 chrome.getFrame(),
