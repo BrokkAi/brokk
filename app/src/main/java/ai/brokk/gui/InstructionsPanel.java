@@ -1343,11 +1343,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setText(currentPlaceholderText);
     }
 
+    static boolean isPlaceholderMatch(@Nullable String text, @Nullable String placeholder) {
+        return text != null
+                && placeholder != null
+                && text.trim().equals(placeholder.trim());
+    }
+
     private boolean isPlaceholderText(String text) {
         if (!placeholderActive) return false;
-        return text != null
-                && currentPlaceholderText != null
-                && text.trim().equals(currentPlaceholderText.trim());
+        return isPlaceholderMatch(text, currentPlaceholderText);
     }
 
     /**
