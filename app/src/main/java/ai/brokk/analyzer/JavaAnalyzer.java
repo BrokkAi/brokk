@@ -707,19 +707,17 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             TSQueryCursor cursor = new TSQueryCursor();
             cursor.exec(identifierQuery, root);
 
+            SourceContent sourceContent = SourceContent.of(source);
             Set<String> identifiers = new HashSet<>();
             TSQueryMatch match = new TSQueryMatch();
-            byte[] sourceBytes = source.getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
             while (cursor.nextMatch(match)) {
                 for (TSQueryCapture capture : match.getCaptures()) {
                     TSNode node = capture.getNode();
                     if (node != null && !node.isNull()) {
-                        int start = node.getStartByte();
-                        int end = node.getEndByte();
-                        if (start >= 0 && end <= sourceBytes.length && start < end) {
-                            identifiers.add(new String(
-                                    sourceBytes, start, end - start, java.nio.charset.StandardCharsets.UTF_8));
+                        String text = sourceContent.substringFrom(node);
+                        if (!text.isEmpty()) {
+                            identifiers.add(text);
                         }
                     }
                 }
