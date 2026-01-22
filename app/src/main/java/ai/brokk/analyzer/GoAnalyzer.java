@@ -3,6 +3,8 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -10,7 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
@@ -28,7 +29,8 @@ import org.treesitter.TreeSitterGo;
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
-    private final ConcurrentHashMap<String, String> importPathToPackageNameCache = new ConcurrentHashMap<>();
+    private final Cache<String, String> importPathToPackageNameCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
 
     // Pattern to match both double-quoted and backtick-quoted import paths
     private static final Pattern IMPORT_PATH_PATTERN = Pattern.compile("\"([^\"]+)\"|`([^`]+)`");
@@ -486,7 +488,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     private String resolveImportPathToPackageName(String importPath) {
-        return importPathToPackageNameCache.computeIfAbsent(importPath, path -> {
+        return importPathToPackageNameCache.get(importPath, path -> {
             // 1. Try to find actual source files in the project that match this import path.
             // Go import paths always use forward slashes.
             Set<ProjectFile> goFiles = getProject().getAnalyzableFiles(Languages.GO);
