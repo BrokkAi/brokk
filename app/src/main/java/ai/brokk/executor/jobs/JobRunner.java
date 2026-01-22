@@ -1878,18 +1878,16 @@ public final class JobRunner {
     }
 
     /**
-     * Generates a diff review using the planner model and returns the result as Markdown.
+     * Build the review prompt text for a given diff and comment policy.
      *
-     * @param ctx the current Context with workspace and diff
-     * @param model the model to use for the review
-     * @param diff the diff content to review
-     * @return a TaskResult containing the review
+     * Package-private for tests to validate the policy text without invoking the LLM.
      */
-    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
-        var svc = cm.getService();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
-
+    static String buildReviewPrompt(String diff, PrReviewService.Severity minSeverity, int maxComments) {
         String fencedDiff = "```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```";
+
+        // Compose the policy lines using explicit phrasing that tests can rely on.
+        String severityLine = "ONLY emit comments with severity >= " + minSeverity.name() + ".";
+        String maxLine = "MAX " + maxComments + " comments total. Merge similar issues into one comment instead of repeating.";
 
         String prompt =
                 """
@@ -1951,15 +1949,28 @@ public final class JobRunner {
                 - LOW: style, nits, subjective preference, minor readability, minor refactors.
 
                 COMMENT POLICY (STRICT):
-                - ONLY emit comments with severity >= HIGH.
-                - MAX 3 comments total. Merge similar issues into one comment instead of repeating.
+                - %s
+                - %s
                 - NO style-only/nit suggestions. NO repetitive variants of the same point.
                 - SKIP correct code and skip minor improvements.
-                - If nothing meets severity >= HIGH, "comments" MUST be [].
+                - If nothing meets the requested severity threshold, "comments" MUST be [].
 
                 OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
                 """
-                        .formatted(fencedDiff);
+                        .formatted(fencedDiff, severityLine, maxLine);
+
+        return prompt;
+    }
+
+    /**
+     * Backing implementation that sends the structured prompt to the LLM using a specified policy.
+     */
+    private TaskResult reviewDiffWithPolicy(Context ctx, StreamingChatModel model, String diff,
+                                           PrReviewService.Severity minSeverity, int maxComments) {
+        var svc = cm.getService();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
+
+        String prompt = buildReviewPrompt(diff, minSeverity, maxComments);
 
         List<ChatMessage> messages = List.of(new UserMessage(prompt));
 
@@ -1981,6 +1992,14 @@ public final class JobRunner {
 
         Objects.requireNonNull(stop);
         return new TaskResult(cm, "Diff Review", List.copyOf(cm.getIo().getLlmRawMessages()), ctx, stop, meta);
+    }
+
+    /**
+     * Legacy-friendly reviewDiff retained for REVIEW mode callers. REVIEW mode enforces the stricter
+     * policy: severity >= DEFAULT_REVIEW_SEVERITY_THRESHOLD and MAX DEFAULT_REVIEW_MAX_INLINE_COMMENTS.
+     */
+    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
+        return reviewDiffWithPolicy(ctx, model, diff, DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
@@ -2774,7 +2793,7 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult = reviewDiff(ctx, reviewModel, annotatedDiff);
+                    TaskResult reviewResult = reviewDiffWithPolicy(ctx, reviewModel, annotatedDiff, PrReviewService.Severity.HIGH, 5);
                     String reviewText = reviewResult.output().text().join();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);

@@ -95,4 +95,11 @@ class JobRunnerTest {
         assertEquals(PrReviewService.Severity.HIGH, JobRunner.DEFAULT_REVIEW_SEVERITY_THRESHOLD);
         assertEquals(3, JobRunner.DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
     }
+
+    @Test
+    void testReviewPromptPolicyIncludesMax3AndSeverityHigh() {
+        String prompt = JobRunner.buildReviewPrompt("dummy diff", PrReviewService.Severity.HIGH, 3);
+        assertTrue(prompt.contains("MAX 3 comments"), "Prompt should cap comments to MAX 3 comments");
+        assertTrue(prompt.contains("severity >= HIGH"), "Prompt should require severity >= HIGH");
+    }
 }
