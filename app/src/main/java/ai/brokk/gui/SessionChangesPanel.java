@@ -182,6 +182,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private ReviewParser.CodeExcerpt activeExcerpt = null;
 
+    private boolean diffActive = false;
+
     private List<FileComparisonInfo> fileComparisons = List.of();
 
     public record ReviewTabState(String title, String tooltip, int uncommittedCount) {}
@@ -359,6 +361,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } else {
                 fileTreePanel.clearSelection();
                 diffContainer.removeAll();
+                diffActive = false;
                 updateDiffToolbarVisibility();
                 diffContainer.revalidate();
                 diffContainer.repaint();
@@ -470,6 +473,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
                 diffContainer.removeAll();
                 diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+                diffActive = true;
                 updateDiffToolbarVisibility();
 
                 // Apply saved font size to the panel
@@ -911,6 +915,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } else {
             diffContainer.removeAll();
             diffContainer.add(new JLabel("No file changes to display", SwingConstants.CENTER), BorderLayout.CENTER);
+            diffActive = false;
             updateDiffToolbarVisibility();
         }
         applyTheme(chrome.getTheme());
@@ -1542,15 +1547,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         if (currentMode == PanelMode.REVIEW) {
-            boolean hasDiff = false;
-            if (diffContainer.getComponentCount() > 0) {
-                Component comp = diffContainer.getComponent(0);
-                // In guided review, "No file changes to display" labels or similar are treated as inactive toolbar states
-                hasDiff = !(comp instanceof JLabel);
-            }
-
-            diffToolbar.setVisible(hasDiff);
-            if (!hasDiff) {
+            diffToolbar.setVisible(diffActive);
+            if (!diffActive) {
                 diffToolbar.disableAllControlButtons();
             }
         }
