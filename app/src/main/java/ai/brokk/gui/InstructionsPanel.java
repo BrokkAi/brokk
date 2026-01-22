@@ -19,6 +19,7 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
@@ -1331,6 +1332,54 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
+    private boolean showFullPowerFirstTimeConfirmationDialog() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        String bodyText =
+                "I think it's time to demonstrate the full power of this station.\nWith great power comes great responsibility.";
+        String linkText = "Learn how to use Full Power responsibly ->";
+        String linkUrl = "https://brokk.ai/documentation/introduction";
+
+        var messagePanel = new JPanel();
+        messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
+        messagePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        var bodyArea = new JTextArea(bodyText);
+        bodyArea.setEditable(false);
+        bodyArea.setFocusable(false);
+        bodyArea.setOpaque(false);
+        bodyArea.setLineWrap(true);
+        bodyArea.setWrapStyleWord(true);
+        var labelFont = UIManager.getFont("Label.font");
+        if (labelFont != null) {
+            bodyArea.setFont(labelFont);
+        }
+        bodyArea.setAlignmentX(Component.LEFT_ALIGNMENT);
+        messagePanel.add(bodyArea);
+
+        messagePanel.add(Box.createVerticalStrut(8));
+
+        var linkLabel = new BrowserLabel(linkUrl, linkText);
+        linkLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        messagePanel.add(linkLabel);
+
+        String primary = "I understand. Let's do this.";
+        String cancel = "Cancel";
+        String[] options = {primary, cancel};
+
+        int choice = MaterialOptionPane.showOptionDialog(
+                chrome.getFrame(),
+                messagePanel,
+                "Full Power",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.INFORMATION_MESSAGE,
+                null,
+                options,
+                primary);
+
+        return choice == 0;
+    }
+
     private String buildPlaceholderTextFromCurrentKeybindings() {
         String placeholder;
         try {
@@ -1440,8 +1489,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeToggleLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+                assert SwingUtilities.isEventDispatchThread();
+
                 boolean currentMode = GlobalUiSettings.isAdvancedMode();
                 boolean newMode = !currentMode;
+
+                if (newMode && !GlobalUiSettings.isFullPowerAcknowledged()) {
+                    boolean accepted = showFullPowerFirstTimeConfirmationDialog();
+                    if (!accepted) {
+                        updateModeToggleLabelText(modeToggleLabel, currentMode);
+                        return;
+                    }
+                    GlobalUiSettings.saveFullPowerAcknowledged(true);
+                }
+
                 GlobalUiSettings.saveAdvancedMode(newMode);
                 updateModeToggleLabelText(modeToggleLabel, newMode);
                 chrome.applyAdvancedModeVisibility();
