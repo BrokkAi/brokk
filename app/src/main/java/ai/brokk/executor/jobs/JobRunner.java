@@ -19,6 +19,7 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.TextUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -75,6 +76,8 @@ public final class JobRunner {
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+
+    static final int ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD = 100;
 
     enum Mode {
         ARCHITECT,
@@ -846,6 +849,48 @@ public final class JobRunner {
                                             gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
                                             String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
                                                     .formatted(issueNumber, details.title(), details.body());
+
+                                            if (shouldEnrichIssuePrompt(details.body())) {
+                                                try {
+                                                    store.appendEvent(
+                                                            jobId,
+                                                            JobEvent.of(
+                                                                    "NOTIFICATION",
+                                                                    "Issue body is brief; performing prompt enrichment..."));
+                                                    try (var enrichmentScope =
+                                                            cm.beginTaskUngrouped("Prompt Enrichment")) {
+                                                        var enrichmentAgent = new LutzAgent(
+                                                                cm.liveContext(),
+                                                                issueTaskPrompt,
+                                                                issuePlannerModel,
+                                                                SearchPrompts.Objective.PROMPT_ENRICHMENT,
+                                                                enrichmentScope);
+                                                        var enrichmentResult = enrichmentAgent.execute();
+                                                        if (enrichmentResult
+                                                                        .stopDetails()
+                                                                        .reason()
+                                                                == TaskResult.StopReason.SUCCESS) {
+                                                            issueTaskPrompt += "\n\nEnriched Context:\n"
+                                                                    + enrichmentResult
+                                                                            .output()
+                                                                            .text()
+                                                                            .join();
+                                                            logger.info(
+                                                                    "ISSUE job {}: prompt enrichment successful",
+                                                                    jobId);
+                                                        } else {
+                                                            logger.warn(
+                                                                    "ISSUE job {}: prompt enrichment did not complete successfully: {}",
+                                                                    jobId,
+                                                                    enrichmentResult
+                                                                            .stopDetails()
+                                                                            .reason());
+                                                        }
+                                                    }
+                                                } catch (Exception e) {
+                                                    logger.warn("ISSUE job {}: prompt enrichment failed", jobId, e);
+                                                }
+                                            }
 
                                             // 4. Lutz-style execution: Planning then Task Iteration
                                             String taskDescription = "Issue #" + issueNumber + ": " + details.title();
@@ -2143,6 +2188,10 @@ public final class JobRunner {
         }
         // Fall back to repository-level build details
         return project.awaitBuildDetails();
+    }
+
+    static boolean shouldEnrichIssuePrompt(@Nullable String body) {
+        return TextUtil.countWords(body) < ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD;
     }
 
     static boolean issueDeliveryEnabled(JobSpec spec) {

@@ -114,6 +114,33 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void testShouldEnrichIssuePrompt() {
+        assertTrue(JobRunner.shouldEnrichIssuePrompt(null));
+        assertTrue(JobRunner.shouldEnrichIssuePrompt(""));
+        assertTrue(JobRunner.shouldEnrichIssuePrompt("Brief issue description."));
+
+        // Generate exactly 100 words
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 100; i++) {
+            sb.append("word").append(i).append(" ");
+        }
+        String hundredWords = sb.toString().trim();
+        assertFalse(
+                JobRunner.shouldEnrichIssuePrompt(hundredWords),
+                "Should NOT enrich when body is exactly 100 words (threshold is < 100)");
+
+        // Generate 99 words
+        sb = new StringBuilder();
+        for (int i = 0; i < 99; i++) {
+            sb.append("word").append(i).append(" ");
+        }
+        String ninetyNineWords = sb.toString().trim();
+        assertTrue(
+                JobRunner.shouldEnrichIssuePrompt(ninetyNineWords),
+                "Should enrich when body is 99 words (threshold is < 100)");
+    }
+
+    @Test
     void testIssueDeliveryPolicy_DisableViaTag() {
         JobSpec spec = new JobSpec(
                 "",
