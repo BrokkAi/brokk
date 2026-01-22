@@ -25,7 +25,7 @@ class CodePromptsToolRedactionTest {
 
         var messages = List.<ChatMessage>of(userMessage, aiWithTools, toolResult);
 
-        var result = CodePrompts.redactToolCallsFromOtherModels(messages, false);
+        var result = CodePrompts.redactHistoryMessages(messages, false);
 
         assertEquals(3, result.size());
         assertSame(userMessage, result.get(0));
@@ -43,7 +43,7 @@ class CodePromptsToolRedactionTest {
 
         var messages = List.<ChatMessage>of(userMessage, toolResult);
 
-        var result = CodePrompts.redactToolCallsFromOtherModels(messages, true);
+        var result = CodePrompts.redactHistoryMessages(messages, true);
 
         assertEquals(1, result.size());
         assertSame(userMessage, result.get(0));
@@ -60,7 +60,7 @@ class CodePromptsToolRedactionTest {
 
         var messages = List.<ChatMessage>of(aiWithTools);
 
-        var result = CodePrompts.redactToolCallsFromOtherModels(messages, true);
+        var result = CodePrompts.redactHistoryMessages(messages, true);
 
         assertEquals(1, result.size());
         assertInstanceOf(AiMessage.class, result.get(0));
@@ -83,7 +83,7 @@ class CodePromptsToolRedactionTest {
 
         var messages = List.<ChatMessage>of(aiWithTextAndTools);
 
-        var result = CodePrompts.redactToolCallsFromOtherModels(messages, true);
+        var result = CodePrompts.redactHistoryMessages(messages, true);
 
         assertEquals(1, result.size());
         var resultAi = (AiMessage) result.get(0);
@@ -110,7 +110,7 @@ class CodePromptsToolRedactionTest {
 
         var messages = List.<ChatMessage>of(aiWithMultipleTools);
 
-        var result = CodePrompts.redactToolCallsFromOtherModels(messages, true);
+        var result = CodePrompts.redactHistoryMessages(messages, true);
 
         assertEquals(1, result.size());
         var text = ((AiMessage) result.get(0)).text();
@@ -137,7 +137,7 @@ class CodePromptsToolRedactionTest {
 
         var messages = List.<ChatMessage>of(aiWithSRBlock);
 
-        var result = CodePrompts.redactToolCallsFromOtherModels(messages, false);
+        var result = CodePrompts.redactHistoryMessages(messages, false);
 
         assertEquals(1, result.size());
         var text = ((AiMessage) result.get(0)).text();
@@ -159,7 +159,7 @@ class CodePromptsToolRedactionTest {
 
         var messages = List.<ChatMessage>of(aiWithSRBlock);
 
-        var result = CodePrompts.redactToolCallsFromOtherModels(messages, true);
+        var result = CodePrompts.redactHistoryMessages(messages, true);
 
         assertEquals(1, result.size());
         var text = ((AiMessage) result.get(0)).text();
@@ -173,8 +173,8 @@ class CodePromptsToolRedactionTest {
 
         var messages = List.<ChatMessage>of(user, ai);
 
-        var resultFalse = CodePrompts.redactToolCallsFromOtherModels(messages, false);
-        var resultTrue = CodePrompts.redactToolCallsFromOtherModels(messages, true);
+        var resultFalse = CodePrompts.redactHistoryMessages(messages, false);
+        var resultTrue = CodePrompts.redactHistoryMessages(messages, true);
 
         assertEquals(2, resultFalse.size());
         assertEquals(2, resultTrue.size());
@@ -184,7 +184,7 @@ class CodePromptsToolRedactionTest {
 
     @Test
     void handlesEmptyMessageList() {
-        var result = CodePrompts.redactToolCallsFromOtherModels(List.of(), true);
+        var result = CodePrompts.redactHistoryMessages(List.of(), true);
         assertTrue(result.isEmpty());
     }
 }

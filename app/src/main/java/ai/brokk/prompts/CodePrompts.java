@@ -143,52 +143,65 @@ public class CodePrompts {
     }
 
     /**
-     * Processes a list of chat messages, optionally redacting tool-related content from messages
-     * produced by a different model.
+     * Orchestrates history-message redaction.
      *
-     * @param messages The list of messages to process (typically from an uncompressed TaskEntry)
-     * @param shouldRedact If true, tool execution results are omitted and AiMessages with tool requests
-     *                     are converted to plain-text historical descriptions. If false, only S/R block
-     *                     redaction is applied to AiMessages.
-     * @return A new list with the appropriate transformations applied
+     * <p>If {@code redactToolCalls} is true, tool execution results are omitted and {@link AiMessage}s with tool
+     * execution requests are converted into passive historical descriptions. Regardless of {@code redactToolCalls},
+     * this method always redacts SEARCH/REPLACE blocks from {@link AiMessage}s via {@link #redactAiMessage(AiMessage)}.
      */
-    public static List<ChatMessage> redactToolCallsFromOtherModels(List<ChatMessage> messages, boolean shouldRedact) {
+    public static List<ChatMessage> redactHistoryMessages(List<ChatMessage> messages, boolean redactToolCalls) {
+        var toolProcessed = redactToolCalls ? redactToolCallsFromOtherModels(messages) : messages;
+
+        var result = new ArrayList<ChatMessage>();
+        for (var message : toolProcessed) {
+            if (message instanceof AiMessage aiMessage) {
+                var text = aiMessage.text();
+                if (text == null) {
+                    result.add(aiMessage);
+                    continue;
+                }
+
+                redactAiMessage(aiMessage).ifPresent(redacted -> {
+                    if (!redactToolCalls && aiMessage.hasToolExecutionRequests()) {
+                        result.add(new AiMessage(redacted.text(), aiMessage.toolExecutionRequests()));
+                    } else {
+                        result.add(redacted);
+                    }
+                });
+            } else {
+                result.add(message);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Removes tool-call semantics from history: drops tool execution result messages and rewrites tool-request
+     * {@link AiMessage}s into passive, non-executable text.
+     */
+    private static List<ChatMessage> redactToolCallsFromOtherModels(List<ChatMessage> messages) {
         var result = new ArrayList<ChatMessage>();
 
         for (var message : messages) {
             if (message instanceof ToolExecutionResultMessage) {
-                if (!shouldRedact) {
-                    result.add(message);
-                }
-            } else if (message instanceof AiMessage aiMessage) {
-                if (shouldRedact && aiMessage.hasToolExecutionRequests()) {
-                    var existingText = aiMessage.text();
-                    var prefix = (existingText != null && !existingText.isBlank()) ? existingText + "\n\n" : "";
-
-                    var toolDescriptions = aiMessage.toolExecutionRequests().stream()
-                            .map(Messages::getRedactedRepr)
-                            .collect(Collectors.joining("\n"));
-
-                    var rewrittenText = prefix + "[Historical tool usage by a different model]\n" + toolDescriptions;
-                    result.add(new AiMessage(rewrittenText));
-                } else {
-                    var text = aiMessage.text();
-                    if (text == null) {
-                        result.add(aiMessage);
-                        continue;
-                    }
-
-                    redactAiMessage(aiMessage).ifPresent(redacted -> {
-                        if (!shouldRedact && aiMessage.hasToolExecutionRequests()) {
-                            result.add(new AiMessage(redacted.text(), aiMessage.toolExecutionRequests()));
-                        } else {
-                            result.add(redacted);
-                        }
-                    });
-                }
-            } else {
-                result.add(message);
+                continue;
             }
+
+            if (message instanceof AiMessage aiMessage && aiMessage.hasToolExecutionRequests()) {
+                var existingText = aiMessage.text();
+                var prefix = (existingText != null && !existingText.isBlank()) ? existingText + "\n\n" : "";
+
+                var toolDescriptions = aiMessage.toolExecutionRequests().stream()
+                        .map(Messages::getRedactedRepr)
+                        .collect(Collectors.joining("\n"));
+
+                var rewrittenText = prefix + "[Historical tool usage by a different model]\n" + toolDescriptions;
+                result.add(new AiMessage(rewrittenText));
+                continue;
+            }
+
+            result.add(message);
         }
 
         return result;
@@ -577,12 +590,11 @@ public class CodePrompts {
             @Nullable ai.brokk.Service.ModelConfig entryPrimaryModel =
                     entryMeta == null ? null : entryMeta.primaryModel();
 
-            boolean shouldRedact = currentPrimaryModel != null
+            boolean redactToolCalls = currentPrimaryModel != null
                     && entryPrimaryModel != null
                     && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
 
-            var processedMessages = redactToolCallsFromOtherModels(relevantEntryMessages, shouldRedact);
-            messages.addAll(processedMessages);
+            messages.addAll(redactHistoryMessages(relevantEntryMessages, redactToolCalls));
         });
 
         return messages;
