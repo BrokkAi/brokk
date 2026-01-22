@@ -1036,8 +1036,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
             mainSplitPane.setDividerLocation(300);
 
-            // Hide navigation buttons in guided review mode (navigation via review items)
-            diffToolbar.setNavigationVisible(!isReview);
+            // Ensure navigation buttons are visible
+            diffToolbar.setNavigationVisible(true);
 
             revalidate();
             repaint();
@@ -1595,8 +1595,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     nextFile();
                 } else {
                     contentPanel.doDown();
-                    panel.diffToolbar.updateButtonStates();
                 }
+                panel.diffToolbar.updateButtonStates();
             }
         }
 
@@ -1613,8 +1613,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     }
                 } else {
                     contentPanel.doUp();
-                    panel.diffToolbar.updateButtonStates();
                 }
+                panel.diffToolbar.updateButtonStates();
             }
         }
 
