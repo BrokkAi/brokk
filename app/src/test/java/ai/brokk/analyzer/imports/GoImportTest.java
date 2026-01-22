@@ -318,13 +318,14 @@ class GoImportTest {
         Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
 
         // Should resolve to package "yaml", NOT "yaml.v3"
-        boolean foundCorrectPackage = resolved.stream()
-                .anyMatch(cu -> "yaml".equals(cu.packageName()) && "Marshal".equals(cu.shortName()));
-        boolean foundIncorrectPackage = resolved.stream()
-                .anyMatch(cu -> "yaml.v3".equals(cu.packageName()));
+        boolean foundCorrectPackage =
+                resolved.stream().anyMatch(cu -> "yaml".equals(cu.packageName()) && "Marshal".equals(cu.shortName()));
+        boolean foundIncorrectPackage = resolved.stream().anyMatch(cu -> "yaml.v3".equals(cu.packageName()));
 
         assertTrue(foundCorrectPackage, "Should resolve to package 'yaml' by reading source file");
-        assertTrue(!foundIncorrectPackage, "Should not resolve to 'yaml.v3' via last-segment heuristic when source is available");
+        assertTrue(
+                !foundIncorrectPackage,
+                "Should not resolve to 'yaml.v3' via last-segment heuristic when source is available");
     }
 
     @Test

@@ -110,7 +110,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         while (cursor.nextMatch(match)) {
             for (TSQueryCapture capture : match.getCaptures()) {
-                if ("package.name".equals(query.getCaptureNameForId(capture.getIndex()))) {
+                if (CaptureNames.PACKAGE_DEFINITION.equals(query.getCaptureNameForId(capture.getIndex()))) {
                     TSNode nameNode = capture.getNode();
                     if (nameNode != null && !nameNode.isNull()) {
                         return sourceContent.substringFrom(nameNode).trim();
@@ -493,7 +493,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 if (content.isPresent()) {
                     TSTree tree = treeOf(pf);
                     if (tree != null) {
-                        String pkgName = determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get());
+                        String pkgName =
+                                determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get());
                         if (!pkgName.isEmpty()) {
                             return pkgName;
                         }
