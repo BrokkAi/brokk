@@ -20,6 +20,9 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSParser;
+import org.treesitter.TSQuery;
+import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
@@ -956,31 +959,28 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     protected Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        TSTree tree = parser.parseString(null, source);
+        TSNode rootNode = tree.getRootNode();
 
-        // Strip Python comments (# to end of line)
-        String noComments = source.replaceAll("#[^\n]*", " ");
-
-        // Strip triple-quoted strings (both ''' and """)
-        noComments = noComments.replaceAll("'''[\\s\\S]*?'''", " ");
-        noComments = noComments.replaceAll("\"\"\"[\\s\\S]*?\"\"\"", " ");
-
-        // Strip single-quoted and double-quoted strings
-        noComments = noComments.replaceAll("'(?:[^'\\\\]|\\\\.)*'", " ");
-        noComments = noComments.replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", " ");
-
-        // Pattern 1: Capitalized identifiers (class names like Foo, List, etc.)
-        var capitalizedPattern = Pattern.compile("\\b([A-Z][A-Za-z0-9_]*)\\b");
-        var matcher1 = capitalizedPattern.matcher(noComments);
-        while (matcher1.find()) {
-            identifiers.add(matcher1.group(1));
+        if (rootNode.isNull()) {
+            return identifiers;
         }
 
-        // Pattern 2: Lowercase identifiers before a dot (module prefixes like os in os.path)
-        // This captures the module/object name that precedes attribute access
-        var modulePrefixPattern = Pattern.compile("\\b([a-z_][a-z0-9_]*)\\s*\\.");
-        var matcher2 = modulePrefixPattern.matcher(noComments);
-        while (matcher2.find()) {
-            identifiers.add(matcher2.group(1));
+        // Capture standalone identifiers and module prefixes in attribute access
+        TSQuery query = new TSQuery(getTSLanguage(), "[(identifier) @id (attribute object: (identifier) @module)]");
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, rootNode);
+
+        SourceContent sc = SourceContent.of(source);
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                TSNode node = capture.getNode();
+                if (node != null && !node.isNull()) {
+                    identifiers.add(sc.substringFrom(node));
+                }
+            }
         }
 
         return identifiers;
