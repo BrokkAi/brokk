@@ -586,6 +586,7 @@ class JobRunnerIssueModeTest {
         var first = (Map<String, Object>) commandEvents.getFirst().data();
         assertEquals("tests", first.get("stage"));
         assertEquals("./gradlew test", first.get("command"));
+        assertEquals(Boolean.FALSE, first.get("skipped"));
         assertEquals(Boolean.TRUE, first.get("success"));
         assertEquals("", first.get("output"));
         assertEquals(1, ((Number) first.get("attempt")).intValue());
@@ -594,9 +595,143 @@ class JobRunnerIssueModeTest {
         var second = (Map<String, Object>) commandEvents.getLast().data();
         assertEquals("lint", second.get("stage"));
         assertEquals("./gradlew lint", second.get("command"));
+        assertEquals(Boolean.FALSE, second.get("skipped"));
         assertEquals(Boolean.TRUE, second.get("success"));
         assertEquals("", second.get("output"));
         assertEquals(1, ((Number) second.get("attempt")).intValue());
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_whenTestsFail_emitsTestsEventAndLintSkippedEvent_forThatIteration() throws Exception {
+        var cancelled = new AtomicBoolean(false);
+
+        String jobId = "job-final-verification-events-tests-fail-1";
+        var io = new TestConsoleIO();
+
+        String testCmd = "./gradlew test";
+        String lintCmd = "./gradlew lint";
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        var calls = new ArrayList<String>();
+        Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+            if (cmd.equals(testCmd)) {
+                return "TESTS FAILED OUTPUT";
+            }
+            return fail("Only tests command should run; lint must be skipped when tests fail");
+        };
+
+        var fixCalls = new AtomicInteger(0);
+        Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        jobId,
+                        store,
+                        io,
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        1));
+
+        assertEquals(List.of(testCmd), calls);
+
+        var events = store.readEvents(jobId, -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        assertEquals(2, commandEvents.size(), "Attempt should record both stages: tests result and lint skipped");
+
+        assertTrue(commandEvents.getFirst().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var testsEvent = (Map<String, Object>) commandEvents.getFirst().data();
+        assertEquals("tests", testsEvent.get("stage"));
+        assertEquals(testCmd, testsEvent.get("command"));
+        assertEquals(1, ((Number) testsEvent.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, testsEvent.get("skipped"));
+        assertEquals(Boolean.FALSE, testsEvent.get("success"));
+        assertEquals("TESTS FAILED OUTPUT", testsEvent.get("output"));
+
+        assertTrue(commandEvents.getLast().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var lintEvent = (Map<String, Object>) commandEvents.getLast().data();
+        assertEquals("lint", lintEvent.get("stage"));
+        assertEquals(lintCmd, lintEvent.get("command"));
+        assertEquals(1, ((Number) lintEvent.get("attempt")).intValue());
+        assertEquals(Boolean.TRUE, lintEvent.get("skipped"));
+        assertEquals("tests_failed", lintEvent.get("skipReason"));
+        assertEquals(Boolean.TRUE, lintEvent.get("success"));
+        assertEquals("", lintEvent.get("output"));
+
+        assertEquals(1, fixCalls.get(), "One fix attempt should be triggered for failed tests output");
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_whenLintFailsAfterTestsPass_emitsBothEventsWithCorrectOutputs() throws Exception {
+        var cancelled = new AtomicBoolean(false);
+
+        String jobId = "job-final-verification-events-lint-fail-1";
+        var io = new TestConsoleIO();
+
+        String testCmd = "./gradlew test";
+        String lintCmd = "./gradlew lint";
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> {
+            if (cmd.equals(testCmd)) {
+                return "";
+            }
+            if (cmd.equals(lintCmd)) {
+                return "LINT FAILED OUTPUT";
+            }
+            return fail("Unexpected command: " + cmd);
+        };
+
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        jobId,
+                        store,
+                        io,
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        out -> {},
+                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        1));
+
+        var events = store.readEvents(jobId, -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        assertEquals(2, commandEvents.size(), "Attempt should record both tests and lint results");
+
+        assertTrue(commandEvents.getFirst().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var testsEvent = (Map<String, Object>) commandEvents.getFirst().data();
+        assertEquals("tests", testsEvent.get("stage"));
+        assertEquals(testCmd, testsEvent.get("command"));
+        assertEquals(1, ((Number) testsEvent.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, testsEvent.get("skipped"));
+        assertEquals(Boolean.TRUE, testsEvent.get("success"));
+        assertEquals("", testsEvent.get("output"));
+
+        assertTrue(commandEvents.getLast().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var lintEvent = (Map<String, Object>) commandEvents.getLast().data();
+        assertEquals("lint", lintEvent.get("stage"));
+        assertEquals(lintCmd, lintEvent.get("command"));
+        assertEquals(1, ((Number) lintEvent.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, lintEvent.get("skipped"));
+        assertEquals(Boolean.FALSE, lintEvent.get("success"));
+        assertEquals("LINT FAILED OUTPUT", lintEvent.get("output"));
     }
 
     @Test

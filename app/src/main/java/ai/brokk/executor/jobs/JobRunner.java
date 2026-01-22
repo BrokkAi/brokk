@@ -68,6 +68,8 @@ public final class JobRunner {
         private final String stage;
         private final String command;
         private final @Nullable Integer attempt;
+        private final boolean skipped;
+        private final @Nullable String skipReason;
         private final boolean success;
         private final String output;
         private final @Nullable String exception;
@@ -76,12 +78,16 @@ public final class JobRunner {
                 String stage,
                 String command,
                 @Nullable Integer attempt,
+                boolean skipped,
+                @Nullable String skipReason,
                 boolean success,
                 String output,
                 @Nullable String exception) {
             this.stage = stage;
             this.command = command;
             this.attempt = attempt;
+            this.skipped = skipped;
+            this.skipReason = skipReason;
             this.success = success;
             this.output = output;
             this.exception = exception;
@@ -93,6 +99,10 @@ public final class JobRunner {
             data.put("command", command);
             if (attempt != null) {
                 data.put("attempt", attempt.intValue());
+            }
+            data.put("skipped", skipped);
+            if (skipReason != null && !skipReason.isBlank()) {
+                data.put("skipReason", skipReason);
             }
             data.put("success", success);
             data.put("output", output);
@@ -107,6 +117,8 @@ public final class JobRunner {
             String stage,
             @Nullable String command,
             @Nullable Integer attempt,
+            boolean skipped,
+            @Nullable String skipReason,
             boolean success,
             @Nullable String output,
             @Nullable Throwable exception) {
@@ -121,7 +133,7 @@ public final class JobRunner {
                     : exception.getClass().getSimpleName() + ": " + msg;
         }
 
-        return new CommandResultEvent(stage, safeCommand, attempt, success, safeOutput, exceptionText);
+        return new CommandResultEvent(stage, safeCommand, attempt, skipped, skipReason, success, safeOutput, exceptionText);
     }
 
     private static void emitCommandResult(
@@ -159,7 +171,7 @@ public final class JobRunner {
                     jobId,
                     store,
                     io,
-                    commandResult(stage, command, attempt, success, output, null),
+                    commandResult(stage, command, attempt, /* skipped= */ false, /* skipReason= */ null, success, output, null),
                     stage + ": " + (success ? "PASS" : "FAIL"));
             return output;
         } catch (RuntimeException re) {
@@ -167,10 +179,26 @@ public final class JobRunner {
                     jobId,
                     store,
                     io,
-                    commandResult(stage, command, attempt, false, "", re),
+                    commandResult(stage, command, attempt, /* skipped= */ false, /* skipReason= */ null, false, "", re),
                     stage + ": ERROR");
             throw re;
         }
+    }
+
+    private static void emitSkippedCommand(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            String stage,
+            @Nullable String command,
+            int attempt,
+            String skipReason) {
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult(stage, command, attempt, /* skipped= */ true, skipReason, /* success= */ true, "", null),
+                stage + ": SKIP");
     }
 
     static final class IssueCancelledException extends IssueExecutionException {
@@ -2093,7 +2121,7 @@ public final class JobRunner {
                     jobId,
                     store,
                     io,
-                    commandResult("verification", commandLabel, 1, false, "", re),
+                    commandResult("verification", commandLabel, 1, /* skipped= */ false, /* skipReason= */ null, false, "", re),
                     "Verification: ERROR");
 
             String exMsg = re.getMessage();
@@ -2106,7 +2134,15 @@ public final class JobRunner {
                 jobId,
                 store,
                 io,
-                commandResult("verification", commandLabel, 1, passedFirst, firstOut, null),
+                commandResult(
+                        "verification",
+                        commandLabel,
+                        1,
+                        /* skipped= */ false,
+                        /* skipReason= */ null,
+                        passedFirst,
+                        firstOut,
+                        null),
                 "Verification: " + (passedFirst ? "PASS" : "FAIL"));
 
         if (passedFirst) {
@@ -2118,7 +2154,15 @@ public final class JobRunner {
                 jobId,
                 store,
                 io,
-                commandResult("fix_trigger", commandLabel, 1, false, firstOut, null),
+                commandResult(
+                        "fix_trigger",
+                        commandLabel,
+                        1,
+                        /* skipped= */ false,
+                        /* skipReason= */ null,
+                        false,
+                        firstOut,
+                        null),
                 "Fix attempt: TRIGGERED");
 
         // Perform exactly one fix attempt
@@ -2134,7 +2178,7 @@ public final class JobRunner {
                     jobId,
                     store,
                     io,
-                    commandResult("verification", commandLabel, 2, false, "", re),
+                    commandResult("verification", commandLabel, 2, /* skipped= */ false, /* skipReason= */ null, false, "", re),
                     "Verification after fix: ERROR");
 
             String exMsg = re.getMessage();
@@ -2147,7 +2191,15 @@ public final class JobRunner {
                 jobId,
                 store,
                 io,
-                commandResult("verification", commandLabel, 2, passedSecond, secondOut, null),
+                commandResult(
+                        "verification",
+                        commandLabel,
+                        2,
+                        /* skipped= */ false,
+                        /* skipReason= */ null,
+                        passedSecond,
+                        secondOut,
+                        null),
                 "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
 
         if (passedSecond) {
@@ -2285,9 +2337,10 @@ public final class JobRunner {
             progressSink.accept(attemptNumber, startMsg);
 
             String testOut = "";
-            if (!testsSkipped) {
-                testOut = runAndEmitCommand(
-                        jobId, store, io, "tests", testCmd, attemptNumber, commandRunner);
+            if (testsSkipped) {
+                emitSkippedCommand(jobId, store, io, "tests", testCmd, attemptNumber, "blank_command");
+            } else {
+                testOut = runAndEmitCommand(jobId, store, io, "tests", testCmd, attemptNumber, commandRunner);
             }
             boolean testsPassed = testsSkipped || testOut.isBlank();
 
@@ -2295,6 +2348,12 @@ public final class JobRunner {
                 lastFailStage = "tests";
                 lastFailCommand = testCmd;
                 lastFailOutput = testOut;
+
+                if (lintSkipped) {
+                    emitSkippedCommand(jobId, store, io, "lint", lintCmd, attemptNumber, "blank_command");
+                } else {
+                    emitSkippedCommand(jobId, store, io, "lint", lintCmd, attemptNumber, "tests_failed");
+                }
 
                 String resultMsg = "Final verification attempt %d/%d results: tests=FAIL, lint=SKIP"
                         .formatted(attemptNumber, maxIterations);
@@ -2309,9 +2368,10 @@ public final class JobRunner {
             }
 
             String lintOut = "";
-            if (!lintSkipped) {
-                lintOut = runAndEmitCommand(
-                        jobId, store, io, "lint", lintCmd, attemptNumber, commandRunner);
+            if (lintSkipped) {
+                emitSkippedCommand(jobId, store, io, "lint", lintCmd, attemptNumber, "blank_command");
+            } else {
+                lintOut = runAndEmitCommand(jobId, store, io, "lint", lintCmd, attemptNumber, commandRunner);
             }
             boolean lintPassed = lintSkipped || lintOut.isBlank();
 
