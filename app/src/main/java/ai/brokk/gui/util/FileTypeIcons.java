@@ -1,9 +1,11 @@
 package ai.brokk.gui.util;
 
 import ai.brokk.gui.SwingUtil;
+import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.image.BufferedImage;
 import java.util.Locale;
 import java.util.Map;
+import javax.swing.GrayFilter;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.UIManager;
@@ -180,6 +182,37 @@ public final class FileTypeIcons {
         }
         // For other icon types, return as-is (they may already be the right size)
         // Note: FlatSVGIcon can also be resized, but ThemedIcon wrapper handles that
+        return icon;
+    }
+
+    /**
+     * Creates a greyed-out (disabled) version of the given icon.
+     * Used for excluded/gitignored items in the project tree.
+     *
+     * @param icon the icon to grey out
+     * @return a greyed-out version of the icon
+     */
+    public static Icon getGreyedIcon(Icon icon) {
+        // Handle ThemedIcon wrapper from SwingUtil
+        if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+            Icon delegate = themedIcon.delegate();
+            if (delegate instanceof FlatSVGIcon svgIcon) {
+                return svgIcon.getDisabledIcon();
+            }
+        }
+
+        // Handle direct FlatSVGIcon
+        if (icon instanceof FlatSVGIcon svgIcon) {
+            return svgIcon.getDisabledIcon();
+        }
+
+        // Fallback for non-FlatSVG icons - use GrayFilter
+        if (icon instanceof ImageIcon imageIcon) {
+            var grayImage = GrayFilter.createDisabledImage(imageIcon.getImage());
+            return new ImageIcon(grayImage);
+        }
+
+        // If all else fails, return the original icon
         return icon;
     }
 

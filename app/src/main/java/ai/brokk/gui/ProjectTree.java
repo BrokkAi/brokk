@@ -1677,25 +1677,32 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
             if (value instanceof DefaultMutableTreeNode node) {
                 if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
-                    // Set appropriate icon based on file type
-                    if (treeNode.isDirectory()) {
-                        setIcon(FileTypeIcons.getFolderIcon(expanded));
-                        // Show grouped directory names (e.g., "src/main/java" instead of "src")
-                        setText(treeNode.getDisplayName(node));
-                    } else {
-                        setIcon(FileTypeIcons.getIconForFile(treeNode.getFile().getName()));
-                    }
-
                     // Use cached coloring state from the node
                     boolean patternExcluded = treeNode.isExcluded();
                     boolean gitignored = treeNode.isGitignored();
                     boolean isTracked = treeNode.isTracked();
+                    boolean isExcludedOrIgnored = patternExcluded || (gitignored && !isTracked);
 
-                    if (patternExcluded || (gitignored && !isTracked)) {
+                    // Set appropriate icon based on file type, greyed out if excluded/gitignored
+                    Icon icon;
+                    if (treeNode.isDirectory()) {
+                        icon = FileTypeIcons.getFolderIcon(expanded);
+                        // Show grouped directory names (e.g., "src/main/java" instead of "src")
+                        setText(treeNode.getDisplayName(node));
+                    } else {
+                        icon = FileTypeIcons.getIconForFile(treeNode.getFile().getName());
+                    }
+
+                    // Grey out icon for excluded/gitignored items
+                    if (isExcludedOrIgnored) {
+                        setIcon(FileTypeIcons.getGreyedIcon(icon));
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
-                    } else if (!treeNode.isDirectory() && !isTracked) {
-                        // Color untracked files with softer muted orange
-                        setForeground(ThemeColors.getColor(ThemeColors.UNTRACKED_FOREGROUND));
+                    } else {
+                        setIcon(icon);
+                        if (!treeNode.isDirectory() && !isTracked) {
+                            // Color untracked files with softer muted orange
+                            setForeground(ThemeColors.getColor(ThemeColors.UNTRACKED_FOREGROUND));
+                        }
                     }
                 } else if (LOADING_PLACEHOLDER.equals(node.getUserObject())) {
                     setText(LOADING_PLACEHOLDER);

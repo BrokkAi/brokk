@@ -18,7 +18,17 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
 
     @Override
     public void uncaughtException(Thread thread, Throwable throwable) {
-        handle(thread, throwable, st -> {});
+        try {
+            handle(thread, throwable, st -> {});
+        } catch (Throwable handlerThrowable) {
+            // As a last resort, do not let the handler crash and hide the original error.
+            // Use stderr directly since logging may be broken during early startup failures.
+            System.err.println("GlobalExceptionHandler failed while handling an uncaught exception.");
+            System.err.println("Original exception:");
+            throwable.printStackTrace(System.err);
+            System.err.println("Handler exception:");
+            handlerThrowable.printStackTrace(System.err);
+        }
     }
 
     public static void handle(Throwable th, Consumer<String> notifier) {
@@ -58,7 +68,13 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
             }
         }
 
-        ExceptionReporter.tryReportException(th);
+        try {
+            ExceptionReporter.tryReportException(th);
+        } catch (Throwable reportingThrowable) {
+            // Never let reporting break the global handler; stderr is safest here.
+            System.err.println("ExceptionReporter failed while reporting an uncaught exception.");
+            reportingThrowable.printStackTrace(System.err);
+        }
 
         // ensure that a notifier that does blocking things doesn't cause issues
         executor.submit(() -> {

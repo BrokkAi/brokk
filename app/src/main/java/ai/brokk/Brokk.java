@@ -481,7 +481,28 @@ public class Brokk {
         // MUST happen before setupSystemPropertiesAndIcon() which reads config
         BrokkConfigPaths.attemptMigration();
 
-        setupSystemPropertiesAndIcon();
+        try {
+            setupSystemPropertiesAndIcon();
+        } catch (Throwable t) {
+            // Starting Brokk requires a working GUI environment (AWT/Swing). In environments without a usable display
+            // (e.g., missing X11/Wayland in WSL/CI), AWT initialization can fail very early.
+            Throwable root = t;
+            while (root.getCause() != null && root.getCause() != root) {
+                root = root.getCause();
+            }
+            if (root instanceof java.awt.AWTError
+                    || (root instanceof NoClassDefFoundError ncdfe
+                            && String.valueOf(ncdfe.getMessage()).contains("GraphicsEnvironment$LocalGE"))) {
+                System.err.println("Brokk failed to start because no usable GUI display is available.");
+                System.err.println("DISPLAY=" + System.getenv("DISPLAY"));
+                root.printStackTrace(System.err);
+                System.err.println();
+                System.err.println("If you are running on WSL2, ensure WSLg is enabled or run an X server and set DISPLAY.");
+                System.err.println("For non-GUI entry points, use Gradle tasks like ':app:runCli' or ':app:runHeadlessCli'.");
+                System.exit(1);
+            }
+            throw t;
+        }
 
         if (MainProject.initializeOomFlag()) {
             logger.warn("Detected OutOfMemoryError from last session, clearing active sessions.");
