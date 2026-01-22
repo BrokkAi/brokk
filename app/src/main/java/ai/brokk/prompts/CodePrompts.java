@@ -113,11 +113,17 @@ public class CodePrompts {
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
     public static Optional<AiMessage> redactEditBlocks(AiMessage aiMessage, boolean leaveMarker) {
-        var parsedResult = EditBlockParser.instance.parse(aiMessage.text(), Collections.emptySet());
+        var text = aiMessage.text();
+
+        if (text == null) {
+            return aiMessage.hasToolExecutionRequests() ? Optional.of(aiMessage) : Optional.empty();
+        }
+
+        var parsedResult = EditBlockParser.instance.parse(text, Collections.emptySet());
         boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
 
         if (!hasSrBlocks) {
-            return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
+            return text.isBlank() ? Optional.empty() : Optional.of(aiMessage);
         }
 
         var blocks = parsedResult.blocks();
@@ -135,7 +141,13 @@ public class CodePrompts {
         }
 
         String redactedText = sb.toString();
-        return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
+        if (redactedText.isBlank()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(aiMessage.hasToolExecutionRequests()
+                ? new AiMessage(redactedText, aiMessage.toolExecutionRequests())
+                : new AiMessage(redactedText));
     }
 
     /**
