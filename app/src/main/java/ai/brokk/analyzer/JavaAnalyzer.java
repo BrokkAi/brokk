@@ -730,6 +730,98 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        // Get the source text for this CodeUnit
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+        String source = sourceOpt.get();
+
+        // Get all imports for the file
+        List<ImportInfo> allImports = importInfoOf(cu.source());
+        if (allImports.isEmpty()) {
+            return Set.of();
+        }
+
+        // Extract type identifiers from source
+        Set<String> typeIdentifiers = extractTypeIdentifiers(source);
+        if (typeIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        // Separate explicit imports from wildcard imports
+        List<ImportInfo> explicitImports = allImports.stream()
+                .filter(imp -> !imp.isWildcard() && imp.identifier() != null)
+                .toList();
+        List<ImportInfo> wildcardImports =
+                allImports.stream().filter(ImportInfo::isWildcard).toList();
+
+        // Match type identifiers against explicit imports
+        Set<String> matchedImports = new HashSet<>();
+        Set<String> resolvedIdentifiers = new HashSet<>();
+
+        for (ImportInfo imp : explicitImports) {
+            String identifier = imp.identifier();
+            if (identifier != null && typeIdentifiers.contains(identifier)) {
+                matchedImports.add(imp.rawSnippet());
+                resolvedIdentifiers.add(identifier);
+            }
+        }
+
+        // Collect identifiers still unresolved after explicit import matching
+        Set<String> unresolvedIdentifiers = typeIdentifiers.stream()
+                .filter(id -> !resolvedIdentifiers.contains(id))
+                .collect(Collectors.toSet());
+
+        if (unresolvedIdentifiers.isEmpty()) {
+            return Collections.unmodifiableSet(matchedImports);
+        }
+
+        Set<String> resolvedViaWildcard = new HashSet<>();
+
+        // Match unresolved identifiers against wildcard imports using known project symbols
+        for (String id : unresolvedIdentifiers) {
+            for (ImportInfo wildcardImp : wildcardImports) {
+                String pkg = extractPackageFromWildcard(wildcardImp.rawSnippet());
+
+                if (!pkg.isEmpty()) {
+                    String lookupName = pkg + "." + id;
+                    if (!getDefinitions(lookupName).isEmpty()) {
+                        matchedImports.add(wildcardImp.rawSnippet());
+                        resolvedViaWildcard.add(id);
+                    }
+                }
+            }
+        }
+
+        // After checking all wildcards, if any identifiers are still unresolved
+        // (not in explicit imports AND not resolved via wildcards to known types),
+        // include ALL remaining wildcards as a conservative fallback for external dependencies.
+        boolean stillUnresolved = unresolvedIdentifiers.stream().anyMatch(id -> !resolvedViaWildcard.contains(id));
+
+        if (stillUnresolved) {
+            for (ImportInfo wildcardImp : wildcardImports) {
+                matchedImports.add(wildcardImp.rawSnippet());
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    @Override
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        // e.g., "import internal.*;" -> "internal"
+        // e.g., "import static org.junit.Assert.*;" -> "org.junit.Assert"
+        return rawSnippet
+                .replaceFirst("^import\\s+", "")
+                .replaceFirst("^static\\s+", "")
+                .replaceFirst("\\.\\*;$", "")
+                .replaceFirst(";$", "")
+                .trim();
+    }
+
+    @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.

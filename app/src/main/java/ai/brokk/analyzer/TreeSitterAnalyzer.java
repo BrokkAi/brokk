@@ -862,107 +862,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Returns the raw import snippets that are relevant to the given CodeUnit based on type references in its source.
-     * This analyzes the source text of the CodeUnit to find type identifiers and matches them against
-     * the file's imports. Wildcard imports are included only if there are unresolved type references.
+     * 
+     * Base implementation returns an empty set. Language-specific analyzers should override this method
+     * to provide appropriate import filtering logic for their language's import semantics.
      *
      * @param cu the CodeUnit to analyze
      * @return set of raw import snippets relevant to this CodeUnit
      */
     public Set<String> relevantImportsFor(CodeUnit cu) {
-        // Get the source text for this CodeUnit
-        var sourceOpt = getSource(cu, false);
-        if (sourceOpt.isEmpty()) {
-            return Set.of();
-        }
-        String source = sourceOpt.get();
-
-        // Get all imports for the file
-        List<ImportInfo> allImports = importInfoOf(cu.source());
-        if (allImports.isEmpty()) {
-            return Set.of();
-        }
-
-        // Extract type identifiers from source using regex
-        // Matches capitalized identifiers that look like type names (e.g., Foo, List, StringBuilder)
-        Set<String> typeIdentifiers = extractTypeIdentifiers(source);
-        if (typeIdentifiers.isEmpty()) {
-            return Set.of();
-        }
-
-        // Separate explicit imports from wildcard imports
-        List<ImportInfo> explicitImports = allImports.stream()
-                .filter(imp -> !imp.isWildcard() && imp.identifier() != null)
-                .toList();
-        List<ImportInfo> wildcardImports =
-                allImports.stream().filter(ImportInfo::isWildcard).toList();
-
-        // Match type identifiers against explicit imports
-        Set<String> matchedImports = new HashSet<>();
-        Set<String> resolvedIdentifiers = new HashSet<>();
-
-        for (ImportInfo imp : explicitImports) {
-            String identifier = imp.identifier();
-            if (identifier != null && typeIdentifiers.contains(identifier)) {
-                matchedImports.add(imp.rawSnippet());
-                resolvedIdentifiers.add(identifier);
-            }
-        }
-
-        // Collect identifiers still unresolved after explicit import matching
-        Set<String> unresolvedIdentifiers = typeIdentifiers.stream()
-                .filter(id -> !resolvedIdentifiers.contains(id))
-                .collect(Collectors.toSet());
-
-        if (unresolvedIdentifiers.isEmpty()) {
-            return Collections.unmodifiableSet(matchedImports);
-        }
-
-        Set<String> resolvedViaWildcard = new HashSet<>();
-        Set<ImportInfo> usedWildcards = new HashSet<>();
-
-        // Match unresolved identifiers against wildcard imports using known project symbols
-        for (String id : unresolvedIdentifiers) {
-            for (ImportInfo wildcardImp : wildcardImports) {
-                String pkg = extractPackageFromWildcard(wildcardImp.rawSnippet());
-                
-                // Try both flat lookup (for C++) and package-qualified lookup (for Java/Go)
-                boolean found = !getDefinitions(id).isEmpty();
-                if (!found && !pkg.isEmpty()) {
-                    String lookupName = pkg + "." + id;
-                    found = !getDefinitions(lookupName).isEmpty();
-                }
-
-                if (found) {
-                    matchedImports.add(wildcardImp.rawSnippet());
-                    usedWildcards.add(wildcardImp);
-                    resolvedViaWildcard.add(id);
-                }
-            }
-        }
-
-        // After checking all wildcards, if any identifiers are still unresolved
-        // (not in explicit imports AND not resolved via wildcards to known types),
-        // include ALL remaining wildcards as a conservative fallback for external dependencies.
-        boolean stillUnresolved = unresolvedIdentifiers.stream().anyMatch(id -> !resolvedViaWildcard.contains(id));
-
-        if (stillUnresolved) {
-            for (ImportInfo wildcardImp : wildcardImports) {
-                matchedImports.add(wildcardImp.rawSnippet());
-            }
-        }
-
-        return Collections.unmodifiableSet(matchedImports);
+        // Base implementation returns empty set.
+        // Language-specific analyzers (JavaAnalyzer, PythonAnalyzer, GoAnalyzer, CppAnalyzer)
+        // override this with appropriate logic for their import semantics.
+        return Set.of();
     }
 
+    /**
+     * Extracts the package/module name from a wildcard import statement.
+     * 
+     * Base implementation returns an empty string. Language-specific analyzers should override
+     * this method to parse their language's wildcard import syntax.
+     *
+     * @param rawSnippet the raw import statement text
+     * @return the package/module name, or empty string if not applicable
+     */
     protected String extractPackageFromWildcard(String rawSnippet) {
-        // e.g., "import internal.*;" -> "internal"
-        // e.g., "import static org.junit.Assert.*;" -> "org.junit.Assert"
-        return rawSnippet
-                .replaceFirst("^import\\s+", "")
-                .replaceFirst("^static\\s+", "")
-                .replaceFirst("\\.\\*;$", "")
-                .replaceFirst(";$", "")
-                .trim();
+        return "";
     }
 
     /**
