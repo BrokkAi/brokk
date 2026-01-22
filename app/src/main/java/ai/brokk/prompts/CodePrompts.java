@@ -569,9 +569,8 @@ public class CodePrompts {
             var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
 
             // Redact tool calls if the primary models differ
-            boolean redactToolCalls = currentPrimaryModel != null
-                    && entryPrimaryModel != null
-                    && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
+            boolean redactToolCalls =
+                    entryPrimaryModel != null && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
 
             messages.addAll(redactHistoryMessages(relevantEntryMessages, redactToolCalls));
         });
