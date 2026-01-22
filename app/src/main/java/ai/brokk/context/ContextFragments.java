@@ -11,6 +11,7 @@ import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
@@ -1410,16 +1411,17 @@ public class ContextFragments {
 
         private static ContentSnapshot computeSnapshotFor(
                 String fqName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
-            CodeUnit unit = preResolvedUnit;
-            if (unit == null) {
+            CodeUnit unitOrNull = preResolvedUnit;
+            if (unitOrNull == null) {
                 var unitOpt = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
                         .findFirst();
                 if (unitOpt.isEmpty()) {
                     return new ContentSnapshot("", Set.of(), Set.of(), (byte[]) null, false);
                 }
-                unit = unitOpt.get();
+                unitOrNull = unitOpt.get();
             }
 
+            final CodeUnit unit = unitOrNull;
             String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
             boolean hasSourceCode = false;
@@ -1429,7 +1431,10 @@ public class ContextFragments {
                 text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
                 hasSourceCode = true;
 
-                List<String> imports = analyzer.importStatementsOf(unit.source());
+                Collection<String> imports = analyzer.as(ImportAnalysisProvider.class)
+                        .map(p -> (Collection<String>) p.relevantImportsFor(unit))
+                        .orElseGet(() -> analyzer.importStatementsOf(unit.source()));
+
                 if (!imports.isEmpty()) {
                     text = "<imports>\n" + String.join("\n", imports) + "\n</imports>\n\n" + text;
                 }

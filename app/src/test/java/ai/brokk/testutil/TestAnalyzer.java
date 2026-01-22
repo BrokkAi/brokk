@@ -22,7 +22,7 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
     private final Map<CodeUnit, String> skeletons = new HashMap<>();
     private final Map<CodeUnit, String> sources = new HashMap<>();
     private final Map<ProjectFile, List<ImportInfo>> importInfoByFile = new HashMap<>();
-    private final Map<CodeUnit, Set<String>> relevantImportsByCodeUnit = new HashMap<>();
+    private final Map<CodeUnit, Set<String>> relevantImportsByCodeUnit = new LinkedHashMap<>();
     private @Nullable IProject testProject;
 
     public TestAnalyzer(
@@ -208,11 +208,11 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
 
     @Override
     public Set<String> relevantImportsFor(CodeUnit cu) {
-        return Set.copyOf(relevantImportsByCodeUnit.getOrDefault(cu, Set.of()));
+        return Collections.unmodifiableSet(relevantImportsByCodeUnit.getOrDefault(cu, Set.of()));
     }
 
     public void setRelevantImports(CodeUnit cu, Set<String> imports) {
-        relevantImportsByCodeUnit.put(cu, Set.copyOf(imports));
+        relevantImportsByCodeUnit.put(cu, new LinkedHashSet<>(imports));
     }
 
     public void setDirectAncestors(CodeUnit cu, List<CodeUnit> ancestors) {

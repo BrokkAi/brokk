@@ -154,6 +154,8 @@ public class CodeFragmentTest {
         analyzer.setSource(cls, "class Example {}");
         List<String> imports = List.of("import java.util.List;", "import java.util.Map;");
         analyzer.setImportStatements(file, imports);
+        // TestAnalyzer doesn't implement ImportAnalysisProvider by default, so it falls back to all imports
+        analyzer.setRelevantImports(cls, new java.util.LinkedHashSet<>(imports));
 
         var fragment = new ContextFragments.CodeFragment(contextManager, cls);
         String text = fragment.text().join();
@@ -168,6 +170,36 @@ public class CodeFragmentTest {
                 <class file="Example.java">
                 class Example {}
                 </class>
+                """,
+                text);
+    }
+
+    @Test
+    void testCodeFragmentFiltersIrrelevantImports() {
+        ProjectFile file = new ProjectFile(tempDir, "Example.java");
+        CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
+
+        analyzer.addDeclaration(method);
+        analyzer.setSource(method, "void run(List list) {}");
+
+        List<String> allImports = List.of("import java.util.List;", "import java.util.Map;");
+        analyzer.setImportStatements(file, allImports);
+
+        // Simulate ImportAnalysisProvider returning only relevant imports
+        analyzer.setRelevantImports(method, Set.of("import java.util.List;"));
+
+        var fragment = new ContextFragments.CodeFragment(contextManager, method);
+        String text = fragment.text().join();
+
+        assertCodeEquals(
+                """
+                <imports>
+                import java.util.List;
+                </imports>
+
+                <methods class="com.example.Example" file="Example.java">
+                void run(List list) {}
+                </methods>
                 """,
                 text);
     }
@@ -203,6 +235,7 @@ public class CodeFragmentTest {
         analyzer.setSource(method, "void run() {}");
         List<String> imports = List.of("import java.util.List;");
         analyzer.setImportStatements(file, imports);
+        analyzer.setRelevantImports(method, Set.copyOf(imports));
 
         var fragment = new ContextFragments.CodeFragment(contextManager, method);
         String text = fragment.text().join();
