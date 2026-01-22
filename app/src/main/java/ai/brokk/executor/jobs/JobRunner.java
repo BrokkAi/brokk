@@ -146,10 +146,12 @@ public final class JobRunner {
                     "Failed to append {} event for job {}: {}", COMMAND_RESULT_EVENT_TYPE, jobId, e.getMessage(), e);
         }
 
-        try {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, summaryMessage);
-        } catch (Throwable ignore) {
-            // best-effort
+        if (!event.success) {
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, summaryMessage);
+            } catch (Throwable ignore) {
+                // best-effort
+            }
         }
     }
 
