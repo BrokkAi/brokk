@@ -257,16 +257,20 @@ class JobRunnerIssueModeTest {
 
     @Test
     void testIssueBranchNameGeneration() throws Exception {
-        // Verify branch name generation for issues
-        String branchName = IssueService.generateBranchName(42, repo);
-        assertEquals("brokk/issue-42", branchName);
+        // Verify branch name generation for issues uses randomized suffix
+        String branchName = IssueService.generateBranchNameWithRandomSuffix(42, repo);
+        String prefix = "brokk/issue-42-";
+        assertTrue(branchName.startsWith(prefix), () -> "branchName should start with " + prefix);
+        String suffix = branchName.substring(prefix.length());
+        assertEquals(6, suffix.length(), "random suffix should be 6 characters");
+        assertTrue(suffix.matches("[a-z0-9]{6}"), "random suffix should be lowercase alphanumeric");
 
-        // Create the branch and verify collision handling
-        repo.getGit().branchCreate().setName("brokk/issue-42").call();
+        // For collision handling use the deterministic seam so tests are stable.
+        repo.getGit().branchCreate().setName("brokk/issue-42-deterministic").call();
         repo.invalidateCaches();
 
-        String secondBranchName = IssueService.generateBranchName(42, repo);
-        assertEquals("brokk/issue-42-2", secondBranchName);
+        String secondBranchName = IssueService.generateBranchName(42, repo, "deterministic");
+        assertEquals("brokk/issue-42-deterministic-2", secondBranchName);
     }
 
     @Test
@@ -297,8 +301,13 @@ class JobRunnerIssueModeTest {
 
     @Test
     void testBranchCreationAndCheckout() throws Exception {
-        String branchName = IssueService.generateBranchName(99, repo);
-        assertEquals("brokk/issue-99", branchName);
+        // Use randomized generator and validate format rather than exact deterministic name
+        String branchName = IssueService.generateBranchNameWithRandomSuffix(99, repo);
+        String prefix = "brokk/issue-99-";
+        assertTrue(branchName.startsWith(prefix), () -> "branchName should start with " + prefix);
+        String suffix = branchName.substring(prefix.length());
+        assertEquals(6, suffix.length(), "random suffix should be 6 characters");
+        assertTrue(suffix.matches("[a-z0-9]{6}"), "random suffix should be lowercase alphanumeric");
 
         // Verify we can create and checkout this branch
         repo.createAndCheckoutBranch(branchName, "HEAD");
