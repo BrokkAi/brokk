@@ -21,6 +21,8 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
     private final Map<CodeUnit, String> skeletons = new HashMap<>();
     private final Map<CodeUnit, String> sources = new HashMap<>();
+    private final Map<ProjectFile, List<ImportInfo>> importInfoByFile = new HashMap<>();
+    private final Map<CodeUnit, Set<String>> relevantImportsByCodeUnit = new HashMap<>();
     private @Nullable IProject testProject;
 
     public TestAnalyzer(
@@ -193,6 +195,24 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return Set.of();
+    }
+
+    @Override
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
+        return List.copyOf(importInfoByFile.getOrDefault(file, List.of()));
+    }
+
+    public void setImportInfo(ProjectFile file, List<ImportInfo> infos) {
+        importInfoByFile.put(file, List.copyOf(infos));
+    }
+
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        return Set.copyOf(relevantImportsByCodeUnit.getOrDefault(cu, Set.of()));
+    }
+
+    public void setRelevantImports(CodeUnit cu, Set<String> imports) {
+        relevantImportsByCodeUnit.put(cu, Set.copyOf(imports));
     }
 
     public void setDirectAncestors(CodeUnit cu, List<CodeUnit> ancestors) {
