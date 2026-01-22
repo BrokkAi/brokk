@@ -2,9 +2,11 @@ package ai.brokk.gui.util;
 
 import ai.brokk.gui.SwingUtil;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
+import com.formdev.flatlaf.util.UIScale;
 import java.awt.image.BufferedImage;
 import java.util.Locale;
 import java.util.Map;
+import java.util.WeakHashMap;
 import javax.swing.GrayFilter;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
@@ -19,8 +21,12 @@ public final class FileTypeIcons {
 
     private FileTypeIcons() {}
 
-    // Icon size for tree display (20px - slightly larger than default 16px for better visibility)
-    private static final int ICON_SIZE = 20;
+    // Base icon size for tree display (20px - slightly larger than default 16px for better visibility)
+    // Scaled by UIScale for HiDPI support
+    private static final int BASE_ICON_SIZE = 20;
+
+    // Cache for greyed icons to avoid creating new disabled images on every render
+    private static final Map<Icon, Icon> greyedIconCache = new WeakHashMap<>();
 
     // UIManager keys for folder and default file icons
     private static final String FOLDER_KEY = "Brokk.Folder2--Streamline-Bootstrap";
@@ -127,7 +133,8 @@ public final class FileTypeIcons {
         }
         // Final fallback - create a simple empty icon if nothing is available
         // This should never happen in practice, but ensures we always return a valid icon
-        return new ImageIcon(new BufferedImage(ICON_SIZE, ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
+        int size = getScaledIconSize();
+        return new ImageIcon(new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB));
     }
 
     /**
@@ -172,13 +179,21 @@ public final class FileTypeIcons {
     }
 
     /**
+     * Gets the scaled icon size for tree display, accounting for HiDPI.
+     */
+    private static int getScaledIconSize() {
+        return UIScale.scale(BASE_ICON_SIZE);
+    }
+
+    /**
      * Resizes an icon to the desired size for tree display.
      * Uses ThemedIcon.withSize() if available, otherwise returns the icon as-is.
      */
     private static Icon resizeIcon(Icon icon) {
+        int size = getScaledIconSize();
         // If it's a ThemedIcon, use withSize() to resize
         if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
-            return themedIcon.withSize(ICON_SIZE);
+            return themedIcon.withSize(size);
         }
         // For other icon types, return as-is (they may already be the right size)
         // Note: FlatSVGIcon can also be resized, but ThemedIcon wrapper handles that
@@ -188,11 +203,24 @@ public final class FileTypeIcons {
     /**
      * Creates a greyed-out (disabled) version of the given icon.
      * Used for excluded/gitignored items in the project tree.
+     * Results are cached to avoid creating new disabled images on every render.
      *
      * @param icon the icon to grey out
      * @return a greyed-out version of the icon
      */
     public static Icon getGreyedIcon(Icon icon) {
+        // Check cache first
+        Icon cached = greyedIconCache.get(icon);
+        if (cached != null) {
+            return cached;
+        }
+
+        Icon greyed = createGreyedIcon(icon);
+        greyedIconCache.put(icon, greyed);
+        return greyed;
+    }
+
+    private static Icon createGreyedIcon(Icon icon) {
         // Handle ThemedIcon wrapper from SwingUtil
         if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
             Icon delegate = themedIcon.delegate();

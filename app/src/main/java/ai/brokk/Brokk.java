@@ -497,8 +497,10 @@ public class Brokk {
                 System.err.println("DISPLAY=" + System.getenv("DISPLAY"));
                 root.printStackTrace(System.err);
                 System.err.println();
-                System.err.println("If you are running on WSL2, ensure WSLg is enabled or run an X server and set DISPLAY.");
-                System.err.println("For non-GUI entry points, use Gradle tasks like ':app:runCli' or ':app:runHeadlessCli'.");
+                System.err.println(
+                        "If you are running on WSL2, ensure WSLg is enabled or run an X server and set DISPLAY.");
+                System.err.println(
+                        "For non-GUI entry points, use Gradle tasks like ':app:runCli' or ':app:runHeadlessCli'.");
                 System.exit(1);
             }
             throw t;

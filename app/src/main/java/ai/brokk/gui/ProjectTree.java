@@ -1638,6 +1638,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
          * For example, if this directory has one child "main" which has one child "java",
          * this returns "src/main/java" instead of just "src".
          *
+         * Only the "head" of a single-child chain shows the collapsed path. Intermediate
+         * nodes (those already collapsed into their parent's display) show just their own name.
+         *
          * @param node the tree node corresponding to this ProjectTreeNode
          * @return the display name, potentially including collapsed child paths
          */
@@ -1646,6 +1649,19 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 return file.getName();
             }
 
+            // Check if this node is already "collapsed into" its parent's display.
+            // If the parent has exactly one child (this node) and the parent is a directory,
+            // then the parent's display already includes this node's name, so just show simple name.
+            var parent = node.getParent();
+            if (parent instanceof DefaultMutableTreeNode parentNode
+                    && parentNode.getChildCount() == 1
+                    && parentNode.getUserObject() instanceof ProjectTreeNode parentTreeNode
+                    && parentTreeNode.isDirectory()) {
+                // This node is collapsed into parent - just show simple name
+                return file.getName();
+            }
+
+            // This is the head of a chain - collapse children into display
             var name = new StringBuilder(file.getName());
             var current = node;
 

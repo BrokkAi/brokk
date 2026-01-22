@@ -287,8 +287,7 @@ public class Environment {
                 String stderr = stderrFuture.join();
                 combinedOutput = formatOutput(stdout, stderr);
                 throw new TimeoutException(
-                        
-                    "process '%s' did not complete within %s".formatted(command, timeout), combinedOutput);
+                        "process '%s' did not complete within %s".formatted(command, timeout), combinedOutput);
             }
         } catch (InterruptedException ie) {
             process.destroyForcibly();
