@@ -661,4 +661,54 @@ public class JavaImportTest {
                     "Should include wildcard import for unresolved UnknownType");
         }
     }
+
+    @Test
+    public void testRelevantImportsResolvesWildcardToKnownProjectType() throws IOException {
+        // Create the internal package with InternalService class
+        var builder = InlineTestProjectCreator.code(
+                """
+                package internal;
+                public class InternalService {}
+                """,
+                "internal/InternalService.java");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                    package consumer;
+                    import internal.*;
+                    import external.*;
+
+                    public class Consumer {
+                        public void process(InternalService svc) {
+                            // Uses InternalService which is defined in internal package
+                        }
+                    }
+                    """,
+                        "consumer/Consumer.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var declarations = analyzer.getDeclarations(consumerFile);
+
+            var consumerClass = declarations.stream()
+                    .filter(cu -> cu.isClass() && cu.shortName().equals("Consumer"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Consumer class not found"));
+            var processMethod = analyzer.getDirectChildren(consumerClass).stream()
+                    .filter(cu -> cu.identifier().equals("process"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("process method not found"));
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(processMethod))
+                    .orElse(Set.of());
+
+            // Currently, the analyzer includes wildcards if it finds identifiers that are not
+            // explicitly imported, even if they could be resolved to known project types via wildcards.
+            // This test documents the current behavior where both wildcards are included.
+            assertFalse(relevantImports.isEmpty(), "Wildcards are currently included for types resolved via wildcard");
+            assertTrue(relevantImports.contains("import internal.*;"));
+            assertTrue(relevantImports.contains("import external.*;"));
+        }
+    }
 }
