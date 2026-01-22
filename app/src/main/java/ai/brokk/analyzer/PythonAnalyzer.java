@@ -8,12 +8,14 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -901,6 +903,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             return;
         }
 
+        // Check for wildcard patterns
         boolean isWildcard = capturedNodesForMatch.containsKey(IMPORT_WILDCARD)
                 || capturedNodesForMatch.containsKey(IMPORT_MODULE_WILDCARD)
                 || capturedNodesForMatch.containsKey(IMPORT_RELATIVE_WILDCARD);
@@ -908,28 +911,79 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         String identifier = null;
         String alias = null;
 
+        // Check for alias first - if present, it becomes both the alias and the identifier used in code
         TSNode aliasNode = capturedNodesForMatch.get(IMPORT_ALIAS);
         if (aliasNode != null && !aliasNode.isNull()) {
             alias = sourceContent.substringFrom(aliasNode).strip();
             identifier = alias;
         } else {
+            // Check for import.name - this is the imported symbol (e.g., "Foo" from "from pkg import Foo")
             TSNode nameNode = capturedNodesForMatch.get(IMPORT_NAME);
             if (nameNode != null && !nameNode.isNull()) {
                 identifier = sourceContent.substringFrom(nameNode).strip();
             } else {
+                // For "import module" style, check import.module
                 TSNode moduleNode = capturedNodesForMatch.get(IMPORT_MODULE);
+                if (moduleNode == null || moduleNode.isNull()) {
+                    moduleNode = capturedNodesForMatch.get(IMPORT_RELATIVE);
+                }
+
                 if (moduleNode != null && !moduleNode.isNull()) {
-                    identifier = sourceContent.substringFrom(moduleNode).strip();
+                    String modulePath = sourceContent.substringFrom(moduleNode).strip();
                     // For 'import a.b.c', the identifier used in code is 'a'
-                    int dotIdx = identifier.indexOf('.');
-                    if (dotIdx != -1) {
-                        identifier = identifier.substring(0, dotIdx);
-                    }
+                    // For 'from a.b import c', identifier is 'c' (handled above in nameNode block)
+                    int dotIdx = modulePath.indexOf('.');
+                    identifier = dotIdx != -1 ? modulePath.substring(0, dotIdx) : modulePath;
                 }
             }
         }
 
         localImportInfos.add(new ImportInfo(importText, isWildcard, identifier, alias));
+    }
+
+    @Override
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        // Python: "from pkg.sub import *" -> "pkg.sub"
+        // Python: "from ..pkg import *" -> "..pkg"
+        if (rawSnippet.startsWith("from ") && rawSnippet.contains(" import *")) {
+            return rawSnippet
+                    .substring(5, rawSnippet.indexOf(" import *"))
+                    .trim();
+        }
+        return super.extractPackageFromWildcard(rawSnippet);
+    }
+
+    @Override
+    protected Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+
+        // Strip Python comments (# to end of line)
+        String noComments = source.replaceAll("#[^\n]*", " ");
+
+        // Strip triple-quoted strings (both ''' and """)
+        noComments = noComments.replaceAll("'''[\\s\\S]*?'''", " ");
+        noComments = noComments.replaceAll("\"\"\"[\\s\\S]*?\"\"\"", " ");
+
+        // Strip single-quoted and double-quoted strings
+        noComments = noComments.replaceAll("'(?:[^'\\\\]|\\\\.)*'", " ");
+        noComments = noComments.replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", " ");
+
+        // Pattern 1: Capitalized identifiers (class names like Foo, List, etc.)
+        var capitalizedPattern = Pattern.compile("\\b([A-Z][A-Za-z0-9_]*)\\b");
+        var matcher1 = capitalizedPattern.matcher(noComments);
+        while (matcher1.find()) {
+            identifiers.add(matcher1.group(1));
+        }
+
+        // Pattern 2: Lowercase identifiers before a dot (module prefixes like os in os.path)
+        // This captures the module/object name that precedes attribute access
+        var modulePrefixPattern = Pattern.compile("\\b([a-z_][a-z0-9_]*)\\s*\\.");
+        var matcher2 = modulePrefixPattern.matcher(noComments);
+        while (matcher2.find()) {
+            identifiers.add(matcher2.group(1));
+        }
+
+        return identifiers;
     }
 
     @Override

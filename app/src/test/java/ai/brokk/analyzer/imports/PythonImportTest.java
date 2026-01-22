@@ -641,8 +641,6 @@ public class PythonImportTest {
     }
 
     @Test
-    @Disabled(
-            "TODO: Fix relevantImportsFor for Python - current behavior: returns empty set instead of identified imports")
     public void testRelevantImportsForFunction() throws IOException {
         var builder = InlineTestProjectCreator.code(
                         """
@@ -676,8 +674,6 @@ public class PythonImportTest {
     }
 
     @Test
-    @Disabled(
-            "TODO: Fix relevantImportsFor for Python - current behavior: returns empty set instead of identified imports")
     public void testRelevantImportsExcludesUnused() throws IOException {
         var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
                 .addFileContents("class Bar: pass", "pkg/bar.py")
@@ -709,8 +705,6 @@ public class PythonImportTest {
     }
 
     @Test
-    @Disabled(
-            "TODO: Fix relevantImportsFor for Python - current behavior: returns empty set instead of identified imports")
     public void testRelevantImportsWildcard() throws IOException {
         var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
                 .addFileContents(

@@ -946,7 +946,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return Collections.unmodifiableSet(matchedImports);
     }
 
-    private String extractPackageFromWildcard(String rawSnippet) {
+    protected String extractPackageFromWildcard(String rawSnippet) {
         // e.g., "import internal.*;" -> "internal"
         // e.g., "import static org.junit.Assert.*;" -> "org.junit.Assert"
         return rawSnippet
