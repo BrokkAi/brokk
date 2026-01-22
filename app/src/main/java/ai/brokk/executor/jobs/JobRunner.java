@@ -790,7 +790,8 @@ public final class JobRunner {
                                                 logger.warn(
                                                         "Failed to append fetch notification event for job {}: {}",
                                                         jobId,
-                                                        ioe.getMessage());
+                                                        ioe.getMessage(),
+                                                        ioe);
                                             }
 
                                             try {
@@ -1966,6 +1967,9 @@ public final class JobRunner {
                 COMMENT POLICY (STRICT):
                 - %s
                 - %s
+                - Do NOT comment on missing import statements.
+                - Do NOT flag undefined symbols or assume the code will fail to compile.
+                - Do NOT attempt to act as a compiler or duplicate CI/build failure messages. Assume the compiler and CI will surface genuine compilation issues; prioritize human, context-aware review and actionable suggestions instead.
                 - NO style-only/nit suggestions. NO repetitive variants of the same point.
                 - SKIP correct code and skip minor improvements.
                 - If nothing meets the requested severity threshold, "comments" MUST be [].
