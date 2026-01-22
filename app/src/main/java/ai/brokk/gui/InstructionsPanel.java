@@ -1351,6 +1351,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bodyArea.setOpaque(false);
         bodyArea.setLineWrap(true);
         bodyArea.setWrapStyleWord(true);
+        // JTextArea has a default margin/border that can shift its rendered text vs a JLabel; clear them for alignment.
+        bodyArea.setMargin(new Insets(0, 0, 0, 0));
+        bodyArea.setBorder(BorderFactory.createEmptyBorder());
         var labelFont = UIManager.getFont("Label.font");
         if (labelFont != null) {
             bodyArea.setFont(labelFont);
