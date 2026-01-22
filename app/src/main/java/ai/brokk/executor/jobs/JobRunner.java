@@ -1957,7 +1957,7 @@ public final class JobRunner {
 
                 OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
                 """
-                        .formatted(fencedDiff, severityLine, maxLine);
+                        .formatted(severityLine, maxLine, fencedDiff);
 
         return prompt;
     }
