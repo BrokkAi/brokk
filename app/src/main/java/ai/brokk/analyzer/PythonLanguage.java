@@ -122,7 +122,8 @@ public class PythonLanguage implements Language {
         }
         try (DirectoryStream<Path> pyVers = Files.newDirectoryStream(libDir)) {
             for (Path py : pyVers) {
-                if (Files.isDirectory(py) && PY_SITE_PKGS.matcher(py.getFileName().toString()).matches()) {
+                if (Files.isDirectory(py)
+                        && PY_SITE_PKGS.matcher(py.getFileName().toString()).matches()) {
                     Path site = py.resolve("site-packages");
                     if (Files.isDirectory(site)) {
                         return site;
@@ -165,8 +166,10 @@ public class PythonLanguage implements Language {
             return List.of();
         }
 
-        List<Path> sitePackagesDirs =
-                venvs.stream().map(this::sitePackagesDir).filter(Files::isDirectory).toList();
+        List<Path> sitePackagesDirs = venvs.stream()
+                .map(this::sitePackagesDir)
+                .filter(Files::isDirectory)
+                .toList();
 
         logger.debug("Found {} Python site-packages directories.", sitePackagesDirs.size());
         return sitePackagesDirs;
@@ -276,7 +279,8 @@ public class PythonLanguage implements Language {
 
         // Check if the path is inside any known virtual environment locations.
         // findVirtualEnvs looks at projectRoot and one level down.
-        List<Path> venvPaths = findVirtualEnvs(projectRoot).stream().map(Path::normalize).toList();
+        List<Path> venvPaths =
+                findVirtualEnvs(projectRoot).stream().map(Path::normalize).toList();
         for (Path venvPath : venvPaths) {
             if (normalizedPathToImport.startsWith(venvPath)) {
                 // Paths inside virtual environments are dependencies, not primary analyzed sources.

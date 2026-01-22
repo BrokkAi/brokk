@@ -95,8 +95,9 @@ public class DependencyToolsTest {
         var tools = new DependencyTools(cm);
 
         String result = tools.importDependency("requests");
-        assertTrue(result.contains("No Python packages found") || result.contains("virtual environment"),
-                   "Should route to Python importer");
+        assertTrue(
+                result.contains("No Python packages found") || result.contains("virtual environment"),
+                "Should route to Python importer");
     }
 
     @Test
@@ -105,8 +106,8 @@ public class DependencyToolsTest {
         var tools = new DependencyTools(cm);
 
         String result = tools.importDependency("serde");
-        assertTrue(result.contains("No Rust crates found") || result.contains("Cargo"),
-                   "Should route to Rust importer");
+        assertTrue(
+                result.contains("No Rust crates found") || result.contains("Cargo"), "Should route to Rust importer");
     }
 
     @Test
@@ -115,8 +116,9 @@ public class DependencyToolsTest {
         var tools = new DependencyTools(cm);
 
         String result = tools.importDependency("lodash");
-        assertTrue(result.contains("No npm packages found") || result.contains("node_modules"),
-                   "Should route to Node importer");
+        assertTrue(
+                result.contains("No npm packages found") || result.contains("node_modules"),
+                "Should route to Node importer");
     }
 
     @Test
@@ -125,8 +127,9 @@ public class DependencyToolsTest {
         var tools = new DependencyTools(cm);
 
         String result = tools.importDependency("guava");
-        assertTrue(result.contains("Maven coordinates format") || result.contains("groupId:artifactId"),
-                   "Should hint about Maven format");
+        assertTrue(
+                result.contains("Maven coordinates format") || result.contains("groupId:artifactId"),
+                "Should hint about Maven format");
     }
 
     // ========== Java/Maven Tests ==========
@@ -140,8 +143,9 @@ public class DependencyToolsTest {
 
         for (String input : invalidInputs) {
             String result = tools.importDependency(input);
-            assertTrue(result.contains("Invalid") || result.contains("coordinates"),
-                       "Should fail for: " + input + ", got: " + result);
+            assertTrue(
+                    result.contains("Invalid") || result.contains("coordinates"),
+                    "Should fail for: " + input + ", got: " + result);
         }
     }
 
@@ -316,8 +320,7 @@ public class DependencyToolsTest {
         var nodeModules = tempDir.resolve("node_modules");
         var pkgDir = nodeModules.resolve("express");
         Files.createDirectories(pkgDir);
-        Files.writeString(pkgDir.resolve("package.json"),
-                          "{\"name\": \"express\", \"version\": \"4.18.2\"}");
+        Files.writeString(pkgDir.resolve("package.json"), "{\"name\": \"express\", \"version\": \"4.18.2\"}");
         Files.writeString(pkgDir.resolve("index.js"), "module.exports = {};");
 
         var project = new TestProject(tempDir, Languages.TYPESCRIPT);
@@ -351,7 +354,8 @@ public class DependencyToolsTest {
                     .orElseThrow(() -> new AssertionError("No slf4j directory found"));
 
             try (var walk = Files.walk(artifactDir)) {
-                long javaFiles = walk.filter(p -> p.toString().endsWith(".java")).count();
+                long javaFiles =
+                        walk.filter(p -> p.toString().endsWith(".java")).count();
                 assertTrue(javaFiles > 0, "Should have extracted Java files");
             }
         }

@@ -8,8 +8,6 @@ import ai.brokk.analyzer.DependencyCopyUtil;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.NodeJsDependencyHelper;
-import ai.brokk.analyzer.PythonLanguage;
-import ai.brokk.analyzer.RustLanguage;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Decompiler;
@@ -111,8 +109,8 @@ public class DependencyTools {
             + "For Node.js: use package name like 'lodash' or '@types/node'.")
     public String importDependency(
             @P("Dependency specification. Format depends on language: "
-                    + "Java='groupId:artifactId:version', Python='package [version]', "
-                    + "Rust='crate [version]', Node.js='package'")
+                            + "Java='groupId:artifactId:version', Python='package [version]', "
+                            + "Rust='crate [version]', Node.js='package'")
                     String dependencySpec)
             throws InterruptedException {
 
@@ -188,8 +186,7 @@ public class DependencyTools {
         String version = colonCount == 1 ? null : artifact.getVersion();
 
         try (var internalFetcher = fetcher != null ? null : new MavenArtifactFetcher(createProgressListener(io))) {
-            var activeFetcher = fetcher != null ? fetcher : internalFetcher;
-            assert activeFetcher != null;
+            var activeFetcher = fetcher != null ? fetcher : requireNonNull(internalFetcher);
 
             // Resolve latest version if not provided
             if (version == null || version.isEmpty()) {
@@ -205,7 +202,7 @@ public class DependencyTools {
                     var latestOpt = activeFetcher.resolveLatestVersion(groupId, artifactId);
                     if (latestOpt.isEmpty()) {
                         logger.warn("Could not resolve latest version for {}:{}", groupId, artifactId);
-                        return ("Could not resolve latest version for %s:%s. Try specifying an explicit version.")
+                        return "Could not resolve latest version for %s:%s. Try specifying an explicit version."
                                 .formatted(groupId, artifactId);
                     }
                     version = latestOpt.get();
@@ -260,10 +257,12 @@ public class DependencyTools {
 
             checkInterrupted();
 
-            String intelligenceStatus = registerLiveDependency(result.outputDir().getFileName().toString());
+            String intelligenceStatus =
+                    registerLiveDependency(result.outputDir().getFileName().toString());
 
             return "Successfully imported %s to %s (%d Java files%s). %s"
-                    .formatted(fullCoordinates, relativeOutput, result.filesExtracted(), sourceInfo, intelligenceStatus);
+                    .formatted(
+                            fullCoordinates, relativeOutput, result.filesExtracted(), sourceInfo, intelligenceStatus);
         }
     }
 
@@ -281,8 +280,8 @@ public class DependencyTools {
 
         var project = contextManager.getProject();
 
-        io.showNotification(IConsoleIO.NotificationRole.INFO,
-                            "Scanning virtual environment for " + packageName + "...");
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO, "Scanning virtual environment for " + packageName + "...");
         var packages = Languages.PYTHON.listDependencyPackages(project);
         if (packages.isEmpty()) {
             return "No Python packages found. Ensure you have a virtual environment (venv, .venv, or env) "
@@ -296,8 +295,8 @@ public class DependencyTools {
                     ? "Package '%s' version '%s' not found in virtual environment."
                     : "Package '%s' not found in virtual environment.";
             return (requestedVersion != null
-                    ? suggestion.formatted(packageName, requestedVersion)
-                    : suggestion.formatted(packageName))
+                            ? suggestion.formatted(packageName, requestedVersion)
+                            : suggestion.formatted(packageName))
                     + " Run 'pip install " + packageName + "' to install it.";
         }
 
@@ -329,23 +328,29 @@ public class DependencyTools {
 
             // Use shared helpers from DependencyCopyUtil
             var meta = DependencyCopyUtil.readPyMetadata(distInfoDir);
-            var rels = DependencyCopyUtil.enumerateInstalledFiles(sitePackages, distInfoDir,
-                                                              meta != null ? meta.name() : packageName);
+            var rels = DependencyCopyUtil.enumerateInstalledFiles(
+                    sitePackages, distInfoDir, meta != null ? meta.name() : packageName);
             DependencyCopyUtil.copyPythonFiles(sitePackages, rels, targetRoot);
         } catch (IOException e) {
-            logger.error("Error copying Python package {} from {} to {}",
-                         matchedPkg.displayName(), sitePackages, targetRoot, e);
+            logger.error(
+                    "Error copying Python package {} from {} to {}",
+                    matchedPkg.displayName(),
+                    sitePackages,
+                    targetRoot,
+                    e);
             return "Failed to import " + matchedPkg.displayName() + ": " + e.getMessage();
         }
 
         checkInterrupted();
 
-        String intelligenceStatus = registerLiveDependency(targetRoot.getFileName().toString());
+        String intelligenceStatus =
+                registerLiveDependency(targetRoot.getFileName().toString());
         var relativeOutput = projectRoot.relativize(targetRoot);
 
         return "Successfully imported %s to %s (%d Python files). %s"
-                .formatted(matchedPkg.displayName(), relativeOutput,
-                           countFiles(targetRoot, ".py", ".pyi"), intelligenceStatus);
+                .formatted(
+                        matchedPkg.displayName(), relativeOutput,
+                        countFiles(targetRoot, ".py", ".pyi"), intelligenceStatus);
     }
 
     private @Nullable Language.DependencyCandidate findPythonPackage(
@@ -379,8 +384,7 @@ public class DependencyTools {
 
         var project = contextManager.getProject();
 
-        io.showNotification(IConsoleIO.NotificationRole.INFO,
-                            "Scanning Cargo dependencies for " + crateName + "...");
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Scanning Cargo dependencies for " + crateName + "...");
         var crates = Languages.RUST.listDependencyPackages(project);
         if (crates.isEmpty()) {
             return "No Rust crates found. Ensure this is a Cargo project with dependencies. "
@@ -394,8 +398,8 @@ public class DependencyTools {
                     ? "Crate '%s' version '%s' not found in Cargo dependencies."
                     : "Crate '%s' not found in Cargo dependencies.";
             return (requestedVersion != null
-                    ? suggestion.formatted(crateName, requestedVersion)
-                    : suggestion.formatted(crateName))
+                            ? suggestion.formatted(crateName, requestedVersion)
+                            : suggestion.formatted(crateName))
                     + " Add it to Cargo.toml and run 'cargo build'.";
         }
 
@@ -427,19 +431,21 @@ public class DependencyTools {
             // Use shared helper from DependencyCopyUtil
             DependencyCopyUtil.copyRustCrate(sourceRoot, targetRoot);
         } catch (IOException e) {
-            logger.error("Error copying Rust crate {} from {} to {}",
-                         matchedCrate.displayName(), sourceRoot, targetRoot, e);
+            logger.error(
+                    "Error copying Rust crate {} from {} to {}", matchedCrate.displayName(), sourceRoot, targetRoot, e);
             return "Failed to import " + matchedCrate.displayName() + ": " + e.getMessage();
         }
 
         checkInterrupted();
 
-        String intelligenceStatus = registerLiveDependency(targetRoot.getFileName().toString());
+        String intelligenceStatus =
+                registerLiveDependency(targetRoot.getFileName().toString());
         var relativeOutput = projectRoot.relativize(targetRoot);
 
         return "Successfully imported %s to %s (%d Rust files). %s"
-                .formatted(matchedCrate.displayName(), relativeOutput,
-                           countFiles(targetRoot, ".rs"), intelligenceStatus);
+                .formatted(
+                        matchedCrate.displayName(), relativeOutput,
+                        countFiles(targetRoot, ".rs"), intelligenceStatus);
     }
 
     private @Nullable Language.DependencyCandidate findRustCrate(
@@ -471,8 +477,7 @@ public class DependencyTools {
 
         var project = contextManager.getProject();
 
-        io.showNotification(IConsoleIO.NotificationRole.INFO,
-                            "Scanning node_modules for " + packageName + "...");
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Scanning node_modules for " + packageName + "...");
         var packages = NodeJsDependencyHelper.listDependencyPackages(project);
         if (packages.isEmpty()) {
             return "No npm packages found. Ensure you have a node_modules directory. "
@@ -518,20 +523,23 @@ public class DependencyTools {
             // Use shared helper from DependencyCopyUtil
             DependencyCopyUtil.copyNodePackage(sourceRoot, targetRoot);
         } catch (IOException e) {
-            logger.error("Error copying npm package {} from {} to {}",
-                         matchedPkg.displayName(), sourceRoot, targetRoot, e);
+            logger.error(
+                    "Error copying npm package {} from {} to {}", matchedPkg.displayName(), sourceRoot, targetRoot, e);
             return "Failed to import " + matchedPkg.displayName() + ": " + e.getMessage();
         }
 
         checkInterrupted();
 
-        String intelligenceStatus = registerLiveDependency(targetRoot.getFileName().toString());
+        String intelligenceStatus =
+                registerLiveDependency(targetRoot.getFileName().toString());
         var relativeOutput = projectRoot.relativize(targetRoot);
 
         return "Successfully imported %s to %s (%d source files). %s"
-                .formatted(matchedPkg.displayName(), relativeOutput,
-                           countFiles(targetRoot, ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".d.ts"),
-                           intelligenceStatus);
+                .formatted(
+                        matchedPkg.displayName(),
+                        relativeOutput,
+                        countFiles(targetRoot, ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".d.ts"),
+                        intelligenceStatus);
     }
 
     private @Nullable Language.DependencyCandidate findNpmPackage(
@@ -599,5 +607,4 @@ public class DependencyTools {
             return 0L;
         }
     }
-
 }

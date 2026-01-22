@@ -45,7 +45,8 @@ public final class LocalCacheScanner {
                 .resolve("modules-2")
                 .resolve("files-2.1"));
         rootsToScan.add(homePath.resolve(".ivy2").resolve("cache"));
-        rootsToScan.add(homePath.resolve(".cache").resolve("coursier").resolve("v1").resolve("https"));
+        rootsToScan.add(
+                homePath.resolve(".cache").resolve("coursier").resolve("v1").resolve("https"));
         rootsToScan.add(homePath.resolve(".sbt"));
 
         // Honour user-supplied overrides
@@ -64,7 +65,8 @@ public final class LocalCacheScanner {
         if (Environment.isWindows()) {
             Optional.ofNullable(System.getenv("LOCALAPPDATA")).ifPresent(localAppData -> {
                 Path lad = Path.of(localAppData);
-                rootsToScan.add(lad.resolve("Coursier").resolve("cache").resolve("v1").resolve("https"));
+                rootsToScan.add(
+                        lad.resolve("Coursier").resolve("cache").resolve("v1").resolve("https"));
                 rootsToScan.add(lad.resolve("Gradle")
                         .resolve("caches")
                         .resolve("modules-2")
@@ -100,9 +102,7 @@ public final class LocalCacheScanner {
      * Constructs the Maven local repository path for the given coordinates.
      */
     private static Path getMavenLocalPath(String groupId, String artifactId, String version) {
-        return getMavenArtifactDir(groupId, artifactId)
-                .resolve(version)
-                .resolve(artifactId + "-" + version + ".jar");
+        return getMavenArtifactDir(groupId, artifactId).resolve(version).resolve(artifactId + "-" + version + ".jar");
     }
 
     /**
@@ -120,14 +120,13 @@ public final class LocalCacheScanner {
         var artifactDir = getMavenArtifactDir(groupId, artifactId);
         if (Files.isDirectory(artifactDir)) {
             try (Stream<Path> subdirs = Files.list(artifactDir)) {
-                subdirs.filter(Files::isDirectory)
-                       .forEach(versionDir -> {
-                           var version = versionDir.getFileName().toString();
-                           var jarPath = versionDir.resolve(artifactId + "-" + version + ".jar");
-                           if (Files.exists(jarPath)) {
-                               versions.add(version);
-                           }
-                       });
+                subdirs.filter(Files::isDirectory).forEach(versionDir -> {
+                    var version = versionDir.getFileName().toString();
+                    var jarPath = versionDir.resolve(artifactId + "-" + version + ".jar");
+                    if (Files.exists(jarPath)) {
+                        versions.add(version);
+                    }
+                });
             } catch (IOException e) {
                 logger.warn("Error listing versions in {}: {}", artifactDir, e.getMessage());
             }
@@ -140,17 +139,16 @@ public final class LocalCacheScanner {
                 continue;
             }
             try (Stream<Path> walk = Files.walk(root, FileVisitOption.FOLLOW_LINKS)) {
-                walk.filter(Files::isRegularFile)
-                    .forEach(p -> {
-                        var name = p.getFileName().toString();
-                        if (name.endsWith("-sources.jar") || name.endsWith("-javadoc.jar")) {
-                            return;
-                        }
-                        var matcher = jarPattern.matcher(name);
-                        if (matcher.matches()) {
-                            versions.add(matcher.group(1));
-                        }
-                    });
+                walk.filter(Files::isRegularFile).forEach(p -> {
+                    var name = p.getFileName().toString();
+                    if (name.endsWith("-sources.jar") || name.endsWith("-javadoc.jar")) {
+                        return;
+                    }
+                    var matcher = jarPattern.matcher(name);
+                    if (matcher.matches()) {
+                        versions.add(matcher.group(1));
+                    }
+                });
             } catch (IOException | SecurityException e) {
                 logger.debug("Error scanning {}: {}", root, e.getMessage());
             }
@@ -163,8 +161,8 @@ public final class LocalCacheScanner {
 
         // Sort using Maven's version comparison and return the highest
         var latest = versions.stream()
-                             .max(Comparator.comparing(ComparableVersion::new))
-                             .orElseThrow();
+                .max(Comparator.comparing(ComparableVersion::new))
+                .orElseThrow();
         logger.info("Found latest local version for {}:{} -> {}", groupId, artifactId, latest);
         return Optional.of(latest);
     }
@@ -199,8 +197,8 @@ public final class LocalCacheScanner {
             logger.debug("Scanning {} for {}", root, expectedName);
             try (Stream<Path> walk = Files.walk(root, FileVisitOption.FOLLOW_LINKS)) {
                 var found = walk.filter(Files::isRegularFile)
-                                .filter(p -> p.getFileName().toString().equals(expectedName))
-                                .findFirst();
+                        .filter(p -> p.getFileName().toString().equals(expectedName))
+                        .findFirst();
                 if (found.isPresent()) {
                     logger.info("Found {} in cache: {}", expectedName, found.get());
                     return found;

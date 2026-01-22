@@ -2,7 +2,6 @@ package ai.brokk.analyzer;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.analyzer.DependencyCopyUtil;
 import ai.brokk.IConsoleIO;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
@@ -276,7 +275,6 @@ public class RustLanguage implements Language {
             return 0L;
         }
     }
-
 
     // TODO: Refine isAnalyzed for Rust (e.g. target directory, .cargo, vendor)
     @Override
