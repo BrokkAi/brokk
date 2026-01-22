@@ -11,6 +11,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
+import ai.brokk.gui.util.FileTypeIcons;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
@@ -1632,13 +1633,42 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             return cachedIsTracked;
         }
 
+        /**
+         * Computes display name for this node, collapsing single-child directory chains.
+         * For example, if this directory has one child "main" which has one child "java",
+         * this returns "src/main/java" instead of just "src".
+         *
+         * @param node the tree node corresponding to this ProjectTreeNode
+         * @return the display name, potentially including collapsed child paths
+         */
+        public String getDisplayName(DefaultMutableTreeNode node) {
+            if (!isDirectory) {
+                return file.getName();
+            }
+
+            var name = new StringBuilder(file.getName());
+            var current = node;
+
+            // Follow single-child directory chains
+            while (current.getChildCount() == 1) {
+                var child = (DefaultMutableTreeNode) current.getFirstChild();
+                if (child.getUserObject() instanceof ProjectTreeNode childNode && childNode.isDirectory()) {
+                    name.append("/").append(childNode.getFile().getName());
+                    current = child;
+                } else {
+                    break;
+                }
+            }
+            return name.toString();
+        }
+
         @Override
         public String toString() {
             return file.getName();
         }
     }
 
-    /** Custom cell renderer that colors untracked files red and CI-excluded items gray */
+    /** Custom cell renderer that colors untracked files and CI-excluded items, with file-type icons */
     private static class ProjectTreeCellRenderer extends DefaultTreeCellRenderer {
         @Override
         public Component getTreeCellRendererComponent(
@@ -1647,11 +1677,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
             if (value instanceof DefaultMutableTreeNode node) {
                 if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
-                    // Set appropriate icon using cached isDirectory to avoid syscalls
+                    // Set appropriate icon based on file type
                     if (treeNode.isDirectory()) {
-                        setIcon(expanded ? getOpenIcon() : getClosedIcon());
+                        setIcon(FileTypeIcons.getFolderIcon(expanded));
+                        // Show grouped directory names (e.g., "src/main/java" instead of "src")
+                        setText(treeNode.getDisplayName(node));
                     } else {
-                        setIcon(getLeafIcon());
+                        setIcon(FileTypeIcons.getIconForFile(treeNode.getFile().getName()));
                     }
 
                     // Use cached coloring state from the node
@@ -1662,8 +1694,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     if (patternExcluded || (gitignored && !isTracked)) {
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
                     } else if (!treeNode.isDirectory() && !isTracked) {
-                        // Color untracked files red
-                        setForeground(Color.RED);
+                        // Color untracked files with softer muted orange
+                        setForeground(ThemeColors.getColor(ThemeColors.UNTRACKED_FOREGROUND));
                     }
                 } else if (LOADING_PLACEHOLDER.equals(node.getUserObject())) {
                     setText(LOADING_PLACEHOLDER);
