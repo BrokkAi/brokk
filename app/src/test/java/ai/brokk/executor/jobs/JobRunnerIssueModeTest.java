@@ -257,13 +257,12 @@ class JobRunnerIssueModeTest {
 
     @Test
     void testIssueBranchNameGeneration() throws Exception {
-        // Verify branch name generation for issues uses randomized suffix
+        // Verify branch name generation for issues uses randomized suffix.
+        // The generator produces brokk/issue-<n>-<6char>, but sanitizeBranchName may append "-<k>" on collision.
         String branchName = IssueService.generateBranchNameWithRandomSuffix(42, repo);
-        String prefix = "brokk/issue-42-";
-        assertTrue(branchName.startsWith(prefix), () -> "branchName should start with " + prefix);
-        String suffix = branchName.substring(prefix.length());
-        assertEquals(6, suffix.length(), "random suffix should be 6 characters");
-        assertTrue(suffix.matches("[a-z0-9]{6}"), "random suffix should be lowercase alphanumeric");
+        assertTrue(
+                branchName.matches("brokk/issue-42-[a-z0-9]{6}(-\\\\d+)?"),
+                () -> "branchName should be brokk/issue-42-<6chars> optionally suffixed with -N but was: " + branchName);
 
         // For collision handling use the deterministic seam so tests are stable.
         repo.getGit().branchCreate().setName("brokk/issue-42-deterministic").call();
