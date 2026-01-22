@@ -888,10 +888,7 @@ public final class JobRunner {
                                                         }
                                                     }
                                                 } catch (Exception e) {
-                                                    logger.warn(
-                                                            "ISSUE job {}: prompt enrichment failed: {}",
-                                                            jobId,
-                                                            e.getMessage());
+                                                    logger.warn("ISSUE job {}: prompt enrichment failed", jobId, e);
                                                 }
                                             }
 
