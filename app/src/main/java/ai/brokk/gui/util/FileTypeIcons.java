@@ -25,6 +25,10 @@ public final class FileTypeIcons {
     // Scaled by UIScale for HiDPI support
     private static final int BASE_ICON_SIZE = 20;
 
+    // Cache for icons by UIManager key to avoid repeated lookups/allocations per render
+    // Uses a simple map since keys are interned strings and icons should persist
+    private static final Map<String, Icon> iconCache = new WeakHashMap<>();
+
     // Cache for greyed icons to avoid creating new disabled images on every render
     private static final Map<Icon, Icon> greyedIconCache = new WeakHashMap<>();
 
@@ -159,20 +163,28 @@ public final class FileTypeIcons {
 
     /**
      * Gets an icon from UIManager and verifies it's valid.
+     * Results are cached to avoid repeated lookups per render.
      * Returns null if the icon key doesn't exist in UIManager to avoid fallback icons.
      */
     private static @Nullable Icon getIconFromUIManager(String key) {
-        // First check if the key actually exists in UIManager
-        Object value = UIManager.get(key);
-        if (value == null || !(value instanceof Icon)) {
-            // Icon doesn't exist - return null to use default
+        // Check cache first
+        Icon cached = iconCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+
+        // Use UIManager.getIcon to properly resolve LazyValue/ActiveValue entries
+        Icon resolved = UIManager.getIcon(key);
+        if (resolved == null || resolved.getIconWidth() <= 0 || resolved.getIconHeight() <= 0) {
+            // Icon doesn't exist or is invalid - return null to use default
             return null;
         }
 
-        // Icon exists - get it via SwingUtil to ensure theme awareness
+        // Get it via SwingUtil to ensure theme awareness (color filtering)
         Icon icon = SwingUtil.uiIcon(key);
         // Verify the icon has valid dimensions
         if (icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
+            iconCache.put(key, icon);
             return icon;
         }
         return null;
@@ -187,7 +199,7 @@ public final class FileTypeIcons {
 
     /**
      * Resizes an icon to the desired size for tree display.
-     * Uses ThemedIcon.withSize() if available, otherwise returns the icon as-is.
+     * Handles ThemedIcon, FlatSVGIcon, and other icon types.
      */
     private static Icon resizeIcon(Icon icon) {
         int size = getScaledIconSize();
@@ -195,8 +207,11 @@ public final class FileTypeIcons {
         if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
             return themedIcon.withSize(size);
         }
+        // Handle direct FlatSVGIcon (e.g., from fallbacks)
+        if (icon instanceof FlatSVGIcon svgIcon) {
+            return svgIcon.derive(size, size);
+        }
         // For other icon types, return as-is (they may already be the right size)
-        // Note: FlatSVGIcon can also be resized, but ThemedIcon wrapper handles that
         return icon;
     }
 

@@ -87,6 +87,28 @@ public class Brokk {
         logger.info("");
     }
 
+    /**
+     * Prints diagnostic information about the headless/display environment and exits.
+     * Called when GUI initialization fails due to missing display.
+     */
+    private static void printHeadlessErrorAndExit(@Nullable Throwable cause) {
+        System.err.println("Brokk failed to start because no usable GUI display is available.");
+        System.err.println();
+        System.err.println("Display environment:");
+        System.err.println("  DISPLAY=" + System.getenv("DISPLAY"));
+        System.err.println("  WAYLAND_DISPLAY=" + System.getenv("WAYLAND_DISPLAY"));
+        System.err.println("  XDG_SESSION_TYPE=" + System.getenv("XDG_SESSION_TYPE"));
+        System.err.println("  java.awt.headless=" + System.getProperty("java.awt.headless"));
+        System.err.println();
+        if (cause != null) {
+            cause.printStackTrace(System.err);
+            System.err.println();
+        }
+        System.err.println("If you are running on WSL2, ensure WSLg is enabled or run an X server and set DISPLAY.");
+        System.err.println("For non-GUI entry points, use Gradle tasks like ':app:runCli' or ':app:runHeadlessCli'.");
+        System.exit(1);
+    }
+
     @Nullable
     private static JWindow splashScreen = null;
 
@@ -481,29 +503,27 @@ public class Brokk {
         // MUST happen before setupSystemPropertiesAndIcon() which reads config
         BrokkConfigPaths.attemptMigration();
 
+        // Proactively check for headless environment before attempting GUI initialization
+        if (GraphicsEnvironment.isHeadless()) {
+            printHeadlessErrorAndExit(null);
+        }
+
         try {
             setupSystemPropertiesAndIcon();
-        } catch (Throwable t) {
-            // Starting Brokk requires a working GUI environment (AWT/Swing). In environments without a usable display
-            // (e.g., missing X11/Wayland in WSL/CI), AWT initialization can fail very early.
-            Throwable root = t;
+        } catch (java.awt.HeadlessException | java.awt.AWTError e) {
+            // GUI initialization failed due to missing display
+            printHeadlessErrorAndExit(e);
+        } catch (ExceptionInInitializerError | NoClassDefFoundError e) {
+            // AWT class initialization can fail with these when display is unavailable
+            Throwable root = e;
             while (root.getCause() != null && root.getCause() != root) {
                 root = root.getCause();
             }
             if (root instanceof java.awt.AWTError
-                    || (root instanceof NoClassDefFoundError ncdfe
-                            && String.valueOf(ncdfe.getMessage()).contains("GraphicsEnvironment$LocalGE"))) {
-                System.err.println("Brokk failed to start because no usable GUI display is available.");
-                System.err.println("DISPLAY=" + System.getenv("DISPLAY"));
-                root.printStackTrace(System.err);
-                System.err.println();
-                System.err.println(
-                        "If you are running on WSL2, ensure WSLg is enabled or run an X server and set DISPLAY.");
-                System.err.println(
-                        "For non-GUI entry points, use Gradle tasks like ':app:runCli' or ':app:runHeadlessCli'.");
-                System.exit(1);
+                    || String.valueOf(root.getMessage()).contains("GraphicsEnvironment")) {
+                printHeadlessErrorAndExit(e);
             }
-            throw t;
+            throw e;
         }
 
         if (MainProject.initializeOomFlag()) {

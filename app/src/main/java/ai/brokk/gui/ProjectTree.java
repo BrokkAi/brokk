@@ -699,6 +699,12 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             // Clear placeholder(s) and populate children.
                             node.removeAllChildren();
 
+                            // Invalidate display name cache since children changed
+                            // (affects collapsed directory chain display)
+                            if (node.getUserObject() instanceof ProjectTreeNode ptn) {
+                                ptn.invalidateDisplayName();
+                            }
+
                             for (ProjectTreeNode childTreeNode : preCreatedNodes) {
                                 DefaultMutableTreeNode childNode = new DefaultMutableTreeNode(childTreeNode);
 
@@ -1557,6 +1563,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         private volatile @Nullable Boolean cachedIsExcluded;
         private volatile @Nullable Boolean cachedIsGitignored;
         private volatile @Nullable Boolean cachedIsTracked;
+        // Cached display name to avoid recomputation on every render
+        // Invalidated when tree structure changes (children added/removed)
+        private volatile @Nullable String cachedDisplayName;
 
         public ProjectTreeNode(File file, boolean childrenLoaded) {
             this.file = file;
@@ -1595,6 +1604,12 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         /** Resets load state to allow reloading (for refresh). */
         public void resetLoadState() {
             loadState.set(null);
+            cachedDisplayName = null; // Invalidate display name cache on refresh
+        }
+
+        /** Invalidates cached display name (call when tree structure changes). */
+        public void invalidateDisplayName() {
+            cachedDisplayName = null;
         }
 
         /** Marks as loaded without going through the loading process. */
@@ -1641,6 +1656,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
          * Only the "head" of a single-child chain shows the collapsed path. Intermediate
          * nodes (those already collapsed into their parent's display) show just their own name.
          *
+         * Results are cached to avoid recomputation on every render. Cache is invalidated
+         * when tree structure changes (via resetLoadState or invalidateDisplayName).
+         *
          * @param node the tree node corresponding to this ProjectTreeNode
          * @return the display name, potentially including collapsed child paths
          */
@@ -1649,6 +1667,19 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 return file.getName();
             }
 
+            // Check cache first
+            String cached = cachedDisplayName;
+            if (cached != null) {
+                return cached;
+            }
+
+            // Compute display name
+            String displayName = computeDisplayName(node);
+            cachedDisplayName = displayName;
+            return displayName;
+        }
+
+        private String computeDisplayName(DefaultMutableTreeNode node) {
             // Check if this node is already "collapsed into" its parent's display.
             // If the parent has exactly one child (this node) and the parent is a directory,
             // then the parent's display already includes this node's name, so just show simple name.
