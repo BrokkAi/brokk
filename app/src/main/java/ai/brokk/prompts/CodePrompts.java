@@ -3,7 +3,12 @@ package ai.brokk.prompts;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
+import ai.brokk.AbstractService;
+import ai.brokk.EditBlock;
+import ai.brokk.IContextManager;
+import ai.brokk.SyntaxAwareConfig;
+import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.TaskMeta;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
