@@ -12,7 +12,6 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
@@ -70,9 +69,6 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default Collection<ChatMessage> getHistoryMessages() {
-        return CodePrompts.instance.getHistoryMessages(liveContext(), null);
-    }
 
     /**
      * Returns the live, unfrozen context that we can edit.

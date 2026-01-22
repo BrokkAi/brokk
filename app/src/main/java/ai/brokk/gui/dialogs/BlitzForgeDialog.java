@@ -1114,7 +1114,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 Context ctx = cm.liveContext();
                 workspaceTokens = Messages.getApproximateMessageTokens(
                         WorkspacePrompts.getMessagesGroupedByMutability(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-                historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
+                historyTokens = Messages.getApproximateMessageTokens(CodePrompts.instance.getHistoryMessages(ctx, null));
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
                 hadError = true;

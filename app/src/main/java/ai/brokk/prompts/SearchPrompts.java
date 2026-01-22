@@ -314,7 +314,11 @@ public class SearchPrompts {
         messages.addAll(workspaceMessages);
 
         // Conversation history plus this agent's messages
-        messages.addAll(CodePrompts.instance.getHistoryMessages(context, null));
+        messages.addAll(CodePrompts.instance.getHistoryMessages(
+                context,
+                new ai.brokk.TaskResult.TaskMeta(
+                        ai.brokk.TaskResult.Type.ASK,
+                        ai.brokk.Service.ModelConfig.from(model, cm.getService()))));
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)
