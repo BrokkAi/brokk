@@ -344,8 +344,7 @@ class JobRunnerIssueModeTest {
                 .toList();
 
         var verificationEvents = commandEvents.stream()
-                .filter(e -> e.data() instanceof Map
-                        && "verification".equals(((Map<?, ?>) e.data()).get("stage")))
+                .filter(e -> e.data() instanceof Map && "verification".equals(((Map<?, ?>) e.data()).get("stage")))
                 .toList();
 
         assertEquals(2, verificationEvents.size(), "Should emit one command result per verification run");
@@ -602,7 +601,8 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void issueModeTestLintRetryLoop_whenTestsFail_emitsTestsEventAndLintSkippedEvent_forThatIteration() throws Exception {
+    void issueModeTestLintRetryLoop_whenTestsFail_emitsTestsEventAndLintSkippedEvent_forThatIteration()
+            throws Exception {
         var cancelled = new AtomicBoolean(false);
 
         String jobId = "job-final-verification-events-tests-fail-1";
@@ -1037,7 +1037,8 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void issueReviewFix_successThenFailure_emitsStructuredCommandResultEvents_roundTripThroughJobStore() throws Exception {
+    void issueReviewFix_successThenFailure_emitsStructuredCommandResultEvents_roundTripThroughJobStore()
+            throws Exception {
         String jobId = "job-review-fix-events-success-then-failure-1";
         var io = new TestConsoleIO();
 
@@ -1075,8 +1076,7 @@ class JobRunnerIssueModeTest {
         var events = store.readEvents(jobId, -1, 0);
         var reviewFixEvents = events.stream()
                 .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
-                .filter(e -> e.data() instanceof Map
-                        && "review_fix".equals(((Map<?, ?>) e.data()).get("stage")))
+                .filter(e -> e.data() instanceof Map && "review_fix".equals(((Map<?, ?>) e.data()).get("stage")))
                 .toList();
 
         assertEquals(2, reviewFixEvents.size(), "Should emit exactly two review_fix COMMAND_RESULT events");
@@ -1160,8 +1160,7 @@ class JobRunnerIssueModeTest {
         var events = store.readEvents(jobId, -1, 0);
         var reviewFixEvents = events.stream()
                 .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
-                .filter(e -> e.data() instanceof Map
-                        && "review_fix".equals(((Map<?, ?>) e.data()).get("stage")))
+                .filter(e -> e.data() instanceof Map && "review_fix".equals(((Map<?, ?>) e.data()).get("stage")))
                 .toList();
 
         assertEquals(2, reviewFixEvents.size(), "Should emit attempt 1 result and attempt 2 skipped");
@@ -1259,7 +1258,8 @@ class JobRunnerIssueModeTest {
         Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
         assertThrows(IssueExecutionException.class, () -> {
-            JobRunner.runSingleFixVerificationGate("job-pr-skip-1", store, io, "verification", verificationRunner, fixRunner);
+            JobRunner.runSingleFixVerificationGate(
+                    "job-pr-skip-1", store, io, "verification", verificationRunner, fixRunner);
             // This line simulates PR creation that must not be reached if verification fails.
             prCreated.set(true);
         });

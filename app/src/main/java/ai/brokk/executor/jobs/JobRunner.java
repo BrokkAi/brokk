@@ -133,7 +133,8 @@ public final class JobRunner {
                     : exception.getClass().getSimpleName() + ": " + msg;
         }
 
-        return new CommandResultEvent(stage, safeCommand, attempt, skipped, skipReason, success, safeOutput, exceptionText);
+        return new CommandResultEvent(
+                stage, safeCommand, attempt, skipped, skipReason, success, safeOutput, exceptionText);
     }
 
     private static void emitCommandResult(
@@ -142,11 +143,7 @@ public final class JobRunner {
             store.appendEvent(jobId, JobEvent.of(COMMAND_RESULT_EVENT_TYPE, event.toJson()));
         } catch (IOException e) {
             logger.warn(
-                    "Failed to append {} event for job {}: {}",
-                    COMMAND_RESULT_EVENT_TYPE,
-                    jobId,
-                    e.getMessage(),
-                    e);
+                    "Failed to append {} event for job {}: {}", COMMAND_RESULT_EVENT_TYPE, jobId, e.getMessage(), e);
         }
 
         try {
@@ -171,7 +168,15 @@ public final class JobRunner {
                     jobId,
                     store,
                     io,
-                    commandResult(stage, command, attempt, /* skipped= */ false, /* skipReason= */ null, success, output, null),
+                    commandResult(
+                            stage,
+                            command,
+                            attempt,
+                            /* skipped= */ false,
+                            /* skipReason= */ null,
+                            success,
+                            output,
+                            null),
                     stage + ": " + (success ? "PASS" : "FAIL"));
             return output;
         } catch (RuntimeException re) {
@@ -1018,7 +1023,8 @@ public final class JobRunner {
                                                         try {
                                                             return BuildAgent.runVerification(cm, buildDetailsOverride);
                                                         } catch (InterruptedException ie) {
-                                                            Thread.currentThread().interrupt();
+                                                            Thread.currentThread()
+                                                                    .interrupt();
                                                             throw new RuntimeException(ie);
                                                         }
                                                     };
@@ -1107,13 +1113,11 @@ public final class JobRunner {
                                                                         Objects.requireNonNullElse(comment.path(), "");
                                                                 int line = comment.line();
 
-                                                                String reviewFixTaskDescription =
-                                                                        "Review-fix " + idx + "/" + total + ": " + path
-                                                                                + ":" + line;
+                                                                String reviewFixTaskDescription = "Review-fix " + idx
+                                                                        + "/" + total + ": " + path + ":" + line;
                                                                 lastTaskDescription.set(reviewFixTaskDescription);
 
-                                                                String prompt =
-                                                                        buildInlineCommentFixPrompt(comment);
+                                                                String prompt = buildInlineCommentFixPrompt(comment);
 
                                                                 try {
                                                                     try (var reviewFixScope = cm.beginTaskUngrouped(
@@ -1129,12 +1133,14 @@ public final class JobRunner {
                                                                         try {
                                                                             reviewFixAgent.callCodeAgent(prompt);
                                                                         } catch (InterruptedException ie) {
-                                                                            Thread.currentThread().interrupt();
+                                                                            Thread.currentThread()
+                                                                                    .interrupt();
                                                                             throw new RuntimeException(ie);
                                                                         }
                                                                     }
                                                                 } catch (InterruptedException ie) {
-                                                                    Thread.currentThread().interrupt();
+                                                                    Thread.currentThread()
+                                                                            .interrupt();
                                                                     throw new RuntimeException(ie);
                                                                 } catch (RuntimeException re) {
                                                                     if (re.getCause() instanceof InterruptedException) {
@@ -1166,9 +1172,11 @@ public final class JobRunner {
                                                                 Objects.requireNonNull(lastTaskDescription.get());
 
                                                         try {
-                                                            new GitWorkflow(cm).performAutoCommit(reviewFixTaskDescription);
+                                                            new GitWorkflow(cm)
+                                                                    .performAutoCommit(reviewFixTaskDescription);
                                                         } catch (InterruptedException ie) {
-                                                            Thread.currentThread().interrupt();
+                                                            Thread.currentThread()
+                                                                    .interrupt();
                                                             throw new RuntimeException(ie);
                                                         } catch (Exception e) {
                                                             logger.warn(
@@ -1188,7 +1196,8 @@ public final class JobRunner {
                                                                         jobId,
                                                                         JobEvent.of(
                                                                                 "NOTIFICATION",
-                                                                                "Review-fix push succeeded: " + pushMsg));
+                                                                                "Review-fix push succeeded: "
+                                                                                        + pushMsg));
                                                             } catch (Exception e) {
                                                                 logger.warn(
                                                                         "Failed to append review-fix push success notification event for job {}: {}",
@@ -1230,7 +1239,8 @@ public final class JobRunner {
                                                                 return BuildAgent.runExplicitCommand(
                                                                         cm, cmd, buildDetailsOverride);
                                                             } catch (InterruptedException ie) {
-                                                                Thread.currentThread().interrupt();
+                                                                Thread.currentThread()
+                                                                        .interrupt();
                                                                 throw new RuntimeException(ie);
                                                             }
                                                         };
@@ -2094,7 +2104,15 @@ public final class JobRunner {
                     jobId,
                     store,
                     io,
-                    commandResult("verification", commandLabel, 1, /* skipped= */ false, /* skipReason= */ null, false, "", re),
+                    commandResult(
+                            "verification",
+                            commandLabel,
+                            1,
+                            /* skipped= */ false,
+                            /* skipReason= */ null,
+                            false,
+                            "",
+                            re),
                     "Verification: ERROR");
 
             String exMsg = re.getMessage();
@@ -2151,7 +2169,15 @@ public final class JobRunner {
                     jobId,
                     store,
                     io,
-                    commandResult("verification", commandLabel, 2, /* skipped= */ false, /* skipReason= */ null, false, "", re),
+                    commandResult(
+                            "verification",
+                            commandLabel,
+                            2,
+                            /* skipped= */ false,
+                            /* skipReason= */ null,
+                            false,
+                            "",
+                            re),
                     "Verification after fix: ERROR");
 
             String exMsg = re.getMessage();
@@ -2542,7 +2568,8 @@ public final class JobRunner {
             String severity = comment.severity().name();
             String body = Objects.requireNonNullElse(comment.bodyMarkdown(), "").trim();
 
-            String contextBlock = """
+            String contextBlock =
+                    """
                     Finding:
                     - path: %s
                     - line: %d
@@ -2550,7 +2577,7 @@ public final class JobRunner {
                     - bodyMarkdown:
                     %s
                     """
-                    .formatted(path, line, severity, body.isEmpty() ? "(empty)" : body);
+                            .formatted(path, line, severity, body.isEmpty() ? "(empty)" : body);
 
             if (isCancelled.getAsBoolean()) {
                 for (int j = i; j < inlineComments.size(); j++) {
@@ -2561,9 +2588,11 @@ public final class JobRunner {
                     String skippedCommand = skippedPath + ":" + skippedLine;
 
                     String skippedSeverity = skipped.severity().name();
-                    String skippedBody = Objects.requireNonNullElse(skipped.bodyMarkdown(), "").trim();
+                    String skippedBody = Objects.requireNonNullElse(skipped.bodyMarkdown(), "")
+                            .trim();
 
-                    String skippedContextBlock = """
+                    String skippedContextBlock =
+                            """
                             Finding:
                             - path: %s
                             - line: %d
@@ -2573,11 +2602,11 @@ public final class JobRunner {
 
                             Outcome: skipped
                             """
-                            .formatted(
-                                    skippedPath,
-                                    skippedLine,
-                                    skippedSeverity,
-                                    skippedBody.isEmpty() ? "(empty)" : skippedBody);
+                                    .formatted(
+                                            skippedPath,
+                                            skippedLine,
+                                            skippedSeverity,
+                                            skippedBody.isEmpty() ? "(empty)" : skippedBody);
 
                     emitCommandResult(
                             jobId,
