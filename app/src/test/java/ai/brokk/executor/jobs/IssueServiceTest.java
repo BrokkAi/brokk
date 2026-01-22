@@ -1,6 +1,6 @@
 package ai.brokk.executor.jobs;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.testutil.TestGitRepo;
 import java.nio.file.Files;
@@ -31,8 +31,13 @@ class IssueServiceTest {
         Path projectRoot = tempDir.resolve("project");
         Path worktreeDir = tempDir.resolve("worktrees");
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
-            String branchName = IssueService.generateBranchName(42, repo, "deterministic");
-            assertEquals("brokk/issue-42-deterministic", branchName);
+            // New randomized behavior: ensure prefix is correct and a random alphanumeric suffix is present.
+            String branchName = IssueService.generateBranchNameWithRandomSuffix(42, repo);
+            String prefix = "brokk/issue-42-";
+            assertTrue(branchName.startsWith(prefix), () -> "branchName should start with " + prefix);
+            String suffix = branchName.substring(prefix.length());
+            assertEquals(6, suffix.length(), "random suffix should be 6 characters");
+            assertTrue(suffix.matches("[a-z0-9]{6}"), "random suffix should be lowercase alphanumeric");
         }
     }
 
@@ -41,8 +46,7 @@ class IssueServiceTest {
         Path projectRoot = tempDir.resolve("project-dup");
         Path worktreeDir = tempDir.resolve("worktrees-dup");
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
-            // Simulate existing branch by creating it directly via JGit
-            // (TestGitRepo.createBranch is overridden as no-op)
+            // Use the deterministic seam to force the same proposed name so sanitizeBranchName exercises collision logic.
             repo.getGit().branchCreate().setName("brokk/issue-42-deterministic").call();
             repo.invalidateCaches();
 
@@ -57,7 +61,7 @@ class IssueServiceTest {
         Path projectRoot = tempDir.resolve("project-multi-dup");
         Path worktreeDir = tempDir.resolve("worktrees-multi-dup");
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
-            // Create several existing branches
+            // Create several existing branches and use deterministic seam to exercise multi-collision handling.
             repo.getGit().branchCreate().setName("brokk/issue-42-deterministic").call();
             repo.getGit().branchCreate().setName("brokk/issue-42-deterministic-2").call();
             repo.getGit().branchCreate().setName("brokk/issue-42-deterministic-3").call();
@@ -74,10 +78,11 @@ class IssueServiceTest {
         Path projectRoot = tempDir.resolve("project-create");
         Path worktreeDir = tempDir.resolve("worktrees-create");
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
-            String branchName = IssueService.generateBranchName(101, repo, "deterministic");
-            assertEquals("brokk/issue-101-deterministic", branchName);
+            // Verify we can create and checkout a branch proposed by the randomized generator.
+            String branchName = IssueService.generateBranchNameWithRandomSuffix(101, repo);
+            String prefix = "brokk/issue-101-";
+            assertTrue(branchName.startsWith(prefix), () -> "branchName should start with " + prefix);
 
-            // Verify we can actually create and checkout this branch
             repo.createAndCheckoutBranch(branchName, "HEAD");
             assertEquals(branchName, repo.getCurrentBranch());
         }
