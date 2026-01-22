@@ -6,6 +6,7 @@ import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateDto;
 import ai.brokk.analyzer.TreeSitterStateIO.FilePropertiesDto;
 import ai.brokk.analyzer.TreeSitterStateIO.FileStateEntryDto;
 import ai.brokk.analyzer.TreeSitterStateIO.ProjectFileDto;
+import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -307,6 +308,49 @@ public class TreeSitterStateIOTest {
         assertTrue(
                 loaded.isEmpty(),
                 "Expected load to return empty because legacy state is missing required 'containsTests' field");
+    }
+
+    @Test
+    void testImportInfoRoundTrip(@TempDir Path tempDir) throws Exception {
+        var root = tempDir.resolve("root");
+        Files.createDirectories(root);
+        var projectFile = new ProjectFile(root, Path.of("Test.java"));
+
+        var imports = List.of(
+                new ImportInfo("import java.util.List;", false, "List", null),
+                new ImportInfo("import java.util.*;", true, null, null),
+                new ImportInfo("import foo.bar.Baz as B", false, "Baz", "B"));
+
+        var fileProps = new TreeSitterAnalyzer.FileProperties(List.of(), null, imports, false);
+
+        var originalState = new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.<String, Set<CodeUnit>>empty(),
+                HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
+                HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>from(Map.of(projectFile, fileProps)),
+                ImportGraph.empty(),
+                TypeHierarchyGraph.empty(),
+                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
+                System.nanoTime());
+
+        Path out = tempDir.resolve("imports_roundtrip.smile.gz");
+        TreeSitterStateIO.save(originalState, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent());
+        var loadedState = loadedOpt.get();
+
+        var loadedFileProps = loadedState.fileState().get(projectFile);
+        assertNotNull(loadedFileProps);
+
+        assertEquals(imports.size(), loadedFileProps.importStatements().size());
+        for (int i = 0; i < imports.size(); i++) {
+            var expected = imports.get(i);
+            var actual = loadedFileProps.importStatements().get(i);
+            assertEquals(expected.rawSnippet(), actual.rawSnippet());
+            assertEquals(expected.isWildcard(), actual.isWildcard());
+            assertEquals(expected.identifier(), actual.identifier());
+            assertEquals(expected.alias(), actual.alias());
+        }
     }
 
     @Test
