@@ -464,10 +464,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // Instead, find all CodeUnits whose packageName matches the imported package.
         Set<CodeUnit> resolved = new LinkedHashSet<>();
         for (String pkgName : importedPackageNames) {
-            for (CodeUnit cu : getAllDeclarations()) {
-                // Include CodeUnits from the matching package (types, functions, fields)
-                // but exclude module CodeUnits themselves (if any exist)
-                if (pkgName.equals(cu.packageName()) && !cu.isModule()) {
+            // Pattern ^pkgName\. matches fqNames starting with "pkgName."
+            // since fqName = packageName + "." + shortName
+            String pattern = "^" + Pattern.quote(pkgName) + "\\.";
+            for (CodeUnit cu : searchDefinitions(pattern, false)) {
+                if (!cu.isModule()) {
                     resolved.add(cu);
                 }
             }
