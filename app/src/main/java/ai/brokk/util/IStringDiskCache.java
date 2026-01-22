@@ -42,7 +42,7 @@ public interface IStringDiskCache extends AutoCloseable {
         return value;
     }
 
-    public static class NoopDiskCache implements IStringDiskCache {
+    public static class NoopCache implements IStringDiskCache {
         @Override
         public Optional<String> get(String key) {
             return Optional.empty();
