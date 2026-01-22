@@ -25,8 +25,10 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -59,6 +61,117 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class JobRunner {
     private static final Logger logger = LogManager.getLogger(JobRunner.class);
+
+    static final String COMMAND_RESULT_EVENT_TYPE = "COMMAND_RESULT";
+
+    static final class CommandResultEvent {
+        private final String stage;
+        private final String command;
+        private final @Nullable Integer attempt;
+        private final boolean success;
+        private final String output;
+        private final @Nullable String exception;
+
+        CommandResultEvent(
+                String stage,
+                String command,
+                @Nullable Integer attempt,
+                boolean success,
+                String output,
+                @Nullable String exception) {
+            this.stage = stage;
+            this.command = command;
+            this.attempt = attempt;
+            this.success = success;
+            this.output = output;
+            this.exception = exception;
+        }
+
+        Map<String, Object> toJson() {
+            var data = new LinkedHashMap<String, Object>();
+            data.put("stage", stage);
+            data.put("command", command);
+            if (attempt != null) {
+                data.put("attempt", attempt.intValue());
+            }
+            data.put("success", success);
+            data.put("output", output);
+            if (exception != null && !exception.isBlank()) {
+                data.put("exception", exception);
+            }
+            return data;
+        }
+    }
+
+    private static CommandResultEvent commandResult(
+            String stage,
+            @Nullable String command,
+            @Nullable Integer attempt,
+            boolean success,
+            @Nullable String output,
+            @Nullable Throwable exception) {
+        String safeCommand = command == null ? "" : command;
+        String safeOutput = output == null ? "" : output;
+
+        @Nullable String exceptionText = null;
+        if (exception != null) {
+            var msg = exception.getMessage();
+            exceptionText = (msg == null || msg.isBlank())
+                    ? exception.getClass().getSimpleName()
+                    : exception.getClass().getSimpleName() + ": " + msg;
+        }
+
+        return new CommandResultEvent(stage, safeCommand, attempt, success, safeOutput, exceptionText);
+    }
+
+    private static void emitCommandResult(
+            String jobId, JobStore store, IConsoleIO io, CommandResultEvent event, String summaryMessage) {
+        try {
+            store.appendEvent(jobId, JobEvent.of(COMMAND_RESULT_EVENT_TYPE, event.toJson()));
+        } catch (IOException e) {
+            logger.warn(
+                    "Failed to append {} event for job {}: {}",
+                    COMMAND_RESULT_EVENT_TYPE,
+                    jobId,
+                    e.getMessage(),
+                    e);
+        }
+
+        try {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, summaryMessage);
+        } catch (Throwable ignore) {
+            // best-effort
+        }
+    }
+
+    private static String runAndEmitCommand(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            String stage,
+            String command,
+            int attempt,
+            Function<String, String> commandRunner) {
+        try {
+            String output = commandRunner.apply(command);
+            boolean success = output.isBlank();
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult(stage, command, attempt, success, output, null),
+                    stage + ": " + (success ? "PASS" : "FAIL"));
+            return output;
+        } catch (RuntimeException re) {
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult(stage, command, attempt, false, "", re),
+                    stage + ": ERROR");
+            throw re;
+        }
+    }
 
     static final class IssueCancelledException extends IssueExecutionException {
         IssueCancelledException(String message) {
@@ -1124,6 +1237,9 @@ public final class JobRunner {
                                                         };
 
                                                         runIssueModeTestLintRetryLoop(
+                                                                jobId,
+                                                                store,
+                                                                (console != null ? console : cm.getIo()),
                                                                 cancelled::get,
                                                                 (attempt, message) -> {
                                                                     try {
@@ -1961,21 +2077,22 @@ public final class JobRunner {
         try {
             firstOut = verificationRunner.get();
         } catch (RuntimeException re) {
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult("verification", "", null, false, "", re),
+                    "Verification: ERROR");
             throw new IssueExecutionException("Verification runner failed: " + re.getMessage(), re);
         }
 
         boolean passedFirst = firstOut == null || firstOut.isBlank();
-        try {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Verification: " + (passedFirst ? "PASS" : "FAIL"));
-        } catch (Throwable ignore) {
-            // best-effort
-        }
-        try {
-            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Verification: " + (passedFirst ? "PASS" : "FAIL")));
-        } catch (IOException ioe) {
-            logger.warn(
-                    "Failed to append verification notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
-        }
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult("verification", "", null, passedFirst, firstOut, null),
+                "Verification: " + (passedFirst ? "PASS" : "FAIL"));
 
         if (passedFirst) {
             return;
@@ -1990,26 +2107,22 @@ public final class JobRunner {
         try {
             secondOut = verificationRunner.get();
         } catch (RuntimeException re) {
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult("verification", "", 2, false, "", re),
+                    "Verification after fix: ERROR");
             throw new IssueExecutionException("Verification runner failed after fix: " + re.getMessage(), re);
         }
 
         boolean passedSecond = secondOut == null || secondOut.isBlank();
-        try {
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
-        } catch (Throwable ignore) {
-            // best-effort
-        }
-        try {
-            store.appendEvent(
-                    jobId, JobEvent.of("NOTIFICATION", "Verification after fix: " + (passedSecond ? "PASS" : "FAIL")));
-        } catch (IOException ioe) {
-            logger.warn(
-                    "Failed to append verification-after-fix notification event for job {}: {}",
-                    jobId,
-                    ioe.getMessage(),
-                    ioe);
-        }
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult("verification", "", 2, passedSecond, secondOut, null),
+                "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
 
         if (passedSecond) {
             return;
@@ -2051,7 +2164,10 @@ public final class JobRunner {
                             attemptNumber, maxIterations, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
             progressSink.accept(attemptNumber, startMsg);
 
-            String testOut = testsSkipped ? "" : commandRunner.apply(testCmd);
+            String testOut = "";
+            if (!testsSkipped) {
+                testOut = commandRunner.apply(testCmd);
+            }
             boolean testsPassed = testsSkipped || testOut.isBlank();
 
             if (!testsPassed) {
@@ -2071,7 +2187,106 @@ public final class JobRunner {
                 throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
             }
 
-            String lintOut = lintSkipped ? "" : commandRunner.apply(lintCmd);
+            String lintOut = "";
+            if (!lintSkipped) {
+                lintOut = commandRunner.apply(lintCmd);
+            }
+            boolean lintPassed = lintSkipped || lintOut.isBlank();
+
+            String resultMsg = "Final verification attempt %d/%d results: tests=%s, lint=%s"
+                    .formatted(
+                            attemptNumber,
+                            maxIterations,
+                            testsSkipped ? "SKIP" : "PASS",
+                            lintSkipped ? "SKIP" : (lintPassed ? "PASS" : "FAIL"));
+            progressSink.accept(attemptNumber, resultMsg);
+
+            if (!lintPassed) {
+                lastFailStage = "lint";
+                lastFailCommand = lintCmd;
+                lastFailOutput = lintOut;
+
+                fixTaskRunner.accept(lintOut);
+                continue;
+            }
+
+            return;
+        }
+
+        String baseMessage = "Tests/lint failed after " + maxIterations + " iteration(s)";
+        if (lastFailStage != null && lastFailCommand != null && lastFailOutput != null && !lastFailOutput.isBlank()) {
+            throw new IssueExecutionException(baseMessage + ". Last failure: stage=" + lastFailStage + ", command="
+                    + lastFailCommand + "\nOutput:\n" + lastFailOutput);
+        }
+
+        throw new IssueExecutionException(baseMessage);
+    }
+
+    static void runIssueModeTestLintRetryLoop(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            BooleanSupplier isCancelled,
+            BiConsumer<Integer, String> progressSink,
+            Function<String, String> commandRunner,
+            Consumer<String> fixTaskRunner,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            int maxIterations) {
+        if (maxIterations < 1) {
+            throw new IllegalArgumentException("maxIterations must be >= 1");
+        }
+
+        String testCmd = buildDetailsOverride.testAllCommand();
+        String lintCmd = buildDetailsOverride.buildLintCommand();
+
+        boolean testsSkipped = testCmd.isBlank();
+        boolean lintSkipped = lintCmd.isBlank();
+
+        @Nullable String lastFailStage = null; // "tests" | "lint"
+        @Nullable String lastFailCommand = null;
+        @Nullable String lastFailOutput = null;
+
+        for (int i = 0; i < maxIterations; i++) {
+            int attemptNumber = i + 1;
+
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
+            }
+
+            String startMsg = "Final verification attempt %d/%d: tests=%s, lint=%s"
+                    .formatted(
+                            attemptNumber, maxIterations, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
+            progressSink.accept(attemptNumber, startMsg);
+
+            String testOut = "";
+            if (!testsSkipped) {
+                testOut = runAndEmitCommand(
+                        jobId, store, io, "tests", testCmd, attemptNumber, commandRunner);
+            }
+            boolean testsPassed = testsSkipped || testOut.isBlank();
+
+            if (!testsPassed) {
+                lastFailStage = "tests";
+                lastFailCommand = testCmd;
+                lastFailOutput = testOut;
+
+                String resultMsg = "Final verification attempt %d/%d results: tests=FAIL, lint=SKIP"
+                        .formatted(attemptNumber, maxIterations);
+                progressSink.accept(attemptNumber, resultMsg);
+
+                fixTaskRunner.accept(testOut);
+                continue;
+            }
+
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
+            }
+
+            String lintOut = "";
+            if (!lintSkipped) {
+                lintOut = runAndEmitCommand(
+                        jobId, store, io, "lint", lintCmd, attemptNumber, commandRunner);
+            }
             boolean lintPassed = lintSkipped || lintOut.isBlank();
 
             String resultMsg = "Final verification attempt %d/%d results: tests=%s, lint=%s"

@@ -317,7 +317,7 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void testSingleFixVerificationBehavior() {
+    void testSingleFixVerificationBehavior() throws Exception {
         var verificationCalls = new AtomicInteger(0);
         var fixCalls = new AtomicInteger(0);
         var io = new TestConsoleIO();
@@ -337,6 +337,26 @@ class JobRunnerIssueModeTest {
         assertEquals(2, verificationCalls.get(), "Verification should be called exactly twice");
         assertEquals(1, fixCalls.get(), "Fix runner should be called exactly once");
         assertTrue(ex.getMessage().contains("Verification failed after single fix attempt"));
+
+        var events = store.readEvents("job-single-fix-1", -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+        assertEquals(2, commandEvents.size(), "Should emit one command result per verification run");
+
+        assertTrue(commandEvents.getFirst().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) commandEvents.getFirst().data();
+        assertEquals("verification", first.get("stage"));
+        assertEquals(Boolean.FALSE, first.get("success"));
+        assertEquals("initial failure", first.get("output"));
+
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) commandEvents.getLast().data();
+        assertEquals("verification", second.get("stage"));
+        assertEquals(2, ((Number) second.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, second.get("success"));
+        assertEquals("still failing", second.get("output"));
     }
 
     @Test
@@ -519,6 +539,55 @@ class JobRunnerIssueModeTest {
 
         assertEquals(List.of("./gradlew test", "./gradlew lint"), calls, "Should run tests then lint once");
         assertEquals(0, fixCalls.get(), "No fix tasks when both pass");
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_emitsCommandResultEvents_thatRoundTripThroughJobStore() throws Exception {
+        var cancelled = new AtomicBoolean(false);
+
+        String jobId = "job-final-verification-events-1";
+
+        var io = new TestConsoleIO();
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        Consumer<String> fixTaskRunner = out -> fail("No fix tasks expected");
+
+        Function<String, String> commandRunner = cmd -> "";
+
+        JobRunner.runIssueModeTestLintRetryLoop(
+                jobId,
+                store,
+                io,
+                cancelled::get,
+                progressSink,
+                commandRunner,
+                fixTaskRunner,
+                new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                3);
+
+        var events = store.readEvents(jobId, -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        assertEquals(2, commandEvents.size(), "Should emit tests and lint command results");
+
+        assertTrue(commandEvents.getFirst().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) commandEvents.getFirst().data();
+        assertEquals("tests", first.get("stage"));
+        assertEquals("./gradlew test", first.get("command"));
+        assertEquals(Boolean.TRUE, first.get("success"));
+        assertEquals("", first.get("output"));
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
+
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) commandEvents.getLast().data();
+        assertEquals("lint", second.get("stage"));
+        assertEquals("./gradlew lint", second.get("command"));
+        assertEquals(Boolean.TRUE, second.get("success"));
+        assertEquals("", second.get("output"));
+        assertEquals(1, ((Number) second.get("attempt")).intValue());
     }
 
     @Test
