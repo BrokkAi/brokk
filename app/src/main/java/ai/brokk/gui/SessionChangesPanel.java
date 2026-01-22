@@ -1553,14 +1553,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         if (currentMode == PanelMode.PREVIEW) {
             diffToolbar.setVisible(true);
-            return;
-        }
-
-        if (currentMode == PanelMode.REVIEW) {
+        } else if (currentMode == PanelMode.REVIEW) {
             diffToolbar.setVisible(diffActive);
             if (!diffActive) {
                 diffToolbar.disableAllControlButtons();
             }
+        } else {
+            // EMPTY or ERROR
+            diffToolbar.setVisible(false);
+            diffToolbar.disableAllControlButtons();
         }
     }
 
