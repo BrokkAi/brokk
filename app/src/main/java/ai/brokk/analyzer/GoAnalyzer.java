@@ -27,7 +27,12 @@ import org.treesitter.TreeSitterGo;
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
-    // GO_LANGUAGE field removed, createTSLanguage will provide new instances.
+    // Pattern to match both double-quoted and backtick-quoted import paths
+    private static final Pattern IMPORT_PATH_PATTERN = Pattern.compile("\"([^\"]+)\"|`([^`]+)`");
+
+    // Pattern to strip Go comments (line comments // and block comments /* */)
+    private static final Pattern GO_COMMENT_PATTERN = Pattern.compile("//[^\r\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/");
+
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(TYPE_SPEC), // classLikeNodeTypes
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
@@ -461,6 +466,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
      * <p>
      * Unlike Java, Go does not have explicit module CodeUnits. Instead, we find
      * all CodeUnits whose packageName matches the imported package.
+     * <p>
+     * Handles both double-quoted ("path") and backtick-quoted (`path`) import paths,
+     * and ignores paths that appear inside comments.
      */
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
@@ -469,18 +477,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         Set<String> importedPackageNames = new LinkedHashSet<>();
-        // Pattern to match quoted strings in imports.
-        Pattern pathPattern = Pattern.compile("\"([^\"]+)\"");
 
         for (String statement : importStatements) {
             String trimmed = statement.trim();
             if (trimmed.isEmpty() || !trimmed.startsWith("import")) continue;
 
+            // Strip comments to avoid matching paths inside them
+            String withoutComments = GO_COMMENT_PATTERN.matcher(trimmed).replaceAll("");
+
             // Find all quoted paths in the statement (handles both single and grouped imports)
-            Matcher m = pathPattern.matcher(trimmed);
+            Matcher m = IMPORT_PATH_PATTERN.matcher(withoutComments);
             while (m.find()) {
-                if (!isBlankImport(trimmed, m.start())) {
-                    String path = m.group(1);
+                if (!isBlankImport(withoutComments, m.start())) {
+                    // group(1) is double-quoted, group(2) is backtick-quoted
+                    String path = m.group(1) != null ? m.group(1) : m.group(2);
                     // In Go, the package name is usually the last segment of the import path.
                     String packageName = path;
                     int lastSlash = path.lastIndexOf('/');

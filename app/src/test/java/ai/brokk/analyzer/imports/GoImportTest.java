@@ -171,6 +171,130 @@ class GoImportTest {
     }
 
     @Test
+    void testResolveImports_BacktickQuotedPath() throws IOException {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package fmt
+                func Println() {}
+                """,
+                        "fmt/fmt.go")
+                .addFileContents(
+                        """
+                package main
+                import `fmt`
+                func main() { fmt.Println() }
+                """,
+                        "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+        boolean found = resolved.stream().anyMatch(cu -> "fmt".equals(cu.packageName()));
+        assertTrue(found, "Backtick-quoted import should resolve the package symbols");
+    }
+
+    @Test
+    void testResolveImports_CommentedImportIgnored() throws IOException {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package fmt
+                func Println() {}
+                """,
+                        "fmt/fmt.go")
+                .addFileContents(
+                        """
+                package os
+                func Exit(code int) {}
+                """,
+                        "os/os.go")
+                .addFileContents(
+                        """
+                package main
+                import (
+                    "fmt"
+                    // "os"
+                )
+                func main() { fmt.Println() }
+                """,
+                        "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+        boolean foundFmt = resolved.stream().anyMatch(cu -> "fmt".equals(cu.packageName()));
+        boolean foundOs = resolved.stream().anyMatch(cu -> "os".equals(cu.packageName()));
+
+        assertTrue(foundFmt, "Non-commented import should be resolved");
+        assertTrue(!foundOs, "Commented import should not be resolved");
+    }
+
+    @Test
+    void testResolveImports_BlockCommentIgnored() throws IOException {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package fmt
+                func Println() {}
+                """,
+                        "fmt/fmt.go")
+                .addFileContents(
+                        """
+                package os
+                func Exit(code int) {}
+                """,
+                        "os/os.go")
+                .addFileContents(
+                        """
+                package main
+                import (
+                    "fmt"
+                    /* "os" */
+                )
+                func main() { fmt.Println() }
+                """,
+                        "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+        boolean foundFmt = resolved.stream().anyMatch(cu -> "fmt".equals(cu.packageName()));
+        boolean foundOs = resolved.stream().anyMatch(cu -> "os".equals(cu.packageName()));
+
+        assertTrue(foundFmt, "Non-commented import should be resolved");
+        assertTrue(!foundOs, "Block-commented import should not be resolved");
+    }
+
+    @Test
+    void testResolveImports_AliasWithComment() throws IOException {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package fmt
+                func Println() {}
+                """,
+                        "fmt/fmt.go")
+                .addFileContents(
+                        """
+                package main
+                import f /* alias */ "fmt"
+                func main() { f.Println() }
+                """,
+                        "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+        boolean found = resolved.stream().anyMatch(cu -> "fmt".equals(cu.packageName()));
+        assertTrue(found, "Import with comment between alias and path should still resolve");
+    }
+
+    @Test
     void testSingleImport() throws IOException {
         String code =
                 """
