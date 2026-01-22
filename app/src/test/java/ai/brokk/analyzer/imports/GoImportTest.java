@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.imports;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -229,7 +230,7 @@ class GoImportTest {
         boolean foundOs = resolved.stream().anyMatch(cu -> "os".equals(cu.packageName()));
 
         assertTrue(foundFmt, "Non-commented import should be resolved");
-        assertTrue(!foundOs, "Commented import should not be resolved");
+        assertFalse(foundOs, "Commented import should not be resolved");
     }
 
     @Test
@@ -266,7 +267,7 @@ class GoImportTest {
         boolean foundOs = resolved.stream().anyMatch(cu -> "os".equals(cu.packageName()));
 
         assertTrue(foundFmt, "Non-commented import should be resolved");
-        assertTrue(!foundOs, "Block-commented import should not be resolved");
+        assertFalse(foundOs, "Block-commented import should not be resolved");
     }
 
     @Test
@@ -323,8 +324,8 @@ class GoImportTest {
         boolean foundIncorrectPackage = resolved.stream().anyMatch(cu -> "yaml.v3".equals(cu.packageName()));
 
         assertTrue(foundCorrectPackage, "Should resolve to package 'yaml' by reading source file");
-        assertTrue(
-                !foundIncorrectPackage,
+        assertFalse(
+                foundIncorrectPackage,
                 "Should not resolve to 'yaml.v3' via last-segment heuristic when source is available");
     }
 
