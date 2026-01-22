@@ -17,6 +17,22 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
     private static final Pattern QUOTED_INCLUDE_PATTERN = Pattern.compile("^#\\s*include\\s*\"([^\"]+)\"");
 
+    private static final Set<String> CPP_KEYWORDS = Set.of(
+            "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit",
+            "atomic_noexcept", "auto", "bitand", "bitor", "bool", "break", "case", "catch",
+            "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const",
+            "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await",
+            "co_return", "co_yield", "decltype", "default", "delete", "do", "double",
+            "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float",
+            "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace",
+            "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq",
+            "private", "protected", "public", "reflexpr", "register", "reinterpret_cast",
+            "requires", "return", "short", "signed", "sizeof", "static", "static_assert",
+            "static_cast", "struct", "switch", "synchronized", "template", "this",
+            "thread_local", "throw", "true", "try", "typedef", "typeid", "typename",
+            "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t",
+            "while", "xor", "xor_eq");
+
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCpp(reference);
@@ -1197,22 +1213,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         TSQueryCursor cursor = new TSQueryCursor();
         cursor.exec(query, tree.getRootNode());
 
-        Set<String> keywords = Set.of(
-                "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit",
-                "atomic_noexcept", "auto", "bitand", "bitor", "bool", "break", "case", "catch",
-                "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const",
-                "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await",
-                "co_return", "co_yield", "decltype", "default", "delete", "do", "double",
-                "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float",
-                "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace",
-                "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq",
-                "private", "protected", "public", "reflexpr", "register", "reinterpret_cast",
-                "requires", "return", "short", "signed", "sizeof", "static", "static_assert",
-                "static_cast", "struct", "switch", "synchronized", "template", "this",
-                "thread_local", "throw", "true", "try", "typedef", "typeid", "typename",
-                "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t",
-                "while", "xor", "xor_eq");
-
         SourceContent sourceContent = SourceContent.of(source);
         TSQueryMatch match = new TSQueryMatch();
         while (cursor.nextMatch(match)) {
@@ -1223,7 +1223,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 // For qualified identifiers (e.g., std::string), split into parts
                 List<String> parts = Splitter.on("::").splitToList(text);
                 for (String part : parts) {
-                    if (!part.isEmpty() && !keywords.contains(part)) {
+                    if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
                         identifiers.add(part);
                     }
                 }
