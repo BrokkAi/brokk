@@ -541,4 +541,41 @@ class PrReviewServiceTest {
         assertEquals("## Summary only", response.summaryMarkdown());
         assertTrue(response.comments().isEmpty());
     }
+
+    @Test
+    void testFilterInlineComments_StrictHighThresholdAndCap3() {
+        var comments = List.of(
+                // Two critical comments (should be preferred)
+                new PrReviewService.InlineComment("z/critical1.java", 10, "critical one", Severity.CRITICAL),
+                new PrReviewService.InlineComment("y/critical2.java", 15, "critical two", Severity.CRITICAL),
+
+                // Three high comments (only one may remain after cap=3)
+                new PrReviewService.InlineComment("a/high1.java", 11, "high one", Severity.HIGH),
+                new PrReviewService.InlineComment("b/high2.java", 14, "high two", Severity.HIGH),
+                new PrReviewService.InlineComment("c/high3.java", 16, "high three", Severity.HIGH),
+
+                // Lower severities that must be excluded by the threshold
+                new PrReviewService.InlineComment("m/medium.java", 12, "medium", Severity.MEDIUM),
+                new PrReviewService.InlineComment("l/low.java", 13, "low", Severity.LOW)
+        );
+
+        var filtered = PrReviewService.filterInlineComments(comments, Severity.HIGH, 3);
+
+        // Size is capped to 3
+        assertEquals(3, filtered.size(), "Result should be capped at 3 comments");
+
+        // All returned comments must meet the HIGH threshold (i.e., HIGH or CRITICAL)
+        assertTrue(filtered.stream().allMatch(c -> c.severity().isAtLeast(Severity.HIGH)),
+                "All comments must be HIGH or above");
+
+        // Ordering must prefer more severe comments first: CRITICAL before HIGH
+        // Given we provided two CRITICALs and multiple HIGHs, the first two entries should be CRITICAL
+        assertEquals(Severity.CRITICAL, filtered.get(0).severity(), "First comment should be CRITICAL");
+        assertEquals(Severity.CRITICAL, filtered.get(1).severity(), "Second comment should be CRITICAL");
+        assertEquals(Severity.HIGH, filtered.get(2).severity(), "Third comment should be HIGH (cap applied)");
+
+        // Ensure no MEDIUM/LOW comments slipped through
+        assertTrue(filtered.stream().noneMatch(c -> c.severity() == Severity.MEDIUM || c.severity() == Severity.LOW),
+                "Filtered list must not contain MEDIUM or LOW comments");
+    }
 }
