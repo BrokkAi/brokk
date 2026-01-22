@@ -550,6 +550,9 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
         loadDependenciesAsync();
     }
 
+    // Lifecycle: addNotify/removeNotify are called by Swing when component is added/removed
+    // from the hierarchy. We use this to register/unregister the AnalyzerCallback, ensuring
+    // no memory leaks when the panel is disposed.
     @Override
     public void addNotify() {
         super.addNotify();

@@ -555,7 +555,7 @@ public class DependencyTools {
 
     // ========== Common Helpers ==========
 
-    private String registerLiveDependency(String depName) {
+    private String registerLiveDependency(String depName) throws InterruptedException {
         var io = contextManager.getIo();
         try {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Adding " + depName + " to Code Intelligence...");
@@ -570,7 +570,7 @@ public class DependencyTools {
             return "The dependency has been added to live dependencies and Code Intelligence is updating.";
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return "Import was interrupted during Code Intelligence registration.";
+            throw e;
         } catch (Exception e) {
             logger.error("Failed to add live dependency: {}", depName, e);
             contextManager.requestRebuild();
