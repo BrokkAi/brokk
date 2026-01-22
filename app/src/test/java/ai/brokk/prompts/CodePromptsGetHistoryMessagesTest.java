@@ -7,6 +7,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
+import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -60,5 +61,50 @@ class CodePromptsGetHistoryMessagesTest {
                 .map(m -> ((AiMessage) m).text())
                 .filter(Objects::nonNull)
                 .anyMatch(t -> t.contains("[Historical tool usage by a different model]")));
+    }
+
+    @Test
+    void getHistoryMessages_differentModel_dropsToolExecutionResults_andRedactsToolRequests() {
+        IContextManager cm = new IContextManager() {};
+        Context ctx = new Context(cm);
+
+        var toolRequest = ToolExecutionRequest.builder()
+                .id("call-1")
+                .name("searchFiles")
+                .arguments("{\"pattern\": \"*.java\"}")
+                .build();
+        var aiWithTools = new AiMessage(List.of(toolRequest));
+        var toolResult = new ToolExecutionResultMessage("call-1", "searchFiles", "Found 5 files");
+        var finalAi = new AiMessage("Done.");
+        var user = new UserMessage("Find Java files");
+
+        var entryMessages = List.<ChatMessage>of(user, aiWithTools, toolResult, finalAi);
+
+        var entry = TaskEntry.from(cm, entryMessages, "test task");
+        var entryMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-A"));
+        entry = new TaskEntry(entry.sequence(), entry.log(), entry.summary(), entryMeta);
+
+        ctx = ctx.withHistory(List.of(entry));
+
+        var currentMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-B"));
+        var history = CodePrompts.instance.getHistoryMessages(ctx, currentMeta);
+
+        assertFalse(history.stream().anyMatch(m -> m instanceof ToolExecutionResultMessage));
+
+        assertTrue(history.stream()
+                .filter(m -> m instanceof UserMessage)
+                .map(Messages::getText)
+                .anyMatch("Find Java files"::equals));
+
+        assertFalse(history.stream().anyMatch(m -> m instanceof AiMessage ai && ai.hasToolExecutionRequests()));
+
+        var aiTexts = history.stream()
+                .filter(m -> m instanceof AiMessage)
+                .map(m -> ((AiMessage) m).text())
+                .filter(Objects::nonNull)
+                .toList();
+
+        assertTrue(aiTexts.stream().anyMatch(t -> t.contains("[Historical tool usage by a different model]")));
+        assertTrue(aiTexts.stream().anyMatch(t -> t.contains("searchFiles")));
     }
 }
