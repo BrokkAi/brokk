@@ -2088,7 +2088,7 @@ public final class JobRunner {
         // First verification
         final String firstOut;
         try {
-            firstOut = verificationRunner.get();
+            firstOut = Objects.requireNonNullElse(verificationRunner.get(), "");
         } catch (RuntimeException re) {
             emitCommandResult(
                     jobId,
@@ -2145,7 +2145,7 @@ public final class JobRunner {
         // Re-run verification exactly once
         final String secondOut;
         try {
-            secondOut = verificationRunner.get();
+            secondOut = Objects.requireNonNullElse(verificationRunner.get(), "");
         } catch (RuntimeException re) {
             emitCommandResult(
                     jobId,
