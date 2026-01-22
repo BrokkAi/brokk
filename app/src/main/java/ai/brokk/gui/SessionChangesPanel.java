@@ -99,6 +99,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         updateGuidedReviewButton();
 
+        if (newMode == PanelMode.REVIEW) {
+            codeReviewPanel.clearSelection();
+            fileTreePanel.clearSelection();
+            diffContainer.removeAll();
+            diffActive = false;
+            updateDiffToolbarVisibility();
+            diffContainer.revalidate();
+            diffContainer.repaint();
+        }
+
         if (newMode == PanelMode.EMPTY || newMode == PanelMode.ERROR) {
             diffCore.updateFileComparisons(List.of());
             emptyLabel.setText(getEmptyStateMessage());
