@@ -262,11 +262,7 @@ public class CodePrompts {
                 Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
 
                 %s
-
-                <goal>
                 %s
-                </goal>
-
                 You are diligent and tireless!
                 You NEVER leave comments describing code without implementing it!
                 You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
@@ -282,7 +278,15 @@ public class CodePrompts {
                                 examples,
                                 searchHints,
                                 reminder,
-                                goal));
+                                prologue.isEmpty()
+                                        ? """
+
+                                        <goal>
+                                        %s
+                                        </goal>
+                                        """
+                                                .formatted(goal)
+                                        : ""));
         messages.add(sys);
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(prologue);
