@@ -9,6 +9,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -147,7 +148,7 @@ public class JavaScriptImportTest {
             Set<CodeUnit> importedUnits =
                     analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(childFile);
 
-            var expectedPath = java.nio.file.Path.of("src", "some", "BaseService.js");
+            var expectedPath = Path.of("src", "some", "BaseService.js");
             boolean foundBaseService = importedUnits.stream()
                     .anyMatch(cu -> cu.shortName().equals("BaseService")
                             && cu.isClass()
@@ -346,7 +347,7 @@ public class JavaScriptImportTest {
             Set<CodeUnit> importedUnits =
                     analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(mainFile);
 
-            var expectedPath = java.nio.file.Path.of("lib", "index.js");
+            var expectedPath = Path.of("lib", "index.js");
             boolean foundLibFunc = importedUnits.stream()
                     .anyMatch(cu -> cu.shortName().equals("libFunc")
                             && cu.source().getRelPath().equals(expectedPath));
@@ -379,7 +380,7 @@ public class JavaScriptImportTest {
             Set<CodeUnit> importedUnits =
                     analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(mainFile);
 
-            var expectedPath = java.nio.file.Path.of("lib", "index.js");
+            var expectedPath = Path.of("lib", "index.js");
             boolean foundLibFunc = importedUnits.stream()
                     .anyMatch(cu -> cu.shortName().equals("libFunc")
                             && cu.source().getRelPath().equals(expectedPath));
@@ -416,8 +417,8 @@ public class JavaScriptImportTest {
             Set<CodeUnit> importedUnits =
                     analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(mainFile);
 
-            var filePath = java.nio.file.Path.of("util-dir.js");
-            var indexPath = java.nio.file.Path.of("util-dir", "index.js");
+            var filePath = Path.of("util-dir.js");
+            var indexPath = Path.of("util-dir", "index.js");
 
             boolean foundFromFile = importedUnits.stream()
                     .anyMatch(cu -> cu.shortName().equals("fromFile")
