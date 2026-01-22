@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.analyzer.DependencyCopyUtil;
 import ai.brokk.IConsoleIO;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
@@ -17,7 +18,6 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -211,7 +211,7 @@ public class RustLanguage implements Language {
                         throw new IOException("Failed to delete existing destination: " + targetRoot);
                     }
                 }
-                copyRustCrate(sourceRoot, targetRoot);
+                DependencyCopyUtil.copyRustCrate(sourceRoot, targetRoot);
                 SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
@@ -277,32 +277,6 @@ public class RustLanguage implements Language {
         }
     }
 
-    public static void copyRustCrate(Path source, Path destination) throws IOException {
-        try (var stream = Files.walk(source)) {
-            stream.forEach(src -> {
-                try {
-                    var rel = source.relativize(src);
-                    if (rel.toString().startsWith("target")) return; // skip build artifacts
-                    var dst = destination.resolve(rel);
-                    if (Files.isDirectory(src)) {
-                        Files.createDirectories(dst);
-                    } else {
-                        var name = src.getFileName().toString().toLowerCase(Locale.ROOT);
-                        boolean isRs = name.endsWith(".rs");
-                        boolean isManifest = name.equals("cargo.toml") || name.equals("cargo.lock");
-                        boolean isDoc =
-                                name.startsWith("readme") || name.startsWith("license") || name.startsWith("copying");
-                        if (isRs || isManifest || isDoc) {
-                            Files.createDirectories(requireNonNull(dst.getParent()));
-                            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
-                        }
-                    }
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        }
-    }
 
     // TODO: Refine isAnalyzed for Rust (e.g. target directory, .cargo, vendor)
     @Override

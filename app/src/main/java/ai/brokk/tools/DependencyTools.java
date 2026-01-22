@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.DependencyCopyUtil;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.NodeJsDependencyHelper;
@@ -326,11 +327,11 @@ public class DependencyTools {
                 }
             }
 
-            // Use shared helpers from PythonLanguage
-            var meta = PythonLanguage.readPyMetadata(distInfoDir);
-            var rels = PythonLanguage.enumerateInstalledFiles(sitePackages, distInfoDir,
+            // Use shared helpers from DependencyCopyUtil
+            var meta = DependencyCopyUtil.readPyMetadata(distInfoDir);
+            var rels = DependencyCopyUtil.enumerateInstalledFiles(sitePackages, distInfoDir,
                                                               meta != null ? meta.name() : packageName);
-            PythonLanguage.copyPythonFiles(sitePackages, rels, targetRoot);
+            DependencyCopyUtil.copyPythonFiles(sitePackages, rels, targetRoot);
         } catch (IOException e) {
             logger.error("Error copying Python package {} from {} to {}",
                          matchedPkg.displayName(), sitePackages, targetRoot, e);
@@ -423,8 +424,8 @@ public class DependencyTools {
                     throw new IOException("Failed to delete existing destination: " + targetRoot);
                 }
             }
-            // Use shared helper from RustLanguage
-            RustLanguage.copyRustCrate(sourceRoot, targetRoot);
+            // Use shared helper from DependencyCopyUtil
+            DependencyCopyUtil.copyRustCrate(sourceRoot, targetRoot);
         } catch (IOException e) {
             logger.error("Error copying Rust crate {} from {} to {}",
                          matchedCrate.displayName(), sourceRoot, targetRoot, e);
@@ -495,7 +496,7 @@ public class DependencyTools {
 
         var meta = NodeJsDependencyHelper.readPackageJsonFromDir(sourceRoot);
         var folderName = (meta != null && !meta.name.isEmpty())
-                ? NodeJsDependencyHelper.toSafeFolderName(meta.name, meta.version)
+                ? DependencyCopyUtil.toSafeFolderName(meta.name, meta.version)
                 : matchedPkg.displayName().replace("/", "__");
 
         var projectRoot = project.getMasterRootPathForConfig();
@@ -514,8 +515,8 @@ public class DependencyTools {
                     throw new IOException("Failed to delete existing destination: " + targetRoot);
                 }
             }
-            // Use shared helper from NodeJsDependencyHelper
-            NodeJsDependencyHelper.copyNodePackage(sourceRoot, targetRoot);
+            // Use shared helper from DependencyCopyUtil
+            DependencyCopyUtil.copyNodePackage(sourceRoot, targetRoot);
         } catch (IOException e) {
             logger.error("Error copying npm package {} from {} to {}",
                          matchedPkg.displayName(), sourceRoot, targetRoot, e);
