@@ -1,18 +1,15 @@
 package ai.brokk.analyzer.imports;
 
-import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static ai.brokk.testutil.AnalyzerCreator.createMultiAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
-import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -30,13 +27,12 @@ public class MultiAnalyzerImportTest {
                         "JavaClass.java")
                 .build()) {
 
-            IAnalyzer javaAnalyzer = createTreeSitterAnalyzer(testProject);
-
-            MultiAnalyzer multiAnalyzer = new MultiAnalyzer(Map.of(Languages.JAVA, javaAnalyzer));
+            var multiAnalyzer = createMultiAnalyzer(testProject, Languages.JAVA);
 
             var javaFile = AnalyzerUtil.getFileFor(multiAnalyzer, "JavaClass").orElseThrow();
 
-            ImportAnalysisProvider provider = multiAnalyzer.as(ImportAnalysisProvider.class).orElseThrow();
+            ImportAnalysisProvider provider =
+                    multiAnalyzer.as(ImportAnalysisProvider.class).orElseThrow();
 
             // Verify importInfoOf delegation
             var javaImports = provider.importInfoOf(javaFile);
@@ -65,18 +61,18 @@ public class MultiAnalyzerImportTest {
                         "script.py")
                 .build()) {
 
-            IAnalyzer pythonAnalyzer = createTreeSitterAnalyzer(testProject);
-
-            MultiAnalyzer multiAnalyzer = new MultiAnalyzer(Map.of(Languages.PYTHON, pythonAnalyzer));
+            var multiAnalyzer = createMultiAnalyzer(testProject, Languages.PYTHON);
 
             var pythonFile = AnalyzerUtil.getFileFor(multiAnalyzer, "script").orElseThrow();
 
-            ImportAnalysisProvider provider = multiAnalyzer.as(ImportAnalysisProvider.class).orElseThrow();
+            ImportAnalysisProvider provider =
+                    multiAnalyzer.as(ImportAnalysisProvider.class).orElseThrow();
 
             // Verify importInfoOf delegation - check raw snippet since Python doesn't extract identifiers
             var pythonImports = provider.importInfoOf(pythonFile);
             assertEquals(1, pythonImports.size());
-            assertTrue(pythonImports.getFirst().rawSnippet().contains("import os"),
+            assertTrue(
+                    pythonImports.getFirst().rawSnippet().contains("import os"),
                     "Python import raw snippet should contain 'import os'");
 
             // Verify relevantImportsFor delegation returns a result (tests delegation, not content)
@@ -93,8 +89,8 @@ public class MultiAnalyzerImportTest {
 
     @Test
     public void testDelegationRoutesToCorrectLanguage() throws IOException {
-        // Create separate projects for each language
-        try (var javaProject = InlineTestProjectCreator.code(
+        // Create a single project with both Java and Python files
+        try (var testProject = InlineTestProjectCreator.code(
                         """
                 import java.util.List;
                 public class JavaClass {
@@ -102,28 +98,23 @@ public class MultiAnalyzerImportTest {
                 }
                 """,
                         "JavaClass.java")
-                .build();
-                var pythonProject = InlineTestProjectCreator.code(
-                                """
+                .addFileContents(
+                        """
                 import os
                 def python_fn():
                     pass
                 """,
-                                "script.py")
-                        .build()) {
+                        "script.py")
+                .build()) {
 
-            IAnalyzer javaAnalyzer = createTreeSitterAnalyzer(javaProject);
-            IAnalyzer pythonAnalyzer = createTreeSitterAnalyzer(pythonProject);
+            var multiAnalyzer = createMultiAnalyzer(testProject, Languages.JAVA, Languages.PYTHON);
 
-            MultiAnalyzer multiAnalyzer = new MultiAnalyzer(Map.of(
-                    Languages.JAVA, javaAnalyzer,
-                    Languages.PYTHON, pythonAnalyzer));
+            // Get files from multi analyzer
+            var javaFile = AnalyzerUtil.getFileFor(multiAnalyzer, "JavaClass").orElseThrow();
+            var pythonFile = AnalyzerUtil.getFileFor(multiAnalyzer, "script").orElseThrow();
 
-            // Get files from respective analyzers
-            var javaFile = AnalyzerUtil.getFileFor(javaAnalyzer, "JavaClass").orElseThrow();
-            var pythonFile = AnalyzerUtil.getFileFor(pythonAnalyzer, "script").orElseThrow();
-
-            ImportAnalysisProvider provider = multiAnalyzer.as(ImportAnalysisProvider.class).orElseThrow();
+            ImportAnalysisProvider provider =
+                    multiAnalyzer.as(ImportAnalysisProvider.class).orElseThrow();
 
             // Verify importInfoOf routes to correct language analyzer
             var javaImports = provider.importInfoOf(javaFile);
@@ -133,16 +124,17 @@ public class MultiAnalyzerImportTest {
             // Python import - check raw snippet since Python doesn't extract identifiers
             var pythonImports = provider.importInfoOf(pythonFile);
             assertEquals(1, pythonImports.size());
-            assertTrue(pythonImports.getFirst().rawSnippet().contains("import os"),
+            assertTrue(
+                    pythonImports.getFirst().rawSnippet().contains("import os"),
                     "Python import raw snippet should contain 'import os'");
 
             // Verify relevantImportsFor routes to correct language analyzer
-            CodeUnit javaUnit = javaAnalyzer.getDeclarations(javaFile).stream()
+            CodeUnit javaUnit = multiAnalyzer.getDeclarations(javaFile).stream()
                     .filter(cu -> cu.shortName().equals("JavaClass"))
                     .findFirst()
                     .orElseThrow();
 
-            CodeUnit pythonUnit = pythonAnalyzer.getDeclarations(pythonFile).stream()
+            CodeUnit pythonUnit = multiAnalyzer.getDeclarations(pythonFile).stream()
                     .filter(cu -> cu.shortName().equals("python_fn"))
                     .findFirst()
                     .orElseThrow();

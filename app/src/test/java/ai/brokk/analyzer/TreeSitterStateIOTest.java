@@ -6,7 +6,6 @@ import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateDto;
 import ai.brokk.analyzer.TreeSitterStateIO.FilePropertiesDto;
 import ai.brokk.analyzer.TreeSitterStateIO.FileStateEntryDto;
 import ai.brokk.analyzer.TreeSitterStateIO.ProjectFileDto;
-import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import com.fasterxml.jackson.databind.DeserializationFeature;

@@ -482,9 +482,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected void extractImports(
-            Map<String, TSNode> capturedNodesForMatch,
-            SourceContent sourceContent,
-            List<ImportInfo> localImportInfos) {
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
         if (importNode != null && !importNode.isNull()) {
             String importText = sourceContent.substringFrom(importNode).strip();

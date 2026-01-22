@@ -10,8 +10,4 @@ import org.jetbrains.annotations.Nullable;
  * @param identifier The simple name that can be used in code (e.g., "Baz"), or null for wildcards.
  * @param alias The alias used for the import (e.g., "Y" in "import X as Y"), or null if no alias.
  */
-public record ImportInfo(
-        String rawSnippet,
-        boolean isWildcard,
-        @Nullable String identifier,
-        @Nullable String alias) {}
+public record ImportInfo(String rawSnippet, boolean isWildcard, @Nullable String identifier, @Nullable String alias) {}

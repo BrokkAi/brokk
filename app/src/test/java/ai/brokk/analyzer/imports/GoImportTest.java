@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.GoAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
@@ -424,7 +423,8 @@ class GoImportTest {
     }
 
     @Test
-    @Disabled("TODO: Fix relevantImportsFor for Go - current behavior: returns empty set, likely due to package identification issues in test setup")
+    @Disabled(
+            "TODO: Fix relevantImportsFor for Go - current behavior: returns empty set, likely due to package identification issues in test setup")
     void testRelevantImportsForFunction() throws IOException {
         IProject project = InlineTestProjectCreator.code(
                         """
@@ -456,7 +456,8 @@ class GoImportTest {
     }
 
     @Test
-    @Disabled("TODO: Fix relevantImportsFor for Go - current behavior: returns empty set, likely due to package identification issues in test setup")
+    @Disabled(
+            "TODO: Fix relevantImportsFor for Go - current behavior: returns empty set, likely due to package identification issues in test setup")
     void testRelevantImportsExcludesUnused() throws IOException {
         IProject project = InlineTestProjectCreator.code("package fmt\nfunc Println() {}", "fmt/f.go")
                 .addFileContents("package os\nfunc Exit(i int) {}", "os/o.go")

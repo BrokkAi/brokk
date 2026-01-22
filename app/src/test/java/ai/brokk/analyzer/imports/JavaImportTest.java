@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -524,8 +523,7 @@ public class JavaImportTest {
                 """
             package pkg;
             public class Foo {}
-            """,
-                "Foo.java");
+            """, "Foo.java");
         try (var testProject = builder.addFileContents(
                         """
                     package consumer;
@@ -540,7 +538,8 @@ public class JavaImportTest {
                         "Consumer.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var declarations = analyzer.getDeclarations(consumerFile);
 
             var consumerClass = declarations.stream()
@@ -568,8 +567,7 @@ public class JavaImportTest {
                 """
             package pkg;
             public class Foo {}
-            """,
-                "Foo.java");
+            """, "Foo.java");
         try (var testProject = builder.addFileContents(
                         """
                     package pkg;
@@ -591,7 +589,8 @@ public class JavaImportTest {
                         "Consumer.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var declarations = analyzer.getDeclarations(consumerFile);
 
             var consumerClass = declarations.stream()
@@ -601,8 +600,8 @@ public class JavaImportTest {
             var method = analyzer.getDirectChildren(consumerClass).stream()
                     .filter(cu -> cu.identifier().equals("methodUsingOnlyFoo"))
                     .findFirst()
-                    .orElseThrow(() -> new AssertionError("methodUsingOnlyFoo not found in children: "
-                            + analyzer.getDirectChildren(consumerClass)));
+                    .orElseThrow(() -> new AssertionError(
+                            "methodUsingOnlyFoo not found in children: " + analyzer.getDirectChildren(consumerClass)));
 
             var relevantImports = analyzer.as(ImportAnalysisProvider.class)
                     .map(p -> p.relevantImportsFor(method))
@@ -620,8 +619,7 @@ public class JavaImportTest {
                 """
             package pkg;
             public class Foo {}
-            """,
-                "Foo.java");
+            """, "Foo.java");
         try (var testProject = builder.addFileContents(
                         """
                     package consumer;
@@ -637,7 +635,8 @@ public class JavaImportTest {
                         "Consumer.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var declarations = analyzer.getDeclarations(consumerFile);
 
             var consumerClass = declarations.stream()
@@ -704,7 +703,8 @@ public class JavaImportTest {
                         "consumer/Consumer.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var declarations = analyzer.getDeclarations(consumerFile);
 
             var consumerClass = declarations.stream()
@@ -724,11 +724,15 @@ public class JavaImportTest {
             // can be resolved to internal.InternalService (a known project type).
             // The external.* wildcard should be excluded since it doesn't provide any types
             // referenced by this method.
-            assertEquals(1, relevantImports.size(),
+            assertEquals(
+                    1,
+                    relevantImports.size(),
                     "Only the wildcard that resolves to a known project type should be included");
-            assertTrue(relevantImports.contains("import internal.*;"),
+            assertTrue(
+                    relevantImports.contains("import internal.*;"),
                     "Should include internal.* because it provides InternalService");
-            assertFalse(relevantImports.contains("import external.*;"),
+            assertFalse(
+                    relevantImports.contains("import external.*;"),
                     "Should NOT include external.* because it provides no types used by this method");
         }
     }

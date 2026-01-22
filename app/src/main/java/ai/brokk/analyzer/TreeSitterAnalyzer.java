@@ -935,8 +935,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // After checking all wildcards, if any identifiers are still unresolved
         // (not in explicit imports AND not resolved via wildcards to known types),
         // include ALL remaining wildcards as a conservative fallback for external dependencies.
-        boolean stillUnresolved = unresolvedIdentifiers.stream()
-                .anyMatch(id -> !resolvedViaWildcard.contains(id));
+        boolean stillUnresolved = unresolvedIdentifiers.stream().anyMatch(id -> !resolvedViaWildcard.contains(id));
 
         if (stillUnresolved) {
             for (ImportInfo wildcardImp : wildcardImports) {
@@ -973,7 +972,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String noComments = source.replaceAll("//[^\n]*", "");
         // Remove multi-line comments (/* ... */)
         noComments = noComments.replaceAll("/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/", "");
-        
+
         // Pattern matches capitalized identifiers (type names typically start with uppercase)
         // Excludes common keywords and primitives
         var pattern = Pattern.compile("\\b([A-Z][A-Za-z0-9_]*)\\b");
@@ -4050,9 +4049,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param localImportInfos list to add extracted ImportInfo records to
      */
     protected void extractImports(
-            Map<String, TSNode> capturedNodesForMatch,
-            SourceContent sourceContent,
-            List<ImportInfo> localImportInfos) {
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
         if (importNode != null && !importNode.isNull()) {
             String importText = sourceContent.substringFrom(importNode).strip();

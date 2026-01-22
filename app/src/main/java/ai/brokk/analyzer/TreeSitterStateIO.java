@@ -219,10 +219,7 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ImportInfoDto(
-            String rawSnippet,
-            boolean isWildcard,
-            @Nullable String identifier,
-            @Nullable String alias) {}
+            String rawSnippet, boolean isWildcard, @Nullable String identifier, @Nullable String alias) {}
 
     /**
      * DTO for AnalyzerState with only serializable components.
@@ -279,9 +276,7 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
-            List<CodeUnitDto> topLevelCodeUnits,
-            List<ImportInfoDto> importStatements,
-            boolean containsTests) {
+            List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
         @JsonCreator
         public FilePropertiesDto(
                 @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
@@ -442,7 +437,9 @@ public final class TreeSitterStateIO {
                     new ArrayList<CodeUnitDto>(fileProps.topLevelCodeUnits().size());
             for (var cu : fileProps.topLevelCodeUnits()) topLevelDtos.add(toDto(cu));
 
-            var importDtos = fileProps.importStatements().stream().map(TreeSitterStateIO::toDto).toList();
+            var importDtos = fileProps.importStatements().stream()
+                    .map(TreeSitterStateIO::toDto)
+                    .toList();
 
             var fpDto = new FilePropertiesDto(topLevelDtos, importDtos, fileProps.containsTests());
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
@@ -559,7 +556,9 @@ public final class TreeSitterStateIO {
             var topLevel = new ArrayList<CodeUnit>(v.topLevelCodeUnits().size());
             for (var cuDto : v.topLevelCodeUnits()) topLevel.add(fromDto(cuDto));
 
-            var imports = v.importStatements().stream().map(TreeSitterStateIO::fromDto).toList();
+            var imports = v.importStatements().stream()
+                    .map(TreeSitterStateIO::fromDto)
+                    .toList();
 
             var fp = new TreeSitterAnalyzer.FileProperties(
                     topLevel,

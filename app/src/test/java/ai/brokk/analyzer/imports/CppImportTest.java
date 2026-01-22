@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
@@ -176,7 +175,8 @@ class CppImportTest {
     }
 
     @Test
-    @Disabled("TODO: Fix relevantImportsFor for C++ - current behavior: returns empty set instead of identified includes")
+    @Disabled(
+            "TODO: Fix relevantImportsFor for C++ - current behavior: returns empty set instead of identified includes")
     void testRelevantImportsForFunction() throws IOException {
         String header = "void helperFunction();";
         String source =
@@ -185,7 +185,8 @@ class CppImportTest {
                 void caller() { helperFunction(); }
                 """;
 
-        try (IProject project = code(header, "helper.h").addFileContents(source, "main.cpp").build()) {
+        try (IProject project =
+                code(header, "helper.h").addFileContents(source, "main.cpp").build()) {
             TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
@@ -202,7 +203,8 @@ class CppImportTest {
     }
 
     @Test
-    @Disabled("TODO: Fix relevantImportsFor for C++ - current behavior: returns empty set instead of identified includes")
+    @Disabled(
+            "TODO: Fix relevantImportsFor for C++ - current behavior: returns empty set instead of identified includes")
     void testRelevantImportsExcludesUnused() throws IOException {
         String h1 = "void f1();";
         String h2 = "void f2();";
@@ -213,7 +215,10 @@ class CppImportTest {
                 void caller() { f1(); }
                 """;
 
-        try (IProject project = code(h1, "h1.h").addFileContents(h2, "h2.h").addFileContents(source, "main.cpp").build()) {
+        try (IProject project = code(h1, "h1.h")
+                .addFileContents(h2, "h2.h")
+                .addFileContents(source, "main.cpp")
+                .build()) {
             TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
             analyzer = (TreeSitterAnalyzer) analyzer.update();
 
