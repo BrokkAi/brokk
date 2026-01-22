@@ -48,7 +48,8 @@ class IssueServiceTest {
         Path projectRoot = tempDir.resolve("project-dup");
         Path worktreeDir = tempDir.resolve("worktrees-dup");
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
-            // Use the deterministic seam to force the same proposed name so sanitizeBranchName exercises collision logic.
+            // Use the deterministic seam to force the same proposed name so sanitizeBranchName exercises collision
+            // logic.
             repo.getGit().branchCreate().setName("brokk/issue-42-deterministic").call();
             repo.invalidateCaches();
 
@@ -65,8 +66,14 @@ class IssueServiceTest {
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
             // Create several existing branches and use deterministic seam to exercise multi-collision handling.
             repo.getGit().branchCreate().setName("brokk/issue-42-deterministic").call();
-            repo.getGit().branchCreate().setName("brokk/issue-42-deterministic-2").call();
-            repo.getGit().branchCreate().setName("brokk/issue-42-deterministic-3").call();
+            repo.getGit()
+                    .branchCreate()
+                    .setName("brokk/issue-42-deterministic-2")
+                    .call();
+            repo.getGit()
+                    .branchCreate()
+                    .setName("brokk/issue-42-deterministic-3")
+                    .call();
             repo.invalidateCaches();
 
             String branchName = IssueService.generateBranchName(42, repo, "deterministic");

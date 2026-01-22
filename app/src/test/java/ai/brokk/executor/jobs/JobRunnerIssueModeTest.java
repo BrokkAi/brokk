@@ -262,7 +262,8 @@ class JobRunnerIssueModeTest {
         String branchName = IssueService.generateBranchNameWithRandomSuffix(42, repo);
         assertTrue(
                 branchName.matches("brokk/issue-42-[a-z0-9]{6}(-\\\\d+)?"),
-                () -> "branchName should be brokk/issue-42-<6chars> optionally suffixed with -N but was: " + branchName);
+                () -> "branchName should be brokk/issue-42-<6chars> optionally suffixed with -N but was: "
+                        + branchName);
 
         // For collision handling use the deterministic seam so tests are stable.
         repo.getGit().branchCreate().setName("brokk/issue-42-deterministic").call();

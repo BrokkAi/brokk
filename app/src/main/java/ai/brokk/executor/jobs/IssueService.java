@@ -113,7 +113,7 @@ public final class IssueService {
      * Package-private seam for deterministic tests. Accepts a concrete suffix (already intended to be
      * branch-safe; it will still be sanitized by the repo).
      */
-    static String generateBranchName(int issueNumber, GitRepo repo, String suffix) throws GitAPIException {
+    static String generateBranchName(int issueNumber, GitRepo repo, @Nullable String suffix) throws GitAPIException {
         String proposedName = "brokk/issue-" + issueNumber + (suffix == null || suffix.isEmpty() ? "" : "-" + suffix);
         return repo.sanitizeBranchName(proposedName);
     }
