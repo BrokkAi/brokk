@@ -543,32 +543,42 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         Set<CodeUnit> explicitImports = new LinkedHashSet<>();
         List<String> wildcardImportPackages = new ArrayList<>();
 
-        // 1. First pass: parse all import statements, separating explicit from wildcard.
-        for (String importLine : importStatements) {
-            if (importLine.isBlank()) continue;
-
-            String normalized = importLine.strip();
-            if (!normalized.startsWith("import ") || normalized.startsWith("import static ")) {
+        // 1. First pass: use structured ImportInfo to separate explicit from wildcard.
+        // Static imports are excluded by checking the raw snippet or lack of identifier/wildcard status.
+        for (ImportInfo info : importInfoOf(file)) {
+            if (info.rawSnippet().startsWith("import static ")) {
                 continue;
             }
 
-            if (normalized.endsWith(";")) {
-                normalized = normalized.substring(0, normalized.length() - 1).trim();
-            }
-            normalized = normalized.substring("import ".length()).trim();
-
-            if (normalized.endsWith(".*")) {
-                String packageName =
-                        normalized.substring(0, normalized.length() - 2).trim();
+            if (info.isWildcard()) {
+                String snippet = info.rawSnippet().strip();
+                if (snippet.endsWith(";")) {
+                    snippet = snippet.substring(0, snippet.length() - 1).strip();
+                }
+                if (snippet.startsWith("import ")) {
+                    snippet = snippet.substring("import ".length()).strip();
+                }
+                String packageName = snippet.endsWith(".*") ? snippet.substring(0, snippet.length() - 2) : snippet;
                 if (!packageName.isEmpty()) {
                     wildcardImportPackages.add(packageName);
                 }
-            } else if (!normalized.isEmpty()) {
-                // Explicit import: find the exact class and add it.
-                getDefinitions(normalized).stream()
-                        .filter(CodeUnit::isClass)
-                        .findFirst()
-                        .ifPresent(explicitImports::add);
+            } else {
+                String identifier = info.identifier();
+                if (identifier != null) {
+                    // Extract the FQN from the raw snippet for definition lookup
+                    String snippet = info.rawSnippet().strip();
+                    if (snippet.endsWith(";")) {
+                        snippet = snippet.substring(0, snippet.length() - 1).strip();
+                    }
+                    if (snippet.startsWith("import ")) {
+                        snippet = snippet.substring("import ".length()).strip();
+                    }
+                    // Explicit import: find the exact class and add it.
+                    getDefinitions(snippet).stream()
+                            .filter(CodeUnit::isClass)
+                            .findFirst()
+                            .ifPresent(explicitImports::add);
+                }
             }
         }
 
