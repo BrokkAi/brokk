@@ -359,6 +359,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } else {
                 fileTreePanel.clearSelection();
                 diffContainer.removeAll();
+                updateDiffToolbarVisibility();
                 diffContainer.revalidate();
                 diffContainer.repaint();
                 activeExcerpt = null;
@@ -469,6 +470,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
                 diffContainer.removeAll();
                 diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+                updateDiffToolbarVisibility();
 
                 // Apply saved font size to the panel
                 applyFontSizeToPanel(panel);
@@ -909,6 +911,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } else {
             diffContainer.removeAll();
             diffContainer.add(new JLabel("No file changes to display", SwingConstants.CENTER), BorderLayout.CENTER);
+            updateDiffToolbarVisibility();
         }
         applyTheme(chrome.getTheme());
     }
@@ -1038,6 +1041,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             // Ensure navigation buttons are visible
             diffToolbar.setNavigationVisible(true);
+            updateDiffToolbarVisibility();
 
             revalidate();
             repaint();
@@ -1527,6 +1531,29 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     chrome.toolError("Failed to capture diff: " + ex.getMessage());
                     return null;
                 });
+    }
+
+    private void updateDiffToolbarVisibility() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (currentMode == PanelMode.PREVIEW) {
+            diffToolbar.setVisible(true);
+            return;
+        }
+
+        if (currentMode == PanelMode.REVIEW) {
+            boolean hasDiff = false;
+            if (diffContainer.getComponentCount() > 0) {
+                Component comp = diffContainer.getComponent(0);
+                // In guided review, "No file changes to display" labels or similar are treated as inactive toolbar states
+                hasDiff = !(comp instanceof JLabel);
+            }
+
+            diffToolbar.setVisible(hasDiff);
+            if (!hasDiff) {
+                diffToolbar.disableAllControlButtons();
+            }
+        }
     }
 
     private @Nullable String formatStalenessMessage(StalenessInfo staleness) {
