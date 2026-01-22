@@ -700,24 +700,40 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected Set<String> extractTypeIdentifiers(String source) {
-        Set<String> identifiers = new HashSet<>();
-        // Strip comments before extracting identifiers to avoid false matches
-        // Remove single-line comments (// ...)
-        String noComments = source.replaceAll("//[^\n]*", "");
-        // Remove multi-line comments (/* ... */)
-        noComments = noComments.replaceAll("/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/", "");
-
-        // Pattern matches capitalized identifiers (type names typically start with uppercase)
-        var pattern = Pattern.compile("\\b([A-Z][A-Za-z0-9_]*)\\b");
-        var matcher = pattern.matcher(noComments);
-        while (matcher.find()) {
-            String identifier = matcher.group(1);
-            // Exclude very short identifiers that are likely constants (single letters)
-            if (identifier.length() > 1 || Character.isUpperCase(identifier.charAt(0))) {
-                identifiers.add(identifier);
+        try {
+            TSTree tree = getTSParser().parseString(null, source);
+            TSNode root = tree.getRootNode();
+            if (root.isNull()) {
+                return Set.of();
             }
+
+            org.treesitter.TSQuery identifierQuery =
+                    new org.treesitter.TSQuery(getTSLanguage(), "(type_identifier) @type");
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(identifierQuery, root);
+
+            Set<String> identifiers = new HashSet<>();
+            TSQueryMatch match = new TSQueryMatch();
+            byte[] sourceBytes = source.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    if (node != null && !node.isNull()) {
+                        int start = node.getStartByte();
+                        int end = node.getEndByte();
+                        if (start >= 0 && end <= sourceBytes.length && start < end) {
+                            identifiers.add(new String(
+                                    sourceBytes, start, end - start, java.nio.charset.StandardCharsets.UTF_8));
+                        }
+                    }
+                }
+            }
+            return identifiers;
+        } catch (Exception e) {
+            log.warn("Failed to extract type identifiers using Tree-Sitter query", e);
+            return Set.of();
         }
-        return identifiers;
     }
 
     @Override
