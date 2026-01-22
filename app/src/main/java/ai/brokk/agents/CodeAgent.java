@@ -161,6 +161,7 @@ public class CodeAgent {
         // Create Coder instance with the user's input as the task description
         var coder = contextManager.getLlm(
                 new Llm.Options(model, userInput).withEcho().withPartialResponses());
+
         coder.setOutput(io);
 
         // Track changed files
@@ -213,6 +214,7 @@ public class CodeAgent {
         }
 
         logger.debug("Starting task: {} with options {}", userInput, options);
+        TaskResult.TaskMeta meta = null;
         while (true) {
             if (Thread.interrupted()) {
                 logger.debug("CodeAgent interrupted");
@@ -231,8 +233,8 @@ public class CodeAgent {
             // Make the LLM request
             StreamingResult streamingResult;
             // Populate TaskMeta because this task engaged an LLM
-            var meta = new TaskResult.TaskMeta(
-                    TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
+            meta = new TaskResult.TaskMeta(
+                    TaskResult.Type.CODE, Service.ModelConfig.from(coder.getModel(), contextManager.getService()));
 
             try {
                 var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);

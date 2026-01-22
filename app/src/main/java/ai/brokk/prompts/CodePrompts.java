@@ -29,7 +29,6 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
-import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public class CodePrompts {
@@ -538,7 +537,7 @@ public class CodePrompts {
         return (base + (base.endsWith("\n") ? "" : "\n") + guidance).trim();
     }
 
-    public List<ChatMessage> getHistoryMessages(Context ctx, @Nullable TaskMeta currentMeta) {
+    public List<ChatMessage> getHistoryMessages(Context ctx, TaskMeta currentMeta) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
 
@@ -566,7 +565,7 @@ public class CodePrompts {
 
             var entryMeta = e.meta();
 
-            var currentPrimaryModel = currentMeta == null ? null : currentMeta.primaryModel();
+            var currentPrimaryModel = currentMeta.primaryModel();
             var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
 
             // Redact tool calls if the primary models differ
