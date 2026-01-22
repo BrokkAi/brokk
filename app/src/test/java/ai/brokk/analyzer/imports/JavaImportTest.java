@@ -2,14 +2,18 @@ package ai.brokk.analyzer.imports;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -450,6 +454,67 @@ public class JavaImportTest {
             assertEquals(firstCall, secondCall, "Subsequent calls should return identical cached results");
             assertEquals(1, firstCall.size());
             assertEquals("pkg.B", firstCall.iterator().next().fqName());
+        }
+    }
+
+    @Test
+    public void testImportInfoStructure() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                import java.util.List;
+                import java.util.Map;
+                import static java.lang.Math.PI;
+                import com.example.*;
+                import static org.junit.Assert.*;
+
+                public class Foo {}
+                """,
+                "Foo.java");
+        try (var testProject = builder.build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
+            var importInfos = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.importInfoOf(fooFile))
+                    .orElse(List.of());
+
+            assertEquals(5, importInfos.size(), "Should have 5 import statements");
+
+            // Find specific imports and verify their structure
+            var listImport = importInfos.stream()
+                    .filter(i -> i.rawSnippet().contains("java.util.List"))
+                    .findFirst()
+                    .orElseThrow();
+            assertFalse(listImport.isWildcard(), "List import should not be wildcard");
+            assertEquals("List", listImport.identifier(), "Should extract 'List' as identifier");
+            assertNull(listImport.alias(), "Java imports don't have aliases");
+
+            var mapImport = importInfos.stream()
+                    .filter(i -> i.rawSnippet().contains("java.util.Map"))
+                    .findFirst()
+                    .orElseThrow();
+            assertFalse(mapImport.isWildcard(), "Map import should not be wildcard");
+            assertEquals("Map", mapImport.identifier(), "Should extract 'Map' as identifier");
+
+            var staticImport = importInfos.stream()
+                    .filter(i -> i.rawSnippet().contains("Math.PI"))
+                    .findFirst()
+                    .orElseThrow();
+            assertFalse(staticImport.isWildcard(), "Static import should not be wildcard");
+            assertEquals("PI", staticImport.identifier(), "Should extract 'PI' as identifier from static import");
+
+            var wildcardImport = importInfos.stream()
+                    .filter(i -> i.rawSnippet().contains("com.example.*"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(wildcardImport.isWildcard(), "com.example.* should be wildcard");
+            assertNull(wildcardImport.identifier(), "Wildcard imports should have null identifier");
+
+            var staticWildcardImport = importInfos.stream()
+                    .filter(i -> i.rawSnippet().contains("org.junit.Assert.*"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(staticWildcardImport.isWildcard(), "Static wildcard should be wildcard");
+            assertNull(staticWildcardImport.identifier(), "Static wildcard imports should have null identifier");
         }
     }
 }

@@ -269,11 +269,13 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
-            List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, boolean containsTests) {
+            List<CodeUnitDto> topLevelCodeUnits,
+            List<ImportInfo> importStatements,
+            boolean containsTests) {
         @JsonCreator
         public FilePropertiesDto(
                 @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
-                @JsonProperty("importStatements") List<String> importStatements,
+                @JsonProperty("importStatements") List<ImportInfo> importStatements,
                 @JsonProperty(value = "containsTests", required = true) boolean containsTests) {
             this.topLevelCodeUnits = topLevelCodeUnits;
             this.importStatements = importStatements;

@@ -144,7 +144,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     public record FileProperties(
             List<CodeUnit> topLevelCodeUnits,
             @JsonIgnore @Nullable TSTree parsedTree,
-            List<String> importStatements,
+            List<ImportInfo> importStatements,
             boolean containsTests) {
 
         public static FileProperties empty() {
@@ -384,7 +384,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, Set<CodeUnit>> codeUnitsBySymbol,
-            List<String> importStatements,
+            List<ImportInfo> importStatements,
             @Nullable TSTree parsedTree,
             boolean containsTests) {}
 
@@ -847,6 +847,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     @Override
     public List<String> importStatementsOf(ProjectFile file) {
+        return fileProperties(file).importStatements().stream()
+                .map(ImportInfo::rawSnippet)
+                .toList();
+    }
+
+    /**
+     * Returns the structured import information for the given file.
+     * Subclasses implementing ImportAnalysisProvider should delegate to this method.
+     */
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
         return fileProperties(file).importStatements();
     }
 
@@ -2017,7 +2027,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         Map<CodeUnit, List<String>> localRawSupertypes = new HashMap<>();
         Map<String, Set<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>();
-        List<String> localImportStatements = new ArrayList<>();
+        List<ImportInfo> localImportInfos = new ArrayList<>();
         Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
 
         long __parseStart = System.nanoTime();
@@ -2102,7 +2112,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-            extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
+            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
 
             for (var captureEntry : capturedNodesForMatch.entrySet()) {
                 String captureName = captureEntry.getKey();
@@ -2479,6 +2489,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             log.trace("Stored/Updated info for CU: {}", cu);
         }
 
+        List<String> localImportStatements =
+                localImportInfos.stream().map(ImportInfo::rawSnippet).toList();
+
         createModulesFromImports(
                 file,
                 localImportStatements,
@@ -2566,7 +2579,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localTopLevelCUs.stream().distinct().toList(),
                 Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
-                Collections.unmodifiableList(localImportStatements),
+                Collections.unmodifiableList(localImportInfos),
                 tree,
                 containsTests);
     }
@@ -3899,23 +3912,25 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
-     * Hook for language-specific analyzers to extract additional import statements from query captures.
+     * Hook for language-specific analyzers to extract import statements from query captures.
      * Called during file analysis for each query match. Override in subclasses to handle language-specific
-     * import patterns (e.g., CommonJS require calls in JavaScript/TypeScript).
+     * import patterns and to produce structured ImportInfo records.
      *
      * @param capturedNodesForMatch map of capture names to captured nodes for the current match
      * @param sourceContent the source code content
-     * @param localImportStatements list to add extracted import statements to
+     * @param localImportInfos list to add extracted ImportInfo records to
      */
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
-            List<String> localImportStatements) {
+            List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
         if (importNode != null && !importNode.isNull()) {
             String importText = sourceContent.substringFrom(importNode).strip();
             if (!importText.isEmpty()) {
-                localImportStatements.add(importText);
+                // Default implementation: create basic ImportInfo without identifier extraction
+                // Subclasses should override to provide language-specific parsing
+                localImportInfos.add(new ImportInfo(importText, false, null, null));
             }
         }
     }

@@ -343,6 +343,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
+        return super.importInfoOf(file);
+    }
+
+    @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return performReferencingFilesOf(file);
     }
@@ -473,6 +478,55 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     protected boolean isAnonymousStructure(String fqName) {
         var matcher = LAMBDA_REGEX.matcher(fqName);
         return matcher.find();
+    }
+
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch,
+            SourceContent sourceContent,
+            List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        if (importNode != null && !importNode.isNull()) {
+            String importText = sourceContent.substringFrom(importNode).strip();
+            if (!importText.isEmpty()) {
+                localImportInfos.add(parseJavaImport(importText));
+            }
+        }
+    }
+
+    /**
+     * Parses a Java import statement into structured ImportInfo.
+     * Detects wildcard imports and extracts simple identifiers for non-wildcards.
+     */
+    private ImportInfo parseJavaImport(String rawSnippet) {
+        // Determine if it's a wildcard import
+        boolean isWildcard = rawSnippet.contains(".*");
+
+        // Extract identifier for non-wildcard imports
+        String identifier = null;
+        if (!isWildcard) {
+            // Remove "import " prefix and ";" suffix, handle static imports
+            String normalized = rawSnippet.strip();
+            if (normalized.startsWith("import ")) {
+                normalized = normalized.substring("import ".length());
+            }
+            if (normalized.startsWith("static ")) {
+                normalized = normalized.substring("static ".length());
+            }
+            if (normalized.endsWith(";")) {
+                normalized = normalized.substring(0, normalized.length() - 1).strip();
+            }
+            // Extract the simple name (last segment after the last dot)
+            int lastDot = normalized.lastIndexOf('.');
+            if (lastDot >= 0 && lastDot < normalized.length() - 1) {
+                identifier = normalized.substring(lastDot + 1);
+            } else {
+                identifier = normalized;
+            }
+        }
+
+        // Java doesn't have import aliases
+        return new ImportInfo(rawSnippet, isWildcard, identifier, null);
     }
 
     /**

@@ -1083,7 +1083,7 @@ public final class PythonAnalyzerTest {
         assertFalse(fileProps.importStatements().isEmpty(), "Imports should be captured");
         assertTrue(
                 fileProps.importStatements().stream()
-                        .anyMatch(imp -> imp.contains("from conditional_pkg.base import Base")),
+                        .anyMatch(imp -> imp.rawSnippet().contains("from conditional_pkg.base import Base")),
                 "Should capture 'from conditional_pkg.base import Base'");
 
         // Can we find Base from getAllDeclarations? (uses $ for class boundary)
