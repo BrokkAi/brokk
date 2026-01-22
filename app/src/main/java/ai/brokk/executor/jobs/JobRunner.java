@@ -19,6 +19,7 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.TextUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -2193,7 +2194,7 @@ public final class JobRunner {
     }
 
     static boolean shouldEnrichIssuePrompt(@Nullable String body) {
-        return IssueService.countWords(body) < ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD;
+        return TextUtil.countWords(body) < ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD;
     }
 
     static boolean issueDeliveryEnabled(JobSpec spec) {

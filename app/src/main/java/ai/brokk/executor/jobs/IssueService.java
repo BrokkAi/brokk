@@ -96,16 +96,4 @@ public final class IssueService {
         return repo.sanitizeBranchName(proposedName);
     }
 
-    /**
-     * Counts the number of words in a string, splitting by whitespace.
-     *
-     * @param text the text to count words in
-     * @return the number of words, or 0 if text is null or blank
-     */
-    public static int countWords(@Nullable String text) {
-        if (text == null || text.isBlank()) {
-            return 0;
-        }
-        return text.trim().split("\\s+").length;
-    }
 }

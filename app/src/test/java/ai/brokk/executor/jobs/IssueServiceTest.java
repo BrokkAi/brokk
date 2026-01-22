@@ -102,14 +102,4 @@ class IssueServiceTest {
         assertEquals(expected, IssueService.buildPrDescription(" \n\t ", 7));
     }
 
-    @Test
-    void testCountWords() {
-        assertEquals(0, IssueService.countWords(null));
-        assertEquals(0, IssueService.countWords(""));
-        assertEquals(0, IssueService.countWords("   "));
-        assertEquals(1, IssueService.countWords("Hello"));
-        assertEquals(2, IssueService.countWords("Hello world"));
-        assertEquals(2, IssueService.countWords("  Hello   world  "));
-        assertEquals(3, IssueService.countWords("One\ntwo\tthree"));
-    }
 }
