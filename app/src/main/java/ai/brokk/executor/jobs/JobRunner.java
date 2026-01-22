@@ -1887,7 +1887,8 @@ public final class JobRunner {
 
         // Compose the policy lines using explicit phrasing that tests can rely on.
         String severityLine = "ONLY emit comments with severity >= " + minSeverity.name() + ".";
-        String maxLine = "MAX " + maxComments + " comments total. Merge similar issues into one comment instead of repeating.";
+        String maxLine =
+                "MAX " + maxComments + " comments total. Merge similar issues into one comment instead of repeating.";
 
         String prompt =
                 """
@@ -1965,8 +1966,8 @@ public final class JobRunner {
     /**
      * Backing implementation that sends the structured prompt to the LLM using a specified policy.
      */
-    private TaskResult reviewDiffWithPolicy(Context ctx, StreamingChatModel model, String diff,
-                                           PrReviewService.Severity minSeverity, int maxComments) {
+    private TaskResult reviewDiffWithPolicy(
+            Context ctx, StreamingChatModel model, String diff, PrReviewService.Severity minSeverity, int maxComments) {
         var svc = cm.getService();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
@@ -1999,7 +2000,8 @@ public final class JobRunner {
      * policy: severity >= DEFAULT_REVIEW_SEVERITY_THRESHOLD and MAX DEFAULT_REVIEW_MAX_INLINE_COMMENTS.
      */
     private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
-        return reviewDiffWithPolicy(ctx, model, diff, DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+        return reviewDiffWithPolicy(
+                ctx, model, diff, DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {

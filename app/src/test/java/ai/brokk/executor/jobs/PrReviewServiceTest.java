@@ -556,8 +556,7 @@ class PrReviewServiceTest {
 
                 // Lower severities that must be excluded by the threshold
                 new PrReviewService.InlineComment("m/medium.java", 12, "medium", Severity.MEDIUM),
-                new PrReviewService.InlineComment("l/low.java", 13, "low", Severity.LOW)
-        );
+                new PrReviewService.InlineComment("l/low.java", 13, "low", Severity.LOW));
 
         var filtered = PrReviewService.filterInlineComments(comments, Severity.HIGH, 3);
 
@@ -565,7 +564,8 @@ class PrReviewServiceTest {
         assertEquals(3, filtered.size(), "Result should be capped at 3 comments");
 
         // All returned comments must meet the HIGH threshold (i.e., HIGH or CRITICAL)
-        assertTrue(filtered.stream().allMatch(c -> c.severity().isAtLeast(Severity.HIGH)),
+        assertTrue(
+                filtered.stream().allMatch(c -> c.severity().isAtLeast(Severity.HIGH)),
                 "All comments must be HIGH or above");
 
         // Ordering must prefer more severe comments first: CRITICAL before HIGH
@@ -575,7 +575,8 @@ class PrReviewServiceTest {
         assertEquals(Severity.HIGH, filtered.get(2).severity(), "Third comment should be HIGH (cap applied)");
 
         // Ensure no MEDIUM/LOW comments slipped through
-        assertTrue(filtered.stream().noneMatch(c -> c.severity() == Severity.MEDIUM || c.severity() == Severity.LOW),
+        assertTrue(
+                filtered.stream().noneMatch(c -> c.severity() == Severity.MEDIUM || c.severity() == Severity.LOW),
                 "Filtered list must not contain MEDIUM or LOW comments");
     }
 }
