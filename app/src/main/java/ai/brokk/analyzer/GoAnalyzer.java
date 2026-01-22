@@ -455,13 +455,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 if (!isBlankImport(withoutComments, m.start())) {
                     // group(1) is double-quoted, group(2) is backtick-quoted
                     String path = m.group(1) != null ? m.group(1) : m.group(2);
-                    // In Go, the package name is usually the last segment of the import path.
-                    String packageName = path;
-                    int lastSlash = path.lastIndexOf('/');
-                    if (lastSlash != -1) {
-                        packageName = path.substring(lastSlash + 1);
-                    }
-                    importedPackageNames.add(packageName);
+                    importedPackageNames.add(resolveImportPathToPackageName(path));
                 }
             }
         }
@@ -480,6 +474,40 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         return Collections.unmodifiableSet(resolved);
+    }
+
+    private String resolveImportPathToPackageName(String importPath) {
+        // 1. Try to find actual source files in the project that match this import path
+        Set<ProjectFile> goFiles = getProject().getAnalyzableFiles(Languages.GO);
+        String pathSuffix = importPath.replace('/', java.io.File.separatorChar);
+
+        for (ProjectFile pf : goFiles) {
+            String relPath = pf.getRelPath().toString();
+            // We check if the file is inside a directory matching the import path.
+            // e.g., import "mymodule/pkg" matches "vendor/mymodule/pkg/file.go"
+            if (relPath.contains(java.io.File.separator + pathSuffix + java.io.File.separator)
+                    || relPath.startsWith(pathSuffix + java.io.File.separator)) {
+
+                // Read the file and determine its package name
+                Optional<SourceContent> content = SourceContent.read(pf);
+                if (content.isPresent()) {
+                    TSTree tree = treeOf(pf);
+                    if (tree != null) {
+                        String pkgName = determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get());
+                        if (!pkgName.isEmpty()) {
+                            return pkgName;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback to last segment heuristic if no source found
+        int lastSlash = importPath.lastIndexOf('/');
+        if (lastSlash != -1) {
+            return importPath.substring(lastSlash + 1);
+        }
+        return importPath;
     }
 
     private boolean isBlankImport(String text, int quoteStart) {

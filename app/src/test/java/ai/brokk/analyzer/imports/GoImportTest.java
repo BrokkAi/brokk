@@ -295,6 +295,39 @@ class GoImportTest {
     }
 
     @Test
+    void testResolveImports_VersionedImportPath() throws IOException {
+        // Create a project where gopkg.in/yaml.v3 maps to a directory containing package yaml
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package yaml
+                func Marshal(in any) ([]byte, error) { return nil, nil }
+                """,
+                        "vendor/gopkg.in/yaml.v3/yaml.go")
+                .addFileContents(
+                        """
+                package main
+                import "gopkg.in/yaml.v3"
+                func main() { yaml.Marshal(nil) }
+                """,
+                        "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+
+        Set<CodeUnit> resolved = analyzer.importedCodeUnitsOf(mainFile);
+
+        // Should resolve to package "yaml", NOT "yaml.v3"
+        boolean foundCorrectPackage = resolved.stream()
+                .anyMatch(cu -> "yaml".equals(cu.packageName()) && "Marshal".equals(cu.shortName()));
+        boolean foundIncorrectPackage = resolved.stream()
+                .anyMatch(cu -> "yaml.v3".equals(cu.packageName()));
+
+        assertTrue(foundCorrectPackage, "Should resolve to package 'yaml' by reading source file");
+        assertTrue(!foundIncorrectPackage, "Should not resolve to 'yaml.v3' via last-segment heuristic when source is available");
+    }
+
+    @Test
     void testSingleImport() throws IOException {
         String code =
                 """
