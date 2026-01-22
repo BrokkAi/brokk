@@ -504,16 +504,16 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private String resolveImportPathToPackageName(String importPath) {
         return importPathToPackageNameCache.computeIfAbsent(importPath, path -> {
-            // 1. Try to find actual source files in the project that match this import path
+            // 1. Try to find actual source files in the project that match this import path.
+            // Go import paths always use forward slashes.
             Set<ProjectFile> goFiles = getProject().getAnalyzableFiles(Languages.GO);
-            String pathSuffix = path.replace('/', java.io.File.separatorChar);
 
             for (ProjectFile pf : goFiles) {
-                String relPath = pf.getRelPath().toString();
+                // Normalize the relative path to use forward slashes for comparison
+                String relPath = pf.getRelPath().toString().replace('\\', '/');
                 // We check if the file is inside a directory matching the import path.
                 // e.g., import "mymodule/pkg" matches "vendor/mymodule/pkg/file.go"
-                if (relPath.contains(java.io.File.separator + pathSuffix + java.io.File.separator)
-                        || relPath.startsWith(pathSuffix + java.io.File.separator)) {
+                if (relPath.contains("/" + path + "/") || relPath.startsWith(path + "/")) {
 
                     // Read the file and determine its package name
                     Optional<SourceContent> content = SourceContent.read(pf);
