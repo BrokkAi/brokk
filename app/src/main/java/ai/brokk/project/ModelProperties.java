@@ -35,7 +35,7 @@ public final class ModelProperties {
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
     private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.LOW);
-    private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.MEDIUM);
+    private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.DISABLE);
 
     private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
     private static final ModelConfig haiku4_5 = new ModelConfig(HAIKU_4_5);
@@ -80,7 +80,7 @@ public final class ModelProperties {
      */
     public enum ModelType {
         // directly selected in the UI
-        CODE("codeConfig", flash3, gcf1),
+        CODE("codeConfig", gpt5_2, gcf1),
         ARCHITECT("architectConfig", opus4_5, gcf1),
 
         // indirectly selectable via vendor preference
