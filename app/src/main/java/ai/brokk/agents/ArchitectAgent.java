@@ -541,6 +541,7 @@ public class ArchitectAgent {
             // Create a local registry for this planning turn
             var wst = new WorkspaceTools(this.context);
             // Unified dependency tools (supports Java, Python, Rust, Node.js)
+            // No longer AutoCloseable/long-lived fetcher, safe to instantiate in loop
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))
                     : Optional.<DependencyTools>empty();

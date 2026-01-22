@@ -40,17 +40,17 @@ import org.jetbrains.annotations.Nullable;
  * (PythonLanguage, RustLanguage, NodeJsDependencyHelper) to avoid code duplication
  * with the GUI import functionality.
  */
-public class DependencyTools implements AutoCloseable {
+public class DependencyTools {
     private static final Logger logger = LogManager.getLogger(DependencyTools.class);
 
     private final IContextManager contextManager;
-    private final MavenArtifactFetcher fetcher;
+    private final @Nullable MavenArtifactFetcher fetcher;
 
     public DependencyTools(IContextManager cm) {
-        this(cm, new MavenArtifactFetcher(createProgressListener(cm.getIo())));
+        this(cm, null);
     }
 
-    public DependencyTools(IContextManager cm, MavenArtifactFetcher fetcher) {
+    public DependencyTools(IContextManager cm, @Nullable MavenArtifactFetcher fetcher) {
         this.contextManager = cm;
         this.fetcher = fetcher;
     }
@@ -186,76 +186,84 @@ public class DependencyTools implements AutoCloseable {
         var artifactId = artifact.getArtifactId();
         String version = colonCount == 1 ? null : artifact.getVersion();
 
-        // Resolve latest version if not provided
-        if (version == null || version.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO,
-                                "Resolving latest version for " + groupId + ":" + artifactId + "...");
-            var localVersionOpt = LocalCacheScanner.findLatestVersion(groupId, artifactId);
-            if (localVersionOpt.isPresent()) {
-                version = localVersionOpt.get();
-                logger.info("Using latest local version for {}:{} -> {}", groupId, artifactId, version);
-            } else {
-                logger.info("Resolving latest version for {}:{} from Maven Central", groupId, artifactId);
-                var latestOpt = fetcher.resolveLatestVersion(groupId, artifactId);
-                if (latestOpt.isEmpty()) {
-                    logger.warn("Could not resolve latest version for {}:{}", groupId, artifactId);
-                    return ("Could not resolve latest version for %s:%s. Try specifying an explicit version.")
-                            .formatted(groupId, artifactId);
+        try (var internalFetcher = fetcher != null ? null : new MavenArtifactFetcher(createProgressListener(io))) {
+            var activeFetcher = fetcher != null ? fetcher : internalFetcher;
+            assert activeFetcher != null;
+
+            // Resolve latest version if not provided
+            if (version == null || version.isEmpty()) {
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Resolving latest version for " + groupId + ":" + artifactId + "...");
+                var localVersionOpt = LocalCacheScanner.findLatestVersion(groupId, artifactId);
+                if (localVersionOpt.isPresent()) {
+                    version = localVersionOpt.get();
+                    logger.info("Using latest local version for {}:{} -> {}", groupId, artifactId, version);
+                } else {
+                    logger.info("Resolving latest version for {}:{} from Maven Central", groupId, artifactId);
+                    var latestOpt = activeFetcher.resolveLatestVersion(groupId, artifactId);
+                    if (latestOpt.isEmpty()) {
+                        logger.warn("Could not resolve latest version for {}:{}", groupId, artifactId);
+                        return ("Could not resolve latest version for %s:%s. Try specifying an explicit version.")
+                                .formatted(groupId, artifactId);
+                    }
+                    version = latestOpt.get();
+                    logger.info("Resolved latest version from Maven Central: {}", version);
                 }
-                version = latestOpt.get();
-                logger.info("Resolved latest version from Maven Central: {}", version);
             }
-        }
 
-        var fullCoordinates = "%s:%s:%s".formatted(groupId, artifactId, version);
+            var fullCoordinates = "%s:%s:%s".formatted(groupId, artifactId, version);
 
-        checkInterrupted();
+            checkInterrupted();
 
-        // Check local caches first
-        Path jarPath;
-        var localJarOpt = LocalCacheScanner.findArtifact(groupId, artifactId, version);
-        if (localJarOpt.isPresent()) {
-            jarPath = localJarOpt.get();
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Found " + fullCoordinates + " in local cache");
-            logger.info("Using cached artifact: {}", jarPath);
-        } else {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Downloading " + fullCoordinates + "...");
-            logger.info("Fetching artifact: {}", fullCoordinates);
-            var jarPathOpt = fetcher.fetch(fullCoordinates, null);
-            if (jarPathOpt.isEmpty()) {
-                logger.warn("Artifact not found on Maven Central: {}", fullCoordinates);
-                return "Could not find artifact %s on Maven Central. Check the coordinates and try again."
-                        .formatted(fullCoordinates);
+            // Check local caches first
+            Path jarPath;
+            var localJarOpt = LocalCacheScanner.findArtifact(groupId, artifactId, version);
+            if (localJarOpt.isPresent()) {
+                jarPath = localJarOpt.get();
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Found " + fullCoordinates + " in local cache");
+                logger.info("Using cached artifact: {}", jarPath);
+            } else {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Downloading " + fullCoordinates + "...");
+                logger.info("Fetching artifact: {}", fullCoordinates);
+                var jarPathOpt = activeFetcher.fetch(fullCoordinates, null);
+                if (jarPathOpt.isEmpty()) {
+                    logger.warn("Artifact not found on Maven Central: {}", fullCoordinates);
+                    return "Could not find artifact %s on Maven Central. Check the coordinates and try again."
+                            .formatted(fullCoordinates);
+                }
+                jarPath = jarPathOpt.get();
+                logger.debug("JAR downloaded to: {}", jarPath);
             }
-            jarPath = jarPathOpt.get();
-            logger.debug("JAR downloaded to: {}", jarPath);
+
+            var projectRoot = contextManager.getProject().getMasterRootPathForConfig();
+
+            checkInterrupted();
+
+            // Decompile/extract to .brokk/dependencies/
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Importing " + artifactId + " (this may take a moment for large libraries)...");
+            logger.info("Importing JAR to {}", projectRoot.resolve(".brokk/dependencies"));
+            var resultOpt = Decompiler.decompileJarBlocking(jarPath, projectRoot, false, activeFetcher);
+
+            if (resultOpt.isEmpty()) {
+                logger.error("Decompile failed for {}", fullCoordinates);
+                return "Failed to import %s. Check logs for details.".formatted(fullCoordinates);
+            }
+
+            var result = resultOpt.get();
+            logger.info("Import complete: {} files extracted", result.filesExtracted());
+            var relativeOutput = projectRoot.relativize(result.outputDir());
+            var sourceInfo = result.usedSources() ? " (from sources JAR)" : " (decompiled)";
+
+            checkInterrupted();
+
+            String intelligenceStatus = registerLiveDependency(result.outputDir().getFileName().toString());
+
+            return "Successfully imported %s to %s (%d Java files%s). %s"
+                    .formatted(fullCoordinates, relativeOutput, result.filesExtracted(), sourceInfo, intelligenceStatus);
         }
-
-        var projectRoot = contextManager.getProject().getMasterRootPathForConfig();
-
-        checkInterrupted();
-
-        // Decompile/extract to .brokk/dependencies/
-        io.showNotification(IConsoleIO.NotificationRole.INFO,
-                            "Importing " + artifactId + " (this may take a moment for large libraries)...");
-        logger.info("Importing JAR to {}", projectRoot.resolve(".brokk/dependencies"));
-        var resultOpt = Decompiler.decompileJarBlocking(jarPath, projectRoot, false, fetcher);
-        if (resultOpt.isEmpty()) {
-            logger.error("Decompile failed for {}", fullCoordinates);
-            return "Failed to import %s. Check logs for details.".formatted(fullCoordinates);
-        }
-
-        var result = resultOpt.get();
-        logger.info("Import complete: {} files extracted", result.filesExtracted());
-        var relativeOutput = projectRoot.relativize(result.outputDir());
-        var sourceInfo = result.usedSources() ? " (from sources JAR)" : " (decompiled)";
-
-        checkInterrupted();
-
-        String intelligenceStatus = registerLiveDependency(result.outputDir().getFileName().toString());
-
-        return "Successfully imported %s to %s (%d Java files%s). %s"
-                .formatted(fullCoordinates, relativeOutput, result.filesExtracted(), sourceInfo, intelligenceStatus);
     }
 
     // ========== Python Import ==========
@@ -591,8 +599,4 @@ public class DependencyTools implements AutoCloseable {
         }
     }
 
-    @Override
-    public void close() {
-        fetcher.close();
-    }
 }
