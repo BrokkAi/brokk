@@ -1342,10 +1342,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private boolean isPlaceholderText(String text) {
-        if (!placeholderActive) {
-            return false;
-        }
-        return Objects.equals(text, currentPlaceholderText);
+        if (!placeholderActive) return false;
+        return text != null
+                && currentPlaceholderText != null
+                && text.trim().equals(currentPlaceholderText.trim());
     }
 
     /**
