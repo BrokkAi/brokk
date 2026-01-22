@@ -79,6 +79,12 @@ public class SearchPrompts {
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ISSUE_JSON);
             }
+        },
+        PROMPT_ENRICHMENT {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER);
+            }
         };
 
         public abstract Set<Terminal> terminals();
@@ -588,6 +594,13 @@ public class SearchPrompts {
                           - identifiers/symbol names
                           - fragment ids when available
                         It MAY include a section like "## Agent Instructions" but it must be inside bodyMarkdown.
+                    """);
+            case PROMPT_ENRICHMENT ->
+                new TerminalObjective(
+                        "prompt_enrichment",
+                        """
+                    Discover relevant repository context to enrich the user's initial description.
+                    Output an enriched description of the task using the answer(String) tool.
                     """);
         };
     }
