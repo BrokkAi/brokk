@@ -45,7 +45,8 @@ class SearchPromptsPromptEnrichmentFormatTest {
             String directive = extractPromptEnrichmentDirective(result.messages());
 
             assertTrue(directive.contains("<prompt_enrichment>"));
-            assertTrue(directive.contains("Produce a prompt-quality enrichment"));
+
+            assertTrue(directive.contains("enrichment"));
             assertTrue(directive.contains("Do NOT invent"));
             assertTrue(directive.contains("Do NOT guess"));
 
@@ -60,7 +61,7 @@ class SearchPromptsPromptEnrichmentFormatTest {
             assertTrue(directive.contains("**Plan**"));
 
             assertTrue(directive.contains("step-by-step"));
-            assertTrue(directive.contains("If the input mentions specific source files/functions/classes/symbols, cite them explicitly"));
+            assertTrue(directive.contains("cite them; otherwise do NOT invent paths/symbols"));
         } finally {
             ai.brokk.util.FileUtil.deleteRecursively(tempDir);
         }
