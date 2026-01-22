@@ -518,18 +518,18 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     protected Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
-        // Strip comments
+        // Strip Go comments (// and /* */) before extracting identifiers
         String noComments = GO_COMMENT_PATTERN.matcher(source).replaceAll("");
 
-        // In Go, we are specifically looking for package prefixes like 'fmt.' in 'fmt.Println'
-        // or capitalized types/functions.
-        Pattern pattern = Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.");
-        Matcher matcher = pattern.matcher(noComments);
-        while (matcher.find()) {
-            identifiers.add(matcher.group(1));
+        // 1. Match package prefixes: identifiers followed by a dot (e.g., 'fmt.' in 'fmt.Println')
+        // Go package names are typically lowercase.
+        Pattern packagePattern = Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.");
+        Matcher packageMatcher = packagePattern.matcher(noComments);
+        while (packageMatcher.find()) {
+            identifiers.add(packageMatcher.group(1));
         }
 
-        // Also include standard capitalized identifiers for types/functions used locally
+        // 2. Match capitalized identifiers that might be standalone types or functions (e.g., 'MyType')
         Pattern typePattern = Pattern.compile("\\b([A-Z][a-zA-Z0-9_]*)\\b");
         Matcher typeMatcher = typePattern.matcher(noComments);
         while (typeMatcher.find()) {
