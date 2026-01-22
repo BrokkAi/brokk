@@ -165,7 +165,7 @@ public final class JobRunner {
             int attempt,
             Function<String, String> commandRunner) {
         try {
-            String output = commandRunner.apply(command);
+            String output = Objects.requireNonNullElse(commandRunner.apply(command), "");
             boolean success = output.isBlank();
             emitCommandResult(
                     jobId,
