@@ -870,12 +870,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                        if (rows >= maxRows) break;
+                        // Allow up to 7 rows of chips before scrolling
+                        if (rows >= 7) break;
                     }
                 }
-                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                return Math.max(1, Math.min(maxRows, rows));
+                // Allow up to 7 rows of chips before scrolling
+                return Math.max(1, Math.min(7, rows));
             }
 
             @Override

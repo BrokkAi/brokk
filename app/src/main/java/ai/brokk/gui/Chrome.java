@@ -85,6 +85,8 @@ public class Chrome
     // Minimum width for the collapsed sidebar icon strip; without this, Swing relayout can compress the
     // left component to 0px, hiding icons and making the sidebar effectively impossible to expand.
     private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
+    // Gap between collapsed sidebar and main content to prevent visual overlap
+    private static final int COLLAPSED_SIDEBAR_GAP_PX = 12;
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
@@ -1713,8 +1715,10 @@ public class Chrome
         if (collapsed) {
             leftVerticalSplitPane.setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
             toolsPane.getToolsPane().setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
-            horizontalSplitPane.setDividerSize(0);
+            // Keep a small gap between collapsed sidebar and main content to prevent visual overlap
+            horizontalSplitPane.setDividerSize(COLLAPSED_SIDEBAR_GAP_PX);
             horizontalSplitPane.setDividerLocation(COLLAPSED_SIDEBAR_WIDTH_PX);
+            rightPanel.setBorder(BorderFactory.createEmptyBorder(0, COLLAPSED_SIDEBAR_GAP_PX, 0, 0));
             return;
         }
 
@@ -1722,6 +1726,7 @@ public class Chrome
         leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
         toolsPane.getToolsPane().setMinimumSize(new Dimension(minPx, 0));
         horizontalSplitPane.setDividerSize(originalBottomDividerSize);
+        rightPanel.setBorder(null);
 
         int current = horizontalSplitPane.getDividerLocation();
         int target;

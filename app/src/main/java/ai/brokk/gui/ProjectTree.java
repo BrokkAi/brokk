@@ -204,6 +204,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
     private void handlePopupTrigger(MouseEvent e) {
         if (e.isPopupTrigger()) {
+            // Consume the event early to prevent the drag handler from interfering,
+            // which can cause visual offset/jitter when right-clicking tree items
+            e.consume();
             TreePath path = getPathForLocation(e.getX(), e.getY());
             if (path == null) {
                 // If exact hit detection failed, check if we're within any row's vertical bounds
