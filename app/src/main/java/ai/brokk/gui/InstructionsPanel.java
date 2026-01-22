@@ -1336,8 +1336,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         assert SwingUtilities.isEventDispatchThread();
 
         String bodyText =
-                "I think it's time to demonstrate the full power of this station.\nWith great power comes great responsibility.";
-        String linkText = "Learn how to use Full Power responsibly";
+                "I think it is time to demonstrate the full power of this station.";
+        String linkText = "Here’s what Full Power unlocks.";
         String linkUrl = "https://brokk.ai/documentation/overview";
 
         var messagePanel = new JPanel();
@@ -1355,16 +1355,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (labelFont != null) {
             bodyArea.setFont(labelFont);
         }
-        bodyArea.setAlignmentX(Component.LEFT_ALIGNMENT);
+        bodyArea.setAlignmentX(Component.CENTER_ALIGNMENT);
         messagePanel.add(bodyArea);
 
         messagePanel.add(Box.createVerticalStrut(12));
 
         var linkLabel = new BrowserLabel(linkUrl, linkText);
-        linkLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        linkLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
         messagePanel.add(linkLabel);
 
-        String primary = "I understand. Let's do this.";
+        String primary = "Fire when ready";
         String cancel = "Cancel";
         String[] options = {primary, cancel};
 
@@ -1498,7 +1498,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (newMode && !GlobalUiSettings.isFullPowerAcknowledged()) {
                     boolean accepted = showFullPowerFirstTimeConfirmationDialog();
                     if (!accepted) {
-                        updateModeToggleLabelText(modeToggleLabel, currentMode);
                         return;
                     }
                     GlobalUiSettings.saveFullPowerAcknowledged(true);
