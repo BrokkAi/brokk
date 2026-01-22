@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
@@ -14,6 +15,7 @@ import ai.brokk.testutil.AnalyzerCreator;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class CppImportTest {
@@ -170,6 +172,61 @@ class CppImportTest {
                     importedUnits.stream().anyMatch(cu -> cu.shortName().equals("helperFunction") && cu.isFunction());
 
             assertTrue(foundFn, "Should resolve helperFunction from helper.h despite trailing comment with quotes");
+        }
+    }
+
+    @Test
+    @Disabled("TODO: Fix relevantImportsFor for C++ - current behavior: returns empty set instead of identified includes")
+    void testRelevantImportsForFunction() throws IOException {
+        String header = "void helperFunction();";
+        String source =
+                """
+                #include "helper.h"
+                void caller() { helperFunction(); }
+                """;
+
+        try (IProject project = code(header, "helper.h").addFileContents(source, "main.cpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.cpp");
+            var callerFn = analyzer.getDeclarations(mainFile).stream()
+                    .filter(cu -> cu.identifier().equals("caller"))
+                    .findFirst()
+                    .orElseThrow();
+
+            Set<String> relevant = ((ImportAnalysisProvider) analyzer).relevantImportsFor(callerFn);
+
+            assertTrue(relevant.contains("#include \"helper.h\""), "Should include helper.h used in caller");
+        }
+    }
+
+    @Test
+    @Disabled("TODO: Fix relevantImportsFor for C++ - current behavior: returns empty set instead of identified includes")
+    void testRelevantImportsExcludesUnused() throws IOException {
+        String h1 = "void f1();";
+        String h2 = "void f2();";
+        String source =
+                """
+                #include "h1.h"
+                #include "h2.h"
+                void caller() { f1(); }
+                """;
+
+        try (IProject project = code(h1, "h1.h").addFileContents(h2, "h2.h").addFileContents(source, "main.cpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.cpp");
+            var callerFn = analyzer.getDeclarations(mainFile).stream()
+                    .filter(cu -> cu.identifier().equals("caller"))
+                    .findFirst()
+                    .orElseThrow();
+
+            Set<String> relevant = ((ImportAnalysisProvider) analyzer).relevantImportsFor(callerFn);
+
+            assertTrue(relevant.contains("#include \"h1.h\""), "Should include used h1.h");
+            assertFalse(relevant.contains("#include \"h2.h\""), "Should NOT include unused h2.h");
         }
     }
 

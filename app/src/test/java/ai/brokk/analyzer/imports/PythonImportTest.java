@@ -5,10 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
+import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -634,6 +637,101 @@ public class PythonImportTest {
 
             assertTrue(importedNames.contains("ModuleClass"), "Should import ModuleClass from wildcard");
             assertTrue(importedNames.contains("module_function"), "Should import module_function from wildcard");
+        }
+    }
+
+    @Test
+    @Disabled("TODO: Fix relevantImportsFor for Python - current behavior: returns empty set instead of identified imports")
+    public void testRelevantImportsForFunction() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class Foo:
+                            pass
+                        """,
+                        "pkg/foo.py")
+                .addFileContents(
+                        """
+                        from pkg.foo import Foo
+
+                        def use_foo():
+                            f = Foo()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var useFoo = analyzer.getDeclarations(consumerFile).stream()
+                    .filter(cu -> cu.identifier().equals("use_foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(useFoo))
+                    .orElse(Set.of());
+
+            assertTrue(relevantImports.contains("from pkg.foo import Foo"), "Should include Foo import");
+        }
+    }
+
+    @Test
+    @Disabled("TODO: Fix relevantImportsFor for Python - current behavior: returns empty set instead of identified imports")
+    public void testRelevantImportsExcludesUnused() throws IOException {
+        var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
+                .addFileContents("class Bar: pass", "pkg/bar.py")
+                .addFileContents(
+                        """
+                        from pkg.foo import Foo
+                        from pkg.bar import Bar
+
+                        def use_only_foo():
+                            f = Foo()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var useOnlyFoo = analyzer.getDeclarations(consumerFile).stream()
+                    .filter(cu -> cu.identifier().equals("use_only_foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(useOnlyFoo))
+                    .orElse(Set.of());
+
+            assertTrue(relevantImports.contains("from pkg.foo import Foo"), "Should include Foo import");
+            assertFalse(relevantImports.contains("from pkg.bar import Bar"), "Should NOT include unused Bar import");
+        }
+    }
+
+    @Test
+    @Disabled("TODO: Fix relevantImportsFor for Python - current behavior: returns empty set instead of identified imports")
+    public void testRelevantImportsWildcard() throws IOException {
+        var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
+                .addFileContents(
+                        """
+                        from pkg.foo import *
+
+                        def use_foo():
+                            f = Foo()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var useFoo = analyzer.getDeclarations(consumerFile).stream()
+                    .filter(cu -> cu.identifier().equals("use_foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(useFoo))
+                    .orElse(Set.of());
+
+            assertTrue(relevantImports.contains("from pkg.foo import *"), "Should include wildcard import providing Foo");
         }
     }
 
