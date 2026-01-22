@@ -599,8 +599,33 @@ public class SearchPrompts {
                 new TerminalObjective(
                         "prompt_enrichment",
                         """
-                    Discover relevant repository context to enrich the user's initial description.
-                    Output an enriched description of the task using the answer(String) tool.
+                    Produce a prompt-quality enrichment of the user's request that can be used directly as an LLM execution prompt.
+                    Use answer(String) to output ONLY the enriched prompt text.
+
+                    Hard requirements:
+                      - Restate the original request clearly and preserve ALL explicitly provided facts and constraints.
+                      - Add structure and clarification ONLY when directly inferable from the source text.
+                      - Do NOT invent missing details. Do NOT guess. Do NOT add new technologies, libraries, file paths, or requirements not present in the input.
+                      - Any ambiguity, missing information, or decision point MUST be surfaced as explicit questions under **Open Questions** (never as assumptions).
+                      - If the input mentions specific source files/functions/classes/symbols, cite them explicitly in the relevant sections. If not mentioned, do NOT invent paths or symbols.
+                      - Include any test/verification expectations mentioned in the input under **Verification** and/or **Acceptance Criteria**.
+                      - Tone: direct, instruction-oriented, precision-focused. No filler. Keep tightly scoped to the source text.
+
+                    Output format (REQUIRED; use these exact section labels, in this order):
+                    **Summary**
+                    **Context**
+                    **Requirements**
+                    **Constraints**
+                    **Edge Cases**
+                    **Acceptance Criteria**
+                    **Open Questions**
+                    **Verification**
+                    **Plan** (explicit step-by-step plan of attack)
+
+                    Additional formatting rules:
+                      - Use concise bullet points where possible.
+                      - In **Plan**, provide a concrete step-by-step sequence; do not include vague steps like "do the thing".
+                      - In **Open Questions**, ask only questions necessary to remove ambiguity; avoid leading questions.
                     """);
         };
     }
