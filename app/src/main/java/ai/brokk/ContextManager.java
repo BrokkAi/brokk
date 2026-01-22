@@ -2626,6 +2626,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 String newName = newNameFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 project.getSessionManager().renameSession(sessionId, newName);
+                submitSessionSyncIfActive();
                 logger.debug("Renamed session {} to {}", sessionId, newName);
             } catch (Exception e) {
                 logger.warn("Error renaming Session {}", sessionId, e);
