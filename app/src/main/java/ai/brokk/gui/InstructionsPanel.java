@@ -1322,28 +1322,48 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private String buildPlaceholderTextFromCurrentKeybindings() {
-        KeyStroke submitKs =
-                GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
-        String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-        String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
+        String placeholder;
+        try {
+            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
+                    "instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
+            String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
+            String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
 
-        KeyStroke newlineKs = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
-        String newlineStr = KeyboardShortcutUtil.formatKeyStroke(newlineKs);
-        String newlineHint = newlineStr.isBlank() ? "" : newlineStr + " = newline.";
+            KeyStroke newlineKs = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
+            String newlineStr = KeyboardShortcutUtil.formatKeyStroke(newlineKs);
+            String newlineHint = newlineStr.isBlank() ? "" : newlineStr + " = newline.";
 
-        String base = PLACEHOLDER_PREFIX + newlineHint;
-        if (submitHint.isBlank()) {
-            return (base + "\n").stripIndent();
+            String base = PLACEHOLDER_PREFIX + newlineHint;
+            if (submitHint.isBlank()) {
+                placeholder = (base + "\n").stripIndent();
+            } else {
+                placeholder = (base + " " + submitHint + "\n").stripIndent();
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to build placeholder text from keybindings, falling back to default prefix.", e);
+            placeholder = PLACEHOLDER_PREFIX;
         }
-        return (base + " " + submitHint + "\n").stripIndent();
+
+        if (placeholder == null || placeholder.trim().isEmpty()) {
+            logger.warn(
+                    "Computed placeholder text was blank; falling back to default prefix. Raw placeholder='{}'",
+                    placeholder);
+            placeholder = PLACEHOLDER_PREFIX;
+        }
+
+        return placeholder;
     }
 
     private void showPlaceholder(JTextArea area) {
         assert SwingUtilities.isEventDispatchThread();
-        currentPlaceholderText = buildPlaceholderTextFromCurrentKeybindings();
-        if (currentPlaceholderText.trim().isEmpty()) {
-            throw new IllegalStateException("Placeholder text must not be blank");
+        String computed = buildPlaceholderTextFromCurrentKeybindings();
+        if (computed == null || computed.trim().isEmpty()) {
+            logger.warn(
+                    "showPlaceholder received blank placeholder text; using default prefix instead. Text='{}'",
+                    computed);
+            computed = PLACEHOLDER_PREFIX;
         }
+        currentPlaceholderText = computed;
         placeholderActive = true;
         area.setText(currentPlaceholderText);
     }
