@@ -867,10 +867,8 @@ public final class JobRunner {
                                                         var enrichmentResult = enrichmentAgent.execute();
                                                         if (enrichmentResult.stopDetails().reason()
                                                                 == TaskResult.StopReason.SUCCESS) {
-                                                            issueTaskPrompt = enrichmentResult
-                                                                    .output()
-                                                                    .text()
-                                                                    .join();
+                                                            issueTaskPrompt += "\n\nEnriched Context:\n"
+                                                                    + enrichmentResult.output().text().join();
                                                             logger.info(
                                                                     "ISSUE job {}: prompt enrichment successful",
                                                                     jobId);
