@@ -967,33 +967,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Extracts potential type identifiers from source code.
-     * Uses a simple regex to find capitalized identifiers that look like type names.
-     * Comments are stripped before extraction to avoid false matches.
      *
      * @param source the source code to analyze
      * @return set of potential type identifier names
      */
     protected Set<String> extractTypeIdentifiers(String source) {
-        Set<String> identifiers = new HashSet<>();
-        // Strip comments before extracting identifiers to avoid false matches
-        // Remove single-line comments (// ...)
-        String noComments = source.replaceAll("//[^\n]*", "");
-        // Remove multi-line comments (/* ... */)
-        noComments = noComments.replaceAll("/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/", "");
-
-        // Pattern matches capitalized identifiers (type names typically start with uppercase)
-        // Excludes common keywords and primitives
-        var pattern = Pattern.compile("\\b([A-Z][A-Za-z0-9_]*)\\b");
-        var matcher = pattern.matcher(noComments);
-        while (matcher.find()) {
-            String identifier = matcher.group(1);
-            // Exclude common Java keywords that start with uppercase (none by default)
-            // and very short identifiers that are likely constants (single letters)
-            if (identifier.length() > 1 || Character.isUpperCase(identifier.charAt(0))) {
-                identifiers.add(identifier);
-            }
-        }
-        return identifiers;
+        // Base implementation returns empty set.
+        // Languages without an override will return no identifiers,
+        // causing relevantImportsFor to include all imports as a conservative fallback.
+        return Set.of();
     }
 
     /**

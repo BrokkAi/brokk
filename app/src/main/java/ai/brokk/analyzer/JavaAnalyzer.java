@@ -699,6 +699,28 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    protected Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+        // Strip comments before extracting identifiers to avoid false matches
+        // Remove single-line comments (// ...)
+        String noComments = source.replaceAll("//[^\n]*", "");
+        // Remove multi-line comments (/* ... */)
+        noComments = noComments.replaceAll("/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/", "");
+
+        // Pattern matches capitalized identifiers (type names typically start with uppercase)
+        var pattern = Pattern.compile("\\b([A-Z][A-Za-z0-9_]*)\\b");
+        var matcher = pattern.matcher(noComments);
+        while (matcher.find()) {
+            String identifier = matcher.group(1);
+            // Exclude very short identifiers that are likely constants (single letters)
+            if (identifier.length() > 1 || Character.isUpperCase(identifier.charAt(0))) {
+                identifiers.add(identifier);
+            }
+        }
+        return identifiers;
+    }
+
+    @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
