@@ -1,9 +1,11 @@
 package ai.brokk.gui.util;
 
 import ai.brokk.gui.SwingUtil;
+import java.awt.image.BufferedImage;
 import java.util.Locale;
 import java.util.Map;
 import javax.swing.Icon;
+import javax.swing.ImageIcon;
 import javax.swing.UIManager;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,8 +29,8 @@ public final class FileTypeIcons {
     // Most extensions can be auto-converted (e.g., "java" -> "Filetype-Java--Streamline-Bootstrap")
     private static final Map<String, String> EXTENSION_TO_ICON_NAME = Map.ofEntries(
             // Special cases where extension doesn't match icon name
-            Map.entry("sc", "Scala"),  // scala files use "sc" extension
-            Map.entry("kt", "Java"),   // Kotlin uses Java icon
+            Map.entry("sc", "Scala"), // scala files use "sc" extension
+            Map.entry("kt", "Java"), // Kotlin uses Java icon
             Map.entry("kts", "Java"),
             Map.entry("groovy", "Java"),
             Map.entry("clj", "Java"),
@@ -62,8 +64,7 @@ public final class FileTypeIcons {
             Map.entry("fish", "Sh"),
             Map.entry("bat", "Sh"),
             Map.entry("cmd", "Sh"),
-            Map.entry("ps1", "Sh")
-    );
+            Map.entry("ps1", "Sh"));
 
     /**
      * Gets the appropriate icon for a file based on its extension.
@@ -100,7 +101,11 @@ public final class FileTypeIcons {
         }
         // Fallback to default tree icons
         Icon fallback = expanded ? UIManager.getIcon("Tree.openIcon") : UIManager.getIcon("Tree.closedIcon");
-        return fallback != null ? resizeIcon(fallback) : null;
+        if (fallback != null) {
+            return resizeIcon(fallback);
+        }
+        // Final fallback - use default file icon if tree icons aren't available
+        return getDefaultFileIcon();
     }
 
     /**
@@ -115,7 +120,12 @@ public final class FileTypeIcons {
         }
         // Fallback to default tree leaf icon
         Icon fallback = UIManager.getIcon("Tree.leafIcon");
-        return fallback != null ? resizeIcon(fallback) : null;
+        if (fallback != null) {
+            return resizeIcon(fallback);
+        }
+        // Final fallback - create a simple empty icon if nothing is available
+        // This should never happen in practice, but ensures we always return a valid icon
+        return new ImageIcon(new BufferedImage(ICON_SIZE, ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
     }
 
     /**
@@ -149,11 +159,11 @@ public final class FileTypeIcons {
             // Icon doesn't exist - return null to use default
             return null;
         }
-        
+
         // Icon exists - get it via SwingUtil to ensure theme awareness
         Icon icon = SwingUtil.uiIcon(key);
-        // Verify the icon was successfully loaded and has valid dimensions
-        if (icon != null && icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
+        // Verify the icon has valid dimensions
+        if (icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
             return icon;
         }
         return null;
@@ -163,10 +173,7 @@ public final class FileTypeIcons {
      * Resizes an icon to the desired size for tree display.
      * Uses ThemedIcon.withSize() if available, otherwise returns the icon as-is.
      */
-    private static Icon resizeIcon(@Nullable Icon icon) {
-        if (icon == null) {
-            return null;
-        }
+    private static Icon resizeIcon(Icon icon) {
         // If it's a ThemedIcon, use withSize() to resize
         if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
             return themedIcon.withSize(ICON_SIZE);
@@ -177,7 +184,7 @@ public final class FileTypeIcons {
     }
 
     private static @Nullable String getExtension(String filename) {
-        if (filename == null || filename.isEmpty()) {
+        if (filename.isEmpty()) {
             return null;
         }
         // Handle files like ".gitignore" - they have no extension
