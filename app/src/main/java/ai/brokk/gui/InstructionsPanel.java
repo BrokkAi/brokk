@@ -1336,7 +1336,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         assert SwingUtilities.isEventDispatchThread();
 
         String bodyText =
-                "I think it is time to demonstrate the full power of this station.";
+                "I think it’s time to demonstrate the full power of this station.";
         String linkText = "Here’s what Full Power unlocks.";
         String linkUrl = "https://brokk.ai/documentation/overview";
 
@@ -1355,13 +1355,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (labelFont != null) {
             bodyArea.setFont(labelFont);
         }
-        bodyArea.setAlignmentX(Component.CENTER_ALIGNMENT);
+        bodyArea.setAlignmentX(Component.LEFT_ALIGNMENT);
         messagePanel.add(bodyArea);
 
         messagePanel.add(Box.createVerticalStrut(12));
 
         var linkLabel = new BrowserLabel(linkUrl, linkText);
-        linkLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        linkLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         messagePanel.add(linkLabel);
 
         String primary = "Fire when ready";
