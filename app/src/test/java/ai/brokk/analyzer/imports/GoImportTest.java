@@ -349,7 +349,6 @@ class GoImportTest {
 
     @Test
     void testGroupedImports() throws IOException {
-        // Tree-sitter Go grammar treats the entire import (...) block as one import_declaration
         String code =
                 """
                 package main
@@ -364,14 +363,9 @@ class GoImportTest {
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
         List<String> imports = analyzer.importStatementsOf(file);
-        assertEquals(1, imports.size());
-        assertEquals(
-                """
-                import (
-                    "fmt"
-                    "os"
-                )""",
-                imports.getFirst());
+        assertEquals(2, imports.size());
+        assertEquals("import \"fmt\"", imports.get(0));
+        assertEquals("import \"os\"", imports.get(1));
     }
 
     @Test
@@ -423,8 +417,6 @@ class GoImportTest {
     }
 
     @Test
-    @Disabled(
-            "TODO: Fix relevantImportsFor for Go - current behavior: returns empty set, likely due to package identification issues in test setup")
     void testRelevantImportsForFunction() throws IOException {
         IProject project = InlineTestProjectCreator.code(
                         """
@@ -456,8 +448,6 @@ class GoImportTest {
     }
 
     @Test
-    @Disabled(
-            "TODO: Fix relevantImportsFor for Go - current behavior: returns empty set, likely due to package identification issues in test setup")
     void testRelevantImportsExcludesUnused() throws IOException {
         IProject project = InlineTestProjectCreator.code("package fmt\nfunc Println() {}", "fmt/f.go")
                 .addFileContents("package os\nfunc Exit(i int) {}", "os/o.go")
@@ -503,12 +493,10 @@ class GoImportTest {
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
         List<String> imports = analyzer.importStatementsOf(file);
+        // Expecting individual imports even from groups
         assertEquals(3, imports.size());
         assertEquals("import \"fmt\"", imports.get(0));
-        assertEquals("""
-                import (
-                    "os"
-                )""", imports.get(1));
+        assertEquals("import \"os\"", imports.get(1));
         assertEquals("import _ \"net/http\"", imports.get(2));
     }
 }

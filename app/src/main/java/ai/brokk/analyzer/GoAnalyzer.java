@@ -7,6 +7,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +30,7 @@ import org.treesitter.TreeSitterGo;
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
-    private final Cache<String, String> importPathToPackageNameCache =
+    private static final Cache<String, String> importPathToPackageNameCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
 
     // Pattern to match both double-quoted and backtick-quoted import paths
@@ -113,12 +114,21 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         cursor.exec(query, rootNode);
         TSQueryMatch match = new TSQueryMatch();
 
-        if (cursor.nextMatch(match)) {
+        while (cursor.nextMatch(match)) {
             for (TSQueryCapture capture : match.getCaptures()) {
                 if (CaptureNames.PACKAGE_DEFINITION.equals(query.getCaptureNameForId(capture.getIndex()))) {
-                    TSNode nameNode = capture.getNode();
-                    if (nameNode != null && !nameNode.isNull()) {
-                        return sourceContent.substringFrom(nameNode).trim();
+                    TSNode pkgNode = capture.getNode();
+                    if (pkgNode != null && !pkgNode.isNull()) {
+                        // In Go, the package identifier is often the node itself if it's a 'package_identifier'
+                        if ("package_identifier".equals(pkgNode.getType())) {
+                            return sourceContent.substringFrom(pkgNode).trim();
+                        }
+                        // Fallback to 'name' field if the capture matched a parent node
+                        TSNode nameNode = pkgNode.getChildByFieldName("name");
+                        if (nameNode != null && !nameNode.isNull()) {
+                            return sourceContent.substringFrom(nameNode).trim();
+                        }
+                        return sourceContent.substringFrom(pkgNode).trim();
                     }
                 }
             }
@@ -423,6 +433,110 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return performReferencingFilesOf(file);
+    }
+
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(GO_SYNTAX_PROFILE.importNodeType());
+        if (importNode == null || importNode.isNull()) {
+            return;
+        }
+
+        String fullSnippet = sourceContent.substringFrom(importNode).trim();
+        if (fullSnippet.isEmpty()) {
+            return;
+        }
+
+        // Go imports can be single: import "fmt"
+        // Or grouped: import ( "fmt"\n "os" )
+        // The import_declaration node in go.scm captures the whole block or single line.
+        // We need to create one ImportInfo per import path, each with its own line as rawSnippet.
+        String withoutComments = GO_COMMENT_PATTERN.matcher(fullSnippet).replaceAll("");
+        
+        // Split into lines to handle grouped imports - each import path gets its own ImportInfo
+        String[] lines = withoutComments.split("\n");
+        
+        for (String line : lines) {
+            String trimmedLine = line.trim();
+            if (trimmedLine.isEmpty() || trimmedLine.equals("import") || trimmedLine.equals("(") || trimmedLine.equals(")")) {
+                continue;
+            }
+            
+            Matcher pathMatcher = IMPORT_PATH_PATTERN.matcher(trimmedLine);
+            if (!pathMatcher.find()) {
+                continue;
+            }
+            
+            String path = pathMatcher.group(1) != null ? pathMatcher.group(1) : pathMatcher.group(2);
+            int pathStart = pathMatcher.start();
+
+            // Look for alias or blank import prefix in this line
+            String prefix = trimmedLine.substring(0, pathStart).trim();
+
+            String identifier;
+            String alias = null;
+
+            if ("_".equals(prefix)) {
+                identifier = "_"; // Blank import
+            } else if (".".equals(prefix)) {
+                identifier = "."; // Dot import
+            } else if (!prefix.isEmpty() && !prefix.equals("import")) {
+                alias = prefix;
+                identifier = alias;
+            } else {
+                // Use simple heuristic during extractImports (last segment of path)
+                // Full resolution happens later in resolveImports when state is available
+                identifier = getPackageNameFromPath(path);
+            }
+
+            // Build a clean rawSnippet for this individual import.
+            // Even if it was part of a group, we return it as a standalone "import ..." statement
+            // so that relevantImportsFor can match it and fragments can prepend it.
+            String rawSnippet = (alias != null ? alias + " " : "") + "\"" + path + "\"";
+            if (!rawSnippet.startsWith("import")) {
+                rawSnippet = "import " + rawSnippet;
+            }
+
+            localImportInfos.add(new ImportInfo(rawSnippet, false, identifier, alias));
+        }
+    }
+
+    /**
+     * Simple heuristic to get package name from import path.
+     * Returns the last segment of the path (after the last '/').
+     * This is used during extractImports when the analyzer state isn't ready yet.
+     */
+    private String getPackageNameFromPath(String importPath) {
+        int lastSlash = importPath.lastIndexOf('/');
+        if (lastSlash != -1 && lastSlash < importPath.length() - 1) {
+            return importPath.substring(lastSlash + 1);
+        }
+        return importPath;
+    }
+
+    @Override
+    protected Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+        // Strip comments
+        String noComments = GO_COMMENT_PATTERN.matcher(source).replaceAll("");
+
+        // In Go, we are specifically looking for package prefixes like 'fmt.' in 'fmt.Println'
+        // or capitalized types/functions.
+        Pattern pattern = Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.");
+        Matcher matcher = pattern.matcher(noComments);
+        while (matcher.find()) {
+            identifiers.add(matcher.group(1));
+        }
+
+        // Also include standard capitalized identifiers for types/functions used locally
+        Pattern typePattern = Pattern.compile("\\b([A-Z][a-zA-Z0-9_]*)\\b");
+        Matcher typeMatcher = typePattern.matcher(noComments);
+        while (typeMatcher.find()) {
+            identifiers.add(typeMatcher.group(1));
+        }
+
+        return identifiers;
     }
 
     /**
