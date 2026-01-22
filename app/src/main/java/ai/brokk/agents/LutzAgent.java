@@ -176,7 +176,7 @@ public class LutzAgent extends SearchAgent {
         }
         // Add dependency import tool if supported for this project
         if (depTools.isPresent()) {
-            names.add("importMavenDependency");
+            names.add("importDependency");
         }
         return names;
     }
