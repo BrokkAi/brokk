@@ -114,6 +114,33 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void testShouldEnrichIssuePrompt() {
+        assertTrue(JobRunner.shouldEnrichIssuePrompt(null));
+        assertTrue(JobRunner.shouldEnrichIssuePrompt(""));
+        assertTrue(JobRunner.shouldEnrichIssuePrompt("Brief issue description."));
+
+        // Generate exactly 100 words
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 100; i++) {
+            sb.append("word").append(i).append(" ");
+        }
+        String hundredWords = sb.toString().trim();
+        assertFalse(
+                JobRunner.shouldEnrichIssuePrompt(hundredWords),
+                "Should NOT enrich when body is exactly 100 words (threshold is < 100)");
+
+        // Generate 99 words
+        sb = new StringBuilder();
+        for (int i = 0; i < 99; i++) {
+            sb.append("word").append(i).append(" ");
+        }
+        String ninetyNineWords = sb.toString().trim();
+        assertTrue(
+                JobRunner.shouldEnrichIssuePrompt(ninetyNineWords),
+                "Should enrich when body is 99 words (threshold is < 100)");
+    }
+
+    @Test
     void testIssueDeliveryPolicy_DisableViaTag() {
         JobSpec spec = new JobSpec(
                 "",
@@ -317,7 +344,7 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void testSingleFixVerificationBehavior() {
+    void testSingleFixVerificationBehavior() throws Exception {
         var verificationCalls = new AtomicInteger(0);
         var fixCalls = new AtomicInteger(0);
         var io = new TestConsoleIO();
@@ -332,11 +359,39 @@ class JobRunnerIssueModeTest {
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
                 () -> JobRunner.runSingleFixVerificationGate(
-                        "job-single-fix-1", store, io, verificationRunner, fixRunner));
+                        "job-single-fix-1", store, io, "./gradlew test", verificationRunner, fixRunner));
 
         assertEquals(2, verificationCalls.get(), "Verification should be called exactly twice");
         assertEquals(1, fixCalls.get(), "Fix runner should be called exactly once");
         assertTrue(ex.getMessage().contains("Verification failed after single fix attempt"));
+
+        var events = store.readEvents("job-single-fix-1", -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        var verificationEvents = commandEvents.stream()
+                .filter(e -> e.data() instanceof Map && "verification".equals(((Map<?, ?>) e.data()).get("stage")))
+                .toList();
+
+        assertEquals(2, verificationEvents.size(), "Should emit one command result per verification run");
+
+        assertTrue(verificationEvents.getFirst().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) verificationEvents.getFirst().data();
+        assertEquals("verification", first.get("stage"));
+        assertEquals("./gradlew test", first.get("command"));
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, first.get("success"));
+        assertEquals("initial failure", first.get("output"));
+
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) verificationEvents.getLast().data();
+        assertEquals("verification", second.get("stage"));
+        assertEquals("./gradlew test", second.get("command"));
+        assertEquals(2, ((Number) second.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, second.get("success"));
+        assertEquals("still failing", second.get("output"));
     }
 
     @Test
@@ -519,6 +574,191 @@ class JobRunnerIssueModeTest {
 
         assertEquals(List.of("./gradlew test", "./gradlew lint"), calls, "Should run tests then lint once");
         assertEquals(0, fixCalls.get(), "No fix tasks when both pass");
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_emitsCommandResultEvents_thatRoundTripThroughJobStore() throws Exception {
+        var cancelled = new AtomicBoolean(false);
+
+        String jobId = "job-final-verification-events-1";
+
+        var io = new TestConsoleIO();
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+        Consumer<String> fixTaskRunner = out -> fail("No fix tasks expected");
+
+        Function<String, String> commandRunner = cmd -> "";
+
+        JobRunner.runIssueModeTestLintRetryLoop(
+                jobId,
+                store,
+                io,
+                cancelled::get,
+                progressSink,
+                commandRunner,
+                fixTaskRunner,
+                new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                3);
+
+        var events = store.readEvents(jobId, -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        assertEquals(2, commandEvents.size(), "Should emit tests and lint command results");
+
+        assertTrue(commandEvents.getFirst().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) commandEvents.getFirst().data();
+        assertEquals("tests", first.get("stage"));
+        assertEquals("./gradlew test", first.get("command"));
+        assertEquals(Boolean.FALSE, first.get("skipped"));
+        assertEquals(Boolean.TRUE, first.get("success"));
+        assertEquals("", first.get("output"));
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
+
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) commandEvents.getLast().data();
+        assertEquals("lint", second.get("stage"));
+        assertEquals("./gradlew lint", second.get("command"));
+        assertEquals(Boolean.FALSE, second.get("skipped"));
+        assertEquals(Boolean.TRUE, second.get("success"));
+        assertEquals("", second.get("output"));
+        assertEquals(1, ((Number) second.get("attempt")).intValue());
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_whenTestsFail_emitsTestsEventAndLintSkippedEvent_forThatIteration()
+            throws Exception {
+        var cancelled = new AtomicBoolean(false);
+
+        String jobId = "job-final-verification-events-tests-fail-1";
+        var io = new TestConsoleIO();
+
+        String testCmd = "./gradlew test";
+        String lintCmd = "./gradlew lint";
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        var calls = new ArrayList<String>();
+        Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+            if (cmd.equals(testCmd)) {
+                return "TESTS FAILED OUTPUT";
+            }
+            return fail("Only tests command should run; lint must be skipped when tests fail");
+        };
+
+        var fixCalls = new AtomicInteger(0);
+        Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        jobId,
+                        store,
+                        io,
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        1));
+
+        assertEquals(List.of(testCmd), calls);
+
+        var events = store.readEvents(jobId, -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        assertEquals(2, commandEvents.size(), "Attempt should record both stages: tests result and lint skipped");
+
+        assertTrue(commandEvents.getFirst().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var testsEvent = (Map<String, Object>) commandEvents.getFirst().data();
+        assertEquals("tests", testsEvent.get("stage"));
+        assertEquals(testCmd, testsEvent.get("command"));
+        assertEquals(1, ((Number) testsEvent.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, testsEvent.get("skipped"));
+        assertEquals(Boolean.FALSE, testsEvent.get("success"));
+        assertEquals("TESTS FAILED OUTPUT", testsEvent.get("output"));
+
+        assertTrue(commandEvents.getLast().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var lintEvent = (Map<String, Object>) commandEvents.getLast().data();
+        assertEquals("lint", lintEvent.get("stage"));
+        assertEquals(lintCmd, lintEvent.get("command"));
+        assertEquals(1, ((Number) lintEvent.get("attempt")).intValue());
+        assertEquals(Boolean.TRUE, lintEvent.get("skipped"));
+        assertEquals("tests_failed", lintEvent.get("skipReason"));
+        assertEquals(Boolean.TRUE, lintEvent.get("success"));
+        assertEquals("", lintEvent.get("output"));
+
+        assertEquals(1, fixCalls.get(), "One fix attempt should be triggered for failed tests output");
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_whenLintFailsAfterTestsPass_emitsBothEventsWithCorrectOutputs() throws Exception {
+        var cancelled = new AtomicBoolean(false);
+
+        String jobId = "job-final-verification-events-lint-fail-1";
+        var io = new TestConsoleIO();
+
+        String testCmd = "./gradlew test";
+        String lintCmd = "./gradlew lint";
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> {
+            if (cmd.equals(testCmd)) {
+                return "";
+            }
+            if (cmd.equals(lintCmd)) {
+                return "LINT FAILED OUTPUT";
+            }
+            return fail("Unexpected command: " + cmd);
+        };
+
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        jobId,
+                        store,
+                        io,
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        out -> {},
+                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        1));
+
+        var events = store.readEvents(jobId, -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        assertEquals(2, commandEvents.size(), "Attempt should record both tests and lint results");
+
+        assertTrue(commandEvents.getFirst().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var testsEvent = (Map<String, Object>) commandEvents.getFirst().data();
+        assertEquals("tests", testsEvent.get("stage"));
+        assertEquals(testCmd, testsEvent.get("command"));
+        assertEquals(1, ((Number) testsEvent.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, testsEvent.get("skipped"));
+        assertEquals(Boolean.TRUE, testsEvent.get("success"));
+        assertEquals("", testsEvent.get("output"));
+
+        assertTrue(commandEvents.getLast().data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var lintEvent = (Map<String, Object>) commandEvents.getLast().data();
+        assertEquals("lint", lintEvent.get("stage"));
+        assertEquals(lintCmd, lintEvent.get("command"));
+        assertEquals(1, ((Number) lintEvent.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, lintEvent.get("skipped"));
+        assertEquals(Boolean.FALSE, lintEvent.get("success"));
+        assertEquals("LINT FAILED OUTPUT", lintEvent.get("output"));
     }
 
     @Test
@@ -824,6 +1064,214 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void issueReviewFix_successThenFailure_emitsStructuredCommandResultEvents_roundTripThroughJobStore()
+            throws Exception {
+        String jobId = "job-review-fix-events-success-then-failure-1";
+        var io = new TestConsoleIO();
+
+        var comments = List.of(
+                new PrReviewService.InlineComment(
+                        "src/main/java/com/acme/A.java", 11, "Null deref risk in foo()", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment(
+                        "src/main/java/com/acme/B.java",
+                        22,
+                        "Missing bounds check in bar()",
+                        PrReviewService.Severity.CRITICAL));
+
+        var cancelled = new AtomicBoolean(false);
+        var ran = new AtomicInteger(0);
+        var branchHooks = new AtomicInteger(0);
+
+        Consumer<PrReviewService.InlineComment> runner = c -> {
+            int idx = ran.incrementAndGet();
+            if (idx == 2) {
+                throw new RuntimeException("boom");
+            }
+        };
+
+        Runnable branchHook = () -> branchHooks.incrementAndGet();
+
+        var thrown = assertThrows(
+                RuntimeException.class,
+                () -> JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+                        jobId, store, io, cancelled::get, comments, runner, branchHook));
+        assertEquals("boom", thrown.getMessage());
+
+        assertEquals(2, ran.get(), "Should run until the failure (attempt 2)");
+        assertEquals(1, branchHooks.get(), "Branch hook runs only after successful attempt 1");
+
+        var events = store.readEvents(jobId, -1, 0);
+        var reviewFixEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .filter(e -> e.data() instanceof Map && "review_fix".equals(((Map<?, ?>) e.data()).get("stage")))
+                .toList();
+
+        assertEquals(2, reviewFixEvents.size(), "Should emit exactly two review_fix COMMAND_RESULT events");
+
+        assertTrue(reviewFixEvents.get(0).data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) reviewFixEvents.get(0).data();
+
+        assertEquals("review_fix", first.get("stage"));
+        assertEquals("src/main/java/com/acme/A.java:11", first.get("command"));
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, first.get("skipped"));
+        assertEquals(Boolean.TRUE, first.get("success"));
+
+        String firstOut = (String) first.get("output");
+        assertNotNull(firstOut);
+        assertTrue(firstOut.contains("Finding:"), "Output should include a Finding block");
+        assertTrue(firstOut.contains("- path: src/main/java/com/acme/A.java"));
+        assertTrue(firstOut.contains("- line: 11"));
+        assertTrue(firstOut.contains("- severity: HIGH"));
+        assertTrue(firstOut.contains("Null deref risk in foo()"));
+        assertTrue(firstOut.contains("Outcome: completed"));
+
+        assertTrue(reviewFixEvents.get(1).data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) reviewFixEvents.get(1).data();
+
+        assertEquals("review_fix", second.get("stage"));
+        assertEquals("src/main/java/com/acme/B.java:22", second.get("command"));
+        assertEquals(2, ((Number) second.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, second.get("skipped"));
+        assertEquals(Boolean.FALSE, second.get("success"));
+
+        String secondOut = (String) second.get("output");
+        assertNotNull(secondOut);
+        assertTrue(secondOut.contains("- path: src/main/java/com/acme/B.java"));
+        assertTrue(secondOut.contains("- line: 22"));
+        assertTrue(secondOut.contains("- severity: CRITICAL"));
+        assertTrue(secondOut.contains("Missing bounds check in bar()"));
+        assertTrue(secondOut.contains("Outcome: failed"));
+
+        assertNotNull(second.get("exception"));
+        assertTrue(((String) second.get("exception")).contains("RuntimeException: boom"));
+    }
+
+    @Test
+    void issueReviewFix_cancellationAfterAttempt1_emitsAttempt2SkippedEvent_withCancellationReason() throws Exception {
+        String jobId = "job-review-fix-events-cancel-after-1-1";
+        var io = new TestConsoleIO();
+
+        var comments = List.of(
+                new PrReviewService.InlineComment(
+                        "src/main/java/com/acme/A.java",
+                        101,
+                        "Potential NPE in baz()",
+                        PrReviewService.Severity.MEDIUM),
+                new PrReviewService.InlineComment(
+                        "src/main/java/com/acme/C.java",
+                        202,
+                        "Unbounded recursion in qux()",
+                        PrReviewService.Severity.CRITICAL));
+
+        var cancelled = new AtomicBoolean(false);
+        var ran = new AtomicInteger(0);
+        var branchHooks = new AtomicInteger(0);
+
+        Consumer<PrReviewService.InlineComment> runner = c -> {
+            int idx = ran.incrementAndGet();
+            if (idx == 1) {
+                cancelled.set(true);
+            }
+        };
+        Runnable branchHook = () -> branchHooks.incrementAndGet();
+
+        JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+                jobId, store, io, cancelled::get, comments, runner, branchHook);
+
+        assertEquals(1, ran.get(), "Attempt 2 should not execute after cancellation flips true");
+        assertEquals(1, branchHooks.get(), "Branch hook runs only for executed attempt 1");
+
+        var events = store.readEvents(jobId, -1, 0);
+        var reviewFixEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .filter(e -> e.data() instanceof Map && "review_fix".equals(((Map<?, ?>) e.data()).get("stage")))
+                .toList();
+
+        assertEquals(2, reviewFixEvents.size(), "Should emit attempt 1 result and attempt 2 skipped");
+
+        assertTrue(reviewFixEvents.get(0).data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) reviewFixEvents.get(0).data();
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, first.get("skipped"));
+        assertEquals(Boolean.TRUE, first.get("success"));
+
+        assertTrue(reviewFixEvents.get(1).data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) reviewFixEvents.get(1).data();
+
+        assertEquals("review_fix", second.get("stage"));
+        assertEquals("src/main/java/com/acme/C.java:202", second.get("command"));
+        assertEquals(2, ((Number) second.get("attempt")).intValue());
+        assertEquals(Boolean.TRUE, second.get("skipped"));
+
+        assertNotNull(second.get("skipReason"));
+        assertTrue(
+                ((String) second.get("skipReason")).toLowerCase().contains("cancel"),
+                "skipReason should indicate cancellation");
+        assertEquals(Boolean.TRUE, second.get("success"));
+
+        String out = (String) second.get("output");
+        assertNotNull(out);
+        assertTrue(out.contains("Outcome: skipped"));
+        assertTrue(out.contains("- path: src/main/java/com/acme/C.java"));
+        assertTrue(out.contains("- line: 202"));
+    }
+
+    @Test
+    void issueReviewFix_whenCancelledBeforeStart_emitsSkippedEventsForAllAttempts() throws Exception {
+        String jobId = "job-review-fix-events-cancelled-1";
+        var io = new TestConsoleIO();
+
+        var comments = List.of(
+                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL));
+
+        var cancelled = new AtomicBoolean(true);
+        var ran = new AtomicInteger(0);
+        var branchHooks = new AtomicInteger(0);
+
+        Consumer<PrReviewService.InlineComment> runner = c -> ran.incrementAndGet();
+        Runnable branchHook = () -> branchHooks.incrementAndGet();
+
+        JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+                jobId, store, io, cancelled::get, comments, runner, branchHook);
+
+        assertEquals(0, ran.get(), "No tasks should run when already cancelled");
+        assertEquals(0, branchHooks.get(), "No branch hooks should run when cancelled");
+
+        var events = store.readEvents(jobId, -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        assertEquals(2, commandEvents.size(), "Must emit exactly one skipped event per comment");
+
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) commandEvents.get(0).data();
+        assertEquals("review_fix", first.get("stage"));
+        assertEquals("src/A.java:10", first.get("command"));
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
+        assertEquals(Boolean.TRUE, first.get("skipped"));
+        assertEquals("cancelled", first.get("skipReason"));
+        assertEquals(Boolean.TRUE, first.get("success"));
+        assertTrue(((String) first.get("output")).contains("Outcome: skipped"));
+
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) commandEvents.get(1).data();
+        assertEquals("review_fix", second.get("stage"));
+        assertEquals("src/B.java:20", second.get("command"));
+        assertEquals(2, ((Number) second.get("attempt")).intValue());
+        assertEquals(Boolean.TRUE, second.get("skipped"));
+        assertEquals("cancelled", second.get("skipReason"));
+        assertEquals(Boolean.TRUE, second.get("success"));
+        assertTrue(((String) second.get("output")).contains("Outcome: skipped"));
+    }
+
+    @Test
     void testPrSkippedWhenFinalVerificationStillFails() {
         var verificationCalls = new AtomicInteger(0);
         var fixCalls = new AtomicInteger(0);
@@ -837,7 +1285,8 @@ class JobRunnerIssueModeTest {
         Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
         assertThrows(IssueExecutionException.class, () -> {
-            JobRunner.runSingleFixVerificationGate("job-pr-skip-1", store, io, verificationRunner, fixRunner);
+            JobRunner.runSingleFixVerificationGate(
+                    "job-pr-skip-1", store, io, "verification", verificationRunner, fixRunner);
             // This line simulates PR creation that must not be reached if verification fails.
             prCreated.set(true);
         });

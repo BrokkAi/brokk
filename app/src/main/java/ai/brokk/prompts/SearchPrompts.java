@@ -79,6 +79,12 @@ public class SearchPrompts {
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ISSUE_JSON);
             }
+        },
+        PROMPT_ENRICHMENT {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER);
+            }
         };
 
         public abstract Set<Terminal> terminals();
@@ -588,6 +594,31 @@ public class SearchPrompts {
                           - identifiers/symbol names
                           - fragment ids when available
                         It MAY include a section like "## Agent Instructions" but it must be inside bodyMarkdown.
+                    """);
+            case PROMPT_ENRICHMENT ->
+                new TerminalObjective(
+                        "prompt_enrichment",
+                        """
+                    Write an execution-ready enrichment of the user's request. Output ONLY the enriched prompt text via answer(String).
+
+                    Rules:
+                      - Restate the request and preserve ALL explicit facts/constraints from the input.
+                      - Do NOT invent. Do NOT guess. Do NOT add new tech, requirements, or details not stated.
+                      - Ambiguities/missing info must become questions under **Open Questions** (no assumptions).
+                      - Identify the primary code changes needed in this repo to implement the request (what to edit/add/remove at a high level).
+                      - If input names files/functions/symbols, cite them; otherwise do NOT invent paths/symbols.
+                      - Put test/verification expectations in **Acceptance Criteria** and/or **Verification**.
+
+                    Output (REQUIRED; exact labels, in order):
+                    **Summary**
+                    **Context**
+                    **Requirements**
+                    **Constraints**
+                    **Edge Cases**
+                    **Acceptance Criteria**
+                    **Open Questions**
+                    **Verification**
+                    **Plan** (explicit step-by-step; in **Plan**, name the key files/modules/classes/methods to change only if supported by the input or discovered from the repo; otherwise ask in **Open Questions**)
                     """);
         };
     }

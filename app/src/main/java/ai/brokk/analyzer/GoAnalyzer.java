@@ -3,11 +3,17 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,16 +26,24 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
 
-public final class GoAnalyzer extends TreeSitterAnalyzer {
+public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
-    // GO_LANGUAGE field removed, createTSLanguage will provide new instances.
+    private final Cache<String, String> importPathToPackageNameCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
+
+    // Pattern to match both double-quoted and backtick-quoted import paths
+    private static final Pattern IMPORT_PATH_PATTERN = Pattern.compile("\"([^\"]+)\"|`([^`]+)`");
+
+    // Pattern to strip Go comments (line comments // and block comments /* */)
+    private static final Pattern GO_COMMENT_PATTERN = Pattern.compile("//[^\r\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/");
+
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(TYPE_SPEC), // classLikeNodeTypes
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
-            IMPORT_DECLARATION,
+            CaptureNames.IMPORT_DECLARATION, // importNodeType - matches @import.declaration capture in go.scm
             "name", // identifierFieldName (used as fallback if specific .name capture is missing)
             "body", // bodyFieldName (e.g. function_declaration.body -> block)
             "parameters", // parametersFieldName
@@ -55,29 +69,16 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             Set.of() // modifierNodeTypes (Go visibility is by capitalization)
             );
 
-    @Nullable
-    private final ThreadLocal<TSQuery> packageQuery;
-
-    private ThreadLocal<TSQuery> createGoNamespaceQuery() {
-        // Initialize the ThreadLocal for the package query.
-        // getTSLanguage() is safe to call here and will provide a thread-specific TSLanguage.
-        return ThreadLocal.withInitial(() -> {
-            return new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
-        });
-    }
-
     public GoAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
     }
 
     public GoAnalyzer(IProject project, ProgressListener listener) {
         super(project, Languages.GO, listener);
-        this.packageQuery = createGoNamespaceQuery();
     }
 
     private GoAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
         super(project, Languages.GO, state, listener);
-        this.packageQuery = createGoNamespaceQuery();
     }
 
     public static GoAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
@@ -107,46 +108,23 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
-        TSQuery currentPackageQuery;
-        if (this.packageQuery != null) { // Check if GoAnalyzer constructor has initialized the ThreadLocal field
-            currentPackageQuery = this.packageQuery.get();
-        } else {
-            // This block executes if determinePackageName is called during TreeSitterAnalyzer's constructor,
-            // before this.packageQuery (ThreadLocal) is initialized in GoAnalyzer's constructor.
-            log.trace(
-                    "GoAnalyzer.determinePackageName: packageQuery ThreadLocal is null, creating temporary query for file {}",
-                    file);
-            try {
-                currentPackageQuery = new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
-            } catch (RuntimeException e) {
-                log.error(
-                        "Failed to compile temporary package query for GoAnalyzer in determinePackageName for file {}: {}",
-                        file,
-                        e.getMessage(),
-                        e);
-                return ""; // Cannot proceed without the query
-            }
-        }
-
+        TSQuery query = getThreadLocalQuery();
         TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(currentPackageQuery, rootNode);
-        TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+        cursor.exec(query, rootNode);
+        TSQueryMatch match = new TSQueryMatch();
 
-        if (cursor.nextMatch(match)) { // Assuming only one package declaration per Go file
+        if (cursor.nextMatch(match)) {
             for (TSQueryCapture capture : match.getCaptures()) {
-                // The query "(package_clause (package_identifier) @name)" captures the package_identifier node with
-                // name "name"
-                if ("name".equals(currentPackageQuery.getCaptureNameForId(capture.getIndex()))) {
+                if (CaptureNames.PACKAGE_DEFINITION.equals(query.getCaptureNameForId(capture.getIndex()))) {
                     TSNode nameNode = capture.getNode();
                     if (nameNode != null && !nameNode.isNull()) {
                         return sourceContent.substringFrom(nameNode).trim();
                     }
                 }
             }
-        } else {
-            log.warn("No package declaration found in Go file: {}", file);
         }
-        return ""; // Default if no package name found or an error occurs
+        log.warn("No package declaration found in Go file: {}", file);
+        return "";
     }
 
     @Override
@@ -435,6 +413,125 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForGo(reference);
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    /**
+     * Resolves Go import statements into a set of {@link CodeUnit}s.
+     * <p>
+     * Go imports are package-based. This method extracts the import paths,
+     * identifies the package name (usually the last segment), and resolves
+     * it to the package's exported members.
+     * Blank imports ('_') are skipped as they are for side-effects only.
+     * <p>
+     * Unlike Java, Go does not have explicit module CodeUnits. Instead, we find
+     * all CodeUnits whose packageName matches the imported package.
+     * <p>
+     * Handles both double-quoted ("path") and backtick-quoted (`path`) import paths,
+     * and ignores paths that appear inside comments.
+     * <p>
+     * NOTE: Regex-based comment stripping is necessary here because Tree-sitter node text
+     * (the raw strings in {@code importStatements}) represents the original source bytes
+     * between the node's start and end offsets, which includes comments and whitespace
+     * contained within the node's range.
+     */
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        if (importStatements.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> importedPackageNames = new LinkedHashSet<>();
+
+        for (String statement : importStatements) {
+            String trimmed = statement.trim();
+            if (trimmed.isEmpty() || !trimmed.startsWith("import")) continue;
+
+            // Strip comments to prevent the path regex from matching quoted strings inside comments
+            String withoutComments = GO_COMMENT_PATTERN.matcher(trimmed).replaceAll("");
+
+            // Find all quoted paths in the statement (handles both single and grouped imports)
+            Matcher m = IMPORT_PATH_PATTERN.matcher(withoutComments);
+            while (m.find()) {
+                if (!isBlankImport(withoutComments, m.start())) {
+                    // group(1) is double-quoted, group(2) is backtick-quoted
+                    String path = m.group(1) != null ? m.group(1) : m.group(2);
+                    importedPackageNames.add(resolveImportPathToPackageName(path));
+                }
+            }
+        }
+
+        // Go doesn't create module CodeUnits like Java does.
+        // Instead, find all CodeUnits whose packageName matches the imported package.
+        Set<CodeUnit> resolved = new LinkedHashSet<>();
+        for (String pkgName : importedPackageNames) {
+            // Pattern ^pkgName\. matches fqNames starting with "pkgName."
+            // since fqName = packageName + "." + shortName
+            String pattern = "^" + Pattern.quote(pkgName) + "\\.";
+            for (CodeUnit cu : searchDefinitions(pattern, false)) {
+                if (!cu.isModule()) {
+                    resolved.add(cu);
+                }
+            }
+        }
+
+        return Collections.unmodifiableSet(resolved);
+    }
+
+    private String resolveImportPathToPackageName(String importPath) {
+        return importPathToPackageNameCache.get(importPath, path -> {
+            // 1. Try to find actual source files in the project that match this import path.
+            // Go import paths always use forward slashes.
+            Set<ProjectFile> goFiles = getProject().getAnalyzableFiles(Languages.GO);
+
+            for (ProjectFile pf : goFiles) {
+                // Normalize the relative path to use forward slashes for comparison
+                String relPath = pf.getRelPath().toString().replace('\\', '/');
+                // We check if the file is inside a directory matching the import path.
+                // e.g., import "mymodule/pkg" matches "vendor/mymodule/pkg/file.go"
+                if (relPath.contains("/" + path + "/") || relPath.startsWith(path + "/")) {
+
+                    // Read the file and determine its package name
+                    Optional<SourceContent> content = SourceContent.read(pf);
+                    if (content.isPresent()) {
+                        TSTree tree = treeOf(pf);
+                        if (tree != null) {
+                            String pkgName =
+                                    determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get());
+                            if (!pkgName.isEmpty()) {
+                                return pkgName;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Fallback to last segment heuristic if no source found
+            int lastSlash = path.lastIndexOf('/');
+            if (lastSlash != -1) {
+                return path.substring(lastSlash + 1);
+            }
+            return path;
+        });
+    }
+
+    private boolean isBlankImport(String text, int quoteStart) {
+        // Look backwards from the start of the quoted path for a '_'
+        // We look only at the immediate prefix on the same line or after the last space/newline/carriage return
+        String prefix = text.substring(0, quoteStart).trim();
+        int lastSpace = Math.max(Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('\n')), prefix.lastIndexOf('\r'));
+        String lastToken =
+                lastSpace == -1 ? prefix : prefix.substring(lastSpace).trim();
+        return "_".equals(lastToken);
     }
 
     @Override
