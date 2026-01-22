@@ -1338,7 +1338,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void showPlaceholder(JTextArea area) {
         assert SwingUtilities.isEventDispatchThread();
         currentPlaceholderText = buildPlaceholderTextFromCurrentKeybindings();
-        assert !currentPlaceholderText.trim().isEmpty() : "Placeholder text must not be blank";
+        if (currentPlaceholderText.trim().isEmpty()) {
+            throw new IllegalStateException("Placeholder text must not be blank");
+        }
         placeholderActive = true;
         area.setText(currentPlaceholderText);
     }
