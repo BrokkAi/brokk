@@ -345,6 +345,55 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         return Collections.unmodifiableSet(resolved);
     }
 
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch,
+            SourceContent sourceContent,
+            List<ImportInfo> localImportInfos) {
+        // Get the import node using the standard capture name
+        TSNode importNode = capturedNodesForMatch.get(CaptureNames.IMPORT_DECLARATION);
+        if (importNode == null || importNode.isNull()) {
+            return;
+        }
+
+        String importText = sourceContent.substringFrom(importNode).strip();
+        if (importText.isEmpty()) {
+            return;
+        }
+
+        // Determine if this is a local include ("...") or system include (<...>)
+        // and extract the identifier (filename without extension) for local includes
+        String identifier = null;
+
+        // Check for quoted include: #include "header.h"
+        Matcher quotedMatcher = QUOTED_INCLUDE_PATTERN.matcher(importText);
+        if (quotedMatcher.find()) {
+            String path = quotedMatcher.group(1);
+            // Extract filename without extension as identifier
+            identifier = extractFilenameWithoutExtension(path);
+        }
+        // System includes (<...>) get null identifier - can't reliably match
+
+        localImportInfos.add(new ImportInfo(importText, false, identifier, null));
+    }
+
+    /**
+     * Extracts the filename without extension from an include path.
+     * E.g., "helper.h" -> "helper", "path/to/file.hpp" -> "file"
+     */
+    private String extractFilenameWithoutExtension(String path) {
+        // Get the filename part (after last /)
+        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        String filename = (lastSlash >= 0) ? path.substring(lastSlash + 1) : path;
+
+        // Remove extension
+        int lastDot = filename.lastIndexOf('.');
+        if (lastDot > 0) {
+            return filename.substring(0, lastDot);
+        }
+        return filename;
+    }
+
     private Optional<ProjectFile> resolveRelativeInclude(ProjectFile includingFile, String relativePath) {
         try {
             var parent = includingFile.absPath().getParent();
