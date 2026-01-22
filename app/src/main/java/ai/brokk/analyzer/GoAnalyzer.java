@@ -128,7 +128,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         cursor.exec(query, rootNode);
         TSQueryMatch match = new TSQueryMatch();
 
-        while (cursor.nextMatch(match)) {
+        if (cursor.nextMatch(match)) {
             for (TSQueryCapture capture : match.getCaptures()) {
                 if (CaptureNames.PACKAGE_DEFINITION.equals(query.getCaptureNameForId(capture.getIndex()))) {
                     TSNode nameNode = capture.getNode();
