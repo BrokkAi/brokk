@@ -31,13 +31,15 @@ class IssueServiceTest {
         Path projectRoot = tempDir.resolve("project");
         Path worktreeDir = tempDir.resolve("worktrees");
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
-            // New randomized behavior: ensure prefix is correct and a random alphanumeric suffix is present.
-            String branchName = IssueService.generateBranchNameWithRandomSuffix(42, repo);
-            String prefix = "brokk/issue-42-";
-            assertTrue(branchName.startsWith(prefix), () -> "branchName should start with " + prefix);
-            String suffix = branchName.substring(prefix.length());
-            assertEquals(6, suffix.length(), "random suffix should be 6 characters");
-            assertTrue(suffix.matches("[a-z0-9]{6}"), "random suffix should be lowercase alphanumeric");
+            // Use deterministic seam to avoid randomness in tests while validating format.
+            String branchName = IssueService.generateBranchName(42, repo, "fixed");
+            assertTrue(
+                    branchName.startsWith("brokk/issue-42-fixed"),
+                    () -> "branchName should start with brokk/issue-42-fixed");
+            // Allow optional collision suffix appended by sanitizeBranchName (e.g., -2, -3)
+            assertTrue(
+                    branchName.matches("brokk/issue-42-fixed(-\\d+)?"),
+                    "branchName should be brokk/issue-42-fixed with optional -N collision suffix");
         }
     }
 
