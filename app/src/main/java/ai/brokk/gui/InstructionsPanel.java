@@ -1342,9 +1342,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var messagePanel = new JPanel();
         messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
-        messagePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        messagePanel.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
 
         var bodyArea = new JTextArea(bodyText);
+        bodyArea.setColumns(40);
         bodyArea.setEditable(false);
         bodyArea.setFocusable(false);
         bodyArea.setOpaque(false);
@@ -1357,7 +1358,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bodyArea.setAlignmentX(Component.LEFT_ALIGNMENT);
         messagePanel.add(bodyArea);
 
-        messagePanel.add(Box.createVerticalStrut(8));
+        messagePanel.add(Box.createVerticalStrut(12));
 
         var linkLabel = new BrowserLabel(linkUrl, linkText);
         linkLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
