@@ -605,6 +605,7 @@ public class SearchPrompts {
                       - Restate the request and preserve ALL explicit facts/constraints from the input.
                       - Do NOT invent. Do NOT guess. Do NOT add new tech, requirements, or details not stated.
                       - Ambiguities/missing info must become questions under **Open Questions** (no assumptions).
+                      - Identify the primary code changes needed in this repo to implement the request (what to edit/add/remove at a high level).
                       - If input names files/functions/symbols, cite them; otherwise do NOT invent paths/symbols.
                       - Put test/verification expectations in **Acceptance Criteria** and/or **Verification**.
 
@@ -617,7 +618,7 @@ public class SearchPrompts {
                     **Acceptance Criteria**
                     **Open Questions**
                     **Verification**
-                    **Plan** (explicit step-by-step)
+                    **Plan** (explicit step-by-step; in **Plan**, name the key files/modules/classes/methods to change only if supported by the input or discovered from the repo; otherwise ask in **Open Questions**)
                     """);
         };
     }

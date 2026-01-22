@@ -49,6 +49,7 @@ class SearchPromptsPromptEnrichmentFormatTest {
             assertTrue(directive.contains("enrichment"));
             assertTrue(directive.contains("Do NOT invent"));
             assertTrue(directive.contains("Do NOT guess"));
+            assertTrue(directive.contains("Identify the primary code changes"));
 
             assertTrue(directive.contains("**Summary**"));
             assertTrue(directive.contains("**Context**"));
@@ -62,6 +63,9 @@ class SearchPromptsPromptEnrichmentFormatTest {
 
             assertTrue(directive.contains("step-by-step"));
             assertTrue(directive.contains("cite them; otherwise do NOT invent paths/symbols"));
+            assertTrue(directive.contains("key files/modules/classes/methods"));
+            assertTrue(directive.contains("only if supported by the input or discovered from the repo"));
+            assertTrue(directive.contains("otherwise ask in **Open Questions**"));
         } finally {
             ai.brokk.util.FileUtil.deleteRecursively(tempDir);
         }
