@@ -97,7 +97,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_PLAN = "Plan";
 
     private static final String PLACEHOLDER_PREFIX = "Type your prompt here. ";
-    private static final String PLACEHOLDER_NEWLINE_HINT = "Shift+Enter = newline.";
 
     private boolean placeholderActive = false;
     private String currentPlaceholderText = "";
@@ -725,7 +724,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Add Shift+Enter shortcut to insert a newline
-        var shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+        var shiftEnter = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
         area.getInputMap().put(shiftEnter, "insertNewline");
         area.getActionMap().put("insertNewline", new AbstractAction() {
             @Override
@@ -1328,7 +1327,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
         String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
 
-        String base = PLACEHOLDER_PREFIX + PLACEHOLDER_NEWLINE_HINT;
+        KeyStroke newlineKs = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
+        String newlineStr = KeyboardShortcutUtil.formatKeyStroke(newlineKs);
+        String newlineHint = newlineStr.isBlank() ? "" : newlineStr + " = newline.";
+
+        String base = PLACEHOLDER_PREFIX + newlineHint;
         if (submitHint.isBlank()) {
             return (base + "\n").stripIndent();
         }
