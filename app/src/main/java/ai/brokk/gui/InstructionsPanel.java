@@ -1335,33 +1335,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private boolean showFullPowerFirstTimeConfirmationDialog() {
         assert SwingUtilities.isEventDispatchThread();
 
-        String bodyText =
-                "I think it’s time to demonstrate the full power of this station.";
-        String linkText = "Here’s what Full Power unlocks.";
+        String bodyText = "I think it's time to demonstrate the full power of this station.";
+        String linkText = "Here's what Full Power unlocks.";
         String linkUrl = "https://brokk.ai/documentation/overview";
 
         var messagePanel = new JPanel();
-        messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
+        messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.X_AXIS));
         messagePanel.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
 
         var bodyArea = new JTextArea(bodyText);
-        bodyArea.setColumns(40);
         bodyArea.setEditable(false);
         bodyArea.setFocusable(false);
         bodyArea.setOpaque(false);
-        bodyArea.setLineWrap(true);
-        bodyArea.setWrapStyleWord(true);
         var labelFont = UIManager.getFont("Label.font");
         if (labelFont != null) {
             bodyArea.setFont(labelFont);
         }
-        bodyArea.setAlignmentX(Component.LEFT_ALIGNMENT);
+        bodyArea.setAlignmentY(Component.CENTER_ALIGNMENT);
         messagePanel.add(bodyArea);
 
-        messagePanel.add(Box.createVerticalStrut(12));
+        messagePanel.add(Box.createHorizontalStrut(8));
 
         var linkLabel = new BrowserLabel(linkUrl, linkText);
-        linkLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        linkLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
         messagePanel.add(linkLabel);
 
         String primary = "Fire when ready";
