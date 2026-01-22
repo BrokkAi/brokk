@@ -924,7 +924,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         for (String id : unresolvedIdentifiers) {
             for (ImportInfo wildcardImp : wildcardImports) {
                 String pkg = extractPackageFromWildcard(wildcardImp.rawSnippet());
-                if (!getDefinitions(pkg + "." + id).isEmpty()) {
+                
+                // Try both flat lookup (for C++) and package-qualified lookup (for Java/Go)
+                boolean found = !getDefinitions(id).isEmpty();
+                if (!found && !pkg.isEmpty()) {
+                    String lookupName = pkg + "." + id;
+                    found = !getDefinitions(lookupName).isEmpty();
+                }
+
+                if (found) {
                     matchedImports.add(wildcardImp.rawSnippet());
                     usedWildcards.add(wildcardImp);
                     resolvedViaWildcard.add(id);

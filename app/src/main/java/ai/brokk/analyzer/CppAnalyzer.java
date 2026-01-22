@@ -1011,6 +1011,114 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     @Override
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        // C++ doesn't have Java-style wildcards.
+        // However, for #include "header.h", we treat the base filename as the "package"
+        // to help relevantImportsFor match symbols against that header's contents.
+        Matcher m = QUOTED_INCLUDE_PATTERN.matcher(rawSnippet);
+        if (m.find()) {
+            return extractFilenameWithoutExtension(m.group(1));
+        }
+        return "";
+    }
+
+    /**
+     * C++ override of relevantImportsFor that checks if extracted identifiers
+     * are defined in the resolved imports from each #include.
+     * 
+     * Unlike Java where import statements directly name the imported types,
+     * C++ #include statements bring in all declarations from a header file.
+     * We match by checking if any called function/type is declared in the included header.
+     */
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+        String source = sourceOpt.get();
+
+        List<ImportInfo> allImports = importInfoOf(cu.source());
+        if (allImports.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> typeIdentifiers = extractTypeIdentifiers(source);
+        if (typeIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> matchedImports = new HashSet<>();
+
+        // For each include, check if any of the identifiers we use are defined in that header
+        for (ImportInfo imp : allImports) {
+            String rawSnippet = imp.rawSnippet();
+            
+            // Only process quoted includes (local headers we can resolve)
+            Matcher m = QUOTED_INCLUDE_PATTERN.matcher(rawSnippet);
+            if (!m.find()) {
+                continue;
+            }
+
+            String includePath = m.group(1);
+            var resolvedFileOpt = resolveRelativeIncludeForRelevance(cu.source(), includePath);
+            if (resolvedFileOpt.isEmpty()) {
+                continue;
+            }
+
+            ProjectFile resolvedFile = resolvedFileOpt.get();
+            Set<CodeUnit> declaredInHeader = getDeclarations(resolvedFile);
+
+            // Check if any identifier we use is declared in this header
+            for (CodeUnit headerCu : declaredInHeader) {
+                String shortName = headerCu.shortName();
+                // For methods like "ClassName.methodName", extract just the method name
+                int dotIdx = shortName.lastIndexOf('.');
+                String simpleName = (dotIdx >= 0) ? shortName.substring(dotIdx + 1) : shortName;
+                
+                if (typeIdentifiers.contains(simpleName)) {
+                    matchedImports.add(rawSnippet);
+                    break;
+                }
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    /**
+     * Resolves a relative include path to a ProjectFile for relevance checking.
+     * Similar to resolveRelativeInclude but returns Optional for cleaner API.
+     */
+    private Optional<ProjectFile> resolveRelativeIncludeForRelevance(ProjectFile includingFile, String relativePath) {
+        try {
+            var parent = includingFile.absPath().getParent();
+            if (parent == null) {
+                return Optional.empty();
+            }
+
+            var resolvedPath = parent.resolve(relativePath).normalize();
+            var root = includingFile.getRoot();
+
+            // Guard against path traversal outside project root
+            if (!resolvedPath.startsWith(root)) {
+                return Optional.empty();
+            }
+
+            var relToRoot = root.relativize(resolvedPath);
+            ProjectFile candidate = new ProjectFile(root, relToRoot);
+            
+            // Verify the file exists in the project's analyzed files
+            if (getTopLevelDeclarations().containsKey(candidate)) {
+                return Optional.of(candidate);
+            }
+        } catch (InvalidPathException e) {
+            log.debug("Failed to resolve relative include '{}' from '{}'", relativePath, includingFile, e);
+        }
+        return Optional.empty();
+    }
+
+    @Override
     protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
         // For C++, we ignore duplicates for classes, fields, and modules
         // BUT NOT for functions, because they might be overloads with different signatures
@@ -1029,6 +1137,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         // For other types, use default behavior
         return super.shouldIgnoreDuplicate(existing, candidate, file);
     }
+
 
     @Override
     protected Comparator<CodeUnit> prioritizingComparator() {
@@ -1074,6 +1183,48 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
             return 0;
         };
+    }
+
+    @Override
+    protected Set<String> extractTypeIdentifiers(String source) {
+        // Strip C-style comments
+        String noComments = source.replaceAll("//[^\n]*", "");
+        noComments = noComments.replaceAll("/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/", "");
+
+        Set<String> identifiers = new HashSet<>();
+        // Match identifiers: starting with letter/underscore, followed by alphanum/underscore.
+        // Also captures namespace-qualified names like std::vector
+        var pattern = Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*(?:::[a-zA-Z_][a-zA-Z0-9_]*)*)\\b");
+        var matcher = pattern.matcher(noComments);
+
+        Set<String> keywords = Set.of(
+                "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit",
+                "atomic_noexcept", "auto", "bitand", "bitor", "bool", "break", "case", "catch",
+                "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const",
+                "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await",
+                "co_return", "co_yield", "decltype", "default", "delete", "do", "double",
+                "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float",
+                "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace",
+                "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq",
+                "private", "protected", "public", "reflexpr", "register", "reinterpret_cast",
+                "requires", "return", "short", "signed", "sizeof", "static", "static_assert",
+                "static_cast", "struct", "switch", "synchronized", "template", "this",
+                "thread_local", "throw", "true", "try", "typedef", "typeid", "typename",
+                "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t",
+                "while", "xor", "xor_eq");
+
+        while (matcher.find()) {
+            String fullIdentifier = matcher.group(1);
+            // In C++, we might call a function directly or via a namespace.
+            // We want to extract both the full name and segments to match against headers.
+            List<String> parts = Splitter.on("::").splitToList(fullIdentifier);
+            for (String part : parts) {
+                if (!keywords.contains(part)) {
+                    identifiers.add(part);
+                }
+            }
+        }
+        return identifiers;
     }
 
     public String getCacheStatistics() {

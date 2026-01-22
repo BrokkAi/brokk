@@ -175,7 +175,6 @@ class CppImportTest {
     }
 
     @Test
-    @Disabled("TODO: Override extractTypeIdentifiers in CppAnalyzer to support lowercase C++ function/variable names")
     void testRelevantImportsForFunction() throws IOException {
         String header = "void helperFunction();";
         String source =
@@ -202,7 +201,6 @@ class CppImportTest {
     }
 
     @Test
-    @Disabled("TODO: Override extractTypeIdentifiers in CppAnalyzer to support lowercase C++ function/variable names")
     void testRelevantImportsExcludesUnused() throws IOException {
         String h1 = "void f1();";
         String h2 = "void f2();";
