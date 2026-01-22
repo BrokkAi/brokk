@@ -343,11 +343,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    public List<ImportInfo> importInfoOf(ProjectFile file) {
-        return super.importInfoOf(file);
-    }
-
-    @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return performReferencingFilesOf(file);
     }
