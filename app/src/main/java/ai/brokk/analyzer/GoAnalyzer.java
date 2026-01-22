@@ -4,6 +4,7 @@ import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
 import java.util.Collections;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -26,6 +27,8 @@ import org.treesitter.TreeSitterGo;
 
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
+
+    private final ConcurrentHashMap<String, String> importPathToPackageNameCache = new ConcurrentHashMap<>();
 
     // Pattern to match both double-quoted and backtick-quoted import paths
     private static final Pattern IMPORT_PATH_PATTERN = Pattern.compile("\"([^\"]+)\"|`([^`]+)`");
@@ -478,38 +481,40 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     private String resolveImportPathToPackageName(String importPath) {
-        // 1. Try to find actual source files in the project that match this import path
-        Set<ProjectFile> goFiles = getProject().getAnalyzableFiles(Languages.GO);
-        String pathSuffix = importPath.replace('/', java.io.File.separatorChar);
+        return importPathToPackageNameCache.computeIfAbsent(importPath, path -> {
+            // 1. Try to find actual source files in the project that match this import path
+            Set<ProjectFile> goFiles = getProject().getAnalyzableFiles(Languages.GO);
+            String pathSuffix = path.replace('/', java.io.File.separatorChar);
 
-        for (ProjectFile pf : goFiles) {
-            String relPath = pf.getRelPath().toString();
-            // We check if the file is inside a directory matching the import path.
-            // e.g., import "mymodule/pkg" matches "vendor/mymodule/pkg/file.go"
-            if (relPath.contains(java.io.File.separator + pathSuffix + java.io.File.separator)
-                    || relPath.startsWith(pathSuffix + java.io.File.separator)) {
+            for (ProjectFile pf : goFiles) {
+                String relPath = pf.getRelPath().toString();
+                // We check if the file is inside a directory matching the import path.
+                // e.g., import "mymodule/pkg" matches "vendor/mymodule/pkg/file.go"
+                if (relPath.contains(java.io.File.separator + pathSuffix + java.io.File.separator)
+                        || relPath.startsWith(pathSuffix + java.io.File.separator)) {
 
-                // Read the file and determine its package name
-                Optional<SourceContent> content = SourceContent.read(pf);
-                if (content.isPresent()) {
-                    TSTree tree = treeOf(pf);
-                    if (tree != null) {
-                        String pkgName =
-                                determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get());
-                        if (!pkgName.isEmpty()) {
-                            return pkgName;
+                    // Read the file and determine its package name
+                    Optional<SourceContent> content = SourceContent.read(pf);
+                    if (content.isPresent()) {
+                        TSTree tree = treeOf(pf);
+                        if (tree != null) {
+                            String pkgName =
+                                    determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get());
+                            if (!pkgName.isEmpty()) {
+                                return pkgName;
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // 2. Fallback to last segment heuristic if no source found
-        int lastSlash = importPath.lastIndexOf('/');
-        if (lastSlash != -1) {
-            return importPath.substring(lastSlash + 1);
-        }
-        return importPath;
+            // 2. Fallback to last segment heuristic if no source found
+            int lastSlash = path.lastIndexOf('/');
+            if (lastSlash != -1) {
+                return path.substring(lastSlash + 1);
+            }
+            return path;
+        });
     }
 
     private boolean isBlankImport(String text, int quoteStart) {
