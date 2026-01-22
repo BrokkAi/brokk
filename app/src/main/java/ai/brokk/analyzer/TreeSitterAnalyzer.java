@@ -908,19 +908,54 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
-        // Check if there are any unresolved type references
-        // These are identifiers that look like types but weren't matched by explicit imports
-        boolean hasUnresolvedReferences =
-                typeIdentifiers.stream().anyMatch(id -> !resolvedIdentifiers.contains(id));
+        // Collect identifiers still unresolved after explicit import matching
+        Set<String> unresolvedIdentifiers = typeIdentifiers.stream()
+                .filter(id -> !resolvedIdentifiers.contains(id))
+                .collect(Collectors.toSet());
 
-        // Include wildcard imports only if there are unresolved references
-        if (hasUnresolvedReferences) {
+        if (unresolvedIdentifiers.isEmpty()) {
+            return Collections.unmodifiableSet(matchedImports);
+        }
+
+        Set<String> resolvedViaWildcard = new HashSet<>();
+        Set<ImportInfo> usedWildcards = new HashSet<>();
+
+        // Match unresolved identifiers against wildcard imports using known project symbols
+        for (String id : unresolvedIdentifiers) {
+            for (ImportInfo wildcardImp : wildcardImports) {
+                String pkg = extractPackageFromWildcard(wildcardImp.rawSnippet());
+                if (!getDefinitions(pkg + "." + id).isEmpty()) {
+                    matchedImports.add(wildcardImp.rawSnippet());
+                    usedWildcards.add(wildcardImp);
+                    resolvedViaWildcard.add(id);
+                }
+            }
+        }
+
+        // After checking all wildcards, if any identifiers are still unresolved
+        // (not in explicit imports AND not resolved via wildcards to known types),
+        // include ALL remaining wildcards as a conservative fallback for external dependencies.
+        boolean stillUnresolved = unresolvedIdentifiers.stream()
+                .anyMatch(id -> !resolvedViaWildcard.contains(id));
+
+        if (stillUnresolved) {
             for (ImportInfo wildcardImp : wildcardImports) {
                 matchedImports.add(wildcardImp.rawSnippet());
             }
         }
 
         return Collections.unmodifiableSet(matchedImports);
+    }
+
+    private String extractPackageFromWildcard(String rawSnippet) {
+        // e.g., "import internal.*;" -> "internal"
+        // e.g., "import static org.junit.Assert.*;" -> "org.junit.Assert"
+        return rawSnippet
+                .replaceFirst("^import\\s+", "")
+                .replaceFirst("^static\\s+", "")
+                .replaceFirst("\\.\\*;$", "")
+                .replaceFirst(";$", "")
+                .trim();
     }
 
     /**

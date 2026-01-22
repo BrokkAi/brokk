@@ -662,6 +662,23 @@ public class JavaImportTest {
         }
     }
 
+    /**
+     * Tests that relevantImportsFor correctly identifies which wildcard import is relevant
+     * when a type reference could potentially belong to either an internal project package
+     * or an external library.
+     *
+     * Expected behavior (once implemented):
+     * - InternalService is defined in internal.InternalService (known project type)
+     * - The analyzer should resolve InternalService via import internal.*
+     * - Since InternalService IS resolved to a known type, it should NOT be considered "unresolved"
+     * - Only import internal.* should be included (it provides InternalService)
+     * - import external.* should be EXCLUDED (it provides nothing used by the method)
+     *
+     * Current behavior: Both wildcards are included because the analyzer doesn't
+     * check whether wildcard imports resolve to known project types. The type identifier
+     * "InternalService" is treated as unresolved (no explicit import matches it),
+     * causing ALL wildcards to be included.
+     */
     @Test
     public void testRelevantImportsResolvesWildcardToKnownProjectType() throws IOException {
         // Create the internal package with InternalService class
@@ -703,12 +720,16 @@ public class JavaImportTest {
                     .map(p -> p.relevantImportsFor(processMethod))
                     .orElse(Set.of());
 
-            // Currently, the analyzer includes wildcards if it finds identifiers that are not
-            // explicitly imported, even if they could be resolved to known project types via wildcards.
-            // This test documents the current behavior where both wildcards are included.
-            assertFalse(relevantImports.isEmpty(), "Wildcards are currently included for types resolved via wildcard");
-            assertTrue(relevantImports.contains("import internal.*;"));
-            assertTrue(relevantImports.contains("import external.*;"));
+            // EXPECTED: Only the internal wildcard should be included because InternalService
+            // can be resolved to internal.InternalService (a known project type).
+            // The external.* wildcard should be excluded since it doesn't provide any types
+            // referenced by this method.
+            assertEquals(1, relevantImports.size(),
+                    "Only the wildcard that resolves to a known project type should be included");
+            assertTrue(relevantImports.contains("import internal.*;"),
+                    "Should include internal.* because it provides InternalService");
+            assertFalse(relevantImports.contains("import external.*;"),
+                    "Should NOT include external.* because it provides no types used by this method");
         }
     }
 }
