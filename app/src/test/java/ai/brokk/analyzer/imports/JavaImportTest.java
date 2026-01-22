@@ -113,13 +113,13 @@ public class JavaImportTest {
                 package sample;
                 public class ClassA {}
                 """,
-                "ClassA.java");
+                "sample/ClassA.java");
         try (var testProject = builder.addFileContents(
                         """
                 package sample;
                 public class ClassB {}
                 """,
-                        "ClassB.java")
+                        "sample/ClassB.java")
                 .addFileContents(
                         """
                 import sample.*;

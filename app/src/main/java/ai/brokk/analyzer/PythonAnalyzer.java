@@ -889,6 +889,52 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch,
+            SourceContent sourceContent,
+            List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(IMPORT_DECLARATION);
+        if (importNode == null || importNode.isNull()) {
+            return;
+        }
+
+        String importText = sourceContent.substringFrom(importNode).strip();
+        if (importText.isEmpty()) {
+            return;
+        }
+
+        boolean isWildcard = capturedNodesForMatch.containsKey(IMPORT_WILDCARD)
+                || capturedNodesForMatch.containsKey(IMPORT_MODULE_WILDCARD)
+                || capturedNodesForMatch.containsKey(IMPORT_RELATIVE_WILDCARD);
+
+        String identifier = null;
+        String alias = null;
+
+        TSNode aliasNode = capturedNodesForMatch.get(IMPORT_ALIAS);
+        if (aliasNode != null && !aliasNode.isNull()) {
+            alias = sourceContent.substringFrom(aliasNode).strip();
+            identifier = alias;
+        } else {
+            TSNode nameNode = capturedNodesForMatch.get(IMPORT_NAME);
+            if (nameNode != null && !nameNode.isNull()) {
+                identifier = sourceContent.substringFrom(nameNode).strip();
+            } else {
+                TSNode moduleNode = capturedNodesForMatch.get(IMPORT_MODULE);
+                if (moduleNode != null && !moduleNode.isNull()) {
+                    identifier = sourceContent.substringFrom(moduleNode).strip();
+                    // For 'import a.b.c', the identifier used in code is 'a'
+                    int dotIdx = identifier.indexOf('.');
+                    if (dotIdx != -1) {
+                        identifier = identifier.substring(0, dotIdx);
+                    }
+                }
+            }
+        }
+
+        localImportInfos.add(new ImportInfo(importText, isWildcard, identifier, alias));
+    }
+
+    @Override
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
