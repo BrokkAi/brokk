@@ -5,6 +5,7 @@ import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.base.Splitter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -454,21 +455,22 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // The import_declaration node in go.scm captures the whole block or single line.
         // We need to create one ImportInfo per import path, each with its own line as rawSnippet.
         String withoutComments = GO_COMMENT_PATTERN.matcher(fullSnippet).replaceAll("");
-        
+
         // Split into lines to handle grouped imports - each import path gets its own ImportInfo
-        String[] lines = withoutComments.split("\n");
-        
-        for (String line : lines) {
+        for (String line : Splitter.on('\n').split(withoutComments)) {
             String trimmedLine = line.trim();
-            if (trimmedLine.isEmpty() || trimmedLine.equals("import") || trimmedLine.equals("(") || trimmedLine.equals(")")) {
+            if (trimmedLine.isEmpty()
+                    || trimmedLine.equals("import")
+                    || trimmedLine.equals("(")
+                    || trimmedLine.equals(")")) {
                 continue;
             }
-            
+
             Matcher pathMatcher = IMPORT_PATH_PATTERN.matcher(trimmedLine);
             if (!pathMatcher.find()) {
                 continue;
             }
-            
+
             String path = pathMatcher.group(1) != null ? pathMatcher.group(1) : pathMatcher.group(2);
             int pathStart = pathMatcher.start();
 
@@ -525,7 +527,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         SourceContent sourceContent = SourceContent.of(source);
-        TSQuery query = new TSQuery(getTSLanguage(), "[(type_identifier) @type (selector_expression operand: (identifier) @pkg)]");
+        TSQuery query = new TSQuery(
+                getTSLanguage(), "[(type_identifier) @type (selector_expression operand: (identifier) @pkg)]");
         TSQueryCursor cursor = new TSQueryCursor();
         cursor.exec(query, tree.getRootNode());
 

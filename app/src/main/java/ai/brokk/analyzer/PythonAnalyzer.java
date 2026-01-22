@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -949,9 +948,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         // Python: "from pkg.sub import *" -> "pkg.sub"
         // Python: "from ..pkg import *" -> "..pkg"
         if (rawSnippet.startsWith("from ") && rawSnippet.contains(" import *")) {
-            return rawSnippet
-                    .substring(5, rawSnippet.indexOf(" import *"))
-                    .trim();
+            return rawSnippet.substring(5, rawSnippet.indexOf(" import *")).trim();
         }
         return super.extractPackageFromWildcard(rawSnippet);
     }

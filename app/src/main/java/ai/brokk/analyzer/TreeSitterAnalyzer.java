@@ -862,7 +862,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Returns the raw import snippets that are relevant to the given CodeUnit based on type references in its source.
-     * 
+     *
      * Base implementation returns an empty set. Language-specific analyzers should override this method
      * to provide appropriate import filtering logic for their language's import semantics.
      *
@@ -878,7 +878,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Extracts the package/module name from a wildcard import statement.
-     * 
+     *
      * Base implementation returns an empty string. Language-specific analyzers should override
      * this method to parse their language's wildcard import syntax.
      *

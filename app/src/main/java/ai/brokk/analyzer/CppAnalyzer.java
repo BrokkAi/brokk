@@ -18,20 +18,103 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     private static final Pattern QUOTED_INCLUDE_PATTERN = Pattern.compile("^#\\s*include\\s*\"([^\"]+)\"");
 
     private static final Set<String> CPP_KEYWORDS = Set.of(
-            "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit",
-            "atomic_noexcept", "auto", "bitand", "bitor", "bool", "break", "case", "catch",
-            "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const",
-            "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await",
-            "co_return", "co_yield", "decltype", "default", "delete", "do", "double",
-            "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float",
-            "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace",
-            "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq",
-            "private", "protected", "public", "reflexpr", "register", "reinterpret_cast",
-            "requires", "return", "short", "signed", "sizeof", "static", "static_assert",
-            "static_cast", "struct", "switch", "synchronized", "template", "this",
-            "thread_local", "throw", "true", "try", "typedef", "typeid", "typename",
-            "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t",
-            "while", "xor", "xor_eq");
+            "alignas",
+            "alignof",
+            "and",
+            "and_eq",
+            "asm",
+            "atomic_cancel",
+            "atomic_commit",
+            "atomic_noexcept",
+            "auto",
+            "bitand",
+            "bitor",
+            "bool",
+            "break",
+            "case",
+            "catch",
+            "char",
+            "char8_t",
+            "char16_t",
+            "char32_t",
+            "class",
+            "compl",
+            "concept",
+            "const",
+            "consteval",
+            "constexpr",
+            "constinit",
+            "const_cast",
+            "continue",
+            "co_await",
+            "co_return",
+            "co_yield",
+            "decltype",
+            "default",
+            "delete",
+            "do",
+            "double",
+            "dynamic_cast",
+            "else",
+            "enum",
+            "explicit",
+            "export",
+            "extern",
+            "false",
+            "float",
+            "for",
+            "friend",
+            "goto",
+            "if",
+            "inline",
+            "int",
+            "long",
+            "mutable",
+            "namespace",
+            "new",
+            "noexcept",
+            "not",
+            "not_eq",
+            "nullptr",
+            "operator",
+            "or",
+            "or_eq",
+            "private",
+            "protected",
+            "public",
+            "reflexpr",
+            "register",
+            "reinterpret_cast",
+            "requires",
+            "return",
+            "short",
+            "signed",
+            "sizeof",
+            "static",
+            "static_assert",
+            "static_cast",
+            "struct",
+            "switch",
+            "synchronized",
+            "template",
+            "this",
+            "thread_local",
+            "throw",
+            "true",
+            "try",
+            "typedef",
+            "typeid",
+            "typename",
+            "union",
+            "unsigned",
+            "using",
+            "virtual",
+            "void",
+            "volatile",
+            "wchar_t",
+            "while",
+            "xor",
+            "xor_eq");
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -361,9 +444,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     @Override
     protected void extractImports(
-            Map<String, TSNode> capturedNodesForMatch,
-            SourceContent sourceContent,
-            List<ImportInfo> localImportInfos) {
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         // Get the import node using the standard capture name
         TSNode importNode = capturedNodesForMatch.get(CaptureNames.IMPORT_DECLARATION);
         if (importNode == null || importNode.isNull()) {
@@ -1039,7 +1120,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     /**
      * C++ override of relevantImportsFor that checks if extracted identifiers
      * are defined in the resolved imports from each #include.
-     * 
+     *
      * Unlike Java where import statements directly name the imported types,
      * C++ #include statements bring in all declarations from a header file.
      * We match by checking if any called function/type is declared in the included header.
@@ -1067,7 +1148,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         // For each include, check if any of the identifiers we use are defined in that header
         for (ImportInfo imp : allImports) {
             String rawSnippet = imp.rawSnippet();
-            
+
             // Only process quoted includes (local headers we can resolve)
             Matcher m = QUOTED_INCLUDE_PATTERN.matcher(rawSnippet);
             if (!m.find()) {
@@ -1089,7 +1170,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 // For methods like "ClassName.methodName", extract just the method name
                 int dotIdx = shortName.lastIndexOf('.');
                 String simpleName = (dotIdx >= 0) ? shortName.substring(dotIdx + 1) : shortName;
-                
+
                 if (typeIdentifiers.contains(simpleName)) {
                     matchedImports.add(rawSnippet);
                     break;
@@ -1121,7 +1202,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
             var relToRoot = root.relativize(resolvedPath);
             ProjectFile candidate = new ProjectFile(root, relToRoot);
-            
+
             // Verify the file exists in the project's analyzed files
             if (getTopLevelDeclarations().containsKey(candidate)) {
                 return Optional.of(candidate);
@@ -1151,7 +1232,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         // For other types, use default behavior
         return super.shouldIgnoreDuplicate(existing, candidate, file);
     }
-
 
     @Override
     protected Comparator<CodeUnit> prioritizingComparator() {
