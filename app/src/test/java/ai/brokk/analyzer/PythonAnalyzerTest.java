@@ -1480,7 +1480,7 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(project, analyzer);
         var symbol = "class_usage_patterns.BaseClass";
         var either = finder.findUsages(symbol).toEither();

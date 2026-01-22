@@ -94,12 +94,12 @@ public class TreeSitterStateIOTest {
             assertNotNull(analyzer.treeOf(cppFile), "Expected parse tree before save");
 
             // Save analyzer state
-            Path storage = Languages.CPP_TREESITTER.getStoragePath(project);
+            Path storage = Languages.C_CPP.getStoragePath(project);
             TreeSitterStateIO.save(analyzer.snapshotState(), storage);
             assertTrue(Files.exists(storage), "Expected analyzer state file to exist: " + storage);
 
             // Load analyzer; parsed trees are intentionally omitted by TreeSitterStateIO
-            IAnalyzer loaded = Languages.CPP_TREESITTER.loadAnalyzer(project);
+            IAnalyzer loaded = Languages.C_CPP.loadAnalyzer(project);
             assertTrue(loaded instanceof CppAnalyzer, "Loaded analyzer is not CppAnalyzer");
             CppAnalyzer loadedCpp = (CppAnalyzer) loaded;
 

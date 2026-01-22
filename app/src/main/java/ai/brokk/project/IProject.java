@@ -45,7 +45,7 @@ public interface IProject extends AutoCloseable {
      * WorktreeProject will forward to its MainProject parent.
      */
     default IStringDiskCache getDiskCache() {
-        return new IStringDiskCache.NoopDiskCache();
+        return new IStringDiskCache.NoopCache();
     }
 
     /**

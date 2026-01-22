@@ -117,10 +117,6 @@ public final class UsagePromptBuilder {
                     ". Consider the list of alternative code units and score how likely the usage matches ONLY the target (not any alternative)";
         }
 
-        if (UsageConfig.isBooleanUsageMode()) {
-            return base + ".";
-        } else {
-            return base + ". Return a real number in [0.0, 1.0].";
-        }
+        return base + ". Return a real number in [0.0, 1.0].";
     }
 }

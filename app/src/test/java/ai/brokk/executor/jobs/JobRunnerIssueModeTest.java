@@ -2,15 +2,23 @@ package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.agents.BuildAgent;
+import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
+import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,6 +82,32 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void testIssueWriterModeParseMode_isCaseInsensitive() {
+        JobSpec specUpper = JobSpec.of(
+                "task", false, false, "gpt-4", null, null, false, Map.of("mode", "ISSUE_WRITER"), (String) null);
+        assertEquals(JobRunner.Mode.ISSUE_WRITER, JobRunner.parseMode(specUpper));
+
+        JobSpec specLower = JobSpec.of(
+                "task", false, false, "gpt-4", null, null, false, Map.of("mode", "issue_writer"), (String) null);
+        assertEquals(JobRunner.Mode.ISSUE_WRITER, JobRunner.parseMode(specLower));
+    }
+
+    @Test
+    void testParseMode_fallsBackToArchitect_onMissingBlankOrInvalidMode() {
+        JobSpec missingMode =
+                JobSpec.of("task", false, false, "gpt-4", null, null, false, Map.of("x", "y"), (String) null);
+        assertEquals(JobRunner.Mode.ARCHITECT, JobRunner.parseMode(missingMode));
+
+        JobSpec blankMode =
+                JobSpec.of("task", false, false, "gpt-4", null, null, false, Map.of("mode", "   "), (String) null);
+        assertEquals(JobRunner.Mode.ARCHITECT, JobRunner.parseMode(blankMode));
+
+        JobSpec invalidMode =
+                JobSpec.of("task", false, false, "gpt-4", null, null, false, Map.of("mode", "NOPE"), (String) null);
+        assertEquals(JobRunner.Mode.ARCHITECT, JobRunner.parseMode(invalidMode));
+    }
+
+    @Test
     void testIssueDeliveryPolicy_DefaultsToPr() {
         JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 1, "{}");
         assertTrue(JobRunner.issueDeliveryEnabled(spec), "Default policy should enable PR creation");
@@ -124,7 +158,74 @@ class JobRunnerIssueModeTest {
         assertEquals("{\"buildLintCommand\":\"./gradlew build\"}", spec.getBuildSettingsJson());
         assertEquals("gpt-4", spec.plannerModel());
         assertEquals("gpt-4-mini", spec.codeModel());
-        assertEquals(5, spec.effectiveMaxIssueFixAttempts());
+        assertEquals(JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, spec.effectiveMaxIssueFixAttempts());
+    }
+
+    @Test
+    void testJobSpecOfIssue_blankBuildSettingsJson_omitsTagEntirely() {
+        // Blank buildSettingsJson should result in no build_settings tag
+        JobSpec specBlank = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 1, "");
+        assertNull(specBlank.getBuildSettingsJson(), "Blank buildSettingsJson should omit tag entirely");
+
+        JobSpec specWhitespace = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 2, "   ");
+        assertNull(specWhitespace.getBuildSettingsJson(), "Whitespace-only buildSettingsJson should omit tag");
+
+        JobSpec specNull = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 3, null);
+        assertNull(specNull.getBuildSettingsJson(), "Null buildSettingsJson should omit tag");
+    }
+
+    @Test
+    void testResolveIssueBuildDetails_blankSpecSettings_fallsBackToProjectBuildDetails() {
+        // Create a TestProject with non-empty build details
+        var project = new TestProject(tempDir);
+        var projectBuildDetails = new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of());
+        project.setBuildDetails(projectBuildDetails);
+
+        // Create JobSpec with blank build settings (tag omitted)
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "");
+        assertNull(spec.getBuildSettingsJson(), "Precondition: blank buildSettingsJson should omit tag");
+
+        // Resolve should fall back to project build details
+        BuildDetails resolved = JobRunner.resolveIssueBuildDetails(spec, project);
+
+        assertEquals(projectBuildDetails, resolved, "Should fall back to project build details when spec is blank");
+        assertEquals("./gradlew lint", resolved.buildLintCommand());
+        assertEquals("./gradlew test", resolved.testAllCommand());
+    }
+
+    @Test
+    void testResolveIssueBuildDetails_nonBlankSpecSettings_usesSpecOverride() {
+        // Create a TestProject with some build details
+        var project = new TestProject(tempDir);
+        var projectBuildDetails = new BuildDetails("./gradlew projectLint", "./gradlew projectTest", "", Set.of());
+        project.setBuildDetails(projectBuildDetails);
+
+        // Create JobSpec with explicit build settings
+        String specJson = "{\"buildLintCommand\":\"./mvn lint\",\"testAllCommand\":\"./mvn test\"}";
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, specJson);
+        assertEquals(specJson, spec.getBuildSettingsJson(), "Precondition: non-blank settings should be stored");
+
+        // Resolve should use spec's build settings, not project's
+        BuildDetails resolved = JobRunner.resolveIssueBuildDetails(spec, project);
+
+        assertEquals("./mvn lint", resolved.buildLintCommand());
+        assertEquals("./mvn test", resolved.testAllCommand());
+        assertNotEquals(projectBuildDetails, resolved, "Should use spec override, not project fallback");
+    }
+
+    @Test
+    void testResolveIssueBuildDetails_blankSpecSettings_projectAlsoEmpty_returnsEmpty() {
+        // Create a TestProject with EMPTY build details (simulating no repo-level config)
+        var project = new TestProject(tempDir);
+        // Default TestProject has EMPTY build details
+
+        // Create JobSpec with blank build settings
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "");
+
+        // Resolve should return EMPTY (both spec and project are empty)
+        BuildDetails resolved = JobRunner.resolveIssueBuildDetails(spec, project);
+
+        assertEquals(BuildDetails.EMPTY, resolved, "Should return EMPTY when both spec and project have no config");
     }
 
     @Test
@@ -153,7 +254,7 @@ class JobRunnerIssueModeTest {
                 }
                 """;
 
-        BuildAgent.BuildDetails details = IssueService.parseBuildSettings(json);
+        BuildDetails details = IssueService.parseBuildSettings(json);
         assertEquals("./gradlew classes", details.buildLintCommand());
         assertEquals("./gradlew test", details.testAllCommand());
         assertEquals("./gradlew test --tests", details.testSomeCommand());
@@ -162,9 +263,9 @@ class JobRunnerIssueModeTest {
     @Test
     void testParseBuildSettingsEmpty() {
         // Null or blank input should return EMPTY
-        assertEquals(BuildAgent.BuildDetails.EMPTY, IssueService.parseBuildSettings(null));
-        assertEquals(BuildAgent.BuildDetails.EMPTY, IssueService.parseBuildSettings(""));
-        assertEquals(BuildAgent.BuildDetails.EMPTY, IssueService.parseBuildSettings("   "));
+        assertEquals(BuildDetails.EMPTY, IssueService.parseBuildSettings(null));
+        assertEquals(BuildDetails.EMPTY, IssueService.parseBuildSettings(""));
+        assertEquals(BuildDetails.EMPTY, IssueService.parseBuildSettings("   "));
     }
 
     @Test
@@ -221,12 +322,12 @@ class JobRunnerIssueModeTest {
         var fixCalls = new AtomicInteger(0);
         var io = new TestConsoleIO();
 
-        java.util.function.Supplier<String> verificationRunner = () -> {
+        Supplier<String> verificationRunner = () -> {
             int c = verificationCalls.incrementAndGet();
             // First verification fails, second verification also fails to exercise exception path.
             return c == 1 ? "initial failure" : "still failing";
         };
-        java.util.function.Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
+        Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
@@ -239,34 +340,487 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void testRunFinalGateRetryLoop_exhaustsAttempts_andUsesFinalTerminology() {
-        var io = new TestConsoleIO();
-        // force commandRunner to always return failure output
-        java.util.function.Function<String, String> commandRunner = cmd -> "failing output";
-        java.util.function.Consumer<String> fixRunner = prompt -> {
-            // no-op: do not fix anything
+    void issueModeTestLintRetryLoop_testFailure_triggersFixTaskWithExactPrefix_andSkipsLintThatIteration() {
+        var cancelled = new AtomicBoolean(false);
+
+        var calls = new ArrayList<String>();
+        var prompts = new ArrayList<String>();
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+            return "TEST FAILED OUTPUT";
         };
 
-        // Build minimal BuildDetails with non-blank commands to ensure both test and lint run
-        BuildAgent.BuildDetails buildDetails =
-                new BuildAgent.BuildDetails("./gradlew classes", "./gradlew test", "./gradlew test --tests", Set.of());
+        Consumer<String> fixTaskRunner = out -> prompts.add("fix this build error:\n" + out);
 
-        // attemptsLeft = 2 should cause two attempts then throw
-        java.util.concurrent.atomic.AtomicInteger attemptsLeft = new java.util.concurrent.atomic.AtomicInteger(2);
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        2));
+
+        assertEquals(List.of("./gradlew test", "./gradlew test"), calls, "Lint must be skipped when tests fail");
+        assertEquals(2, prompts.size());
+        assertTrue(prompts.get(0).startsWith("fix this build error:"), "Prefix must be exact and first");
+        assertEquals("fix this build error:\nTEST FAILED OUTPUT", prompts.get(0));
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_runsTestsThenLint_inThatOrder_andSkipsLintWhenTestsFail_iterationScoped() {
+        var cancelled = new AtomicBoolean(false);
+
+        String testCmd = "./gradlew testAll";
+        String lintCmd = "./gradlew lintAll";
+
+        var calls = new ArrayList<String>();
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+
+            if (cmd.equals(testCmd)) {
+                return "TESTS FAILED";
+            }
+            if (cmd.equals(lintCmd)) {
+                return fail("Lint must be skipped when tests fail in that iteration");
+            }
+
+            return fail("Unexpected command: " + cmd);
+        };
+
+        Consumer<String> fixTaskRunner = out -> {};
+
+        assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        2));
+
+        assertEquals(List.of(testCmd, testCmd), calls, "Should run only tests each iteration; lint is skipped");
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_runsTestsThenLint_inThatOrder_whenTestsPass() {
+        var cancelled = new AtomicBoolean(false);
+
+        String testCmd = "./gradlew testAll";
+        String lintCmd = "./gradlew lintAll";
+
+        int maxIterations = 3;
+
+        var calls = new ArrayList<String>();
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+
+            if (cmd.equals(testCmd)) {
+                return "";
+            }
+            if (cmd.equals(lintCmd)) {
+                return "";
+            }
+
+            return fail("Unexpected command: " + cmd);
+        };
+
+        Consumer<String> fixTaskRunner = out -> fail("No fix tasks when both pass");
+
+        JobRunner.runIssueModeTestLintRetryLoop(
+                cancelled::get,
+                progressSink,
+                commandRunner,
+                fixTaskRunner,
+                new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                maxIterations);
+
+        assertEquals(List.of(testCmd, lintCmd), calls, "Must run tests first, then lint second");
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_lintFailure_triggersFixTaskWithExactPrefix() {
+        var cancelled = new AtomicBoolean(false);
+
+        var calls = new ArrayList<String>();
+        var fixPrompts = new ArrayList<String>();
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+            if (calls.size() % 2 == 1) {
+                return "";
+            }
+            return "LINT FAILED OUTPUT";
+        };
+
+        Consumer<String> fixTaskRunner = out -> fixPrompts.add("fix this build error:\n" + out);
+
+        int maxIterations = 2;
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runFinalGateRetryLoop(
-                        "job-final-gate-1", store, io, buildDetails, attemptsLeft, commandRunner, fixRunner));
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        maxIterations));
+
+        assertEquals(List.of("./gradlew test", "./gradlew lint", "./gradlew test", "./gradlew lint"), calls);
+        assertEquals(2, fixPrompts.size());
+        assertEquals("fix this build error:\nLINT FAILED OUTPUT", fixPrompts.get(0));
 
         String msg = ex.getMessage();
-        assertTrue(
-                msg.contains("Final gate failed after"),
-                "Exception message should indicate final gate failure: " + msg);
+        assertNotNull(msg);
+        assertTrue(msg.contains("Tests/lint failed after " + maxIterations + " iteration(s)"));
+        assertTrue(msg.contains("stage=lint"));
+        assertTrue(msg.contains("LINT FAILED OUTPUT"));
+    }
 
-        assertFalse(
-                msg.toLowerCase().contains("pre-pr") || msg.toLowerCase().contains("prepr"),
-                "Exception message must not contain pre-PR terminology: " + msg);
+    @Test
+    void issueModeTestLintRetryLoop_exitsEarlyWhenBothPass() {
+        var cancelled = new AtomicBoolean(false);
+
+        int maxIterations = 3;
+
+        var calls = new ArrayList<String>();
+        var fixCalls = new AtomicInteger(0);
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> {
+            calls.add(cmd);
+            return "";
+        };
+
+        Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+
+        JobRunner.runIssueModeTestLintRetryLoop(
+                cancelled::get,
+                progressSink,
+                commandRunner,
+                fixTaskRunner,
+                new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                maxIterations);
+
+        assertEquals(List.of("./gradlew test", "./gradlew lint"), calls, "Should run tests then lint once");
+        assertEquals(0, fixCalls.get(), "No fix tasks when both pass");
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_throwsIllegalArgumentException_whenMaxIterationsIsZero_andDoesNotInvokeCallbacks() {
+        var cancelled = new AtomicBoolean(false);
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> fail("progressSink must not be invoked");
+        Function<String, String> commandRunner = cmd -> fail("commandRunner must not be invoked");
+        Consumer<String> fixTaskRunner = out -> fail("fixTaskRunner must not be invoked");
+
+        var ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        0));
+
+        assertEquals("maxIterations must be >= 1", ex.getMessage());
+    }
+
+    @Test
+    void
+            issueModeTestLintRetryLoop_throwsIllegalArgumentException_whenMaxIterationsIsNegative_andDoesNotInvokeCallbacks() {
+        var cancelled = new AtomicBoolean(false);
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> fail("progressSink must not be invoked");
+        Function<String, String> commandRunner = cmd -> fail("commandRunner must not be invoked");
+        Consumer<String> fixTaskRunner = out -> fail("fixTaskRunner must not be invoked");
+
+        var ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        -1));
+
+        assertEquals("maxIterations must be >= 1", ex.getMessage());
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_throwsIssueCancelledException_whenCancelled() {
+        var cancelled = new AtomicBoolean(true);
+
+        int maxIterations = 3;
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> fail("Command must not run when cancelled");
+        Consumer<String> fixTaskRunner = out -> fail("Fix task must not run when cancelled");
+
+        assertThrows(
+                JobRunner.IssueCancelledException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        maxIterations));
+    }
+
+    @Test
+    void issueModeTestLintRetryLoop_throwsAfterMaxIterationsIfNeverSucceeds() {
+        var cancelled = new AtomicBoolean(false);
+
+        int maxIterations = 3;
+
+        var fixCalls = new AtomicInteger(0);
+        var testCalls = new AtomicInteger(0);
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> {
+            testCalls.incrementAndGet();
+            return "always failing";
+        };
+
+        Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+
+        IssueExecutionException ex = assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        maxIterations));
+
+        assertEquals(maxIterations, testCalls.get(), "Must run exactly maxIterations iterations");
+        assertEquals(maxIterations, fixCalls.get(), "Must perform exactly one fix per iteration");
+
+        String msg = ex.getMessage();
+        assertNotNull(msg);
+        assertTrue(msg.contains("Tests/lint failed after " + maxIterations + " iteration(s)"));
+        assertTrue(msg.contains("stage=tests"));
+        assertTrue(msg.contains("always failing"));
+    }
+
+    @Test
+    void
+            issueModeTestLintRetryLoop_blankTestCommand_doesNotInvokeTests_invokesLint_andFixesOncePerIteration_untilMaxIterations() {
+        var cancelled = new AtomicBoolean(false);
+
+        String testCmd = "";
+        String lintCmd = "./gradlew lint";
+
+        int maxIterations = 3;
+
+        var lintCalls = new AtomicInteger(0);
+        var fixCalls = new AtomicInteger(0);
+
+        BiConsumer<Integer, String> progressSink = (attempt, msg) -> {};
+
+        Function<String, String> commandRunner = cmd -> {
+            if (cmd.equals(testCmd)) {
+                return fail("Test command must not be invoked when testAllCommand() is blank");
+            }
+            if (cmd.equals(lintCmd)) {
+                lintCalls.incrementAndGet();
+                return "LINT FAILED OUTPUT";
+            }
+            return fail("Unexpected command: " + cmd);
+        };
+
+        Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
+
+        IssueExecutionException ex = assertThrows(
+                IssueExecutionException.class,
+                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                        cancelled::get,
+                        progressSink,
+                        commandRunner,
+                        fixTaskRunner,
+                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        maxIterations));
+
+        assertEquals(maxIterations, lintCalls.get(), "Lint must be invoked once per iteration");
+        assertEquals(maxIterations, fixCalls.get(), "Fix must run once per iteration");
+
+        String msg = ex.getMessage();
+        assertNotNull(msg);
+        assertTrue(msg.contains("Tests/lint failed after " + maxIterations + " iteration(s)"));
+        assertTrue(msg.contains("stage=lint"));
+        assertTrue(msg.contains("LINT FAILED OUTPUT"));
+    }
+
+    @Test
+    void issueReviewTaskSequence_convertsCommentsToPrompts_andRunsInOrder_andCallsBranchHook_andFinalVerificationAfter()
+            throws Exception {
+        var comments = List.of(
+                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL),
+                new PrReviewService.InlineComment("src/C.java", 30, "Third issue", PrReviewService.Severity.HIGH));
+
+        var observed = new ArrayList<String>();
+        var prompts = new ArrayList<String>();
+        var taskIndex = new AtomicInteger(0);
+        var branchHookCalls = new AtomicInteger(0);
+
+        var currentPhase = new AtomicReference<String>("START");
+
+        Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
+            String prompt = JobRunner.buildInlineCommentFixPrompt(c);
+            prompts.add(prompt);
+            return prompt;
+        };
+
+        Consumer<String> taskRunner = prompt -> {
+            assertEquals("TASKS", currentPhase.get(), "Tasks must run during TASKS phase");
+            int idx = taskIndex.incrementAndGet();
+            observed.add("task-" + idx);
+            observed.add("prompt-" + idx + ":" + prompt);
+        };
+
+        Runnable branchUpdateHook = () -> {
+            assertEquals("TASKS", currentPhase.get(), "Branch update hook must run during TASKS phase");
+            int idx = branchHookCalls.incrementAndGet();
+            observed.add("branchHook-" + idx);
+        };
+
+        Runnable finalVerification = () -> {
+            assertEquals("FINAL_VERIFICATION", currentPhase.get(), "Final verification must run after tasks");
+            observed.add("finalVerification");
+        };
+
+        currentPhase.set("TASKS");
+        Runnable exec = () -> {
+            currentPhase.set("FINAL_VERIFICATION");
+            finalVerification.run();
+        };
+        JobRunner.runIssueReviewTaskSequence(comments, commentToPrompt, taskRunner, branchUpdateHook, exec);
+
+        assertEquals(3, prompts.size(), "Each inline comment must be converted to a prompt");
+        assertTrue(prompts.get(0).contains("src/A.java"));
+        assertTrue(prompts.get(0).contains("line: 10"));
+        assertTrue(prompts.get(0).contains("First issue"));
+
+        assertTrue(prompts.get(1).contains("src/B.java"));
+        assertTrue(prompts.get(1).contains("line: 20"));
+        assertTrue(prompts.get(1).contains("Second issue"));
+
+        assertTrue(prompts.get(2).contains("src/C.java"));
+        assertTrue(prompts.get(2).contains("line: 30"));
+        assertTrue(prompts.get(2).contains("Third issue"));
+
+        assertEquals(3, taskIndex.get(), "Tasks must execute exactly once per comment");
+        assertEquals(3, branchHookCalls.get(), "Branch update hook must be called once per task");
+
+        assertEquals(
+                List.of(
+                        "task-1",
+                        "prompt-1:" + prompts.get(0),
+                        "branchHook-1",
+                        "task-2",
+                        "prompt-2:" + prompts.get(1),
+                        "branchHook-2",
+                        "task-3",
+                        "prompt-3:" + prompts.get(2),
+                        "branchHook-3",
+                        "finalVerification"),
+                observed,
+                "Sequence must be strictly serial and ordered: task -> branchHook after each task -> final verification");
+    }
+
+    @Test
+    void
+            issueReviewTaskSequence_productionWiring_shortCircuitsOnCancellation_skipsRemainingTasksAndFinalVerification() {
+        var comments = List.of(
+                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL),
+                new PrReviewService.InlineComment("src/C.java", 30, "Third issue", PrReviewService.Severity.HIGH));
+
+        var cancelled = new AtomicBoolean(false);
+
+        var promptsBuilt = new AtomicInteger(0);
+        var tasksRun = new AtomicInteger(0);
+        var branchHooks = new AtomicInteger(0);
+        var finalVerificationCalls = new AtomicInteger(0);
+
+        var observed = new ArrayList<String>();
+
+        Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
+            promptsBuilt.incrementAndGet();
+            return JobRunner.buildInlineCommentFixPrompt(c);
+        };
+
+        Consumer<String> taskRunner = prompt -> {
+            int idx = tasksRun.incrementAndGet();
+            observed.add("task-" + idx);
+            if (idx == 1) {
+                cancelled.set(true);
+            }
+        };
+
+        Runnable branchUpdateHook = () -> {
+            branchHooks.incrementAndGet();
+            observed.add("branchHook-" + branchHooks.get());
+        };
+
+        Runnable finalVerification = () -> {
+            finalVerificationCalls.incrementAndGet();
+            observed.add("finalVerification");
+        };
+
+        JobRunner.runIssueReviewTaskSequenceWithCancellation(
+                comments, cancelled::get, commentToPrompt, taskRunner, branchUpdateHook, finalVerification);
+
+        assertTrue(cancelled.get(), "Test must trigger cancellation");
+        assertEquals(1, tasksRun.get(), "Only the first task should run after cancellation triggers");
+        assertEquals(1, branchHooks.get(), "Branch update hook must run only for executed tasks");
+        assertEquals(0, finalVerificationCalls.get(), "Final verification must be skipped when cancellation is active");
+
+        assertEquals(List.of("task-1", "branchHook-1"), observed);
+
+        assertEquals(
+                1,
+                promptsBuilt.get(),
+                "Production wiring should avoid building prompts for comments that will be skipped due to cancellation");
+    }
+
+    @Test
+    void issueReviewTaskSequence_noComments_stillRunsFinalVerification() {
+        var observed = new ArrayList<String>();
+        var branchHookCalls = new AtomicInteger(0);
+
+        JobRunner.runIssueReviewTaskSequence(
+                List.of(),
+                JobRunner::buildInlineCommentFixPrompt,
+                prompt -> observed.add("task:" + prompt),
+                () -> branchHookCalls.incrementAndGet(),
+                () -> observed.add("finalVerification"));
+
+        assertTrue(observed.contains("finalVerification"));
+        assertEquals(1, observed.size(), "No tasks should run when comments list is empty");
+        assertEquals(0, branchHookCalls.get(), "Branch update hook must not run when there are no tasks");
     }
 
     @Test
@@ -276,11 +830,11 @@ class JobRunnerIssueModeTest {
         var io = new TestConsoleIO();
         var prCreated = new AtomicBoolean(false);
 
-        java.util.function.Supplier<String> verificationRunner = () -> {
+        Supplier<String> verificationRunner = () -> {
             verificationCalls.incrementAndGet();
             return "still failing";
         };
-        java.util.function.Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
+        Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
         assertThrows(IssueExecutionException.class, () -> {
             JobRunner.runSingleFixVerificationGate("job-pr-skip-1", store, io, verificationRunner, fixRunner);
@@ -450,4 +1004,26 @@ class JobRunnerIssueModeTest {
                 repo.isLocalBranch(issueBranchName),
                 "Issue branch must be removed when forceDelete=true and normal delete fails");
     }
+
+    @Test
+    void issueModeComputeInlineComments_emptyDiff_returnsEmptyList() throws Exception {
+        // Precondition (optional): when the base branch and HEAD point to the same commit, the unified diff is empty.
+        String baseBranch = repo.getCurrentBranch();
+
+        String diff = PrReviewService.computePrDiff(repo, baseBranch, "HEAD");
+        assertTrue(diff.isBlank(), "Precondition: diff must be empty when baseBranch == HEAD");
+
+        var reviewCalls = new AtomicInteger(0);
+
+        var comments = JobRunner.issueModeComputeInlineCommentsOrEmpty(() -> "", ignoredDiff -> {
+            reviewCalls.incrementAndGet();
+            return List.of();
+        });
+
+        assertTrue(comments.isEmpty(), "Empty diff must short-circuit to no inline comments");
+        assertEquals(0, reviewCalls.get(), "Review callback must not be invoked when diff is blank");
+    }
+
+    // runIssueModeBuildLintRetryLoop was intentionally removed; tests should target runIssueModeTestLintRetryLoop
+    // instead.
 }

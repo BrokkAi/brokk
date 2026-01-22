@@ -1282,8 +1282,9 @@ public class ContextFragments {
         }
 
         private static ContentSnapshot computeSnapshotFor(
-                String targetIdentifier, boolean includeTestFiles, IContextManager contextManager) {
-            var analyzer = contextManager.getAnalyzerUninterrupted();
+                String targetIdentifier, boolean includeTestFiles, IContextManager contextManager)
+                throws InterruptedException {
+            var analyzer = contextManager.getAnalyzer();
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
             var either = usageResult.toEither();
 
@@ -1411,10 +1412,12 @@ public class ContextFragments {
                 String fqName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
             CodeUnit unit = preResolvedUnit;
             if (unit == null) {
-                unit = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
-                        .findFirst()
-                        .orElseThrow(
-                                () -> new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
+                var unitOpt = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
+                        .findFirst();
+                if (unitOpt.isEmpty()) {
+                    return new ContentSnapshot("", Set.of(), Set.of(), (byte[]) null, false);
+                }
+                unit = unitOpt.get();
             }
 
             String text;

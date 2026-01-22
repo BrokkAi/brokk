@@ -552,7 +552,7 @@ public class GoAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";
         var either = finder.findUsages(symbol).toEither();

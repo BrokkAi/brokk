@@ -112,6 +112,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private boolean isDisplayingNotification = false;
 
     @Nullable
+    private NotificationEntry currentlyDisplayedNotification;
+
+    @Nullable
+    private JPanel currentlyDisplayedNotificationCard;
+
+    @Nullable
+    private JLabel currentlyDisplayedNotificationLabel;
+
+    @Nullable
     private JFrame notificationsDialog;
 
     @Nullable
@@ -628,7 +637,39 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Notification API
     public void showNotification(IConsoleIO.NotificationRole role, String message) {
         Runnable r = () -> {
-            var entry = new NotificationEntry(role, message, System.currentTimeMillis());
+            long now = System.currentTimeMillis();
+
+            // Roll up chains of COST notifications: if the latest notification is also COST,
+            // update it instead of appending a new entry.
+            if (role == IConsoleIO.NotificationRole.COST) {
+                var latest = notifications.isEmpty() ? null : notifications.getLast();
+                if (latest != null && latest.role == IConsoleIO.NotificationRole.COST) {
+                    var merged = new NotificationEntry(
+                            IConsoleIO.NotificationRole.COST, latest.message + "\n" + message, now);
+
+                    notifications.set(notifications.size() - 1, merged);
+
+                    // If the latest COST is currently queued for display (not yet shown), replace it in the queue.
+                    notificationQueue.removeIf(entry -> entry == latest);
+                    notificationQueue.offer(merged);
+
+                    // If the latest COST is currently being displayed, update it immediately and restart animation.
+                    if (currentlyDisplayedNotification == latest
+                            && currentlyDisplayedNotificationCard != null
+                            && currentlyDisplayedNotificationLabel != null) {
+                        currentlyDisplayedNotification = merged;
+                        currentlyDisplayedNotificationLabel.setText(toNotificationLabelHtml(role, merged.message));
+                        restartNotificationCardAnimation(requireNonNull(currentlyDisplayedNotificationCard));
+                    }
+
+                    persistNotificationsAsync();
+                    refreshLatestNotificationCard();
+                    refreshNotificationsDialog();
+                    return;
+                }
+            }
+
+            var entry = new NotificationEntry(role, message, now);
             notifications.add(entry);
             notificationQueue.offer(entry);
             persistNotificationsAsync();
@@ -697,7 +738,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         notificationAreaPanel.removeAll();
         isDisplayingNotification = true;
+        currentlyDisplayedNotification = nextToShow;
         JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
+        currentlyDisplayedNotificationCard = card;
         notificationAreaPanel.add(card);
         animateNotificationCard(card);
         notificationAreaPanel.revalidate();
@@ -721,14 +764,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             float currentOpacity = (Float) card.getClientProperty("notificationOpacity");
 
             if (phase[0] == 0) {
-                // Hold
                 frameCounter[0]++;
                 if (frameCounter[0] >= (holdDuration / (1000 / fps))) {
                     phase[0] = 1;
                     frameCounter[0] = 0;
                 }
             } else if (phase[0] == 1) {
-                // Fade out
                 currentOpacity = Math.max(0.0f, currentOpacity - fadeOutStep);
                 card.putClientProperty("notificationOpacity", currentOpacity);
                 card.repaint();
@@ -745,12 +786,25 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         timer.start();
     }
 
+    private void restartNotificationCardAnimation(JPanel card) {
+        var existing = (Timer) card.getClientProperty("notificationTimer");
+        if (existing != null) {
+            existing.stop();
+        }
+        card.putClientProperty("notificationOpacity", 1.0f);
+        card.repaint();
+        animateNotificationCard(card);
+    }
+
     private void dismissCurrentNotification() {
         isDisplayingNotification = false;
+        currentlyDisplayedNotification = null;
+        currentlyDisplayedNotificationCard = null;
+        currentlyDisplayedNotificationLabel = null;
+
         notificationAreaPanel.removeAll();
         notificationAreaPanel.revalidate();
         notificationAreaPanel.repaint();
-        // Show the next notification (if any)
         refreshLatestNotificationCard();
     }
 
@@ -770,14 +824,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         card.setBorder(new EmptyBorder(2, 8, 2, 8));
 
         // Center: show full message (including full cost details for COST)
-        String display = compactMessageForToolbar(role, message);
-        var msg = new JLabel(
-                "<html><div style='width:100%; text-align: left; word-wrap: break-word; white-space: normal;'>"
-                        + escapeHtml(display) + "</div></html>");
+        var msg = new JLabel(toNotificationLabelHtml(role, message));
         msg.setForeground(fg);
         msg.setVerticalAlignment(JLabel.CENTER);
         msg.setHorizontalAlignment(JLabel.LEFT);
         card.add(msg, BorderLayout.CENTER);
+
+        currentlyDisplayedNotificationLabel = msg;
 
         // Right: actions
         var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
@@ -825,8 +878,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return card;
     }
 
+    private static String toNotificationLabelHtml(IConsoleIO.NotificationRole role, String message) {
+        String display = compactMessageForToolbar(role, message);
+        return "<html><div style='width:100%; text-align: left; word-wrap: break-word; white-space: normal;'>"
+                + escapeHtml(display) + "</div></html>";
+    }
+
     private static String compactMessageForToolbar(IConsoleIO.NotificationRole role, String message) {
-        // Show full details for COST; compact other long messages to keep the toolbar tidy
         if (role == IConsoleIO.NotificationRole.COST) {
             return message;
         }

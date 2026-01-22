@@ -23,14 +23,18 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.PathNormalizer;
 import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -75,6 +79,12 @@ public final class MainProject extends AbstractProject {
 
     @Nullable
     private volatile StringDiskCache diskCache = null;
+
+    @Nullable
+    private FileLock cacheFileLock = null;
+
+    @Nullable
+    private FileChannel cacheLockChannel = null;
 
     private final DependencyUpdateScheduler dependencyUpdateScheduler;
 
@@ -231,20 +241,50 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public synchronized StringDiskCache getDiskCache() {
+    public synchronized IStringDiskCache getDiskCache() {
         if (diskCache != null) {
             return diskCache;
         }
         var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
+        var lockFile = cacheDir.resolve("cache.lock");
         try {
             Files.createDirectories(cacheDir);
+
+            // Attempt to acquire exclusive lock on cache.lock
+            cacheLockChannel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            cacheFileLock = cacheLockChannel.tryLock();
+            if (cacheFileLock == null) {
+                logger.info(
+                        "Unable to acquire exclusive lock on {}; cache is likely in use by another instance.",
+                        lockFile);
+                cacheLockChannel.close();
+                cacheLockChannel = null;
+                return new IStringDiskCache.NoopCache();
+            }
+
             DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
             diskCache = new StringDiskCache(dlc);
             logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
             return diskCache;
         } catch (IOException e) {
             logger.error("Unable to open disk cache at {}: {}", cacheDir, e.getMessage());
-            throw new RuntimeException("Unable to open disk cache", e);
+            closeCacheLock();
+            return new IStringDiskCache.NoopCache();
+        }
+    }
+
+    private void closeCacheLock() {
+        try {
+            if (cacheFileLock != null) {
+                cacheFileLock.release();
+                cacheFileLock = null;
+            }
+            if (cacheLockChannel != null) {
+                cacheLockChannel.close();
+                cacheLockChannel = null;
+            }
+        } catch (IOException e) {
+            logger.warn("Error releasing cache lock: {}", e.getMessage());
         }
     }
 
@@ -2076,6 +2116,8 @@ public final class MainProject extends AbstractProject {
             }
         } catch (Exception e) {
             logger.warn("Error closing disk cache for {}: {}", root.getFileName(), e.getMessage());
+        } finally {
+            closeCacheLock();
         }
 
         // Close session manager and other resources

@@ -110,16 +110,8 @@ public class GitHubIssueServiceTest {
         private final MockOkHttpClient mockClient;
 
         public TestableGitHubIssueService(IProject project, MockOkHttpClient mockClient) {
-            super(project);
+            super(project, new GitHubAuth("test-owner", "test-repo", null));
             this.mockClient = mockClient;
-        }
-
-        @Override
-        protected GitHubAuth getAuth() {
-            // Return an anonymous subclass that returns test data
-            return new GitHubAuth("test-owner", "test-repo", null) {
-                // GitHubAuth isn't abstract, so default behavior for fields is fine.
-            };
         }
 
         @Override

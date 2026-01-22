@@ -39,10 +39,12 @@ import org.jetbrains.annotations.Nullable;
 public class HeadlessExecCli {
     private static final Logger logger = LogManager.getLogger(HeadlessExecCli.class);
     private static final ObjectMapper mapper = new ObjectMapper();
+    private static final String REPO_COMPONENT_ALLOWLIST_REGEX = "^[A-Za-z0-9_.-]+$";
     private final MediaType JSON;
     private static final int READY_POLL_TIMEOUT_MS = 30000;
     private static final int READY_POLL_INTERVAL_MS = 500;
     private static final int JOB_POLL_INTERVAL_MS = 1000;
+    private static final long JOB_STREAM_TIMEOUT_MS = 3 * 60 * 60 * 1000L; // 3 hours
 
     private String mode = "ARCHITECT";
     private String plannerModel = "claude-opus-4-5";
@@ -148,7 +150,9 @@ public class HeadlessExecCli {
 
     static WorkspaceSelection chooseWorkspaceRootForMode(String mode, String repoOwner, String repoName) {
         String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
-        if ("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode)) {
+        if ("ISSUE".equals(normalizedMode)
+                || "REVIEW".equals(normalizedMode)
+                || "ISSUE_WRITER".equals(normalizedMode)) {
             String safeOwner = repoOwner.isBlank() ? "unknown-owner" : repoOwner.replaceAll("[^A-Za-z0-9._-]", "-");
             String safeRepo = repoName.isBlank() ? "unknown-repo" : repoName.replaceAll("[^A-Za-z0-9._-]", "-");
             String prefix = "brokk-headless-" + safeOwner + "-" + safeRepo + "-";
@@ -359,6 +363,10 @@ public class HeadlessExecCli {
             tags.put("repo_owner", repoOwner);
             tags.put("repo_name", repoName);
             tags.put("pr_number", String.valueOf(prNumber));
+        } else if ("ISSUE_WRITER".equals(mode)) {
+            tags.put("github_token", githubToken);
+            tags.put("repo_owner", repoOwner);
+            tags.put("repo_name", repoName);
         }
         jobSpec.set("tags", tags);
 
@@ -390,7 +398,7 @@ public class HeadlessExecCli {
      */
     private int streamJobEvents(String baseUrl, String jobId) {
         long afterSeq = -1;
-        long pollDeadline = System.currentTimeMillis() + 3600000; // 1 hour
+        long pollDeadline = System.currentTimeMillis() + JOB_STREAM_TIMEOUT_MS;
 
         while (System.currentTimeMillis() < pollDeadline) {
             try {
@@ -595,7 +603,7 @@ public class HeadlessExecCli {
         System.out.println();
         System.out.println("Options:");
         System.out.println(
-                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, or ISSUE (default: ARCHITECT)");
+                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER (default: ARCHITECT)");
         System.out.println("  --planner-model MODEL    Planner model name (required)");
         System.out.println(
                 "  --scan-model MODEL       Scan model name (optional; used by SEARCH mode; used by ASK only when --pre-scan is enabled)");
@@ -611,7 +619,8 @@ public class HeadlessExecCli {
         System.out.println("  --auto-compress          Enable auto-compress of context");
         System.out.println("  --help                   Show this help message");
         System.out.println();
-        System.out.println("ISSUE/REVIEW Mode Options (required when --mode ISSUE or REVIEW):");
+        System.out.println(
+                "ISSUE/REVIEW/ISSUE_WRITER Mode Options (required when --mode ISSUE, REVIEW, or ISSUE_WRITER):");
         System.out.println("  --github-token TOKEN     GitHub API token");
         System.out.println("  --repo-owner OWNER       Repository owner (user or organization)");
         System.out.println("  --repo-name REPO         Repository name");
@@ -619,7 +628,8 @@ public class HeadlessExecCli {
         System.out.println("  --pr-number NUMBER       GitHub PR number (required for REVIEW mode)");
         System.out.println();
         System.out.println("ISSUE Mode Options (optional):");
-        System.out.println("  --max-issue-fix-attempts NUMBER  Maximum fix attempts (default: 5)");
+        System.out.println(
+                "  --max-issue-fix-attempts NUMBER  Max final verification attempts (tests/lint loop) (default: 20)");
         System.out.println("  --build-settings JSON    Build settings as JSON object");
         System.out.println("  --issue-delivery MODE    Delivery mode ('none' to skip PR creation)");
         System.out.println();
@@ -694,13 +704,18 @@ public class HeadlessExecCli {
                 System.err.println("ERROR: --repo-owner is required for ISSUE mode");
                 return false;
             }
+            if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-owner '" + repoOwner + "'. Repo owner must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
             if (repoName.isBlank()) {
                 System.err.println("ERROR: --repo-name is required for ISSUE mode");
                 return false;
             }
-            if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
-                System.err.println(
-                        "ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
+            if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
                 return false;
             }
             if (issueNumber <= 0) {
@@ -719,17 +734,48 @@ public class HeadlessExecCli {
                 System.err.println("ERROR: --repo-owner is required for REVIEW mode");
                 return false;
             }
+            if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-owner '" + repoOwner + "'. Repo owner must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
             if (repoName.isBlank()) {
                 System.err.println("ERROR: --repo-name is required for REVIEW mode");
                 return false;
             }
-            if (!repoName.matches("^[A-Za-z0-9_.-]+$")) {
-                System.err.println(
-                        "ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match ^[A-Za-z0-9_.-]+$");
+            if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
                 return false;
             }
             if (prNumber <= 0) {
                 System.err.println("ERROR: --pr-number is required for REVIEW mode");
+                return false;
+            }
+        }
+
+        // Validate ISSUE_WRITER mode required fields
+        if ("ISSUE_WRITER".equals(mode)) {
+            if (githubToken.isBlank()) {
+                System.err.println("ERROR: --github-token is required for ISSUE_WRITER mode");
+                return false;
+            }
+            if (repoOwner.isBlank()) {
+                System.err.println("ERROR: --repo-owner is required for ISSUE_WRITER mode");
+                return false;
+            }
+            if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-owner '" + repoOwner + "'. Repo owner must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
+                return false;
+            }
+            if (repoName.isBlank()) {
+                System.err.println("ERROR: --repo-name is required for ISSUE_WRITER mode");
+                return false;
+            }
+            if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
+                System.err.println("ERROR: Invalid --repo-name '" + repoName + "'. Repo name must match "
+                        + REPO_COMPONENT_ALLOWLIST_REGEX);
                 return false;
             }
         }
@@ -745,9 +791,9 @@ public class HeadlessExecCli {
                     return false;
                 }
                 mode = Ascii.toUpperCase(value);
-                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE)$")) {
+                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE|ISSUE_WRITER)$")) {
                     System.err.println("ERROR: Invalid mode: " + value
-                            + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, or ISSUE");
+                            + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER");
                     return false;
                 }
             }

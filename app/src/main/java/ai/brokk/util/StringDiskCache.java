@@ -2,8 +2,11 @@ package ai.brokk.util;
 
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Optional;
-import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
@@ -18,6 +21,15 @@ public final class StringDiskCache implements IStringDiskCache {
 
     public StringDiskCache(DiskLruCache cache) {
         this.cache = cache;
+    }
+
+    public static String sha1Hex(String payload) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-1").digest(payload.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("Missing SHA-1 MessageDigest", e);
+        }
     }
 
     /**
@@ -63,22 +75,6 @@ public final class StringDiskCache implements IStringDiskCache {
                 }
             }
         }
-    }
-
-    /**
-     * Returns the cached value for the key, or computes and caches it if absent.
-     *
-     * @param key the cache key (must match [a-z0-9_-]{1,64})
-     * @param computer supplier for the value if not in cache
-     * @return the cached or computed value
-     */
-    @Override
-    public String computeIfAbsent(String key, Supplier<String> computer) {
-        return get(key).orElseGet(() -> {
-            String value = computer.get();
-            put(key, value);
-            return value;
-        });
     }
 
     @Override
