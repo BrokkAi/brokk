@@ -1574,12 +1574,26 @@ public final class JobRunner {
 
                                             String finalBodyMarkdown = maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
 
+                                            logger.info(
+                                                    "ISSUE_WRITER job {}: creating GitHub issue in {}/{}",
+                                                    jobId,
+                                                    repoOwner,
+                                                    repoName);
+
                                             var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
 
                                             var issueService = new GitHubIssueService(cm.getProject(), auth);
 
                                             IssueHeader created =
                                                     issueService.createIssue(parsed.title(), finalBodyMarkdown);
+
+                                            logger.info(
+                                                    "ISSUE_WRITER job {} created GitHub issue in {}/{}: id={} url={}",
+                                                    jobId,
+                                                    repoOwner,
+                                                    repoName,
+                                                    created.id(),
+                                                    created.htmlUrl());
 
                                             String createdMsg = "ISSUE_WRITER: issue created";
                                             if (!created.id().isBlank()) {

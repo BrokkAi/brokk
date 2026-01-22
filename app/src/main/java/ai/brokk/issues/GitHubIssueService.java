@@ -85,6 +85,14 @@ public class GitHubIssueService implements IssueService {
         }
 
         GHIssue created = builder.create();
+
+        // Inform operators that an issue was successfully created, including repo and issue number/url.
+        logger.info(
+                "GitHubIssueService created issue #{} in {} (url={})",
+                created.getNumber(),
+                repo.getFullName(),
+                created.getHtmlUrl());
+
         IssueHeader header = mapToIssueHeader(created);
         if (header == null) {
             throw new IOException(
