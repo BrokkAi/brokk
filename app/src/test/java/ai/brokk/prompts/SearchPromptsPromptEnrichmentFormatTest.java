@@ -20,7 +20,8 @@ class SearchPromptsPromptEnrichmentFormatTest {
         var tempDir = Files.createTempDirectory("brokk-prompt-enrichment-test-");
         try {
             var project = new TestProject(tempDir);
-            var cm = new TestContextManager(project, new TestConsoleIO(), java.util.Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var cm = new TestContextManager(
+                    project, new TestConsoleIO(), java.util.Set.of(), new ai.brokk.testutil.TestAnalyzer());
             Context ctx = cm.liveContext();
 
             String goal =
@@ -35,12 +36,7 @@ class SearchPromptsPromptEnrichmentFormatTest {
 
             var model = new TestScriptedLanguageModel("unused");
             var result = SearchPrompts.instance.buildPrompt(
-                    ctx,
-                    model,
-                    goal,
-                    SearchPrompts.Objective.PROMPT_ENRICHMENT,
-                    List.of(),
-                    List.of());
+                    ctx, model, goal, SearchPrompts.Objective.PROMPT_ENRICHMENT, List.of(), List.of());
 
             String directive = extractPromptEnrichmentDirective(result.messages());
 

@@ -101,5 +101,4 @@ class IssueServiceTest {
         String expected = "Fixes #7";
         assertEquals(expected, IssueService.buildPrDescription(" \n\t ", 7));
     }
-
 }

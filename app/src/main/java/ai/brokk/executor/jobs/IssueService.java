@@ -95,5 +95,4 @@ public final class IssueService {
         String proposedName = "brokk/issue-" + issueNumber;
         return repo.sanitizeBranchName(proposedName);
     }
-
 }
