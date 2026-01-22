@@ -20,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSParser;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
@@ -517,25 +518,27 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     @Override
     protected Set<String> extractTypeIdentifiers(String source) {
+        TSParser parser = getTSParser();
+        TSTree tree = parser.parseString(null, source);
+        if (tree == null || tree.getRootNode().isNull()) {
+            return Collections.emptySet();
+        }
+
+        SourceContent sourceContent = SourceContent.of(source);
+        TSQuery query = new TSQuery(getTSLanguage(), "[(type_identifier) @type (selector_expression operand: (identifier) @pkg)]");
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+
         Set<String> identifiers = new HashSet<>();
-        // Strip Go comments (// and /* */) before extracting identifiers
-        String noComments = GO_COMMENT_PATTERN.matcher(source).replaceAll("");
-
-        // 1. Match package prefixes: identifiers followed by a dot (e.g., 'fmt.' in 'fmt.Println')
-        // Go package names are typically lowercase.
-        Pattern packagePattern = Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.");
-        Matcher packageMatcher = packagePattern.matcher(noComments);
-        while (packageMatcher.find()) {
-            identifiers.add(packageMatcher.group(1));
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                TSNode node = capture.getNode();
+                if (node != null && !node.isNull()) {
+                    identifiers.add(sourceContent.substringFrom(node).trim());
+                }
+            }
         }
-
-        // 2. Match capitalized identifiers that might be standalone types or functions (e.g., 'MyType')
-        Pattern typePattern = Pattern.compile("\\b([A-Z][a-zA-Z0-9_]*)\\b");
-        Matcher typeMatcher = typePattern.matcher(noComments);
-        while (typeMatcher.find()) {
-            identifiers.add(typeMatcher.group(1));
-        }
-
         return identifiers;
     }
 
