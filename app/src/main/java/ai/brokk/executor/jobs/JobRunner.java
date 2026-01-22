@@ -2793,7 +2793,7 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult = reviewDiffWithPolicy(ctx, reviewModel, annotatedDiff, PrReviewService.Severity.HIGH, 5);
+                    TaskResult reviewResult = reviewDiff(ctx, reviewModel, annotatedDiff);
                     String reviewText = reviewResult.output().text().join();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
