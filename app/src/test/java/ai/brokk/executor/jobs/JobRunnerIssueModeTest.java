@@ -1037,14 +1037,18 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
-    void issueReviewFix_emitsCommandResultPerAttempt_completed_failed_and_skippedOnCancellation() throws Exception {
-        String jobId = "job-review-fix-events-1";
+    void issueReviewFix_successThenFailure_emitsStructuredCommandResultEvents_roundTripThroughJobStore() throws Exception {
+        String jobId = "job-review-fix-events-success-then-failure-1";
         var io = new TestConsoleIO();
 
         var comments = List.of(
-                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
-                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL),
-                new PrReviewService.InlineComment("src/C.java", 30, "Third issue", PrReviewService.Severity.HIGH));
+                new PrReviewService.InlineComment(
+                        "src/main/java/com/acme/A.java", 11, "Null deref risk in foo()", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment(
+                        "src/main/java/com/acme/B.java",
+                        22,
+                        "Missing bounds check in bar()",
+                        PrReviewService.Severity.CRITICAL));
 
         var cancelled = new AtomicBoolean(false);
         var ran = new AtomicInteger(0);
@@ -1059,40 +1063,136 @@ class JobRunnerIssueModeTest {
 
         Runnable branchHook = () -> branchHooks.incrementAndGet();
 
-        assertThrows(
+        var thrown = assertThrows(
                 RuntimeException.class,
                 () -> JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
                         jobId, store, io, cancelled::get, comments, runner, branchHook));
+        assertEquals("boom", thrown.getMessage());
 
         assertEquals(2, ran.get(), "Should run until the failure (attempt 2)");
         assertEquals(1, branchHooks.get(), "Branch hook runs only after successful attempt 1");
 
         var events = store.readEvents(jobId, -1, 0);
-        var commandEvents = events.stream()
+        var reviewFixEvents = events.stream()
                 .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .filter(e -> e.data() instanceof Map
+                        && "review_fix".equals(((Map<?, ?>) e.data()).get("stage")))
                 .toList();
 
-        assertEquals(2, commandEvents.size(), "Should emit exactly one event per executed attempt before failure");
+        assertEquals(2, reviewFixEvents.size(), "Should emit exactly two review_fix COMMAND_RESULT events");
 
+        assertTrue(reviewFixEvents.get(0).data() instanceof Map);
         @SuppressWarnings("unchecked")
-        var first = (Map<String, Object>) commandEvents.get(0).data();
+        var first = (Map<String, Object>) reviewFixEvents.get(0).data();
+
         assertEquals("review_fix", first.get("stage"));
-        assertEquals("src/A.java:10", first.get("command"));
+        assertEquals("src/main/java/com/acme/A.java:11", first.get("command"));
         assertEquals(1, ((Number) first.get("attempt")).intValue());
         assertEquals(Boolean.FALSE, first.get("skipped"));
         assertEquals(Boolean.TRUE, first.get("success"));
-        assertTrue(((String) first.get("output")).contains("Outcome: completed"));
 
+        String firstOut = (String) first.get("output");
+        assertNotNull(firstOut);
+        assertTrue(firstOut.contains("Finding:"), "Output should include a Finding block");
+        assertTrue(firstOut.contains("- path: src/main/java/com/acme/A.java"));
+        assertTrue(firstOut.contains("- line: 11"));
+        assertTrue(firstOut.contains("- severity: HIGH"));
+        assertTrue(firstOut.contains("Null deref risk in foo()"));
+        assertTrue(firstOut.contains("Outcome: completed"));
+
+        assertTrue(reviewFixEvents.get(1).data() instanceof Map);
         @SuppressWarnings("unchecked")
-        var second = (Map<String, Object>) commandEvents.get(1).data();
+        var second = (Map<String, Object>) reviewFixEvents.get(1).data();
+
         assertEquals("review_fix", second.get("stage"));
-        assertEquals("src/B.java:20", second.get("command"));
+        assertEquals("src/main/java/com/acme/B.java:22", second.get("command"));
         assertEquals(2, ((Number) second.get("attempt")).intValue());
         assertEquals(Boolean.FALSE, second.get("skipped"));
         assertEquals(Boolean.FALSE, second.get("success"));
-        assertTrue(((String) second.get("output")).contains("Outcome: failed"));
+
+        String secondOut = (String) second.get("output");
+        assertNotNull(secondOut);
+        assertTrue(secondOut.contains("- path: src/main/java/com/acme/B.java"));
+        assertTrue(secondOut.contains("- line: 22"));
+        assertTrue(secondOut.contains("- severity: CRITICAL"));
+        assertTrue(secondOut.contains("Missing bounds check in bar()"));
+        assertTrue(secondOut.contains("Outcome: failed"));
+
         assertNotNull(second.get("exception"));
-        assertTrue(((String) second.get("exception")).contains("RuntimeException"));
+        assertTrue(((String) second.get("exception")).contains("RuntimeException: boom"));
+    }
+
+    @Test
+    void issueReviewFix_cancellationAfterAttempt1_emitsAttempt2SkippedEvent_withCancellationReason() throws Exception {
+        String jobId = "job-review-fix-events-cancel-after-1-1";
+        var io = new TestConsoleIO();
+
+        var comments = List.of(
+                new PrReviewService.InlineComment(
+                        "src/main/java/com/acme/A.java",
+                        101,
+                        "Potential NPE in baz()",
+                        PrReviewService.Severity.MEDIUM),
+                new PrReviewService.InlineComment(
+                        "src/main/java/com/acme/C.java",
+                        202,
+                        "Unbounded recursion in qux()",
+                        PrReviewService.Severity.CRITICAL));
+
+        var cancelled = new AtomicBoolean(false);
+        var ran = new AtomicInteger(0);
+        var branchHooks = new AtomicInteger(0);
+
+        Consumer<PrReviewService.InlineComment> runner = c -> {
+            int idx = ran.incrementAndGet();
+            if (idx == 1) {
+                cancelled.set(true);
+            }
+        };
+        Runnable branchHook = () -> branchHooks.incrementAndGet();
+
+        JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+                jobId, store, io, cancelled::get, comments, runner, branchHook);
+
+        assertEquals(1, ran.get(), "Attempt 2 should not execute after cancellation flips true");
+        assertEquals(1, branchHooks.get(), "Branch hook runs only for executed attempt 1");
+
+        var events = store.readEvents(jobId, -1, 0);
+        var reviewFixEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .filter(e -> e.data() instanceof Map
+                        && "review_fix".equals(((Map<?, ?>) e.data()).get("stage")))
+                .toList();
+
+        assertEquals(2, reviewFixEvents.size(), "Should emit attempt 1 result and attempt 2 skipped");
+
+        assertTrue(reviewFixEvents.get(0).data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) reviewFixEvents.get(0).data();
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, first.get("skipped"));
+        assertEquals(Boolean.TRUE, first.get("success"));
+
+        assertTrue(reviewFixEvents.get(1).data() instanceof Map);
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) reviewFixEvents.get(1).data();
+
+        assertEquals("review_fix", second.get("stage"));
+        assertEquals("src/main/java/com/acme/C.java:202", second.get("command"));
+        assertEquals(2, ((Number) second.get("attempt")).intValue());
+        assertEquals(Boolean.TRUE, second.get("skipped"));
+
+        assertNotNull(second.get("skipReason"));
+        assertTrue(
+                ((String) second.get("skipReason")).toLowerCase().contains("cancel"),
+                "skipReason should indicate cancellation");
+        assertEquals(Boolean.TRUE, second.get("success"));
+
+        String out = (String) second.get("output");
+        assertNotNull(out);
+        assertTrue(out.contains("Outcome: skipped"));
+        assertTrue(out.contains("- path: src/main/java/com/acme/C.java"));
+        assertTrue(out.contains("- line: 202"));
     }
 
     @Test
