@@ -11,9 +11,7 @@ import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.treesitter.TSLanguage;
-import org.treesitter.TSNode;
-import org.treesitter.TreeSitterCpp;
+import org.treesitter.*;
 
 public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
@@ -1187,15 +1185,17 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     @Override
     protected Set<String> extractTypeIdentifiers(String source) {
-        // Strip C-style comments
-        String noComments = source.replaceAll("//[^\n]*", "");
-        noComments = noComments.replaceAll("/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/", "");
-
         Set<String> identifiers = new HashSet<>();
-        // Match identifiers: starting with letter/underscore, followed by alphanum/underscore.
-        // Also captures namespace-qualified names like std::vector
-        var pattern = Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*(?:::[a-zA-Z_][a-zA-Z0-9_]*)*)\\b");
-        var matcher = pattern.matcher(noComments);
+        TSParser parser = getTSParser();
+        TSTree tree = parser.parseString(null, source);
+        if (tree == null || tree.getRootNode().isNull()) {
+            return identifiers;
+        }
+
+        TSQuery query = new TSQuery(
+                getTSLanguage(), "[(type_identifier) @type (identifier) @id (qualified_identifier) @qualified]");
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
 
         Set<String> keywords = Set.of(
                 "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit",
@@ -1213,17 +1213,23 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t",
                 "while", "xor", "xor_eq");
 
-        while (matcher.find()) {
-            String fullIdentifier = matcher.group(1);
-            // In C++, we might call a function directly or via a namespace.
-            // We want to extract both the full name and segments to match against headers.
-            List<String> parts = Splitter.on("::").splitToList(fullIdentifier);
-            for (String part : parts) {
-                if (!keywords.contains(part)) {
-                    identifiers.add(part);
+        SourceContent sourceContent = SourceContent.of(source);
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String text = sourceContent.substringFrom(capture.getNode()).strip();
+                if (text.isEmpty()) continue;
+
+                // For qualified identifiers (e.g., std::string), split into parts
+                List<String> parts = Splitter.on("::").splitToList(text);
+                for (String part : parts) {
+                    if (!part.isEmpty() && !keywords.contains(part)) {
+                        identifiers.add(part);
+                    }
                 }
             }
         }
+
         return identifiers;
     }
 
