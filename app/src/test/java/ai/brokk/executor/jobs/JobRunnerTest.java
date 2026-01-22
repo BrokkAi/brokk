@@ -89,4 +89,10 @@ class JobRunnerTest {
 
         assertTrue(result.contains("```diff\n\n```"));
     }
+
+    @Test
+    void testReviewModeSeverityAndCap() {
+        assertEquals(PrReviewService.Severity.HIGH, JobRunner.DEFAULT_REVIEW_SEVERITY_THRESHOLD);
+        assertEquals(3, JobRunner.DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+    }
 }

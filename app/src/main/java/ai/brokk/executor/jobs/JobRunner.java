@@ -222,8 +222,8 @@ public final class JobRunner {
         }
     }
 
-    private static final PrReviewService.Severity DEFAULT_REVIEW_SEVERITY_THRESHOLD = PrReviewService.Severity.HIGH;
-    private static final int DEFAULT_REVIEW_MAX_INLINE_COMMENTS = 5;
+    static final PrReviewService.Severity DEFAULT_REVIEW_SEVERITY_THRESHOLD = PrReviewService.Severity.HIGH;
+    static final int DEFAULT_REVIEW_MAX_INLINE_COMMENTS = 3;
 
     private final ContextManager cm;
     private final JobStore store;
@@ -1952,7 +1952,7 @@ public final class JobRunner {
 
                 COMMENT POLICY (STRICT):
                 - ONLY emit comments with severity >= HIGH.
-                - MAX 5 comments total. Merge similar issues into one comment instead of repeating.
+                - MAX 3 comments total. Merge similar issues into one comment instead of repeating.
                 - NO style-only/nit suggestions. NO repetitive variants of the same point.
                 - SKIP correct code and skip minor improvements.
                 - If nothing meets severity >= HIGH, "comments" MUST be [].
