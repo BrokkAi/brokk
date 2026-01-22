@@ -70,9 +70,9 @@ public class MultiAnalyzerImportTest {
 
             // Verify importInfoOf delegation - check raw snippet since Python doesn't extract identifiers
             var pythonImports = provider.importInfoOf(pythonFile);
-            assertEquals(1, pythonImports.size());
+            assertTrue(pythonImports.size() >= 1);
             assertTrue(
-                    pythonImports.getFirst().rawSnippet().contains("import os"),
+                    pythonImports.stream().anyMatch(i -> i.rawSnippet().contains("import os")),
                     "Python import raw snippet should contain 'import os'");
 
             // Verify relevantImportsFor delegation returns a result (tests delegation, not content)
@@ -121,12 +121,10 @@ public class MultiAnalyzerImportTest {
             assertEquals(1, javaImports.size());
             assertEquals("List", javaImports.getFirst().identifier());
 
-            // Python import - check raw snippet since Python doesn't extract identifiers
+            // Python import - verify Python-specific ImportInfo extraction
             var pythonImports = provider.importInfoOf(pythonFile);
-            assertEquals(1, pythonImports.size());
-            assertTrue(
-                    pythonImports.getFirst().rawSnippet().contains("import os"),
-                    "Python import raw snippet should contain 'import os'");
+            assertTrue(pythonImports.size() >= 1);
+            assertTrue(pythonImports.stream().anyMatch(i -> "os".equals(i.identifier())));
 
             // Verify relevantImportsFor routes to correct language analyzer
             CodeUnit javaUnit = multiAnalyzer.getDeclarations(javaFile).stream()
@@ -141,11 +139,63 @@ public class MultiAnalyzerImportTest {
 
             // Java should have relevant imports (uses List type)
             Set<String> relevantJava = provider.relevantImportsFor(javaUnit);
-            assertTrue(relevantJava.stream().anyMatch(s -> s.contains("java.util.List")));
+            assertTrue(
+                    relevantJava.stream().anyMatch(s -> s.contains("java.util.List")),
+                    "Java delegation should find List import");
 
-            // Python - just verify delegation works (relevantImportsFor may return empty)
-            Set<String> relevantPython = provider.relevantImportsFor(pythonUnit);
-            // No assertion on content - we're testing delegation, not Python's import parsing
+            // Python should have relevant imports (uses os via delegation)
+            // Note: If python_fn is empty, we add a reference to 'os' to ensure it's relevant
+            pythonFile.write("import os\ndef python_fn():\n    print(os.name)");
+            var updatedAnalyzer = multiAnalyzer.update();
+            var updatedProvider =
+                    updatedAnalyzer.as(ImportAnalysisProvider.class).orElseThrow();
+            var updatedPythonUnit = updatedAnalyzer.getDeclarations(pythonFile).stream()
+                    .filter(cu -> cu.shortName().equals("python_fn"))
+                    .findFirst()
+                    .orElseThrow();
+
+            Set<String> relevantPython = updatedProvider.relevantImportsFor(updatedPythonUnit);
+            assertTrue(
+                    relevantPython.stream().anyMatch(s -> s.contains("import os")),
+                    "Python delegation should find os import");
+        }
+    }
+
+    @Test
+    public void testThreeWayRoutingJavaPythonGo() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package main\nimport \"fmt\"\nfunc main() { fmt.Println() }", "main.go")
+                .addFileContents("import math\ndef f(): return math.sqrt(2)", "lib.py")
+                .addFileContents("import java.util.Set;\nclass C { Set s; }", "C.java")
+                .build()) {
+
+            var multiAnalyzer = createMultiAnalyzer(testProject, Languages.JAVA, Languages.PYTHON, Languages.GO);
+            ImportAnalysisProvider provider =
+                    multiAnalyzer.as(ImportAnalysisProvider.class).orElseThrow();
+
+            // 1. Verify Go routing
+            var goFile = testProject.getAnalyzableFiles(Languages.GO).stream()
+                    .filter(f -> f.getFileName().equals("main.go"))
+                    .findFirst()
+                    .orElseThrow();
+            var goImports = provider.importInfoOf(goFile);
+            assertTrue(goImports.stream().anyMatch(i -> i.rawSnippet().contains("fmt")));
+
+            // 2. Verify Python routing
+            var pyFile = AnalyzerUtil.getFileFor(multiAnalyzer, "lib").orElseThrow();
+            var pyImports = provider.importInfoOf(pyFile);
+            assertTrue(
+                    pyImports.stream().anyMatch(i -> "math".equals(i.identifier())),
+                    "Python import should have 'math' as identifier");
+
+            // 3. Verify Java routing
+            var javaFile = AnalyzerUtil.getFileFor(multiAnalyzer, "C").orElseThrow();
+            var javaUnit = multiAnalyzer.getDeclarations(javaFile).stream()
+                    .filter(cu -> cu.shortName().equals("C"))
+                    .findFirst()
+                    .orElseThrow();
+            Set<String> javaRel = provider.relevantImportsFor(javaUnit);
+            assertTrue(javaRel.stream().anyMatch(s -> s.contains("java.util.Set")));
         }
     }
 }
