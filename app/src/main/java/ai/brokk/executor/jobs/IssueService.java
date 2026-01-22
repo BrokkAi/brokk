@@ -5,6 +5,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.util.Json;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.concurrent.ThreadLocalRandom;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -86,13 +87,44 @@ public final class IssueService {
     /**
      * Generates a sanitized and unique branch name for an issue.
      *
+     * Legacy deterministic behavior: propose "brokk/issue-<n>" and let GitRepo.sanitizeBranchName handle
+     * collisions by appending numeric suffixes (-2, -3, ...). This keeps existing tests and callers stable.
+     *
      * @param issueNumber the GitHub issue number
      * @param repo the Git repository to check for existing branches
-     * @return a sanitized branch name like "brokk/issue-42" (or "brokk/issue-42-2" if "brokk/issue-42" exists)
+     * @return a sanitized branch name like "brokk/issue-42" (or "brokk/issue-42-2" if that exists)
      * @throws GitAPIException if checking existing branches fails
      */
     public static String generateBranchName(int issueNumber, GitRepo repo) throws GitAPIException {
-        String proposedName = "brokk/issue-" + issueNumber;
+        String baseProposed = "brokk/issue-" + issueNumber;
+        return repo.sanitizeBranchName(baseProposed);
+    }
+
+    /**
+     * New helper that proposes a randomized candidate and then delegates to sanitizeBranchName.
+     * This is the new behavior consumers can opt into if they want probabilistic collision reduction.
+     */
+    public static String generateBranchNameWithRandomSuffix(int issueNumber, GitRepo repo) throws GitAPIException {
+        String suffix = randomAlphanumericSuffix(6);
+        return generateBranchName(issueNumber, repo, suffix);
+    }
+
+    /**
+     * Package-private seam for deterministic tests. Accepts a concrete suffix (already intended to be
+     * branch-safe; it will still be sanitized by the repo).
+     */
+    static String generateBranchName(int issueNumber, GitRepo repo, String suffix) throws GitAPIException {
+        String proposedName = "brokk/issue-" + issueNumber + (suffix == null || suffix.isEmpty() ? "" : "-" + suffix);
         return repo.sanitizeBranchName(proposedName);
+    }
+
+    private static String randomAlphanumericSuffix(int length) {
+        final char[] alphabet = "abcdefghijklmnopqrstuvwxyz0123456789".toCharArray();
+        ThreadLocalRandom rnd = ThreadLocalRandom.current();
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            sb.append(alphabet[rnd.nextInt(alphabet.length)]);
+        }
+        return sb.toString();
     }
 }

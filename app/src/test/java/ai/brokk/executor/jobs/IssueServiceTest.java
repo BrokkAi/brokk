@@ -31,8 +31,8 @@ class IssueServiceTest {
         Path projectRoot = tempDir.resolve("project");
         Path worktreeDir = tempDir.resolve("worktrees");
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
-            String branchName = IssueService.generateBranchName(42, repo);
-            assertEquals("brokk/issue-42", branchName);
+            String branchName = IssueService.generateBranchName(42, repo, "deterministic");
+            assertEquals("brokk/issue-42-deterministic", branchName);
         }
     }
 
@@ -43,12 +43,12 @@ class IssueServiceTest {
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
             // Simulate existing branch by creating it directly via JGit
             // (TestGitRepo.createBranch is overridden as no-op)
-            repo.getGit().branchCreate().setName("brokk/issue-42").call();
+            repo.getGit().branchCreate().setName("brokk/issue-42-deterministic").call();
             repo.invalidateCaches();
 
-            String branchName = IssueService.generateBranchName(42, repo);
+            String branchName = IssueService.generateBranchName(42, repo, "deterministic");
             // sanitizeBranchName logic appends -2, -3, etc.
-            assertEquals("brokk/issue-42-2", branchName);
+            assertEquals("brokk/issue-42-deterministic-2", branchName);
         }
     }
 
@@ -58,14 +58,14 @@ class IssueServiceTest {
         Path worktreeDir = tempDir.resolve("worktrees-multi-dup");
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
             // Create several existing branches
-            repo.getGit().branchCreate().setName("brokk/issue-42").call();
-            repo.getGit().branchCreate().setName("brokk/issue-42-2").call();
-            repo.getGit().branchCreate().setName("brokk/issue-42-3").call();
+            repo.getGit().branchCreate().setName("brokk/issue-42-deterministic").call();
+            repo.getGit().branchCreate().setName("brokk/issue-42-deterministic-2").call();
+            repo.getGit().branchCreate().setName("brokk/issue-42-deterministic-3").call();
             repo.invalidateCaches();
 
-            String branchName = IssueService.generateBranchName(42, repo);
+            String branchName = IssueService.generateBranchName(42, repo, "deterministic");
             // Should find the next available suffix
-            assertEquals("brokk/issue-42-4", branchName);
+            assertEquals("brokk/issue-42-deterministic-4", branchName);
         }
     }
 
@@ -74,8 +74,8 @@ class IssueServiceTest {
         Path projectRoot = tempDir.resolve("project-create");
         Path worktreeDir = tempDir.resolve("worktrees-create");
         try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
-            String branchName = IssueService.generateBranchName(101, repo);
-            assertEquals("brokk/issue-101", branchName);
+            String branchName = IssueService.generateBranchName(101, repo, "deterministic");
+            assertEquals("brokk/issue-101-deterministic", branchName);
 
             // Verify we can actually create and checkout this branch
             repo.createAndCheckoutBranch(branchName, "HEAD");
