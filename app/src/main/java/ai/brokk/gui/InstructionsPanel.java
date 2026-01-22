@@ -652,6 +652,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.addFocusListener(new FocusAdapter() {
             @Override
             public void focusLost(FocusEvent e) {
+                if (e.isTemporary()) return;
                 // Restore placeholder state if text is empty
                 SwingUtilities.invokeLater(() -> deactivateCommandInput());
             }
