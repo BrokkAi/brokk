@@ -1037,6 +1037,115 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void issueReviewFix_emitsCommandResultPerAttempt_completed_failed_and_skippedOnCancellation() throws Exception {
+        String jobId = "job-review-fix-events-1";
+        var io = new TestConsoleIO();
+
+        var comments = List.of(
+                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL),
+                new PrReviewService.InlineComment("src/C.java", 30, "Third issue", PrReviewService.Severity.HIGH));
+
+        var cancelled = new AtomicBoolean(false);
+        var ran = new AtomicInteger(0);
+        var branchHooks = new AtomicInteger(0);
+
+        Consumer<PrReviewService.InlineComment> runner = c -> {
+            int idx = ran.incrementAndGet();
+            if (idx == 2) {
+                throw new RuntimeException("boom");
+            }
+        };
+
+        Runnable branchHook = () -> branchHooks.incrementAndGet();
+
+        assertThrows(
+                RuntimeException.class,
+                () -> JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+                        jobId, store, io, cancelled::get, comments, runner, branchHook));
+
+        assertEquals(2, ran.get(), "Should run until the failure (attempt 2)");
+        assertEquals(1, branchHooks.get(), "Branch hook runs only after successful attempt 1");
+
+        var events = store.readEvents(jobId, -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        assertEquals(2, commandEvents.size(), "Should emit exactly one event per executed attempt before failure");
+
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) commandEvents.get(0).data();
+        assertEquals("review_fix", first.get("stage"));
+        assertEquals("src/A.java:10", first.get("command"));
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, first.get("skipped"));
+        assertEquals(Boolean.TRUE, first.get("success"));
+        assertTrue(((String) first.get("output")).contains("Outcome: completed"));
+
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) commandEvents.get(1).data();
+        assertEquals("review_fix", second.get("stage"));
+        assertEquals("src/B.java:20", second.get("command"));
+        assertEquals(2, ((Number) second.get("attempt")).intValue());
+        assertEquals(Boolean.FALSE, second.get("skipped"));
+        assertEquals(Boolean.FALSE, second.get("success"));
+        assertTrue(((String) second.get("output")).contains("Outcome: failed"));
+        assertNotNull(second.get("exception"));
+        assertTrue(((String) second.get("exception")).contains("RuntimeException"));
+    }
+
+    @Test
+    void issueReviewFix_whenCancelledBeforeStart_emitsSkippedEventsForAllAttempts() throws Exception {
+        String jobId = "job-review-fix-events-cancelled-1";
+        var io = new TestConsoleIO();
+
+        var comments = List.of(
+                new PrReviewService.InlineComment("src/A.java", 10, "First issue", PrReviewService.Severity.HIGH),
+                new PrReviewService.InlineComment("src/B.java", 20, "Second issue", PrReviewService.Severity.CRITICAL));
+
+        var cancelled = new AtomicBoolean(true);
+        var ran = new AtomicInteger(0);
+        var branchHooks = new AtomicInteger(0);
+
+        Consumer<PrReviewService.InlineComment> runner = c -> ran.incrementAndGet();
+        Runnable branchHook = () -> branchHooks.incrementAndGet();
+
+        JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+                jobId, store, io, cancelled::get, comments, runner, branchHook);
+
+        assertEquals(0, ran.get(), "No tasks should run when already cancelled");
+        assertEquals(0, branchHooks.get(), "No branch hooks should run when cancelled");
+
+        var events = store.readEvents(jobId, -1, 0);
+        var commandEvents = events.stream()
+                .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
+                .toList();
+
+        assertEquals(2, commandEvents.size(), "Must emit exactly one skipped event per comment");
+
+        @SuppressWarnings("unchecked")
+        var first = (Map<String, Object>) commandEvents.get(0).data();
+        assertEquals("review_fix", first.get("stage"));
+        assertEquals("src/A.java:10", first.get("command"));
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
+        assertEquals(Boolean.TRUE, first.get("skipped"));
+        assertEquals("cancelled", first.get("skipReason"));
+        assertEquals(Boolean.TRUE, first.get("success"));
+        assertTrue(((String) first.get("output")).contains("Outcome: skipped"));
+
+        @SuppressWarnings("unchecked")
+        var second = (Map<String, Object>) commandEvents.get(1).data();
+        assertEquals("review_fix", second.get("stage"));
+        assertEquals("src/B.java:20", second.get("command"));
+        assertEquals(2, ((Number) second.get("attempt")).intValue());
+        assertEquals(Boolean.TRUE, second.get("skipped"));
+        assertEquals("cancelled", second.get("skipReason"));
+        assertEquals(Boolean.TRUE, second.get("success"));
+        assertTrue(((String) second.get("output")).contains("Outcome: skipped"));
+    }
+
+    @Test
     void testPrSkippedWhenFinalVerificationStillFails() {
         var verificationCalls = new AtomicInteger(0);
         var fixCalls = new AtomicInteger(0);

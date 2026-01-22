@@ -1099,93 +1099,59 @@ public final class JobRunner {
                                                     var taskIndex = new AtomicInteger(0);
                                                     var lastTaskDescription = new AtomicReference<String>("");
 
-                                                    Function<PrReviewService.InlineComment, String> commentToPrompt =
-                                                            JobRunner::buildInlineCommentFixPrompt;
+                                                    Consumer<PrReviewService.InlineComment> reviewFixTaskRunner =
+                                                            comment -> {
+                                                                int idx = taskIndex.incrementAndGet();
 
-                                                    Consumer<String> taskRunner = prompt -> {
-                                                        int idx = taskIndex.incrementAndGet();
-                                                        if (cancelled.get()) {
-                                                            logger.info(
-                                                                    "ISSUE job {} cancelled before starting review-fix task {}/{}",
-                                                                    jobId,
-                                                                    idx,
-                                                                    total);
-                                                            return;
-                                                        }
+                                                                String path =
+                                                                        Objects.requireNonNullElse(comment.path(), "");
+                                                                int line = comment.line();
 
-                                                        var comment = inlineComments.get(idx - 1);
-                                                        String path = Objects.requireNonNullElse(comment.path(), "");
-                                                        int line = comment.line();
+                                                                String reviewFixTaskDescription =
+                                                                        "Review-fix " + idx + "/" + total + ": " + path
+                                                                                + ":" + line;
+                                                                lastTaskDescription.set(reviewFixTaskDescription);
 
-                                                        String startMsg = "Review-fix task %d/%d starting: %s:%d"
-                                                                .formatted(idx, total, path, line);
-                                                        try {
-                                                            store.appendEvent(
-                                                                    jobId, JobEvent.of("NOTIFICATION", startMsg));
-                                                        } catch (Exception e) {
-                                                            logger.warn(
-                                                                    "Failed to append review-fix start notification event for job {}: {}",
-                                                                    jobId,
-                                                                    e.getMessage(),
-                                                                    e);
-                                                        }
-
-                                                        String reviewFixTaskDescription = "Review-fix " + idx + "/"
-                                                                + total + ": " + path + ":" + line;
-                                                        lastTaskDescription.set(reviewFixTaskDescription);
-
-                                                        try {
-                                                            try (var reviewFixScope =
-                                                                    cm.beginTaskUngrouped(reviewFixTaskDescription)) {
-                                                                var liveCtx = cm.liveContext();
-                                                                var reviewFixAgent = new LutzAgent(
-                                                                        liveCtx,
-                                                                        reviewFixTaskDescription,
-                                                                        issuePlannerModel,
-                                                                        SearchPrompts.Objective.LUTZ,
-                                                                        reviewFixScope);
+                                                                String prompt =
+                                                                        buildInlineCommentFixPrompt(comment);
 
                                                                 try {
-                                                                    reviewFixAgent.callCodeAgent(prompt);
-                                                                } catch (InterruptedException ie) {
-                                                                    Thread.currentThread()
-                                                                            .interrupt();
-                                                                    throw new RuntimeException(ie);
-                                                                }
-                                                            }
-                                                        } catch (InterruptedException ie) {
-                                                            Thread.currentThread()
-                                                                    .interrupt();
-                                                            throw new RuntimeException(ie);
-                                                        } catch (RuntimeException re) {
-                                                            if (re.getCause() instanceof InterruptedException) {
-                                                                throw re;
-                                                            }
-                                                            logger.warn(
-                                                                    "ISSUE job {} review-fix task {}/{} failed for {}:{}: {}",
-                                                                    jobId,
-                                                                    idx,
-                                                                    total,
-                                                                    path,
-                                                                    line,
-                                                                    re.getMessage(),
-                                                                    re);
-                                                            throw re;
-                                                        }
+                                                                    try (var reviewFixScope = cm.beginTaskUngrouped(
+                                                                            reviewFixTaskDescription)) {
+                                                                        var liveCtx = cm.liveContext();
+                                                                        var reviewFixAgent = new LutzAgent(
+                                                                                liveCtx,
+                                                                                reviewFixTaskDescription,
+                                                                                issuePlannerModel,
+                                                                                SearchPrompts.Objective.LUTZ,
+                                                                                reviewFixScope);
 
-                                                        String doneMsg = "Review-fix task %d/%d complete: %s:%d"
-                                                                .formatted(idx, total, path, line);
-                                                        try {
-                                                            store.appendEvent(
-                                                                    jobId, JobEvent.of("NOTIFICATION", doneMsg));
-                                                        } catch (Exception e) {
-                                                            logger.warn(
-                                                                    "Failed to append review-fix completion notification event for job {}: {}",
-                                                                    jobId,
-                                                                    e.getMessage(),
-                                                                    e);
-                                                        }
-                                                    };
+                                                                        try {
+                                                                            reviewFixAgent.callCodeAgent(prompt);
+                                                                        } catch (InterruptedException ie) {
+                                                                            Thread.currentThread().interrupt();
+                                                                            throw new RuntimeException(ie);
+                                                                        }
+                                                                    }
+                                                                } catch (InterruptedException ie) {
+                                                                    Thread.currentThread().interrupt();
+                                                                    throw new RuntimeException(ie);
+                                                                } catch (RuntimeException re) {
+                                                                    if (re.getCause() instanceof InterruptedException) {
+                                                                        throw re;
+                                                                    }
+                                                                    logger.warn(
+                                                                            "ISSUE job {} review-fix task {}/{} failed for {}:{}: {}",
+                                                                            jobId,
+                                                                            idx,
+                                                                            total,
+                                                                            path,
+                                                                            line,
+                                                                            re.getMessage(),
+                                                                            re);
+                                                                    throw re;
+                                                                }
+                                                            };
 
                                                     Runnable branchUpdateHook = () -> {
                                                         int idx = taskIndex.get();
@@ -1200,11 +1166,9 @@ public final class JobRunner {
                                                                 Objects.requireNonNull(lastTaskDescription.get());
 
                                                         try {
-                                                            new GitWorkflow(cm)
-                                                                    .performAutoCommit(reviewFixTaskDescription);
+                                                            new GitWorkflow(cm).performAutoCommit(reviewFixTaskDescription);
                                                         } catch (InterruptedException ie) {
-                                                            Thread.currentThread()
-                                                                    .interrupt();
+                                                            Thread.currentThread().interrupt();
                                                             throw new RuntimeException(ie);
                                                         } catch (Exception e) {
                                                             logger.warn(
@@ -1224,8 +1188,7 @@ public final class JobRunner {
                                                                         jobId,
                                                                         JobEvent.of(
                                                                                 "NOTIFICATION",
-                                                                                "Review-fix push succeeded: "
-                                                                                        + pushMsg));
+                                                                                "Review-fix push succeeded: " + pushMsg));
                                                             } catch (Exception e) {
                                                                 logger.warn(
                                                                         "Failed to append review-fix push success notification event for job {}: {}",
@@ -1267,8 +1230,7 @@ public final class JobRunner {
                                                                 return BuildAgent.runExplicitCommand(
                                                                         cm, cmd, buildDetailsOverride);
                                                             } catch (InterruptedException ie) {
-                                                                Thread.currentThread()
-                                                                        .interrupt();
+                                                                Thread.currentThread().interrupt();
                                                                 throw new RuntimeException(ie);
                                                             }
                                                         };
@@ -1320,12 +1282,23 @@ public final class JobRunner {
                                                                 spec.effectiveMaxIssueFixAttempts());
                                                     };
 
-                                                    runIssueReviewTaskSequence(
+                                                    runIssueReviewFixAttemptsWithCommandResultEvents(
+                                                            jobId,
+                                                            store,
+                                                            (console != null ? console : cm.getIo()),
+                                                            cancelled::get,
                                                             inlineComments,
-                                                            commentToPrompt,
-                                                            taskRunner,
-                                                            branchUpdateHook,
-                                                            finalVerificationPass);
+                                                            reviewFixTaskRunner,
+                                                            branchUpdateHook);
+
+                                                    if (cancelled.get()) {
+                                                        logger.info(
+                                                                "ISSUE job {} cancelled after review-fix; skipping final verification",
+                                                                jobId);
+                                                        return;
+                                                    }
+
+                                                    finalVerificationPass.run();
                                                 }
 
                                                 if (cancelled.get()) {
@@ -2536,6 +2509,132 @@ public final class JobRunner {
         }
 
         finalVerificationPass.run();
+    }
+
+    /**
+     * ISSUE-mode review-fix loop with structured COMMAND_RESULT emission.
+     *
+     * <p>Contract:
+     * - Emits exactly one COMMAND_RESULT event per inline comment attempt (1-based).
+     * - If cancelled before a given attempt, emits a skipped event for that attempt and all remaining attempts.
+     * - If the task execution throws, emits a failed event (success=false, exception populated) and rethrows.
+     * - On success, emits a completed event.
+     *
+     * <p>Package-private for deterministic unit testing.
+     */
+    static void runIssueReviewFixAttemptsWithCommandResultEvents(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            BooleanSupplier isCancelled,
+            List<PrReviewService.InlineComment> inlineComments,
+            Consumer<PrReviewService.InlineComment> reviewFixTaskRunner,
+            Runnable perTaskBranchUpdate) {
+
+        for (int i = 0; i < inlineComments.size(); i++) {
+            int attempt = i + 1;
+            var comment = inlineComments.get(i);
+
+            String path = Objects.requireNonNullElse(comment.path(), "");
+            int line = comment.line();
+            String command = path + ":" + line;
+
+            String severity = comment.severity().name();
+            String body = Objects.requireNonNullElse(comment.bodyMarkdown(), "").trim();
+
+            String contextBlock = """
+                    Finding:
+                    - path: %s
+                    - line: %d
+                    - severity: %s
+                    - bodyMarkdown:
+                    %s
+                    """
+                    .formatted(path, line, severity, body.isEmpty() ? "(empty)" : body);
+
+            if (isCancelled.getAsBoolean()) {
+                for (int j = i; j < inlineComments.size(); j++) {
+                    int skippedAttempt = j + 1;
+                    var skipped = inlineComments.get(j);
+                    String skippedPath = Objects.requireNonNullElse(skipped.path(), "");
+                    int skippedLine = skipped.line();
+                    String skippedCommand = skippedPath + ":" + skippedLine;
+
+                    String skippedSeverity = skipped.severity().name();
+                    String skippedBody = Objects.requireNonNullElse(skipped.bodyMarkdown(), "").trim();
+
+                    String skippedContextBlock = """
+                            Finding:
+                            - path: %s
+                            - line: %d
+                            - severity: %s
+                            - bodyMarkdown:
+                            %s
+
+                            Outcome: skipped
+                            """
+                            .formatted(
+                                    skippedPath,
+                                    skippedLine,
+                                    skippedSeverity,
+                                    skippedBody.isEmpty() ? "(empty)" : skippedBody);
+
+                    emitCommandResult(
+                            jobId,
+                            store,
+                            io,
+                            commandResult(
+                                    "review_fix",
+                                    skippedCommand,
+                                    skippedAttempt,
+                                    /* skipped= */ true,
+                                    /* skipReason= */ "cancelled",
+                                    /* success= */ true,
+                                    skippedContextBlock,
+                                    null),
+                            "review_fix: SKIP");
+                }
+                return;
+            }
+
+            try {
+                reviewFixTaskRunner.accept(comment);
+                perTaskBranchUpdate.run();
+
+                String output = contextBlock + "\nOutcome: completed\n";
+                emitCommandResult(
+                        jobId,
+                        store,
+                        io,
+                        commandResult(
+                                "review_fix",
+                                command,
+                                attempt,
+                                /* skipped= */ false,
+                                /* skipReason= */ null,
+                                /* success= */ true,
+                                output,
+                                null),
+                        "review_fix: PASS");
+            } catch (RuntimeException re) {
+                String output = contextBlock + "\nOutcome: failed\n";
+                emitCommandResult(
+                        jobId,
+                        store,
+                        io,
+                        commandResult(
+                                "review_fix",
+                                command,
+                                attempt,
+                                /* skipped= */ false,
+                                /* skipReason= */ null,
+                                /* success= */ false,
+                                output,
+                                re),
+                        "review_fix: ERROR");
+                throw re;
+            }
+        }
     }
 
     static List<PrReviewService.InlineComment> issueModeComputeInlineCommentsOrEmpty(
