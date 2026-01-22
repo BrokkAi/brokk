@@ -351,7 +351,9 @@ public class CodePrompts {
                                 reminder,
                                 goal));
         messages.add(sys);
-        messages.addAll(getHistoryMessages(ctx, null));
+        var historyMeta = new TaskMeta(
+                ai.brokk.TaskResult.Type.CODE, ai.brokk.Service.ModelConfig.from(model, service));
+        messages.addAll(getHistoryMessages(ctx, historyMeta));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
         messages.addAll(taskMessages);

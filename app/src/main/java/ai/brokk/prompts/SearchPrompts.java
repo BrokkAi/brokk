@@ -100,19 +100,28 @@ public class SearchPrompts {
     }
 
     public final List<ChatMessage> buildAskPrompt(Context ctx, String input) {
-        return buildAskPrompt(ctx, input, null);
-    }
+            return buildAskPrompt(ctx, input, (ai.brokk.TaskResult.TaskMeta) null);
+        }
+
+    public final List<ChatMessage> buildAskPrompt(Context ctx, String input, @Nullable ai.brokk.TaskResult.TaskMeta meta) {
+            var messages = new ArrayList<ChatMessage>();
+            messages.add(new SystemMessage(
+                    "Act as an expert software developer when answering the user's question based on the code in the Workspace.\n\n"
+                            + SystemPrompts.MARKDOWN_REMINDER));
+            messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
+            messages.addAll(CodePrompts.instance.getHistoryMessages(ctx, meta));
+            messages.add(askRequest(input));
+            return messages;
+        }
 
     public final List<ChatMessage> buildAskPrompt(Context ctx, String input, @Nullable String modelName) {
-        var messages = new ArrayList<ChatMessage>();
-        messages.add(new SystemMessage(
-                "Act as an expert software developer when answering the user's question based on the code in the Workspace.\n\n"
-                        + SystemPrompts.MARKDOWN_REMINDER));
-        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-        messages.addAll(CodePrompts.instance.getHistoryMessages(ctx, null));
-        messages.add(askRequest(input));
-        return messages;
-    }
+            if (modelName == null) {
+                return buildAskPrompt(ctx, input, (ai.brokk.TaskResult.TaskMeta) null);
+            }
+            var meta = new ai.brokk.TaskResult.TaskMeta(
+                    ai.brokk.TaskResult.Type.ASK, new ai.brokk.Service.ModelConfig(modelName));
+            return buildAskPrompt(ctx, input, meta);
+        }
 
     public UserMessage askRequest(String input) {
         var text =
