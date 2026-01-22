@@ -97,7 +97,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_PLAN = "Plan";
 
     private static final String PLACEHOLDER_PREFIX = "Type your prompt here. ";
-    private static final String PLACEHOLDER_NEWLINE_HINT = "Shift+Enter = newline.";
 
     private boolean placeholderActive = false;
     private String currentPlaceholderText = "";
@@ -652,6 +651,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.addFocusListener(new FocusAdapter() {
             @Override
             public void focusLost(FocusEvent e) {
+                if (e.isTemporary()) return;
                 // Restore placeholder state if text is empty
                 SwingUtilities.invokeLater(() -> deactivateCommandInput());
             }
@@ -724,7 +724,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Add Shift+Enter shortcut to insert a newline
-        var shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+        var shiftEnter = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
         area.getInputMap().put(shiftEnter, "insertNewline");
         area.getActionMap().put("insertNewline", new AbstractAction() {
             @Override
@@ -1322,30 +1322,64 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private String buildPlaceholderTextFromCurrentKeybindings() {
-        KeyStroke submitKs =
-                GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
-        String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-        String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
+        String placeholder;
+        try {
+            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
+                    "instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
+            String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
+            String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
 
-        String base = PLACEHOLDER_PREFIX + PLACEHOLDER_NEWLINE_HINT;
-        if (submitHint.isBlank()) {
-            return (base + "\n").stripIndent();
+            KeyStroke newlineKs = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
+            String newlineStr = KeyboardShortcutUtil.formatKeyStroke(newlineKs);
+            String newlineHint = newlineStr.isBlank() ? "" : newlineStr + " = newline.";
+
+            String base = PLACEHOLDER_PREFIX + newlineHint;
+            if (submitHint.isBlank()) {
+                placeholder = (base + "\n").stripIndent();
+            } else {
+                placeholder = (base + " " + submitHint + "\n").stripIndent();
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to build placeholder text from keybindings, falling back to default prefix.", e);
+            placeholder = PLACEHOLDER_PREFIX;
         }
-        return (base + " " + submitHint + "\n").stripIndent();
+
+        if (placeholder == null || placeholder.trim().isEmpty()) {
+            logger.warn(
+                    "Computed placeholder text was blank; falling back to default prefix. Raw placeholder='{}'",
+                    placeholder);
+            placeholder = PLACEHOLDER_PREFIX;
+        }
+
+        return placeholder;
     }
 
     private void showPlaceholder(JTextArea area) {
         assert SwingUtilities.isEventDispatchThread();
-        currentPlaceholderText = buildPlaceholderTextFromCurrentKeybindings();
+        String computed = buildPlaceholderTextFromCurrentKeybindings();
+        if (computed == null || computed.trim().isEmpty()) {
+            logger.warn(
+                    "showPlaceholder received blank placeholder text; using default prefix instead. Text='{}'",
+                    computed);
+            computed = PLACEHOLDER_PREFIX;
+        }
+        currentPlaceholderText = computed;
         placeholderActive = true;
         area.setText(currentPlaceholderText);
     }
 
-    private boolean isPlaceholderText(String text) {
-        if (!placeholderActive) {
+    static boolean isPlaceholderMatch(@Nullable String text, @Nullable String placeholder) {
+        if (text == null || placeholder == null) {
             return false;
         }
-        return Objects.equals(text, currentPlaceholderText);
+        String normalizedText = text.replace("\r\n", "\n");
+        String normalizedPlaceholder = placeholder.replace("\r\n", "\n");
+        return normalizedText.equals(normalizedPlaceholder);
+    }
+
+    private boolean isPlaceholderText(String text) {
+        if (!placeholderActive) return false;
+        return isPlaceholderMatch(text, currentPlaceholderText);
     }
 
     /**
