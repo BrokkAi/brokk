@@ -2,6 +2,7 @@ package ai.brokk.prompts;
 
 import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
 
+import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.context.Context;
@@ -17,7 +18,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Generates prompts for the Search Agent and Ask requests.
@@ -99,29 +99,16 @@ public class SearchPrompts {
                 """;
     }
 
-    public final List<ChatMessage> buildAskPrompt(Context ctx, String input) {
-            return buildAskPrompt(ctx, input, (ai.brokk.TaskResult.TaskMeta) null);
-        }
-
-    public final List<ChatMessage> buildAskPrompt(Context ctx, String input, @Nullable ai.brokk.TaskResult.TaskMeta meta) {
-            var messages = new ArrayList<ChatMessage>();
-            messages.add(new SystemMessage(
-                    "Act as an expert software developer when answering the user's question based on the code in the Workspace.\n\n"
-                            + SystemPrompts.MARKDOWN_REMINDER));
-            messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-            messages.addAll(CodePrompts.instance.getHistoryMessages(ctx, meta));
-            messages.add(askRequest(input));
-            return messages;
-        }
-
-    public final List<ChatMessage> buildAskPrompt(Context ctx, String input, @Nullable String modelName) {
-            if (modelName == null) {
-                return buildAskPrompt(ctx, input, (ai.brokk.TaskResult.TaskMeta) null);
-            }
-            var meta = new ai.brokk.TaskResult.TaskMeta(
-                    ai.brokk.TaskResult.Type.ASK, new ai.brokk.Service.ModelConfig(modelName));
-            return buildAskPrompt(ctx, input, meta);
-        }
+    public final List<ChatMessage> buildAskPrompt(Context ctx, String input, TaskResult.TaskMeta meta) {
+        var messages = new ArrayList<ChatMessage>();
+        messages.add(new SystemMessage(
+                "Act as an expert software developer when answering the user's question based on the code in the Workspace.\n\n"
+                        + SystemPrompts.MARKDOWN_REMINDER));
+        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
+        messages.addAll(CodePrompts.instance.getHistoryMessages(ctx, meta));
+        messages.add(askRequest(input));
+        return messages;
+    }
 
     public UserMessage askRequest(String input) {
         var text =
@@ -280,6 +267,7 @@ public class SearchPrompts {
      *
      * @param context the current context
      * @param model the model to use for token limit calculation
+     * @param taskMeta the task metadata
      * @param goal the search goal
      * @param objective the search objective
      * @param mcpTools the list of MCP tools available
@@ -289,6 +277,7 @@ public class SearchPrompts {
     public PromptResult buildPrompt(
             Context context,
             StreamingChatModel model,
+            TaskResult.TaskMeta taskMeta,
             String goal,
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
@@ -323,11 +312,7 @@ public class SearchPrompts {
         messages.addAll(workspaceMessages);
 
         // Conversation history plus this agent's messages
-        messages.addAll(CodePrompts.instance.getHistoryMessages(
-                context,
-                new ai.brokk.TaskResult.TaskMeta(
-                        ai.brokk.TaskResult.Type.ASK,
-                        ai.brokk.Service.ModelConfig.from(model, cm.getService()))));
+        messages.addAll(CodePrompts.instance.getHistoryMessages(context, taskMeta));
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)

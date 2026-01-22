@@ -3,11 +3,7 @@ package ai.brokk.prompts;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.AbstractService;
-import ai.brokk.EditBlock;
-import ai.brokk.IContextManager;
-import ai.brokk.SyntaxAwareConfig;
-import ai.brokk.TaskEntry;
+import ai.brokk.*;
 import ai.brokk.TaskResult.TaskMeta;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -29,6 +25,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -104,8 +101,8 @@ public class CodePrompts {
      * @param aiMessage The AiMessage to process.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
-        return redactAiMessage(aiMessage, true);
+    public static Optional<AiMessage> redactEditBlocks(AiMessage aiMessage) {
+        return redactEditBlocks(aiMessage, true);
     }
 
     /**
@@ -116,7 +113,7 @@ public class CodePrompts {
      *                  If false, they are removed entirely.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, boolean leaveMarker) {
+    public static Optional<AiMessage> redactEditBlocks(AiMessage aiMessage, boolean leaveMarker) {
         var parsedResult = EditBlockParser.instance.parse(aiMessage.text(), Collections.emptySet());
         boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
 
@@ -147,33 +144,14 @@ public class CodePrompts {
      *
      * <p>If {@code redactToolCalls} is true, tool execution results are omitted and {@link AiMessage}s with tool
      * execution requests are converted into passive historical descriptions. Regardless of {@code redactToolCalls},
-     * this method always redacts SEARCH/REPLACE blocks from {@link AiMessage}s via {@link #redactAiMessage(AiMessage)}.
+     * this method always redacts SEARCH/REPLACE blocks from {@link AiMessage}s via {@link #redactEditBlocks(AiMessage)}.
      */
     public static List<ChatMessage> redactHistoryMessages(List<ChatMessage> messages, boolean redactToolCalls) {
         var toolProcessed = redactToolCalls ? redactToolCallsFromOtherModels(messages) : messages;
 
-        var result = new ArrayList<ChatMessage>();
-        for (var message : toolProcessed) {
-            if (message instanceof AiMessage aiMessage) {
-                var text = aiMessage.text();
-                if (text == null) {
-                    result.add(aiMessage);
-                    continue;
-                }
-
-                redactAiMessage(aiMessage).ifPresent(redacted -> {
-                    if (!redactToolCalls && aiMessage.hasToolExecutionRequests()) {
-                        result.add(new AiMessage(redacted.text(), aiMessage.toolExecutionRequests()));
-                    } else {
-                        result.add(redacted);
-                    }
-                });
-            } else {
-                result.add(message);
-            }
-        }
-
-        return result;
+        return toolProcessed.stream()
+                .flatMap(msg -> msg instanceof AiMessage ai ? redactEditBlocks(ai).stream() : Stream.of(msg))
+                .toList();
     }
 
     /**
@@ -184,10 +162,12 @@ public class CodePrompts {
         var result = new ArrayList<ChatMessage>();
 
         for (var message : messages) {
+            // skip tool execution result messages
             if (message instanceof ToolExecutionResultMessage) {
                 continue;
             }
 
+            // redact tool execution requests
             if (message instanceof AiMessage aiMessage && aiMessage.hasToolExecutionRequests()) {
                 var existingText = aiMessage.text();
                 var prefix = (existingText != null && !existingText.isBlank()) ? existingText + "\n\n" : "";
@@ -209,6 +189,7 @@ public class CodePrompts {
 
     public final List<ChatMessage> collectCodeMessages(
             StreamingChatModel model,
+            TaskResult.TaskMeta taskMeta,
             Context ctx,
             List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
@@ -351,9 +332,7 @@ public class CodePrompts {
                                 reminder,
                                 goal));
         messages.add(sys);
-        var historyMeta = new TaskMeta(
-                ai.brokk.TaskResult.Type.CODE, ai.brokk.Service.ModelConfig.from(model, service));
-        messages.addAll(getHistoryMessages(ctx, historyMeta));
+        messages.addAll(getHistoryMessages(ctx, taskMeta));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
         messages.addAll(taskMessages);
@@ -587,11 +566,10 @@ public class CodePrompts {
 
             var entryMeta = e.meta();
 
-            @Nullable ai.brokk.Service.ModelConfig currentPrimaryModel =
-                    currentMeta == null ? null : currentMeta.primaryModel();
-            @Nullable ai.brokk.Service.ModelConfig entryPrimaryModel =
-                    entryMeta == null ? null : entryMeta.primaryModel();
+            var currentPrimaryModel = currentMeta == null ? null : currentMeta.primaryModel();
+            var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
 
+            // Redact tool calls if the primary models differ
             boolean redactToolCalls = currentPrimaryModel != null
                     && entryPrimaryModel != null
                     && !currentPrimaryModel.name().equals(entryPrimaryModel.name());

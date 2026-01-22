@@ -1114,10 +1114,9 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 Context ctx = cm.liveContext();
                 workspaceTokens = Messages.getApproximateMessageTokens(
                         WorkspacePrompts.getMessagesGroupedByMutability(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-                var historyMeta = new TaskResult.TaskMeta(
-                        TaskResult.Type.CODE, Service.ModelConfig.from(model, service));
-                historyTokens = Messages.getApproximateMessageTokens(
-                        CodePrompts.instance.getHistoryMessages(ctx, historyMeta));
+                var meta = BlitzForge.createTaskMeta(model, service);
+                historyTokens =
+                        Messages.getApproximateMessageTokens(CodePrompts.instance.getHistoryMessages(ctx, meta));
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
                 hadError = true;
@@ -1434,9 +1433,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var list = new ArrayList<ChatMessage>();
                     list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-                    var historyMeta = new TaskResult.TaskMeta(
-                            TaskResult.Type.CODE, Service.ModelConfig.from(perFileModel, service));
-                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx, historyMeta));
+                    var meta = BlitzForge.createTaskMeta(perFileModel, service);
+                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx, meta));
                     var text = "";
                     for (var m : list) {
                         text += m + "\n";
@@ -1605,9 +1603,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 if (fIncludeWorkspace) {
                     readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             context, EnumSet.of(SpecialTextType.TASK_LIST)));
-                    var historyMeta = new TaskResult.TaskMeta(
-                            TaskResult.Type.CODE, Service.ModelConfig.from(model, service));
-                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context, historyMeta));
+                    var meta = BlitzForge.createTaskMeta(model, service);
+                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context, meta));
                 }
                 if (fRelatedK != null) {
                     var acList = cm.liveContext().buildAutoContext(fRelatedK);

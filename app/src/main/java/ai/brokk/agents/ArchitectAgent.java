@@ -904,7 +904,11 @@ public class ArchitectAgent {
                 io.getLlmRawMessages(),
                 context,
                 new TaskResult.StopDetails(StopReason.SUCCESS),
-                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
+                taskMeta());
+    }
+
+    private TaskResult.TaskMeta taskMeta() {
+        return new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService()));
     }
 
     private TaskResult resultWithMessages(StopReason reason, String message) {
@@ -1004,11 +1008,7 @@ public class ArchitectAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // History from previous tasks/sessions
-        messages.addAll(CodePrompts.instance.getHistoryMessages(
-                context,
-                new ai.brokk.TaskResult.TaskMeta(
-                        ai.brokk.TaskResult.Type.ASK,
-                        ai.brokk.Service.ModelConfig.from(planningModel, cm.getService()))));
+        messages.addAll(CodePrompts.instance.getHistoryMessages(context, taskMeta()));
 
         // This agent's own conversational history for the current goal, with the instructionsMarker
         // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)

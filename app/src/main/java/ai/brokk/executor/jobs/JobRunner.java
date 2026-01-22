@@ -1279,7 +1279,7 @@ public final class JobRunner {
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
         List<ChatMessage> messages;
-        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
         // Create an LLM instance for the planner model and route output to the ContextManager IO
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
         llm.setOutput(cm.getIo());

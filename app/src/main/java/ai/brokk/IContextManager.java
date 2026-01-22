@@ -15,7 +15,6 @@ import ai.brokk.project.ModelProperties;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.util.Collection;
@@ -68,7 +67,6 @@ public interface IContextManager {
     default ExecutorService getBackgroundTasks() {
         throw new UnsupportedOperationException();
     }
-
 
     /**
      * Returns the live, unfrozen context that we can edit.

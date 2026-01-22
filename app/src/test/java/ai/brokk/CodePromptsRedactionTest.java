@@ -40,7 +40,7 @@ class CodePromptsRedactionTest {
 
     private void assertRedaction(String aiText, String expectedText) {
         AiMessage originalMessage = new AiMessage(aiText);
-        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
+        Optional<AiMessage> redactedResult = CodePrompts.redactEditBlocks(originalMessage);
 
         assertTrue(redactedResult.isPresent(), "Message should be present after redaction.");
         assertEquals(expectedText, redactedResult.get().text(), "Redaction mismatch.");
@@ -72,7 +72,7 @@ class CodePromptsRedactionTest {
         String aiText = "This is a plain message with no S/R blocks.";
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
+        Optional<AiMessage> redactedResult = CodePrompts.redactEditBlocks(originalMessage);
 
         assertTrue(redactedResult.isPresent(), "Plain message should be present.");
         assertEquals(originalMessage.text(), redactedResult.get().text(), "Plain message text should be unchanged.");
@@ -83,7 +83,7 @@ class CodePromptsRedactionTest {
         String aiText = "";
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
+        Optional<AiMessage> redactedResult = CodePrompts.redactEditBlocks(originalMessage);
         assertTrue(redactedResult.isEmpty(), "Empty message should result in empty optional.");
     }
 
@@ -92,7 +92,7 @@ class CodePromptsRedactionTest {
         String aiText = "   \n\t   ";
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
+        Optional<AiMessage> redactedResult = CodePrompts.redactEditBlocks(originalMessage);
         assertTrue(redactedResult.isEmpty(), "Blank message should result in empty optional after redaction.");
     }
 
@@ -155,7 +155,7 @@ class CodePromptsRedactionTest {
         String minimal = prefix + createMinimalMessage("foo.txt", "old", "new") + suffix;
         AiMessage originalMessage = new AiMessage(minimal);
 
-        Optional<AiMessage> silentResult = CodePrompts.redactAiMessage(originalMessage, false);
+        Optional<AiMessage> silentResult = CodePrompts.redactEditBlocks(originalMessage, false);
 
         assertTrue(silentResult.isPresent(), "Message should be present after silent redaction.");
         String silentText = silentResult.get().text();
@@ -169,7 +169,7 @@ class CodePromptsRedactionTest {
         String minimal = createMinimalMessage("file.txt", "old code", "new code");
         AiMessage originalMessage = new AiMessage(minimal);
 
-        Optional<AiMessage> silentResult = CodePrompts.redactAiMessage(originalMessage, false);
+        Optional<AiMessage> silentResult = CodePrompts.redactEditBlocks(originalMessage, false);
 
         assertTrue(silentResult.isEmpty(), "Silent redaction of block-only message should return empty");
     }
@@ -187,7 +187,7 @@ class CodePromptsRedactionTest {
                 + text3;
         AiMessage originalMessage = new AiMessage(message);
 
-        Optional<AiMessage> silentResult = CodePrompts.redactAiMessage(originalMessage, false);
+        Optional<AiMessage> silentResult = CodePrompts.redactEditBlocks(originalMessage, false);
 
         assertTrue(silentResult.isPresent());
         String silentText = silentResult.get().text();

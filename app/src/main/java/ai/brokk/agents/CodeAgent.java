@@ -230,6 +230,10 @@ public class CodeAgent {
 
             // Make the LLM request
             StreamingResult streamingResult;
+            // Populate TaskMeta because this task engaged an LLM
+            var meta = new TaskResult.TaskMeta(
+                    TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
+
             try {
                 var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
                 if (!es.showBuildError()) {
@@ -237,6 +241,7 @@ public class CodeAgent {
                 }
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
+                        meta,
                         context,
                         prologue,
                         cs.taskMessages(),
@@ -450,11 +455,6 @@ public class CodeAgent {
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
-
-        // Populate TaskMeta because this task engaged an LLM
-        var meta = new TaskResult.TaskMeta(
-                TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
-
         var tr = new TaskResult(contextManager, finalActionDescription, finalMessages, context, stopDetails, meta);
         logger.debug("Task result: {}", tr);
         return tr;
@@ -1398,7 +1398,7 @@ public class CodeAgent {
             var explanations = rawMessages.stream()
                     .filter(AiMessage.class::isInstance)
                     .map(AiMessage.class::cast)
-                    .map(ai -> CodePrompts.redactAiMessage(ai, false)
+                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
                             .map(AiMessage::text)
                             .orElse(""))
                     .filter(seg -> !seg.isBlank())
