@@ -65,6 +65,8 @@ public final class JobRunner {
     static final String COMMAND_RESULT_EVENT_TYPE = "COMMAND_RESULT";
 
     static final class CommandResultEvent {
+        private static final int MAX_OUTPUT_CHARS = 25_000;
+
         private final String stage;
         private final String command;
         private final @Nullable Integer attempt;
@@ -105,7 +107,12 @@ public final class JobRunner {
                 data.put("skipReason", skipReason);
             }
             data.put("success", success);
-            data.put("output", output);
+            if (output.length() > MAX_OUTPUT_CHARS) {
+                data.put("output", output.substring(0, MAX_OUTPUT_CHARS));
+                data.put("outputTruncated", true);
+            } else {
+                data.put("output", output);
+            }
             if (exception != null && !exception.isBlank()) {
                 data.put("exception", exception);
             }
