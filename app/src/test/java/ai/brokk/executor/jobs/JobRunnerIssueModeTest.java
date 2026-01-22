@@ -332,7 +332,7 @@ class JobRunnerIssueModeTest {
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
                 () -> JobRunner.runSingleFixVerificationGate(
-                        "job-single-fix-1", store, io, verificationRunner, fixRunner));
+                        "job-single-fix-1", store, io, "./gradlew test", verificationRunner, fixRunner));
 
         assertEquals(2, verificationCalls.get(), "Verification should be called exactly twice");
         assertEquals(1, fixCalls.get(), "Fix runner should be called exactly once");
@@ -342,18 +342,27 @@ class JobRunnerIssueModeTest {
         var commandEvents = events.stream()
                 .filter(e -> e.type().equals(JobRunner.COMMAND_RESULT_EVENT_TYPE))
                 .toList();
-        assertEquals(2, commandEvents.size(), "Should emit one command result per verification run");
 
-        assertTrue(commandEvents.getFirst().data() instanceof Map);
+        var verificationEvents = commandEvents.stream()
+                .filter(e -> e.data() instanceof Map
+                        && "verification".equals(((Map<?, ?>) e.data()).get("stage")))
+                .toList();
+
+        assertEquals(2, verificationEvents.size(), "Should emit one command result per verification run");
+
+        assertTrue(verificationEvents.getFirst().data() instanceof Map);
         @SuppressWarnings("unchecked")
-        var first = (Map<String, Object>) commandEvents.getFirst().data();
+        var first = (Map<String, Object>) verificationEvents.getFirst().data();
         assertEquals("verification", first.get("stage"));
+        assertEquals("./gradlew test", first.get("command"));
+        assertEquals(1, ((Number) first.get("attempt")).intValue());
         assertEquals(Boolean.FALSE, first.get("success"));
         assertEquals("initial failure", first.get("output"));
 
         @SuppressWarnings("unchecked")
-        var second = (Map<String, Object>) commandEvents.getLast().data();
+        var second = (Map<String, Object>) verificationEvents.getLast().data();
         assertEquals("verification", second.get("stage"));
+        assertEquals("./gradlew test", second.get("command"));
         assertEquals(2, ((Number) second.get("attempt")).intValue());
         assertEquals(Boolean.FALSE, second.get("success"));
         assertEquals("still failing", second.get("output"));
@@ -906,7 +915,7 @@ class JobRunnerIssueModeTest {
         Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
         assertThrows(IssueExecutionException.class, () -> {
-            JobRunner.runSingleFixVerificationGate("job-pr-skip-1", store, io, verificationRunner, fixRunner);
+            JobRunner.runSingleFixVerificationGate("job-pr-skip-1", store, io, "verification", verificationRunner, fixRunner);
             // This line simulates PR creation that must not be reached if verification fails.
             prCreated.set(true);
         });

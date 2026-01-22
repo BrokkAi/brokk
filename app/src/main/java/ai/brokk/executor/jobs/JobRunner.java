@@ -990,11 +990,19 @@ public final class JobRunner {
                                                         try {
                                                             return BuildAgent.runVerification(cm, buildDetailsOverride);
                                                         } catch (InterruptedException ie) {
-                                                            Thread.currentThread()
-                                                                    .interrupt();
+                                                            Thread.currentThread().interrupt();
                                                             throw new RuntimeException(ie);
                                                         }
                                                     };
+
+                                                    @Nullable String verificationCommand = null;
+                                                    try {
+                                                        verificationCommand = BuildAgent.determineVerificationCommand(
+                                                                cm.liveContext(), buildDetailsOverride);
+                                                    } catch (InterruptedException ie) {
+                                                        Thread.currentThread().interrupt();
+                                                        throw new RuntimeException(ie);
+                                                    }
 
                                                     Consumer<String> fixTaskRunner = prompt -> {
                                                         String taskLabel = Objects.requireNonNullElse(
@@ -1020,6 +1028,7 @@ public final class JobRunner {
                                                             jobId,
                                                             store,
                                                             console != null ? console : cm.getIo(),
+                                                            verificationCommand,
                                                             verificationRunner,
                                                             fixTaskRunner);
                                                 }
@@ -2070,10 +2079,13 @@ public final class JobRunner {
             String jobId,
             JobStore store,
             IConsoleIO io,
+            @Nullable String verificationCommand,
             java.util.function.Supplier<String> verificationRunner,
             java.util.function.Consumer<String> fixTaskRunner) {
+        String commandLabel = verificationCommand == null ? "" : verificationCommand;
+
         // First verification
-        String firstOut;
+        final String firstOut;
         try {
             firstOut = verificationRunner.get();
         } catch (RuntimeException re) {
@@ -2081,29 +2093,40 @@ public final class JobRunner {
                     jobId,
                     store,
                     io,
-                    commandResult("verification", "", null, false, "", re),
+                    commandResult("verification", commandLabel, 1, false, "", re),
                     "Verification: ERROR");
-            throw new IssueExecutionException("Verification runner failed: " + re.getMessage(), re);
+
+            String exMsg = re.getMessage();
+            String detail = (exMsg == null || exMsg.isBlank()) ? re.getClass().getSimpleName() : exMsg;
+            throw new IssueExecutionException("Verification runner failed: " + detail, re);
         }
 
-        boolean passedFirst = firstOut == null || firstOut.isBlank();
+        boolean passedFirst = firstOut.isBlank();
         emitCommandResult(
                 jobId,
                 store,
                 io,
-                commandResult("verification", "", null, passedFirst, firstOut, null),
+                commandResult("verification", commandLabel, 1, passedFirst, firstOut, null),
                 "Verification: " + (passedFirst ? "PASS" : "FAIL"));
 
         if (passedFirst) {
             return;
         }
 
+        // Surface failure output when triggering the fix attempt.
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult("fix_trigger", commandLabel, 1, false, firstOut, null),
+                "Fix attempt: TRIGGERED");
+
         // Perform exactly one fix attempt
         String prompt = "Verification failed. Output:\n" + firstOut + "\n\nPlease make a single fix attempt.";
         fixTaskRunner.accept(prompt);
 
         // Re-run verification exactly once
-        String secondOut;
+        final String secondOut;
         try {
             secondOut = verificationRunner.get();
         } catch (RuntimeException re) {
@@ -2111,17 +2134,20 @@ public final class JobRunner {
                     jobId,
                     store,
                     io,
-                    commandResult("verification", "", 2, false, "", re),
+                    commandResult("verification", commandLabel, 2, false, "", re),
                     "Verification after fix: ERROR");
-            throw new IssueExecutionException("Verification runner failed after fix: " + re.getMessage(), re);
+
+            String exMsg = re.getMessage();
+            String detail = (exMsg == null || exMsg.isBlank()) ? re.getClass().getSimpleName() : exMsg;
+            throw new IssueExecutionException("Verification runner failed after fix: " + detail, re);
         }
 
-        boolean passedSecond = secondOut == null || secondOut.isBlank();
+        boolean passedSecond = secondOut.isBlank();
         emitCommandResult(
                 jobId,
                 store,
                 io,
-                commandResult("verification", "", 2, passedSecond, secondOut, null),
+                commandResult("verification", commandLabel, 2, passedSecond, secondOut, null),
                 "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
 
         if (passedSecond) {
