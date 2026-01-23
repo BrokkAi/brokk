@@ -32,7 +32,7 @@ import org.treesitter.TreeSitterGo;
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
-    private static final Cache<String, String> importPathToPackageNameCache =
+    private final Cache<String, String> importPathToPackageNameCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
 
     // Pattern to match both double-quoted and backtick-quoted import paths
