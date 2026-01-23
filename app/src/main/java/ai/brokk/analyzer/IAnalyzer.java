@@ -395,7 +395,7 @@ public interface IAnalyzer {
         return summarizeSymbols(getTopLevelDeclarations(file), types, 0);
     }
 
-    default String summarizeSymbols(List<CodeUnit> units, Set<CodeUnitType> types, int indent) {
+    default String summarizeSymbols(Collection<CodeUnit> units, Set<CodeUnitType> types, int indent) {
         var prefix = "  ".repeat(Math.max(0, indent));
         var sb = new StringBuilder();
         for (var cu : units) {

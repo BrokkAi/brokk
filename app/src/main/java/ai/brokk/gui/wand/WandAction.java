@@ -4,10 +4,14 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
+import ai.brokk.MutedConsoleIO;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.dialogs.TextAreaConsoleIO;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -41,18 +45,15 @@ public class WandAction {
 
         contextManager.submitLlmAction(() -> {
             try {
-                var wandIo = new TextAreaConsoleIO(instructionsArea, chromeIO, "Enriching Context...\n");
+                var wandIo = new TextAreaConsoleIO(instructionsArea, chromeIO, "Enriching Context");
 
                 var model = contextManager.getCodeModel();
-                ContextAgent agent = new ContextAgent(contextManager, model, original, chromeIO);
+                ContextAgent agent = new ContextAgent(contextManager, model, original, new MutedConsoleIO(chromeIO));
                 Context context = contextManager.liveContext();
                 ContextAgent.RecommendationResult recommendation = agent.getRecommendations(context);
 
                 if (recommendation.success() && !recommendation.fragments().isEmpty()) {
-                    try (var scope = contextManager.beginTask("Enhance Prompt", false, "Enhance Prompt")) {
-                        context = context.addFragments(recommendation.fragments());
-                        scope.publish(context);
-                    }
+                    context = contextManager.pushContext(c -> c.addFragments(recommendation.fragments()));
                 }
 
                 SwingUtilities.invokeLater(() -> {
@@ -82,7 +83,39 @@ public class WandAction {
 
     public @Nullable String refinePrompt(String originalPrompt, Context ctx, IConsoleIO consoleIO)
             throws InterruptedException {
-        var model = contextManager.getCodeModel();
+        var model = contextManager.getService().getModel(ModelProperties.ModelType.SCAN);
+        var analyzer = contextManager.getAnalyzer();
+
+        var workspaceSummary = ctx.allFragments()
+                .map(f -> {
+                    String description = f.description().join();
+                    StringBuilder sb =
+                            new StringBuilder("# ").append(description).append("\n");
+
+                    switch (f) {
+                        case ContextFragments.ProjectPathFragment pf -> sb.append(analyzer.summarizeSymbols(pf.file()));
+                        case ContextFragments.SummaryFragment sf -> {
+                            if (sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS) {
+                                var file = contextManager.toFile(sf.getTargetIdentifier());
+                                sb.append(analyzer.summarizeSymbols(file));
+                            } else {
+                                var units = analyzer.getDefinitions(sf.getTargetIdentifier());
+                                if (!units.isEmpty()) {
+                                    sb.append(analyzer.summarizeSymbols(units, CodeUnitType.ALL, 0));
+                                }
+                            }
+                        }
+                        case ContextFragments.CodeFragment cf -> {
+                            var units = analyzer.getDefinitions(cf.getFullyQualifiedName());
+                            if (!units.isEmpty()) {
+                                sb.append(analyzer.summarizeSymbols(units, CodeUnitType.ALL, 0));
+                            }
+                        }
+                        default -> {}
+                    }
+                    return sb.toString().trim();
+                })
+                .collect(Collectors.joining("\n\n"));
 
         String instruction =
                 """
@@ -105,8 +138,7 @@ public class WandAction {
                 Output only the improved prompt in 2-4 paragraphs.
                 </goal>
                 """
-                        .formatted(
-                                ContextFragment.describe(ctx.allFragments()), buildHistorySummary(ctx), originalPrompt);
+                        .formatted(workspaceSummary, buildHistorySummary(ctx), originalPrompt);
 
         Llm llm = contextManager.getLlm(new Llm.Options(model, "Refine Prompt").withEcho());
         llm.setOutput(consoleIO);
