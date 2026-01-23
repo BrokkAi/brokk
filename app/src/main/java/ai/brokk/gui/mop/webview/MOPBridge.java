@@ -640,6 +640,13 @@ public final class MOPBridge {
         }
     }
 
+    public void insertIntoInstructions(String text) {
+        var c = chrome;
+        if (c != null) {
+            SwingUtilities.invokeLater(() -> c.getInstructionsPanel().appendToInstructionsArea(text));
+        }
+    }
+
     public void deleteHistoryTask(int sequence) {
         var cm = contextManager;
         if (cm == null) {

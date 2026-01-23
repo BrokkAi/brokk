@@ -2411,7 +2411,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Appends transcript text to the instructions area (used by voice input).
      * If placeholder is active, replaces it; otherwise appends with space separator.
      */
-    private void appendToInstructionsArea(String transcript) {
+    public void appendToInstructionsArea(String transcript) {
         SwingUtilities.invokeLater(() -> {
             var currentText = instructionsArea.getText();
             var isEmpty = isPlaceholderText(currentText) || currentText.isBlank();

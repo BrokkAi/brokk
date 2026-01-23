@@ -17,8 +17,13 @@
 
   let copied = $state(false);
   let captured = $state(false);
+  let menuOpen = $state(false);
 
   let preElem: HTMLPreElement | null = null;
+
+  function getCodeText(): string {
+    return preElem?.textContent ?? "";
+  }
 
   const preId = "code-" + idCounter++;
 
@@ -54,7 +59,7 @@
   }
 
   async function copyToClipboard(): Promise<void> {
-    const text = preElem?.textContent ?? "";
+    const text = getCodeText();
     if (!text) {
       return;
     }
@@ -91,7 +96,7 @@
   }
 
   function captureToWorkspace(): void {
-    const text = preElem?.textContent ?? "";
+    const text = getCodeText();
     if (!text) {
       return;
     }
@@ -100,8 +105,33 @@
     if (javaBridge.captureText) {
       javaBridge.captureText(text);
       setCapturedTransient();
+      menuOpen = false;
     } else {
       console.warn("`window.javaBridge.captureText` is not available");
+      menuOpen = false;
+    }
+  }
+
+  function insertIntoInstructions(): void {
+    const text = getCodeText();
+    if (!text) return;
+
+    const javaBridge = window.javaBridge;
+    if (javaBridge?.insertIntoInstructions) {
+      javaBridge.insertIntoInstructions(text);
+    } else {
+      console.warn("`window.javaBridge.insertIntoInstructions` is not available");
+    }
+    menuOpen = false;
+  }
+
+  function closeMenu(): void {
+    menuOpen = false;
+  }
+
+  function handleClickOutside(event: MouseEvent): void {
+    if (menuOpen) {
+      menuOpen = false;
     }
   }
 
@@ -145,6 +175,8 @@
   }
 </script>
 
+<svelte:window on:click={handleClickOutside} />
+
 <div class="custom-code-block">
   <div class="custom-code-header" on:click={toggleCode}>
     <button
@@ -169,16 +201,30 @@
 
     <span class="spacer"></span>
 
-    <button
-      type="button"
-      class="copy-btn"
-      class:captured={captured}
-      on:click|stopPropagation={captureToWorkspace}
-      aria-label={captured ? "Captured!" : "Capture code to workspace"}
-      title={captured ? "Captured!" : "Capture code to workspace"}
-    >
-      <Icon icon={captured ? "mdi:check" : "mdi:camera-plus-outline"} />
-    </button>
+    <div class="menu-container">
+      <button
+        type="button"
+        class="copy-btn"
+        class:captured={captured}
+        on:click|stopPropagation={() => menuOpen = !menuOpen}
+        aria-label="More actions"
+        title="More actions"
+      >
+        <Icon icon={captured ? "mdi:check" : "mdi:dots-horizontal"} />
+      </button>
+      {#if menuOpen}
+        <div class="dropdown-menu" on:click|stopPropagation>
+          <button type="button" class="menu-item" on:click={captureToWorkspace}>
+            <Icon icon="mdi:camera-plus-outline" />
+            <span>Attach to Workspace</span>
+          </button>
+          <button type="button" class="menu-item" on:click={insertIntoInstructions}>
+            <Icon icon="mdi:text-box-plus-outline" />
+            <span>Copy to Instructions</span>
+          </button>
+        </div>
+      {/if}
+    </div>
     <button
       type="button"
       class="copy-btn"
@@ -254,6 +300,42 @@
 
   .spacer {
     flex: 1;
+  }
+
+  .menu-container {
+    position: relative;
+  }
+
+  .dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 1000;
+    min-width: 180px;
+    padding: 4px 0;
+    margin-top: 4px;
+    background-color: var(--code-block-background);
+    border: 1px solid var(--code-block-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    color: var(--chat-text);
+    font-size: 0.85em;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .menu-item:hover {
+    background-color: var(--code-block-border);
   }
 
   .copy-btn,
