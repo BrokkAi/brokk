@@ -160,7 +160,11 @@ public final class FuzzyUsageFinder {
                     .filter(cu -> !cu.fqName().equals(target.fqName()))
                     .collect(Collectors.toSet());
 
-            // Group hits by enclosing CodeUnit to build one prompt per context
+            // Group hits by enclosing CodeUnit to build one prompt per context.
+            // Note: This is a design tradeoff: all hits within the same method/enclosing unit will receive
+            // the same LLM-derived confidence score. While this saves tokens and latency, it may lack precision
+            // if a method calls multiple overloads where only one is the target. Individual hit disambiguation
+            // could be added here later if higher precision is required.
             var groupedHits = hits.stream().collect(Collectors.groupingBy(UsageHit::enclosing));
 
             var tasks = new ArrayList<RelevanceTask>(groupedHits.size());
