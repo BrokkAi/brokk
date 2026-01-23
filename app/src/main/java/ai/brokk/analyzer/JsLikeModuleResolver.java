@@ -11,6 +11,9 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
 
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_CALL_CAPTURE_NAME;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME;
+
 public interface JsLikeModuleResolver {
     record ModulePathKey(ProjectFile importingFile, String modulePath) {}
 
@@ -124,10 +127,6 @@ public interface JsLikeModuleResolver {
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
             List<String> localImportStatements) {
-        // Use the constant names directly as strings since they're simple capture names
-        String REQUIRE_CALL_CAPTURE_NAME = "module.require_call";
-        String REQUIRE_FUNC_CAPTURE_NAME = "_require_func";
-
         TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
         TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
         if (requireCallNode != null
