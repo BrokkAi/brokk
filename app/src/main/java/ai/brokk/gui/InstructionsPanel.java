@@ -1336,8 +1336,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         assert SwingUtilities.isEventDispatchThread();
 
         String bodyText =
-                "I think it’s time to demonstrate the full power of this station.";
-        String linkText = "Here’s what Full Power unlocks.";
+                "I think it is time to demonstrate the full power of this station.";
+        String linkText = "Here is what Full Power unlocks.";
         String linkUrl = "https://brokk.ai/documentation/overview";
 
         var messagePanel = new JPanel();
