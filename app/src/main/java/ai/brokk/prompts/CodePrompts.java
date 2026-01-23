@@ -8,6 +8,8 @@ import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
+import ai.brokk.TaskResult.TaskMeta;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
@@ -28,6 +30,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -102,8 +105,8 @@ public class CodePrompts {
      * @param aiMessage The AiMessage to process.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
-        return redactAiMessage(aiMessage, true);
+    public static Optional<AiMessage> redactEditBlocks(AiMessage aiMessage) {
+        return redactEditBlocks(aiMessage, true);
     }
 
     /**
@@ -114,12 +117,18 @@ public class CodePrompts {
      *                  If false, they are removed entirely.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, boolean leaveMarker) {
-        var parsedResult = EditBlockParser.instance.parse(aiMessage.text(), Collections.emptySet());
+    public static Optional<AiMessage> redactEditBlocks(AiMessage aiMessage, boolean leaveMarker) {
+        var text = aiMessage.text();
+
+        if (text == null) {
+            return aiMessage.hasToolExecutionRequests() ? Optional.of(aiMessage) : Optional.empty();
+        }
+
+        var parsedResult = EditBlockParser.instance.parse(text, Collections.emptySet());
         boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
 
         if (!hasSrBlocks) {
-            return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
+            return text.isBlank() ? Optional.empty() : Optional.of(aiMessage);
         }
 
         var blocks = parsedResult.blocks();
@@ -137,11 +146,67 @@ public class CodePrompts {
         }
 
         String redactedText = sb.toString();
-        return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
+        if (redactedText.isBlank()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(
+                aiMessage.hasToolExecutionRequests()
+                        ? new AiMessage(redactedText, aiMessage.toolExecutionRequests())
+                        : new AiMessage(redactedText));
+    }
+
+    /**
+     * Orchestrates history-message redaction.
+     *
+     * <p>If {@code redactToolCalls} is true, tool execution results are omitted and {@link AiMessage}s with tool
+     * execution requests are converted into passive historical descriptions. Regardless of {@code redactToolCalls},
+     * this method always redacts SEARCH/REPLACE blocks from {@link AiMessage}s via {@link #redactEditBlocks(AiMessage)}.
+     */
+    public static List<ChatMessage> redactHistoryMessages(List<ChatMessage> messages, boolean redactToolCalls) {
+        var toolProcessed = redactToolCalls ? redactToolCallsFromOtherModels(messages) : messages;
+
+        return toolProcessed.stream()
+                .flatMap(msg -> msg instanceof AiMessage ai ? redactEditBlocks(ai).stream() : Stream.of(msg))
+                .toList();
+    }
+
+    /**
+     * Removes tool-call semantics from history: drops tool execution result messages and rewrites tool-request
+     * {@link AiMessage}s into passive, non-executable text.
+     */
+    private static List<ChatMessage> redactToolCallsFromOtherModels(List<ChatMessage> messages) {
+        var result = new ArrayList<ChatMessage>();
+
+        for (var message : messages) {
+            // skip tool execution result messages
+            if (message instanceof ToolExecutionResultMessage) {
+                continue;
+            }
+
+            // redact tool execution requests
+            if (message instanceof AiMessage aiMessage && aiMessage.hasToolExecutionRequests()) {
+                var existingText = aiMessage.text();
+                var prefix = (existingText != null && !existingText.isBlank()) ? existingText + "\n\n" : "";
+
+                var toolDescriptions = aiMessage.toolExecutionRequests().stream()
+                        .map(Messages::getRedactedRepr)
+                        .collect(Collectors.joining("\n"));
+
+                var rewrittenText = prefix + "[Historical tool usage by a different model]\n" + toolDescriptions;
+                result.add(new AiMessage(rewrittenText));
+                continue;
+            }
+
+            result.add(message);
+        }
+
+        return result;
     }
 
     public final List<ChatMessage> collectCodeMessages(
             StreamingChatModel model,
+            TaskResult.TaskMeta taskMeta,
             Context ctx,
             List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
@@ -294,7 +359,7 @@ public class CodePrompts {
                                                 .formatted(goal)
                                         : ""));
         messages.add(sys);
-        messages.addAll(getHistoryMessages(ctx));
+        messages.addAll(getHistoryMessages(ctx, taskMeta));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
         messages.addAll(taskMessages);
@@ -500,21 +565,21 @@ public class CodePrompts {
         return (base + (base.endsWith("\n") ? "" : "\n") + guidance).trim();
     }
 
-    public List<ChatMessage> getHistoryMessages(Context ctx) {
+    public List<ChatMessage> getHistoryMessages(Context ctx, TaskMeta currentMeta) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
 
         // Merge compressed messages into a single taskhistory message
         var compressed = taskHistory.stream()
                 .filter(TaskEntry::isCompressed)
-                .map(TaskEntry::toString) // This will use raw messages if TaskEntry was created with them
+                .map(TaskEntry::toString)
                 .collect(Collectors.joining("\n\n"));
         if (!compressed.isEmpty()) {
             messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
             messages.add(new AiMessage("Ok, I see the history."));
         }
 
-        // Uncompressed messages: process for S/R block redaction
+        // Uncompressed messages: process for tool and S/R block redaction
         taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
             var entryRawMessages = castNonNull(e.log()).messages();
             if (entryRawMessages.isEmpty()) {
@@ -526,16 +591,16 @@ public class CodePrompts {
                     ? entryRawMessages
                     : entryRawMessages.subList(0, entryRawMessages.size() - 1);
 
-            List<ChatMessage> processedMessages = new ArrayList<>();
-            for (var chatMessage : relevantEntryMessages) {
-                if (chatMessage instanceof AiMessage aiMessage) {
-                    redactAiMessage(aiMessage).ifPresent(processedMessages::add);
-                } else {
-                    // Not an AiMessage (e.g., UserMessage, CustomMessage), add as is
-                    processedMessages.add(chatMessage);
-                }
-            }
-            messages.addAll(processedMessages);
+            var entryMeta = e.meta();
+
+            var currentPrimaryModel = currentMeta.primaryModel();
+            var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
+
+            // Redact tool calls if the primary models differ
+            boolean redactToolCalls =
+                    entryPrimaryModel != null && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
+
+            messages.addAll(redactHistoryMessages(relevantEntryMessages, redactToolCalls));
         });
 
         return messages;
