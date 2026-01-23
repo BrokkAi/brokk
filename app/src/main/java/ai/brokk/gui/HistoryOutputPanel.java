@@ -660,8 +660,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     currentlyDisplayedNotification.rolledUpCostCount = rolledUpCostCount;
                     currentlyDisplayedNotification.persistedEntry = entry;
 
-                    currentlyDisplayedNotificationLabel.setText(toNotificationLabelHtml(
-                            IConsoleIO.NotificationRole.COST, message, rolledUpCostCount));
+                    currentlyDisplayedNotificationLabel.setText(
+                            toNotificationLabelHtml(IConsoleIO.NotificationRole.COST, message, rolledUpCostCount));
                     restartNotificationCardAnimation(requireNonNull(currentlyDisplayedNotificationCard));
                 } else {
                     var lastQueued = getLastQueuedNotification();
@@ -894,10 +894,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Allow card to grow vertically; overall area scrolls when necessary
         return card;
-    }
-
-    private static String toNotificationLabelHtml(IConsoleIO.NotificationRole role, String message) {
-        return toNotificationLabelHtml(role, message, 0);
     }
 
     private static String toNotificationLabelHtml(IConsoleIO.NotificationRole role, String message, int rolledUpCount) {
@@ -1306,7 +1302,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         NotificationEntry persistedEntry;
 
         TransientNotification(
-                IConsoleIO.NotificationRole role, String message, int rolledUpCostCount, @Nullable NotificationEntry persistedEntry) {
+                IConsoleIO.NotificationRole role,
+                String message,
+                int rolledUpCostCount,
+                @Nullable NotificationEntry persistedEntry) {
             this.role = role;
             this.message = message;
             this.rolledUpCostCount = rolledUpCostCount;
