@@ -243,11 +243,7 @@ class SessionSynchronizer {
 
                     if (isUploadPayloadTooLarge(action, finalEx)) {
                         logger.warn("Session {} is too large to upload (413). Adding to oversized sessions list.", id);
-                        try {
-                            addOversizedSession(id);
-                        } catch (ExecutionException e) {
-                            logger.error("Failed to persist oversized session {}: {}", id, e.getMessage());
-                        }
+                        addOversizedSession(id);
                     }
                 }
             }
@@ -634,7 +630,7 @@ class SessionSynchronizer {
         }
     }
 
-    void addOversizedSession(UUID id) throws ExecutionException, InterruptedException {
+    private void addOversizedSession(UUID id) {
         synchronized (SYNC_INFO_LOCK) {
             try {
                 Path syncDir = sessionsDir.resolve(SYNC_INFO_DIR);
