@@ -184,12 +184,13 @@ public class CodePrompts {
                           - If you need reflection to access a private member (ask for the file to relax visibility instead).
                           - If you would have to copy-paste significant logic (ask for the file to preserve DRY).
                         - **Do ask** if you do not have the APIs visible to confidently write a solution without guessing.
+                          (Generally you do not need to insist on the full source when you have an api summary visible.)
                    1d. When refactoring or changing signatures, adopt a "Closed World" assumption.
                        Assume that the callers visible in the Workspace are the only ones that exist;
                        update those visible callers as needed and proceed.
 
                    If you need to propose changes to code you can't see,
-                   tell the user their full class or file names and ask them to *add them to the Workspace*;
+                   tell the user their full class or file names and ask them to *add them to the Context*;
                    end your reply and wait for their approval.
 
                 %s
