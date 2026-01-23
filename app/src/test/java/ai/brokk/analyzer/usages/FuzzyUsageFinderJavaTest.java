@@ -429,9 +429,12 @@ public class FuzzyUsageFinderJavaTest {
                     2,
                     fileHits.size(),
                     "Should have found 2 distinct hits for foo.process() calls in 'caller' method; found enclosing units: "
-                            + fileHits.stream().map(h -> h.enclosing().toString()).toList());
+                            + fileHits.stream()
+                                    .map(h -> h.enclosing().toString())
+                                    .toList());
             assertTrue(
-                    fileHits.get(0).startOffset() < fileHits.get(1).startOffset(), "Hits should be at different offsets");
+                    fileHits.get(0).startOffset() < fileHits.get(1).startOffset(),
+                    "Hits should be at different offsets");
         }
     }
 
