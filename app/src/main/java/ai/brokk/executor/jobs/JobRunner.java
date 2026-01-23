@@ -1922,9 +1922,10 @@ public final class JobRunner {
                 - Context lines: "[OLD:N NEW:N]  <content>" where N/N are the exact line numbers in the old/new files
 
                 LINE NUMBER FORMAT:
-                - PREFER using "startLine" and "endLine" to indicate the exact range of lines affected by the issue.
-                - For single-line issues, set startLine = endLine (both to the same line number).
-                - Only use the legacy "line" field if you cannot determine a range.
+                - PRIMARY (PREFERRED): Use "startLine" and "endLine" integer fields to indicate the exact inclusive range of lines affected by the issue whenever possible.
+                - For single-line issues set startLine = endLine.
+                - If an issue refers only to removed lines and there is no NEW-line range, prefer using the corresponding OLD line numbers in startLine/endLine to clearly indicate the removed-span.
+                - LEGACY: Only use the single "line" integer field if you cannot determine a meaningful range; prefer ranges in all other cases.
 
                 When writing your review, cite line numbers using the appropriate numbers from the annotations:
                 - For additions ("+"): use the NEW line numbers
@@ -1941,7 +1942,7 @@ public final class JobRunner {
                 You MUST output a single JSON object with this exact structure:
 
                 {
-                  "summaryMarkdown": "## Brokk PR Review\\n\\n[1-3 sentences describing what changed and only the most important risks]",
+                  "summaryMarkdown": "## Brokk PR Review\\n\\n[1-3 sentences...]",
                   "comments": [
                     {
                       "path": "src/main/java/Example.java",
@@ -1963,7 +1964,7 @@ public final class JobRunner {
                 - "endLine": Integer line number where the issue ends (PREFERRED, can equal startLine for single-line issues)
                 - OR "line": Single integer line number (legacy fallback, only if range cannot be determined)
                   * For "+" lines: use the NEW line number
-                  * For "-" lines: use the OLD line number
+                  * For "-" lines: use the OLD line number  
                   * For " " lines: use the NEW line number
                 - "severity": One of "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"
                 - "bodyMarkdown": Markdown description of the issue with a minimal actionable fix
