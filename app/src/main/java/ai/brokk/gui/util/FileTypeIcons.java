@@ -33,9 +33,9 @@ public final class FileTypeIcons {
     private static final Map<Icon, Icon> greyedIconCache = new WeakHashMap<>();
 
     // UIManager keys for folder and default file icons
-    private static final String FOLDER_KEY = "Brokk.Folder2--Streamline-Bootstrap";
-    private static final String FOLDER_OPEN_KEY = "Brokk.Folder2-Open--Streamline-Bootstrap";
-    private static final String DEFAULT_FILE_KEY = "Brokk.File-Earmark--Streamline-Bootstrap";
+    private static final String FOLDER_KEY = "Brokk.folder2_streamline_bootstrap";
+    private static final String FOLDER_OPEN_KEY = "Brokk.folder2_open_streamline_bootstrap";
+    private static final String DEFAULT_FILE_KEY = "Brokk.file_earmark_streamline_bootstrap";
 
     // Extension to icon name mapping (for extensions that don't match the standard pattern)
     // Most extensions can be auto-converted (e.g., "java" -> "Filetype-Java--Streamline-Bootstrap")
@@ -151,14 +151,12 @@ public final class FileTypeIcons {
         // Check special cases first
         String iconName = EXTENSION_TO_ICON_NAME.get(extension);
         if (iconName == null) {
-            // Auto-convert: capitalize first letter (e.g., "java" -> "Java", "js" -> "Js")
             if (extension.isEmpty()) {
                 return null;
             }
-            iconName = extension.substring(0, 1).toUpperCase(Locale.ROOT)
-                    + (extension.length() > 1 ? extension.substring(1) : "");
+            iconName = extension;
         }
-        return "Brokk.Filetype-" + iconName + "--Streamline-Bootstrap";
+        return "Brokk.filetype_" + iconName.toLowerCase(Locale.ROOT) + "_streamline_bootstrap";
     }
 
     /**
