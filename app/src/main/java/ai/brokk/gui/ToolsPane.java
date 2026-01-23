@@ -262,7 +262,8 @@ public class ToolsPane extends JPanel implements ThemeAware {
     private JLabel createSquareTabLabel(Icon icon, String tooltip) {
         JLabel label = new JLabel(icon);
         int size = Math.max(icon.getIconWidth(), icon.getIconHeight());
-        label.setPreferredSize(new Dimension(size, size + 8));
+        int horizontalPadding = 8;
+        label.setPreferredSize(new Dimension(size + horizontalPadding * 2, size + 8));
         label.setMinimumSize(label.getPreferredSize());
         label.setHorizontalAlignment(SwingConstants.CENTER);
         label.setToolTipText(tooltip);

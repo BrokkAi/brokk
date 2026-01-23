@@ -84,9 +84,10 @@ public class Chrome
     private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
     // Minimum width for the collapsed sidebar icon strip; without this, Swing relayout can compress the
     // left component to 0px, hiding icons and making the sidebar effectively impossible to expand.
-    private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
-    // Gap between collapsed sidebar and main content to prevent visual overlap
-    private static final int COLLAPSED_SIDEBAR_GAP_PX = 12;
+    // This value accommodates the JTabbedPane tab strip (~48px for 24px icons with padding) plus internal padding.
+    private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 64;
+    // Gap between collapsed sidebar and main content to prevent visual overlap of clipped content panes
+    private static final int COLLAPSED_SIDEBAR_GAP_PX = 16;
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";

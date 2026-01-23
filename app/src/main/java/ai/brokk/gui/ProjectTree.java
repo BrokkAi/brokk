@@ -19,6 +19,7 @@ import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
+import java.awt.dnd.DropTarget;
 import java.awt.event.ActionEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
@@ -84,6 +85,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     /** Flag to track if a refresh should occur when component becomes visible */
     private volatile boolean pendingRefreshWhenShown = false;
 
+    /** Flag to indicate a popup trigger is being processed, used to suppress drag gestures */
+    private volatile boolean popupTriggerInProgress = false;
+
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
         this.contextManager = contextManager;
@@ -131,7 +135,32 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 .thenRun(() -> SwingUtilities.invokeLater(this::restoreExpansionState)));
     }
 
+    /**
+     * Override to prevent unnecessary scrolling when an item is already fully visible.
+     * BasicTreeUI calls this during selection, which can cause visual jitter even for
+     * visible items due to minor scroll adjustments. We only scroll if the target
+     * rectangle is genuinely outside the visible viewport.
+     */
+    @Override
+    public void scrollRectToVisible(Rectangle rect) {
+        if (rect == null) {
+            return;
+        }
+        JViewport viewport = getViewportFromParent();
+        if (viewport != null) {
+            Rectangle visibleRect = viewport.getViewRect();
+            // Only scroll if the target rect is not fully contained within the visible area
+            if (visibleRect.contains(rect)) {
+                return; // Already fully visible, no scroll needed
+            }
+        }
+        super.scrollRectToVisible(rect);
+    }
+
     private void setupTreeBehavior() {
+        // Disable autoscrolls to prevent visual jitter during right-click and drag operations
+        setAutoscrolls(false);
+
         addTreeWillExpandListener(new TreeWillExpandListener() {
             @Override
             public void treeWillExpand(TreeExpansionEvent event) throws ExpandVetoException {
@@ -186,6 +215,36 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         // Also enable drop support: accept external files and copy them into the project
         setDragEnabled(true);
         setTransferHandler(new ProjectTreeTransferHandler());
+
+        // Disable DropTarget autoscroll to prevent visual jitter during right-click.
+        // The DropTarget installed by setDragEnabled(true) has autoscroll enabled by default,
+        // which is separate from JTree.setAutoscrolls() and can cause the tree to shift
+        // during mouse events. We disable it by setting a new DropTarget with the same
+        // TransferHandler support but with autoscroll explicitly turned off.
+        DropTarget existingDt = getDropTarget();
+        if (existingDt != null) {
+            try {
+                DropTarget newDt = new DropTarget(this, existingDt.getDefaultActions(), null, true, null) {
+                    @Override
+                    protected void initializeAutoscrolling(Point p) {
+                        // No-op: disable autoscroll initialization
+                    }
+
+                    @Override
+                    protected void updateAutoscroll(Point dragCursorLocn) {
+                        // No-op: disable autoscroll updates
+                    }
+
+                    @Override
+                    protected void clearAutoscroll() {
+                        // No-op: nothing to clear since we don't autoscroll
+                    }
+                };
+                setDropTarget(newDt);
+            } catch (Exception ex) {
+                logger.debug("Could not replace DropTarget to disable autoscroll", ex);
+            }
+        }
     }
 
     private void handleDoubleClick(MouseEvent e) {
@@ -204,50 +263,61 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
     private void handlePopupTrigger(MouseEvent e) {
         if (e.isPopupTrigger()) {
-            // Consume the event early to prevent the drag handler from interfering,
-            // which can cause visual offset/jitter when right-clicking tree items
-            e.consume();
-            TreePath path = getPathForLocation(e.getX(), e.getY());
-            if (path == null) {
-                // If exact hit detection failed, check if we're within any row's vertical bounds
-                int row = getRowForLocation(e.getX(), e.getY());
-                if (row >= 0) {
-                    path = getPathForRow(row);
-                } else {
-                    // Fallback: find the closest row by Y coordinate
-                    int rowCount = getRowCount();
-                    for (int i = 0; i < rowCount; i++) {
-                        Rectangle rowBounds = getRowBounds(i);
-                        if (rowBounds != null && e.getY() >= rowBounds.y && e.getY() < rowBounds.y + rowBounds.height) {
-                            path = getPathForRow(i);
-                            break;
+            popupTriggerInProgress = true;
+            try {
+                // Consume the event early to prevent the drag handler from interfering,
+                // which can cause visual offset/jitter when right-clicking tree items
+                e.consume();
+                TreePath path = getPathForLocation(e.getX(), e.getY());
+                if (path == null) {
+                    // If exact hit detection failed, check if we're within any row's vertical bounds
+                    int row = getRowForLocation(e.getX(), e.getY());
+                    if (row >= 0) {
+                        path = getPathForRow(row);
+                    } else {
+                        // Fallback: find the closest row by Y coordinate
+                        int rowCount = getRowCount();
+                        for (int i = 0; i < rowCount; i++) {
+                            Rectangle rowBounds = getRowBounds(i);
+                            if (rowBounds != null
+                                    && e.getY() >= rowBounds.y
+                                    && e.getY() < rowBounds.y + rowBounds.height) {
+                                path = getPathForRow(i);
+                                break;
+                            }
                         }
                     }
                 }
-            }
 
-            List<ProjectFile> targetFiles = List.of();
-            boolean bulk = false;
-            File targetDirectoryFile = null;
+                List<ProjectFile> targetFiles = List.of();
+                boolean bulk = false;
+                File targetDirectoryFile = null;
 
-            if (path != null) {
-                // If right-clicking on an item not in current selection, change selection to that item.
-                // Otherwise, keep current selection.
-                if (!isPathSelected(path)) {
-                    setSelectionPath(path);
-                }
+                if (path != null) {
+                    // If right-clicking on an item not in current selection, change selection to that item.
+                    // Otherwise, keep current selection.
+                    if (!isPathSelected(path)) {
+                        setSelectionPath(path);
+                    }
 
-                DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-                if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
-                    File f = treeNode.getFile();
-                    if (treeNode.isDirectory()) {
-                        // Collect directory contents async to avoid EDT I/O
-                        final int menuX = e.getX(), menuY = e.getY();
-                        LoggingFuture.supplyAsync(() -> collectProjectFilesUnderDirectory(f), IO_EXECUTOR)
-                                .thenAccept(files -> SwingUtilities.invokeLater(
-                                        () -> prepareAndShowContextMenu(menuX, menuY, files, true, f)));
-                        return;
-                    } else if (!treeNode.isDirectory()) {
+                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                    if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
+                        File f = treeNode.getFile();
+                        if (treeNode.isDirectory()) {
+                            // Collect directory contents async to avoid EDT I/O
+                            final int menuX = e.getX(), menuY = e.getY();
+                            LoggingFuture.supplyAsync(() -> collectProjectFilesUnderDirectory(f), IO_EXECUTOR)
+                                    .thenAccept(files -> SwingUtilities.invokeLater(
+                                            () -> prepareAndShowContextMenu(menuX, menuY, files, true, f)));
+                            return;
+                        } else if (!treeNode.isDirectory()) {
+                            var selectedFiles = getSelectedProjectFiles();
+                            if (!selectedFiles.isEmpty()) {
+                                targetFiles = selectedFiles;
+                                bulk = selectedFiles.size() > 1;
+                            }
+                        }
+                    } else {
                         var selectedFiles = getSelectedProjectFiles();
                         if (!selectedFiles.isEmpty()) {
                             targetFiles = selectedFiles;
@@ -261,16 +331,12 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                         bulk = selectedFiles.size() > 1;
                     }
                 }
-            } else {
-                var selectedFiles = getSelectedProjectFiles();
-                if (!selectedFiles.isEmpty()) {
-                    targetFiles = selectedFiles;
-                    bulk = selectedFiles.size() > 1;
-                }
-            }
 
-            if (!targetFiles.isEmpty() || targetDirectoryFile != null) {
-                prepareAndShowContextMenu(e.getX(), e.getY(), targetFiles, bulk, targetDirectoryFile);
+                if (!targetFiles.isEmpty() || targetDirectoryFile != null) {
+                    prepareAndShowContextMenu(e.getX(), e.getY(), targetFiles, bulk, targetDirectoryFile);
+                }
+            } finally {
+                popupTriggerInProgress = false;
             }
         }
     }
@@ -1412,6 +1478,20 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     /**
+     * Gets the JViewport that contains this tree, if any.
+     * Used to save/restore scroll position during operations that might cause unwanted scrolling.
+     *
+     * @return the parent viewport, or null if the tree is not in a scroll pane
+     */
+    private @Nullable JViewport getViewportFromParent() {
+        Container parent = getParent();
+        if (parent instanceof JViewport viewport) {
+            return viewport;
+        }
+        return null;
+    }
+
+    /**
      * Checks if the system clipboard contains files that can be pasted.
      *
      * @return true if clipboard contains file list data
@@ -1685,6 +1765,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private class ProjectTreeTransferHandler extends TransferHandler {
         @Override
         public int getSourceActions(JComponent c) {
+            // Disable drag during popup trigger to prevent visual jitter
+            if (popupTriggerInProgress) {
+                return NONE;
+            }
             return COPY;
         }
 

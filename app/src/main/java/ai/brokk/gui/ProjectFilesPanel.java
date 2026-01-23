@@ -93,6 +93,9 @@ public class ProjectFilesPanel extends JPanel {
 
         // Create split pane: ProjectTree (top) | Dependencies (bottom, initially hidden)
         var projectTreeScrollPane = new JScrollPane(projectTree);
+        // Disable FlatLaf focus border on scroll pane to prevent layout shift when tree gains focus
+        projectTreeScrollPane.putClientProperty("JComponent.focusWidth", 0);
+        projectTreeScrollPane.putClientProperty("JComponent.innerFocusWidth", 0);
         contentSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         contentSplitPane.setTopComponent(projectTreeScrollPane);
         contentSplitPane.setBottomComponent(dependenciesPanel);
