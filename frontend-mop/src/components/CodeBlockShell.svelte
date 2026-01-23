@@ -128,10 +128,6 @@
     menuOpen = false;
   }
 
-  function closeMenu(): void {
-    menuOpen = false;
-  }
-
   function handleClickOutside(event: MouseEvent): void {
     if (menuOpen) {
       menuOpen = false;
