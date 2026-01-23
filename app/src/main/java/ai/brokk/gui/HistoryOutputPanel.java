@@ -639,6 +639,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Notification API
     public void showNotification(IConsoleIO.NotificationRole role, String message) {
         Runnable r = () -> {
+            assert SwingUtilities.isEventDispatchThread() : "showNotification mutations must be called on EDT";
+
             long now = System.currentTimeMillis();
 
             var entry = new NotificationEntry(role, message, now);
