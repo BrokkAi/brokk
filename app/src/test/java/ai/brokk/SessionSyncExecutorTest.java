@@ -28,7 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -282,7 +281,7 @@ class SessionSyncExecutorTest {
     }
 
     @Test
-    void testExecuteUpload_413PersistsOversizedSession() throws IOException, InterruptedException, ExecutionException {
+    void testExecuteUpload_413PersistsOversizedSession() throws IOException, InterruptedException {
         UUID id = UUID.randomUUID();
         String name = "Large Session";
         long modified = System.currentTimeMillis();

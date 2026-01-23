@@ -472,14 +472,7 @@ class SessionSynchronizer {
             }
 
             Map<UUID, IContextManager> openContextManagers = getOpenContextManagers();
-
-            SyncInfo syncInfo;
-            try {
-                syncInfo = readSyncInfo();
-            } catch (ExecutionException e) {
-                logger.warn("Failed to load sync info, proceeding with defaults: {}", e.getMessage());
-                syncInfo = new SyncInfo();
-            }
+            SyncInfo syncInfo = readSyncInfo();
 
             // Plan
             List<SyncAction> actions = planner.plan(localSessions, remoteSessions, tombstones, unreadableIds, syncInfo);
@@ -615,7 +608,7 @@ class SessionSynchronizer {
         }
     }
 
-    SyncInfo readSyncInfo() throws ExecutionException, InterruptedException {
+    SyncInfo readSyncInfo() {
         synchronized (SYNC_INFO_LOCK) {
             Path syncInfoPath = sessionsDir.resolve(SYNC_INFO_DIR).resolve(SYNC_INFO_FILE);
             if (!Files.exists(syncInfoPath)) {
