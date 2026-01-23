@@ -1,5 +1,8 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_CALL_CAPTURE_NAME;
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME;
+
 import com.github.benmanes.caffeine.cache.Cache;
 import java.nio.file.Path;
 import java.util.List;
@@ -11,9 +14,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
-
-import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_CALL_CAPTURE_NAME;
-import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME;
 
 public interface JsLikeModuleResolver {
     record ModulePathKey(ProjectFile importingFile, String modulePath) {}
@@ -95,7 +95,8 @@ public interface JsLikeModuleResolver {
         Path basePath = resolvedPath.resolveSibling(baseName);
 
         // Try base path (extensionless) and all known extensions
-        List<String> fileExtensions = Stream.concat(Stream.of(""), KNOWN_EXTENSIONS.stream()).toList();
+        List<String> fileExtensions =
+                Stream.concat(Stream.of(""), KNOWN_EXTENSIONS.stream()).toList();
         for (String ext : fileExtensions) {
             Path candidatePath = ext.isEmpty() ? basePath : basePath.resolveSibling(baseName + ext);
 
