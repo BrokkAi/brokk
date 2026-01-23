@@ -66,6 +66,7 @@ class MainProjectGlobalConfigDirCacheTest {
         try (var reader = Files.newBufferedReader(propertiesFile1)) {
             props.load(reader);
         }
-        assertEquals("theme2", props.getProperty("theme"), "Theme should have been updated in the original cached path");
+        assertEquals(
+                "theme2", props.getProperty("theme"), "Theme should have been updated in the original cached path");
     }
 }

@@ -77,7 +77,9 @@ public final class BrokkConfigPaths {
             if (sandboxRoot != null && !sandboxRoot.isBlank()) {
                 root = Path.of(sandboxRoot);
             } else {
-                root = Path.of(System.getProperty("java.io.tmpdir"), "brokk-test-sandbox-" + ProcessHandle.current().pid());
+                root = Path.of(
+                        System.getProperty("java.io.tmpdir"),
+                        "brokk-test-sandbox-" + ProcessHandle.current().pid());
             }
             return root.resolve("Brokk");
         }

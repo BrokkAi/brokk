@@ -129,14 +129,14 @@ class BrokkConfigPathsTest {
     }
 
     @Test
-    void testTestModeSandboxingWithExplicitRoot() {
-        String sandboxRoot = "/tmp/brokk-sandbox";
+    void testTestModeSandboxingWithExplicitRoot(@TempDir Path tempDir) {
+        String sandboxRoot = tempDir.toString();
         System.setProperty("brokk.test.mode", "true");
         System.setProperty("brokk.test.sandbox.root", sandboxRoot);
 
         try {
             Path result = BrokkConfigPaths.getGlobalConfigDir();
-            assertEquals(Path.of(sandboxRoot, "Brokk"), result);
+            assertEquals(tempDir.resolve("Brokk"), result);
         } finally {
             System.clearProperty("brokk.test.mode");
             System.clearProperty("brokk.test.sandbox.root");
@@ -160,15 +160,15 @@ class BrokkConfigPathsTest {
     }
 
     @Test
-    void testTestModePrecedenceOverOverride() {
-        String sandboxRoot = "/tmp/brokk-sandbox";
+    void testTestModePrecedenceOverOverride(@TempDir Path tempDir) {
+        String sandboxRoot = tempDir.toString();
         System.setProperty("brokk.test.mode", "true");
         System.setProperty("brokk.test.sandbox.root", sandboxRoot);
 
         try {
             // Even with an explicit override, test mode should win
             Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.of("/other/override"));
-            assertEquals(Path.of(sandboxRoot, "Brokk"), result);
+            assertEquals(tempDir.resolve("Brokk"), result);
         } finally {
             System.clearProperty("brokk.test.mode");
             System.clearProperty("brokk.test.sandbox.root");
@@ -196,8 +196,7 @@ class BrokkConfigPathsTest {
             assertFalse(Files.exists(targetDir), "No files or directories should have been created in target");
             assertTrue(Files.exists(legacyDir.resolve("brokk.properties")), "Legacy file should remain untouched");
             assertFalse(
-                    Files.exists(legacyDir.resolve("brokk.properties.bak")),
-                    "No backup file should have been created");
+                    Files.exists(legacyDir.resolve("brokk.properties.bak")), "No backup file should have been created");
         } finally {
             if (originalTestMode != null) {
                 System.setProperty("brokk.test.mode", originalTestMode);
@@ -205,6 +204,19 @@ class BrokkConfigPathsTest {
                 System.clearProperty("brokk.test.mode");
             }
         }
+    }
+
+    @Test
+    void testGradleStartupPropertiesPresent() {
+        String testMode = System.getProperty("brokk.test.mode");
+        if (testMode != null) {
+            // We are likely running under Gradle
+            assertEquals("true", testMode.toLowerCase(), "brokk.test.mode should be true when set");
+            String sandboxRoot = System.getProperty("brokk.test.sandbox.root");
+            assertNotNull(sandboxRoot, "brokk.test.sandbox.root must be set at startup in test mode");
+            assertFalse(sandboxRoot.isBlank(), "brokk.test.sandbox.root must not be blank");
+        }
+        // If null, we assume IDE run without these properties and skip the assertion
     }
 
     @Test
