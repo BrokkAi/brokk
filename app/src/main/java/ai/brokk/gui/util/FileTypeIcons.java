@@ -33,9 +33,9 @@ public final class FileTypeIcons {
     private static final Map<Icon, Icon> greyedIconCache = new WeakHashMap<>();
 
     // UIManager keys for folder and default file icons
-    private static final String FOLDER_KEY = "Brokk.folder2_streamline_bootstrap";
-    private static final String FOLDER_OPEN_KEY = "Brokk.folder2_open_streamline_bootstrap";
-    private static final String DEFAULT_FILE_KEY = "Brokk.file_earmark_streamline_bootstrap";
+    private static final String FOLDER_KEY = "Brokk.folder_close";
+    private static final String FOLDER_OPEN_KEY = "Brokk.folder_open";
+    private static final String DEFAULT_FILE_KEY = "Brokk.file_earmark";
 
     // Extension to icon name mapping (for extensions that don't match the standard pattern)
     // Most extensions can be auto-converted (e.g., "java" -> "Filetype-Java--Streamline-Bootstrap")
@@ -156,7 +156,7 @@ public final class FileTypeIcons {
             }
             iconName = extension;
         }
-        return "Brokk.filetype_" + iconName.toLowerCase(Locale.ROOT) + "_streamline_bootstrap";
+        return "Brokk.filetype_" + iconName.toLowerCase(Locale.ROOT);
     }
 
     /**
