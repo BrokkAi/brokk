@@ -275,7 +275,8 @@ public final class PrReviewService {
                     line,
                     path,
                     pr.getNumber());
-            String fallbackBody = formatFallbackInlineCommentBody(path, start, end, Objects.requireNonNullElse(comment.bodyMarkdown(), ""));
+            String fallbackBody = formatFallbackInlineCommentBody(
+                    path, start, end, Objects.requireNonNullElse(comment.bodyMarkdown(), ""));
             pr.comment(fallbackBody);
             logger.info("Posted fallback comment for {} (invalid line {}) in PR #{}", path, line, pr.getNumber());
             return;
@@ -297,7 +298,12 @@ public final class PrReviewService {
                         .path(path)
                         .line(end)
                         .create();
-                logger.info("Posted inline ranged comment on {}:{}-{} in PR #{} (derived from start/end)", path, start, end, pr.getNumber());
+                logger.info(
+                        "Posted inline ranged comment on {}:{}-{} in PR #{} (derived from start/end)",
+                        path,
+                        start,
+                        end,
+                        pr.getNumber());
             } else {
                 pr.createReviewComment()
                         .body(Objects.requireNonNullElse(comment.bodyMarkdown(), ""))
