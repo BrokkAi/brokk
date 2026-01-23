@@ -5,6 +5,7 @@ import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,6 +20,8 @@ import org.treesitter.TSNode;
 import org.treesitter.TreeSitterTypescript;
 
 public final class TypescriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
+    private @Nullable Set<Path> cachedAbsolutePaths;
+
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
 
     // Compiled regex patterns for memory efficiency
@@ -1066,7 +1069,16 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer implements Impo
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        return JavascriptAnalyzer.resolveJavaScriptLikeImports(this, file, importStatements);
+        return JavascriptAnalyzer.resolveJavaScriptLikeImports(this, file, importStatements, getAbsolutePaths());
+    }
+
+    private Set<java.nio.file.Path> getAbsolutePaths() {
+        if (cachedAbsolutePaths == null) {
+            cachedAbsolutePaths = getProject().getAllFiles().stream()
+                    .map(ProjectFile::absPath)
+                    .collect(java.util.stream.Collectors.toSet());
+        }
+        return cachedAbsolutePaths;
     }
 
     @Override
