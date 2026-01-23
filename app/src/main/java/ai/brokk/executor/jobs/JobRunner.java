@@ -1964,7 +1964,7 @@ public final class JobRunner {
                 - "endLine": Integer line number where the issue ends (PREFERRED, can equal startLine for single-line issues)
                 - OR "line": Single integer line number (legacy fallback, only if range cannot be determined)
                   * For "+" lines: use the NEW line number
-                  * For "-" lines: use the OLD line number  
+                  * For "-" lines: use the OLD line number
                   * For " " lines: use the NEW line number
                 - "severity": One of "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"
                 - "bodyMarkdown": Markdown description of the issue with a minimal actionable fix
