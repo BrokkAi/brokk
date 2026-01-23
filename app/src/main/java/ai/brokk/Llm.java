@@ -1507,7 +1507,7 @@ public class Llm {
 
                 int totalTokens = Math.max(0, input) + Math.max(0, output);
                 int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
-                String tokenSummary = "tokens: %,d (%d%% cached)".formatted(totalTokens, cachedPct);
+                String tokenSummary = "%,d tokens / %d%% cached".formatted(totalTokens, cachedPct);
 
                 String message;
                 if (pricing.bands().isEmpty()) {

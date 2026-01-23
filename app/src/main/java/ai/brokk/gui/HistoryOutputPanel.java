@@ -903,7 +903,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private static String toNotificationLabelHtml(IConsoleIO.NotificationRole role, String message, int rolledUpCount) {
         String display = compactMessageForToolbar(role, message);
         if (rolledUpCount > 0) {
-            display = display + " (+" + rolledUpCount + " more)";
+            display = display + " [+" + rolledUpCount + " more]";
         }
         return "<html><div style='width:100%; text-align: left; word-wrap: break-word; white-space: normal;'>"
                 + escapeHtml(display) + "</div></html>";
