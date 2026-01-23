@@ -654,6 +654,65 @@ class PrReviewServiceTest {
     }
 
     @Test
+    void testParsePrReviewResponse_ExplicitLineTakesPrecedenceOverRange() {
+        // When JSON has both line: 10 and startLine: 5, endLine: 8,
+        // the resolved line should be 10 (not 5), confirming legacy line takes precedence
+        String json = """
+                {
+                  "summaryMarkdown": "## Review",
+                  "comments": [
+                    {
+                      "path": "src/Foo.java",
+                      "line": 10,
+                      "startLine": 5,
+                      "endLine": 8,
+                      "severity": "HIGH",
+                      "bodyMarkdown": "Issue here."
+                    }
+                  ]
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+        assertEquals(1, response.comments().size());
+        var comment = response.comments().get(0);
+
+        // The explicit line (10) should take precedence over startLine (5)
+        assertEquals(10, comment.line());
+        assertEquals(Integer.valueOf(5), comment.startLine());
+        assertEquals(Integer.valueOf(8), comment.endLine());
+    }
+
+    @Test
+    void testParsePrReviewResponse_InvalidRangeDoesNotThrow() {
+        // When startLine > endLine, parsing should still succeed gracefully
+        String json = """
+                {
+                  "summaryMarkdown": "## Review",
+                  "comments": [
+                    {
+                      "path": "src/Foo.java",
+                      "startLine": 10,
+                      "endLine": 5,
+                      "severity": "MEDIUM",
+                      "bodyMarkdown": "Invalid range but should parse."
+                    }
+                  ]
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+        assertEquals(1, response.comments().size());
+        var comment = response.comments().get(0);
+
+        // line should be derived from startLine (10) since no explicit line provided
+        assertEquals(10, comment.line());
+        assertEquals(Integer.valueOf(10), comment.startLine());
+        assertEquals(Integer.valueOf(5), comment.endLine());
+        // Note: postLineComment will treat this as single-line since start > end
+    }
+
+    @Test
     void testFormatFallbackInlineCommentBody_IncludesRangeAndBody() {
         String out = PrReviewService.formatFallbackInlineCommentBody("src/Foo.java", 5, 7, "Issue body");
         assertTrue(out.contains("src/Foo.java"));

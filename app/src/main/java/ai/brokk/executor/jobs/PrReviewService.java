@@ -264,7 +264,11 @@ public final class PrReviewService {
         @Nullable Integer end = comment.endLine();
         int line = comment.line();
         try {
-            if (start != null && end != null) {
+            // Use range mode only when:
+            // 1. Both startLine and endLine are present, AND
+            // 2. line was derived from startLine (not explicitly provided), AND
+            // 3. startLine <= endLine (valid range)
+            if (start != null && end != null && line == start.intValue() && start <= end) {
                 // The underlying GitHub API client does not provide a builder method for ranged inline
                 // comments in all versions. As a best-effort attempt, post the comment on the end line
                 // of the range (the GitHub API will accept a single-line inline comment). We still log
