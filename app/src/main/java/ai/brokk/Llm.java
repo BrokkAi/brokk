@@ -1718,10 +1718,10 @@ public class Llm {
             }
 
             return """
-                ## text
+                ## reasoningContent
                 %s
 
-                ## reasoningContent
+                ## text
                 %s
 
                 ## toolExecutionRequests
@@ -1731,8 +1731,8 @@ public class Llm {
                 %s
                 """
                     .formatted(
-                            ai.text() == null ? "" : ai.text(),
                             ai.reasoningContent() == null ? "" : ai.reasoningContent(),
+                            ai.text() == null ? "" : ai.text(),
                             toolRequestsJson,
                             metadataJson);
         }
