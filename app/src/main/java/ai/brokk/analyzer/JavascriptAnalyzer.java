@@ -634,37 +634,14 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     @Override
     public Set<String> relevantImportsFor(CodeUnit cu) {
-        return getSource(cu, false)
-                .map(source -> {
-                    Set<String> codeIdentifiers = extractTypeIdentifiers(source);
-                    List<ImportInfo> imports = importInfoOf(cu.source());
-
-                    return imports.stream()
-                            .filter(imp -> importMatchesAnyIdentifier(imp.rawSnippet(), codeIdentifiers))
-                            .map(ImportInfo::rawSnippet)
-                            .collect(Collectors.toSet());
-                })
-                .orElseGet(Set::of);
-    }
-
-    /**
-     * Checks if an import statement contains any identifier that matches the given set.
-     * Parses the import to extract all named imports, default imports, and namespace aliases.
-     */
-    private boolean importMatchesAnyIdentifier(String importStatement, Set<String> codeIdentifiers) {
-        Set<String> importIdentifiers = extractIdentifiersFromImport(importStatement);
-        for (String id : importIdentifiers) {
-            if (codeIdentifiers.contains(id)) {
-                return true;
-            }
-        }
-        return false;
+        return relevantImportsForJsLike(this, cu);
     }
 
     /**
      * Extracts all identifiers (names and aliases) from an import statement string.
      */
-    private Set<String> extractIdentifiersFromImport(String importStatement) {
+    @Override
+    public Set<String> extractIdentifiersFromImport(String importStatement) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try {

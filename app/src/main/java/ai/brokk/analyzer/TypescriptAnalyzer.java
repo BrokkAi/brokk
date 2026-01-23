@@ -1104,30 +1104,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
 
     @Override
     public Set<String> relevantImportsFor(CodeUnit cu) {
-        return getSource(cu, false)
-                .map(source -> {
-                    Set<String> codeIdentifiers = extractTypeIdentifiers(source);
-                    List<ImportInfo> imports = importInfoOf(cu.source());
-
-                    return imports.stream()
-                            .filter(imp -> importMatchesAnyIdentifier(imp.rawSnippet(), codeIdentifiers))
-                            .map(ImportInfo::rawSnippet)
-                            .collect(java.util.stream.Collectors.toSet());
-                })
-                .orElseGet(Set::of);
+        return relevantImportsForJsLike(this, cu);
     }
 
-    private boolean importMatchesAnyIdentifier(String importStatement, Set<String> codeIdentifiers) {
-        Set<String> importIdentifiers = extractIdentifiersFromImport(importStatement);
-        for (String id : importIdentifiers) {
-            if (codeIdentifiers.contains(id)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private Set<String> extractIdentifiersFromImport(String importStatement) {
+    @Override
+    public Set<String> extractIdentifiersFromImport(String importStatement) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try {

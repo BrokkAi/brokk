@@ -16,6 +16,48 @@ import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
 
 public interface JsLikeModuleResolver {
+
+    default Set<String> relevantImportsForJsLike(IAnalyzer analyzer, CodeUnit cu) {
+        ImportAnalysisProvider provider = analyzer.as(ImportAnalysisProvider.class).orElse(null);
+        if (provider == null) {
+            return Set.of();
+        }
+
+        return analyzer.getSource(cu, false)
+                .map(source -> {
+                    Set<String> codeIdentifiers = extractTypeIdentifiers(source);
+                    List<ImportInfo> imports = provider.importInfoOf(cu.source());
+
+                    return imports.stream()
+                            .filter(imp -> importMatchesAnyIdentifier(imp.rawSnippet(), codeIdentifiers))
+                            .map(ImportInfo::rawSnippet)
+                            .collect(Collectors.toSet());
+                })
+                .orElseGet(Set::of);
+    }
+
+    /**
+     * Checks if an import statement contains any identifier that matches the given set.
+     */
+    default boolean importMatchesAnyIdentifier(String importStatement, Set<String> codeIdentifiers) {
+        Set<String> importIdentifiers = extractIdentifiersFromImport(importStatement);
+        for (String id : importIdentifiers) {
+            if (codeIdentifiers.contains(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Extracts all identifiers (names and aliases) from an import statement string.
+     */
+    Set<String> extractIdentifiersFromImport(String importStatement);
+
+    /**
+     * Extracts all type/value identifiers from a source string.
+     */
+    Set<String> extractTypeIdentifiers(String source);
     record ModulePathKey(ProjectFile importingFile, String modulePath) {}
 
     List<String> KNOWN_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx");
