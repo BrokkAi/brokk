@@ -9,6 +9,7 @@ import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -17,6 +18,7 @@ import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSParser;
 import org.treesitter.TreeSitterTypescript;
 
 public final class TypescriptAnalyzer extends TreeSitterAnalyzer
@@ -1098,5 +1100,49 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        try {
+            org.treesitter.TSTree tree = parser.parseString(null, source);
+            TSNode rootNode = tree.getRootNode();
+            TSLanguage tsLanguage = getTSLanguage();
+
+            // Query for standard identifiers and type identifiers
+            String queryStr =
+                    """
+                (identifier) @id
+                (type_identifier) @type
+                (jsx_opening_element name: (identifier) @id)
+                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
+                (jsx_self_closing_element name: (identifier) @id)
+                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
+                """;
+
+            org.treesitter.TSQuery query = new org.treesitter.TSQuery(tsLanguage, queryStr);
+            org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
+            cursor.exec(query, rootNode);
+            org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    String id = source.substring(
+                            byteOffsetToCharPosition(source, node.getStartByte()),
+                            byteOffsetToCharPosition(source, node.getEndByte()));
+                    identifiers.add(id);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to extract type identifiers from TypeScript source", e);
+        }
+        return identifiers;
+    }
+
+    private int byteOffsetToCharPosition(String source, int byteOffset) {
+        return SourceContent.of(source).byteOffsetToCharPosition(byteOffset);
     }
 }

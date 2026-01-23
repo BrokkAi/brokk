@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.TypescriptAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.HashSet;
@@ -393,6 +394,31 @@ public class TypeScriptImportTest {
 
             assertTrue(foundFromFile, "Should resolve from util-dir.ts");
             assertFalse(foundFromIndex, "Should NOT resolve from util-dir/index.ts when explicit file exists");
+        }
+    }
+
+    @Test
+    public void testExtractTypeIdentifiers() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import { Foo } from './models';
+                function process(input: Foo): void {
+                    console.log(input);
+                }
+                """,
+                        "test.ts")
+                .build()) {
+            var analyzer = (TypescriptAnalyzer) createTreeSitterAnalyzer(testProject);
+            String source = """
+                function process(input: Foo): void {
+                    console.log(input);
+                }
+                """;
+            Set<String> identifiers = analyzer.extractTypeIdentifiers(source);
+
+            assertTrue(identifiers.contains("Foo"), "Should contain Foo from type annotation");
+            assertTrue(identifiers.contains("input"), "Should contain parameter name input");
+            assertTrue(identifiers.contains("process"), "Should contain function name process");
         }
     }
 }
