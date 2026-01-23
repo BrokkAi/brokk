@@ -231,22 +231,16 @@ public class ExceptionReporter {
             return;
         }
 
-        try {
-            SwingUtilities.invokeLater(() -> {
-                Chrome activeWindow = Brokk.getActiveWindow();
-                if (activeWindow == null) {
-                    logger.warn("Unable to report exceptions in headless mode");
-                    return;
-                }
+        SwingUtilities.invokeLater(() -> {
+            Chrome activeWindow = Brokk.getActiveWindow();
+            if (activeWindow == null) {
+                logger.warn("Unable to report exceptions in headless mode");
+                return;
+            }
 
-                var cm = activeWindow.getContextManager();
-                cm.reportException(throwable);
-            });
-        } catch (Throwable t) {
-            // Scheduling onto the EDT requires an AWT toolkit. In environments without a usable display
-            // (e.g., no X11/Wayland), this can throw errors during early startup.
-            logger.warn("Unable to schedule exception reporting (likely no usable GUI environment).", t);
-        }
+            var cm = activeWindow.getContextManager();
+            cm.reportException(throwable);
+        });
     }
 
     /**
