@@ -288,18 +288,15 @@ public final class PrReviewService {
             // 2. The JSON did not explicitly provide a 'line' field (i.e., line was derived), AND
             // 3. startLine <= endLine (valid range)
             if (start != null && end != null && !comment.lineExplicit() && start <= end) {
-                // The underlying GitHub API client does not provide a builder method for ranged inline
-                // comments in all versions. As a best-effort attempt, post the comment on the end line
-                // of the range (the GitHub API will accept a single-line inline comment). We still log
-                // the original start/end for clarity.
+                // Post a multi-line review comment spanning from startLine to endLine
                 pr.createReviewComment()
                         .body(Objects.requireNonNullElse(comment.bodyMarkdown(), ""))
                         .commitId(commitId)
                         .path(path)
-                        .line(end)
+                        .lines(start, end)
                         .create();
                 logger.info(
-                        "Posted inline ranged comment on {}:{}-{} in PR #{} (derived from start/end)",
+                        "Posted ranged inline comment on {}:{}-{} in PR #{}",
                         path,
                         start,
                         end,
