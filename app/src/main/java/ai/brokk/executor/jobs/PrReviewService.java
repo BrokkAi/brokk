@@ -270,15 +270,24 @@ public final class PrReviewService {
 
         // Validate obvious invalid line numbers early and fallback to a regular PR comment.
         if (line <= 0) {
+            String truncated = truncateForLog(comment.bodyMarkdown());
             logger.warn(
-                    "Invalid line number {} for path '{}' in PR #{}; falling back to regular PR comment",
+                    "Invalid line number {} for path '{}' in PR #{}; falling back to regular PR comment [severity={}]: {}",
                     line,
                     path,
-                    pr.getNumber());
+                    pr.getNumber(),
+                    comment.severity(),
+                    truncated);
             String fallbackBody = formatFallbackInlineCommentBody(
                     path, start, end, Objects.requireNonNullElse(comment.bodyMarkdown(), ""));
             pr.comment(fallbackBody);
-            logger.info("Posted fallback comment for {} (invalid line {}) in PR #{}", path, line, pr.getNumber());
+            logger.info(
+                    "Posted fallback comment for {} (invalid line {}) in PR #{} [severity={}]: {}",
+                    path,
+                    line,
+                    pr.getNumber(),
+                    comment.severity(),
+                    truncated);
             return;
         }
 
@@ -296,11 +305,13 @@ public final class PrReviewService {
                         .lines(start, end)
                         .create();
                 logger.info(
-                        "Posted ranged inline comment on {}:{}-{} in PR #{}",
+                        "Posted ranged inline comment on {}:{}-{} in PR #{} [severity={}]: {}",
                         path,
                         start,
                         end,
-                        pr.getNumber());
+                        pr.getNumber(),
+                        comment.severity(),
+                        truncateForLog(comment.bodyMarkdown()));
             } else {
                 pr.createReviewComment()
                         .body(Objects.requireNonNullElse(comment.bodyMarkdown(), ""))
@@ -310,40 +321,78 @@ public final class PrReviewService {
                         .create();
                 if (start != null && end != null && comment.lineExplicit()) {
                     logger.info(
-                            "Posted inline comment on {}:{} in PR #{} (explicit 'line' provided; start/end present but ignored)",
+                            "Posted single-line inline comment on {}:{} in PR #{} (explicit 'line' provided; start/end present but ignored) [severity={}]: {}",
                             path,
                             line,
-                            pr.getNumber());
+                            pr.getNumber(),
+                            comment.severity(),
+                            truncateForLog(comment.bodyMarkdown()));
                 } else {
-                    logger.info("Posted inline comment on {}:{} in PR #{}", path, line, pr.getNumber());
+                    logger.info(
+                            "Posted single-line inline comment on {}:{} in PR #{} [severity={}]: {}",
+                            path,
+                            line,
+                            pr.getNumber(),
+                            comment.severity(),
+                            truncateForLog(comment.bodyMarkdown()));
                 }
             }
         } catch (HttpException e) {
             if (e.getResponseCode() == 422) {
+                String truncated = truncateForLog(comment.bodyMarkdown());
                 if (start != null && end != null) {
                     logger.warn(
-                            "Failed to post ranged inline comment on {}:{}-{} (HTTP 422), falling back to regular comment",
+                            "Failed to post ranged inline comment on {}:{}-{} (HTTP 422), falling back to regular comment [severity={}]: {}",
                             path,
                             start,
-                            end);
+                            end,
+                            comment.severity(),
+                            truncated);
                 } else {
                     logger.warn(
-                            "Failed to post inline comment on {}:{} (HTTP 422), falling back to regular comment",
+                            "Failed to post inline comment on {}:{} (HTTP 422), falling back to regular comment [severity={}]: {}",
                             path,
-                            line);
+                            line,
+                            comment.severity(),
+                            truncated);
                 }
                 String fallbackBody = formatFallbackInlineCommentBody(
                         path, start, end, Objects.requireNonNullElse(comment.bodyMarkdown(), ""));
                 pr.comment(fallbackBody);
                 if (start != null && end != null) {
-                    logger.info("Posted fallback comment for {}:{}-{} in PR #{}", path, start, end, pr.getNumber());
+                    logger.info(
+                            "Posted fallback comment for {}:{}-{} in PR #{} [severity={}]: {}",
+                            path,
+                            start,
+                            end,
+                            pr.getNumber(),
+                            comment.severity(),
+                            truncated);
                 } else {
-                    logger.info("Posted fallback comment for {}:{} in PR #{}", path, line, pr.getNumber());
+                    logger.info(
+                            "Posted fallback comment for {}:{} in PR #{} [severity={}]: {}",
+                            path,
+                            line,
+                            pr.getNumber(),
+                            comment.severity(),
+                            truncated);
                 }
             } else {
                 throw e;
             }
         }
+    }
+
+    private static String truncateForLog(@Nullable String text) {
+        if (text == null) {
+            return "(empty)";
+        }
+        // Truncate to first 100 chars, replace newlines with spaces for single-line log output
+        String cleaned = text.replace('\n', ' ').replace('\r', ' ');
+        if (cleaned.length() <= 100) {
+            return cleaned;
+        }
+        return cleaned.substring(0, 100) + "...";
     }
 
     /**
