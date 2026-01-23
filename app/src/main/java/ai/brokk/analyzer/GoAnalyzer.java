@@ -122,7 +122,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     TSNode pkgNode = capture.getNode();
                     if (pkgNode != null && !pkgNode.isNull()) {
                         // In Go, the package identifier is often the node itself if it's a 'package_identifier'
-                        if ("package_identifier".equals(pkgNode.getType())) {
+                        if (PACKAGE_IDENTIFIER.equals(pkgNode.getType())) {
                             return sourceContent.substringFrom(pkgNode).trim();
                         }
                         // Fallback to 'name' field if the capture matched a parent node
