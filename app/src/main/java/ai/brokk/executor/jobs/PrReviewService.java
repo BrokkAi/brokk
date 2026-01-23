@@ -246,7 +246,7 @@ public final class PrReviewService {
         } else {
             sb.append(String.format("**Comment on `%s`:**\n\n", path));
         }
-        sb.append(body == null ? "" : body);
+        sb.append(body);
         return sb.toString();
     }
 
@@ -398,7 +398,7 @@ public final class PrReviewService {
      * </ul>
      *
      * Note: Jackson will bind comment objects into {@link InlineComment} using the provided
-     * @JsonCreator, which supports legacy single 'line' integers as well as optional
+     * {@code @JsonCreator}, which supports legacy single 'line' integers as well as optional
      * 'startLine' and 'endLine' integers for ranged comments.
      *
      * @param rawText the raw LLM output string
