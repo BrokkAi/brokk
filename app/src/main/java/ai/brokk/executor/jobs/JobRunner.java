@@ -1942,7 +1942,7 @@ public final class JobRunner {
                 You MUST output a single JSON object with this exact structure:
 
                 {
-                  "summaryMarkdown": "## Brokk PR Review\\n\\n[1-3 sentences...]",
+                  "summaryMarkdown": "## Brokk PR Review\\n\\n[1-3 sentences describing what changed and only the most important risks]",
                   "comments": [
                     {
                       "path": "src/main/java/Example.java",
