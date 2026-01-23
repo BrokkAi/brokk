@@ -44,8 +44,8 @@ class BrokkConfigPathsTest {
         System.setProperty("os.name", "Windows 10");
         System.setProperty("user.home", "C:\\Users\\TestUser");
 
-        // We use ignoreTestMode=true to bypass the global sandbox usually set in build.gradle.kts
-        Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.empty(), true);
+        // We bypass the global sandbox usually set in build.gradle.kts
+        Path result = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
 
         // Should fall back to ~/AppData/Roaming/Brokk if APPDATA is not set
         assertTrue(
@@ -59,8 +59,8 @@ class BrokkConfigPathsTest {
         System.setProperty("os.name", "Mac OS X");
         System.setProperty("user.home", "/Users/testuser");
 
-        // We use ignoreTestMode=true to bypass the global sandbox
-        Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.empty(), true);
+        // We bypass the global sandbox
+        Path result = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
 
         assertEquals(
                 Path.of("/Users/testuser/Library/Application Support/Brokk"), result, "Expected macOS config path");
@@ -72,8 +72,8 @@ class BrokkConfigPathsTest {
         // On actual Linux systems, verify the path structure is correct
         var actualUserHome = System.getProperty("user.home");
 
-        // We use ignoreTestMode=true to bypass the global sandbox
-        Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.empty(), true);
+        // We bypass the global sandbox
+        Path result = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
 
         // Without XDG_CONFIG_HOME, should be ~/.config/Brokk
         assertEquals(
@@ -92,7 +92,7 @@ class BrokkConfigPathsTest {
             System.setProperty("os.name", osName);
             System.setProperty("user.home", "/test/home");
 
-            Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.empty(), true);
+            Path result = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
 
             assertTrue(
                     result.toString().endsWith("Brokk"),
@@ -120,7 +120,7 @@ class BrokkConfigPathsTest {
         // We use the actual user.home to avoid CI environment issues
         var actualUserHome = System.getProperty("user.home");
 
-        Path global = BrokkConfigPaths.getGlobalConfigDir(Optional.empty(), true);
+        Path global = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
         Path legacy = BrokkConfigPaths.getLegacyConfigDir();
 
         assertNotEquals(global, legacy, "Global and legacy config dirs should differ on case-sensitive filesystems");

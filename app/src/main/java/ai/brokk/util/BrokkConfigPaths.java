@@ -55,17 +55,22 @@ public final class BrokkConfigPaths {
      * @return the global config directory path
      */
     static Path getGlobalConfigDir(Optional<String> configDirOverride) {
-        return getGlobalConfigDir(configDirOverride, false);
+        return getGlobalConfigDirInternal(configDirOverride, false);
     }
 
     /**
-     * Returns the platform-appropriate global configuration directory for Brokk.
+     * Returns the platform-appropriate global configuration directory for Brokk,
+     * explicitly bypassing test-mode sandboxing. This is primarily used for testing
+     * the platform-specific path resolution logic itself.
      *
      * @param configDirOverride optional override for the config directory
-     * @param ignoreTestMode if true, bypasses test-mode sandboxing logic
      * @return the global config directory path
      */
-    static Path getGlobalConfigDir(Optional<String> configDirOverride, boolean ignoreTestMode) {
+    static Path getGlobalConfigDirIgnoringTestMode(Optional<String> configDirOverride) {
+        return getGlobalConfigDirInternal(configDirOverride, true);
+    }
+
+    private static Path getGlobalConfigDirInternal(Optional<String> configDirOverride, boolean ignoreTestMode) {
         if (!ignoreTestMode && "true".equalsIgnoreCase(System.getProperty("brokk.test.mode"))) {
             String sandboxRoot = System.getProperty("brokk.test.sandbox.root");
             Path root;
