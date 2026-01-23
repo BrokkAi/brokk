@@ -19,8 +19,6 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJavascript;
 
 public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
-    private @Nullable Set<Path> cachedAbsolutePaths;
-
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern CJS_REQUIRE_PATTERN = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
@@ -497,25 +495,17 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        return resolveJavaScriptLikeImports(this, file, importStatements, getAbsolutePaths());
-    }
-
-    private Set<Path> getAbsolutePaths() {
-        if (cachedAbsolutePaths == null) {
-            cachedAbsolutePaths = getProject().getAllFiles().stream()
-                    .map(ProjectFile::absPath)
-                    .collect(Collectors.toSet());
-        }
-        return cachedAbsolutePaths;
+        return resolveJavaScriptLikeImports(this, file, importStatements);
     }
 
     public static Set<CodeUnit> resolveJavaScriptLikeImports(
-            IAnalyzer analyzer, ProjectFile file, List<String> importStatements, Set<Path> absolutePaths) {
+            IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
         Path root = analyzer.getProject().getRoot();
+        Set<ProjectFile> projectFiles = analyzer.getProject().getAllFiles();
         return importStatements.stream()
                 .map(JavascriptAnalyzer::extractModulePathFromImport)
                 .flatMap(Optional::stream)
-                .map(path -> resolveJavaScriptLikeModulePath(root, absolutePaths, file, path))
+                .map(path -> resolveJavaScriptLikeModulePath(root, projectFiles, file, path))
                 .filter(Objects::nonNull)
                 .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
                 .collect(Collectors.toSet());
@@ -552,16 +542,19 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
      * and will resolve successfully. This is intentional for performance and flexibility reasons.
      *
      * @param projectRoot the project root path
-     * @param absolutePaths the set of absolute paths for all files in the project
+     * @param projectFiles the set of all files in the project
      * @param importingFile the file containing the import statement
      * @param modulePath the module specifier from the import/require
      * @return the resolved ProjectFile, or null if not resolvable within the project
      */
     public static @Nullable ProjectFile resolveJavaScriptLikeModulePath(
-            Path projectRoot, Set<Path> absolutePaths, ProjectFile importingFile, String modulePath) {
+            Path projectRoot, Set<ProjectFile> projectFiles, ProjectFile importingFile, String modulePath) {
         if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
             return null;
         }
+
+        Set<Path> absolutePaths =
+                projectFiles.stream().map(ProjectFile::absPath).collect(Collectors.toSet());
 
         Path parentDir = importingFile.absPath().getParent();
         if (parentDir == null) {
