@@ -12,7 +12,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.util.Environment;
 import ai.brokk.util.IStringDiskCache;
 import java.awt.Rectangle;
 import java.io.IOException;
@@ -31,8 +30,6 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
-
-    long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
 
     default IGitRepo getRepo() {
         throw new UnsupportedOperationException();
@@ -543,14 +540,6 @@ public interface IProject extends AutoCloseable {
     default CompletableFuture<Void> addLiveDependency(
             String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
         throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Obtains the user-defined run command timeout if set, or the default value otherwise.
-     * @return the default timeout for how long a shell command may run for.
-     */
-    default long getRunCommandTimeoutSeconds() {
-        return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
     }
 
     enum CodeAgentTestScope {
