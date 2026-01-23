@@ -94,15 +94,16 @@ public final class PrReviewService {
             @Nullable Integer startLine,
             @Nullable Integer endLine,
             String bodyMarkdown,
-            Severity severity) {
+            Severity severity,
+            boolean lineExplicit) {
 
         /**
          * Jackson-friendly creator that accepts either legacy 'line' or optional 'startLine'/'endLine'.
          *
          * Resolution rules for the primitive 'line' component:
-         * - If JSON 'line' is present (non-null) use that value.
-         * - Else if 'startLine' present use startLine.
-         * - Else if 'endLine' present use endLine.
+         * - If JSON 'line' is present (non-null) use that value and mark lineExplicit=true.
+         * - Else if 'startLine' present use startLine and mark lineExplicit=false.
+         * - Else if 'endLine' present use endLine and mark lineExplicit=false.
          * - Else throw IllegalArgumentException.
          */
         @JsonCreator
@@ -119,7 +120,8 @@ public final class PrReviewService {
                     startLine,
                     endLine,
                     bodyMarkdown,
-                    Severity.normalize(severity));
+                    Severity.normalize(severity),
+                    lineJson != null);
         }
 
         private static int resolveLineNumber(
@@ -144,7 +146,7 @@ public final class PrReviewService {
 
         /** Auxiliary convenience constructor used in many tests and callers. */
         public InlineComment(String path, int line, String bodyMarkdown, Severity severity) {
-            this(path, line, /* startLine= */ null, /* endLine= */ null, bodyMarkdown, severity);
+            this(path, line, /* startLine= */ null, /* endLine= */ null, bodyMarkdown, severity, true);
         }
     }
 
@@ -265,12 +267,26 @@ public final class PrReviewService {
         @Nullable Integer start = comment.startLine();
         @Nullable Integer end = comment.endLine();
         int line = comment.line();
+
+        // Validate obvious invalid line numbers early and fallback to a regular PR comment.
+        if (line <= 0) {
+            logger.warn(
+                    "Invalid line number {} for path '{}' in PR #{}; falling back to regular PR comment",
+                    line,
+                    path,
+                    pr.getNumber());
+            String fallbackBody = formatFallbackInlineCommentBody(path, start, end, Objects.requireNonNullElse(comment.bodyMarkdown(), ""));
+            pr.comment(fallbackBody);
+            logger.info("Posted fallback comment for {} (invalid line {}) in PR #{}", path, line, pr.getNumber());
+            return;
+        }
+
         try {
             // Use range mode only when:
             // 1. Both startLine and endLine are present, AND
-            // 2. line was derived from startLine (not explicitly provided), AND
+            // 2. The JSON did not explicitly provide a 'line' field (i.e., line was derived), AND
             // 3. startLine <= endLine (valid range)
-            if (start != null && end != null && line == start.intValue() && start <= end) {
+            if (start != null && end != null && !comment.lineExplicit() && start <= end) {
                 // The underlying GitHub API client does not provide a builder method for ranged inline
                 // comments in all versions. As a best-effort attempt, post the comment on the end line
                 // of the range (the GitHub API will accept a single-line inline comment). We still log
@@ -281,7 +297,7 @@ public final class PrReviewService {
                         .path(path)
                         .line(end)
                         .create();
-                logger.info("Posted inline comment on {}:{}-{} in PR #{}", path, start, end, pr.getNumber());
+                logger.info("Posted inline ranged comment on {}:{}-{} in PR #{} (derived from start/end)", path, start, end, pr.getNumber());
             } else {
                 pr.createReviewComment()
                         .body(Objects.requireNonNullElse(comment.bodyMarkdown(), ""))
@@ -289,7 +305,15 @@ public final class PrReviewService {
                         .path(path)
                         .line(line)
                         .create();
-                logger.info("Posted inline comment on {}:{} in PR #{}", path, line, pr.getNumber());
+                if (start != null && end != null && comment.lineExplicit()) {
+                    logger.info(
+                            "Posted inline comment on {}:{} in PR #{} (explicit 'line' provided; start/end present but ignored)",
+                            path,
+                            line,
+                            pr.getNumber());
+                } else {
+                    logger.info("Posted inline comment on {}:{} in PR #{}", path, line, pr.getNumber());
+                }
             }
         } catch (HttpException e) {
             if (e.getResponseCode() == 422) {
