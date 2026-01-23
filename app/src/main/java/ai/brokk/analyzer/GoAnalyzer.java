@@ -510,6 +510,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
             // Look for alias or blank import prefix in this line
             String prefix = trimmedLine.substring(0, pathStart).trim();
+            if (prefix.startsWith("import")) {
+                prefix = prefix.substring("import".length()).trim();
+            }
 
             String identifier;
             String alias = null;
@@ -518,7 +521,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 identifier = "_"; // Blank import
             } else if (".".equals(prefix)) {
                 identifier = "."; // Dot import
-            } else if (!prefix.isEmpty() && !prefix.equals("import")) {
+            } else if (!prefix.isEmpty()) {
                 alias = prefix;
                 identifier = alias;
             } else {
@@ -530,10 +533,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             // Build a clean rawSnippet for this individual import.
             // Even if it was part of a group, we return it as a standalone "import ..." statement
             // so that relevantImportsFor can match it and fragments can prepend it.
-            String rawSnippet = (alias != null ? alias + " " : "") + "\"" + path + "\"";
-            if (!rawSnippet.startsWith("import")) {
-                rawSnippet = "import " + rawSnippet;
-            }
+            String rawSnippet = "import " + (prefix.isEmpty() ? "" : prefix + " ") + "\"" + path + "\"";
 
             localImportInfos.add(new ImportInfo(rawSnippet, false, identifier, alias));
         }
