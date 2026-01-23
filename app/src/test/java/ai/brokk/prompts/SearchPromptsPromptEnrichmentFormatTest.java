@@ -2,10 +2,10 @@ package ai.brokk.prompts;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.Service;
+import ai.brokk.TaskResult;
 import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.context.Context;
-import ai.brokk.TaskResult;
-import ai.brokk.Service;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -39,13 +39,7 @@ class SearchPromptsPromptEnrichmentFormatTest {
             var model = new TestScriptedLanguageModel("unused");
             var meta = new TaskResult.TaskMeta(TaskResult.Type.SEARCH, new Service.ModelConfig("test"));
             var result = SearchPrompts.instance.buildPrompt(
-                    ctx,
-                    model,
-                    meta,
-                    goal,
-                    SearchPrompts.Objective.PROMPT_ENRICHMENT,
-                    List.of(),
-                    List.of());
+                    ctx, model, meta, goal, SearchPrompts.Objective.PROMPT_ENRICHMENT, List.of(), List.of());
 
             String directive = extractPromptEnrichmentDirective(result.messages());
 
