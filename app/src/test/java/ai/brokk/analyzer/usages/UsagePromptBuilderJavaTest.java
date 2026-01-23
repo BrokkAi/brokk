@@ -192,8 +192,8 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "// hit at line 20\nbar();";
         UsageHit hit2 = new UsageHit(file, 20, 500, 520, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt =
+                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
         assertTrue(text.contains(snippet1), "Prompt should contain the first snippet");
@@ -216,8 +216,8 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "line4\nline5-hit\nline6\nline7-hit\nline8\nline9\nline10";
         UsageHit hit2 = new UsageHit(file, 7, 30, 40, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt =
+                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
 
@@ -239,13 +239,13 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit target = CodeUnit.fn(file, "test", "method2");
         UsageHit hit = new UsageHit(file, 10, 100, 110, enclosing, 1.0, "snippet");
 
-        UsagePrompt singlePrompt = UsagePromptBuilder.buildPrompt(
-                hit, target, List.of(), analyzer, "method2", 10_000);
-        UsagePrompt listPrompt = UsagePromptBuilder.buildPrompt(
-                List.of(hit), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt singlePrompt = UsagePromptBuilder.buildPrompt(hit, target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt listPrompt =
+                UsagePromptBuilder.buildPrompt(List.of(hit), target, List.of(), analyzer, "method2", 10_000);
 
         assertEquals(singlePrompt.promptText(), listPrompt.promptText(), "Prompt text should match");
         assertEquals(singlePrompt.candidateText(), listPrompt.candidateText(), "Candidate text should match");
-        assertEquals(singlePrompt.filterDescription(), listPrompt.filterDescription(), "Filter description should match");
+        assertEquals(
+                singlePrompt.filterDescription(), listPrompt.filterDescription(), "Filter description should match");
     }
 }
