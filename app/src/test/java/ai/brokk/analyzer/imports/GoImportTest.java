@@ -478,7 +478,8 @@ class GoImportTest {
 
     @Test
     void testBlankImportRawSnippetPreserved() throws IOException {
-        String code = """
+        String code =
+                """
                 package main
                 import _ "image/png"
                 func main() {}
@@ -495,7 +496,8 @@ class GoImportTest {
 
     @Test
     void testDotImportRawSnippetPreserved() throws IOException {
-        String code = """
+        String code =
+                """
                 package main
                 import . "fmt"
                 func main() { Println("hello") }
@@ -512,7 +514,8 @@ class GoImportTest {
 
     @Test
     void testAliasedImportRawSnippetPreserved() throws IOException {
-        String code = """
+        String code =
+                """
                 package main
                 import f "fmt"
                 func main() { f.Println("hello") }
