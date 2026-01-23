@@ -1121,6 +1121,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
                 (import_specifier name: (identifier) @import.id)
                 (import_specifier alias: (identifier) @import.alias)
                 (namespace_import (identifier) @import.alias)
+                (variable_declarator name: (identifier) @import.id value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                (variable_declarator name: (object_pattern (shorthand_property_identifier_pattern) @import.id) value: (call_expression function: (identifier) @func (#eq? @func "require")))
                 """;
 
             org.treesitter.TSQuery query = new org.treesitter.TSQuery(getTSLanguage(), queryStr);

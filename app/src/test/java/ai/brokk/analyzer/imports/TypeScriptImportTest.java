@@ -467,4 +467,46 @@ public class TypeScriptImportTest {
             assertTrue(identifiers.contains("process"), "Should contain function name process");
         }
     }
+
+    @Test
+    public void testRelevantImportsForRequire() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                const fs = require('fs');
+                const { readFile } = require('fs');
+                const path = require('path');
+
+                export function readConfig(): void {
+                    fs.readFileSync('config.json');
+                    readFile('other.json', () => {});
+                }
+
+                export function unusedFunction(): number {
+                    return 1;
+                }
+                """,
+                        "app.ts")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
+
+            // Test 1: Function using fs and readFile
+            var readConfig = analyzer.searchDefinitions("readConfig").iterator().next();
+            Set<String> relevantRead = provider.relevantImportsFor(readConfig);
+            assertTrue(
+                    relevantRead.stream().anyMatch(s -> s.contains("const fs = require('fs')")),
+                    "Should include fs require");
+            assertTrue(
+                    relevantRead.stream().anyMatch(s -> s.contains("const { readFile } = require('fs')")),
+                    "Should include readFile require");
+            assertFalse(
+                    relevantRead.stream().anyMatch(s -> s.contains("const path = require('path')")),
+                    "Should exclude unused path require");
+
+            // Test 2: Function NOT using fs
+            var unusedFn = analyzer.searchDefinitions("unusedFunction").iterator().next();
+            Set<String> relevantUnused = provider.relevantImportsFor(unusedFn);
+            assertTrue(relevantUnused.isEmpty(), "Should exclude all requires for unused function");
+        }
+    }
 }
