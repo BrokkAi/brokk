@@ -24,7 +24,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     record ModulePathKey(ProjectFile importingFile, String modulePath) {}
 
-    private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache = Caffeine.newBuilder().maximumSize(10_000).build();
+    private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
 
     Cache<ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
         return moduleResolutionCache;
@@ -521,14 +522,12 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 .flatMap(Optional::stream)
                 .map(path -> {
                     if (analyzer instanceof JavascriptAnalyzer ja) {
-                        return resolveModulePath(
-                                ja.getModuleResolutionCache(), root, projectFiles, absolutePaths, file, path);
+                        return resolveModulePath(ja.getModuleResolutionCache(), root, absolutePaths, file, path);
                     }
                     if (analyzer instanceof TypescriptAnalyzer ta) {
-                        return resolveModulePath(
-                                ta.getModuleResolutionCache(), root, projectFiles, absolutePaths, file, path);
+                        return resolveModulePath(ta.getModuleResolutionCache(), root, absolutePaths, file, path);
                     }
-                    return resolveJavaScriptLikeModulePath(root, projectFiles, absolutePaths, file, path);
+                    return resolveJavaScriptLikeModulePath(root, absolutePaths, file, path);
                 })
                 .filter(Objects::nonNull)
                 .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
@@ -538,13 +537,13 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     static @Nullable ProjectFile resolveModulePath(
             Cache<ModulePathKey, Optional<ProjectFile>> cache,
             Path projectRoot,
-            Set<ProjectFile> projectFiles,
             Set<Path> absolutePaths,
             ProjectFile importingFile,
             String modulePath) {
-        return cache.get(new ModulePathKey(importingFile, modulePath), key -> Optional.ofNullable(
-                        resolveJavaScriptLikeModulePath(
-                                projectRoot, projectFiles, absolutePaths, importingFile, modulePath)))
+        return cache.get(
+                        new ModulePathKey(importingFile, modulePath),
+                        key -> Optional.ofNullable(
+                                resolveJavaScriptLikeModulePath(projectRoot, absolutePaths, importingFile, modulePath)))
                 .orElse(null);
     }
 
@@ -579,24 +578,12 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
      * and will resolve successfully. This is intentional for performance and flexibility reasons.
      *
      * @param projectRoot the project root path
-     * @param projectFiles the set of all files in the project
      * @param importingFile the file containing the import statement
      * @param modulePath the module specifier from the import/require
      * @return the resolved ProjectFile, or null if not resolvable within the project
      */
     public static @Nullable ProjectFile resolveJavaScriptLikeModulePath(
-            Path projectRoot, Set<ProjectFile> projectFiles, ProjectFile importingFile, String modulePath) {
-        Set<Path> absolutePaths =
-                projectFiles.stream().map(ProjectFile::absPath).collect(Collectors.toSet());
-        return resolveJavaScriptLikeModulePath(projectRoot, projectFiles, absolutePaths, importingFile, modulePath);
-    }
-
-    public static @Nullable ProjectFile resolveJavaScriptLikeModulePath(
-            Path projectRoot,
-            Set<ProjectFile> projectFiles,
-            Set<Path> absolutePaths,
-            ProjectFile importingFile,
-            String modulePath) {
+            Path projectRoot, Set<Path> absolutePaths, ProjectFile importingFile, String modulePath) {
         if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
             return null;
         }

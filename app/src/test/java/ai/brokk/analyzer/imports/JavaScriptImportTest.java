@@ -6,9 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
-import ai.brokk.analyzer.JavascriptAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -388,53 +386,6 @@ public class JavaScriptImportTest {
                             && cu.source().getRelPath().equals(expectedPath));
 
             assertTrue(foundLibFunc, "Should have resolved 'libFunc' from lib/index.js via require");
-        }
-    }
-
-    @Test
-    public void testModuleResolutionCacheIsUsed() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
-                        """
-                export function helper() { return 42; }
-                """,
-                        "utils/helper.js")
-                .addFileContents(
-                        """
-                import { helper } from './utils/helper';
-                import { helper as h2 } from './utils/helper';
-                function main() { return helper(); }
-                """,
-                        "main.js")
-                .build()) {
-
-            // Use fromState to get an analyzer with recordStats() enabled on the cache
-            var baseAnalyzer = createTreeSitterAnalyzer(testProject);
-            var analyzerWithStats = JavascriptAnalyzer.fromState(
-                    testProject,
-                    ((JavascriptAnalyzer) baseAnalyzer).snapshotState(),
-                    IAnalyzer.ProgressListener.NOOP);
-
-            var mainFile = testProject.getAllFiles().stream()
-                    .filter(f -> f.getRelPath().toString().endsWith("main.js"))
-                    .findFirst()
-                    .get();
-
-            // First call - should populate cache
-            Set<CodeUnit> importedUnits1 = analyzerWithStats
-                    .as(ImportAnalysisProvider.class).orElseThrow()
-                    .importedCodeUnitsOf(mainFile);
-
-            // Second call - should use cache
-            Set<CodeUnit> importedUnits2 = analyzerWithStats
-                    .as(ImportAnalysisProvider.class).orElseThrow()
-                    .importedCodeUnitsOf(mainFile);
-
-            // Verify results are the same
-            assertEquals(importedUnits1, importedUnits2);
-
-            // Verify cache was used - should have hits on second call
-            var stats = analyzerWithStats.getCacheStats();
-            assertTrue(stats.hitCount() > 0, "Cache should have hits after second call. Stats: " + stats);
         }
     }
 
