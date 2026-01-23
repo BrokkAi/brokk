@@ -149,10 +149,17 @@ public final class MainProject extends AbstractProject {
     @VisibleForTesting
     public static Properties globalPropertiesCache = null; // protected by synchronized
 
-    private static final Path BROKK_CONFIG_DIR = BrokkConfigPaths.getGlobalConfigDir();
-    private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
-    private static final Path GLOBAL_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("brokk.properties");
-    private static final Path OUT_OF_MEMORY_EXCEPTION_FLAG = BROKK_CONFIG_DIR.resolve("oom.flag");
+    private static Path getGlobalPropertiesPath() {
+        return BrokkConfigPaths.getGlobalConfigDir().resolve("brokk.properties");
+    }
+
+    private static Path getProjectsPropertiesPath() {
+        return BrokkConfigPaths.getGlobalConfigDir().resolve("projects.properties");
+    }
+
+    private static Path getOomFlagPath() {
+        return BrokkConfigPaths.getGlobalConfigDir().resolve("oom.flag");
+    }
 
     public enum LlmProxySetting {
         BROKK,
@@ -295,8 +302,9 @@ public final class MainProject extends AbstractProject {
 
         var props = new Properties();
         boolean needsSave = false;
-        if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
-            try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
+        Path globalPath = getGlobalPropertiesPath();
+        if (Files.exists(globalPath)) {
+            try (var reader = Files.newBufferedReader(globalPath)) {
                 props.load(reader);
             } catch (IOException e) {
                 logger.warn("Unable to read global properties file: {}", e.getMessage());
@@ -344,8 +352,9 @@ public final class MainProject extends AbstractProject {
         try {
             // Load directly from disk to avoid re-triggering migration in loadGlobalProperties
             var existingProps = new Properties();
-            if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
-                try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
+            Path globalPath = getGlobalPropertiesPath();
+            if (Files.exists(globalPath)) {
+                try (var reader = Files.newBufferedReader(globalPath)) {
                     existingProps.load(reader);
                 } catch (IOException e) {
                     // Proceed with save even if we can't read existing props
@@ -385,7 +394,7 @@ public final class MainProject extends AbstractProject {
                 }
             }
 
-            AtomicWrites.save(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
+            AtomicWrites.save(getGlobalPropertiesPath(), props, "Brokk global configuration");
             globalPropertiesCache = (Properties) props.clone();
         } catch (IOException e) {
             logger.error("Error saving global properties: {}", e.getMessage());
@@ -1777,8 +1786,9 @@ public final class MainProject extends AbstractProject {
 
     private static Properties loadProjectsProperties() {
         var props = new Properties();
-        if (Files.exists(PROJECTS_PROPERTIES_PATH)) {
-            try (var reader = Files.newBufferedReader(PROJECTS_PROPERTIES_PATH)) {
+        Path projectsPath = getProjectsPropertiesPath();
+        if (Files.exists(projectsPath)) {
+            try (var reader = Files.newBufferedReader(projectsPath)) {
                 props.load(reader);
             } catch (IOException e) {
                 logger.warn("Unable to read projects properties file: {}", e.getMessage());
@@ -1789,8 +1799,9 @@ public final class MainProject extends AbstractProject {
 
     private static void saveProjectsProperties(Properties props) {
         try {
-            Files.createDirectories(PROJECTS_PROPERTIES_PATH.getParent());
-            AtomicWrites.save(PROJECTS_PROPERTIES_PATH, props, "Brokk projects: recently opened and currently open");
+            Path projectsPath = getProjectsPropertiesPath();
+            Files.createDirectories(projectsPath.getParent());
+            AtomicWrites.save(projectsPath, props, "Brokk projects: recently opened and currently open");
         } catch (IOException e) {
             logger.error("Error saving projects properties: {}", e.getMessage());
         }
@@ -2072,7 +2083,7 @@ public final class MainProject extends AbstractProject {
      */
     public static void setOomFlag() {
         try {
-            Files.createFile(OUT_OF_MEMORY_EXCEPTION_FLAG);
+            Files.createFile(getOomFlagPath());
         } catch (IOException e) {
             logger.error("Unable to persist OutOfMemoryError flag.");
         }
@@ -2080,8 +2091,9 @@ public final class MainProject extends AbstractProject {
 
     public static boolean initializeOomFlag() {
         try {
-            if (Files.exists(OUT_OF_MEMORY_EXCEPTION_FLAG)) {
-                Files.delete(OUT_OF_MEMORY_EXCEPTION_FLAG);
+            Path oomPath = getOomFlagPath();
+            if (Files.exists(oomPath)) {
+                Files.delete(oomPath);
                 return true;
             } else {
                 return false;
