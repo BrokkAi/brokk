@@ -4,6 +4,8 @@ import static ai.brokk.analyzer.JavascriptAnalyzer.extractCommonJsRequireImport;
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -20,6 +22,13 @@ import org.treesitter.TreeSitterTypescript;
 
 public final class TypescriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
+
+    private final Cache<JavascriptAnalyzer.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
+
+    Cache<JavascriptAnalyzer.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
+        return moduleResolutionCache;
+    }
 
     // Compiled regex patterns for memory efficiency
     private static final Pattern TRAILING_SEMICOLON = Pattern.compile(";\\s*$");

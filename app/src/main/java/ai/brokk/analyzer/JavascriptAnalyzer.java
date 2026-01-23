@@ -21,9 +21,14 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJavascript;
 
 public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
-    private record ModulePathKey(ProjectFile importingFile, String modulePath) {}
 
-    private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache;
+    record ModulePathKey(ProjectFile importingFile, String modulePath) {}
+
+    private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache = Caffeine.newBuilder().maximumSize(10_000).build();
+
+    Cache<ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
+        return moduleResolutionCache;
+    }
 
     private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
     private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
@@ -56,24 +61,14 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     public JavascriptAnalyzer(IProject project, ProgressListener listener) {
         super(project, Languages.JAVASCRIPT, listener);
-        this.moduleResolutionCache = Caffeine.newBuilder().maximumSize(10_000).build();
     }
 
     private JavascriptAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
         super(project, Languages.JAVASCRIPT, state, listener);
-        this.moduleResolutionCache = Caffeine.newBuilder().maximumSize(10_000).recordStats().build();
     }
 
     public static JavascriptAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
         return new JavascriptAnalyzer(project, state, listener);
-    }
-
-    /**
-     * Returns the cache statistics for the module resolution cache.
-     * Useful for testing to verify cache hits.
-     */
-    public com.github.benmanes.caffeine.cache.stats.CacheStats getCacheStats() {
-        return moduleResolutionCache.stats();
     }
 
     @Override
@@ -526,7 +521,12 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 .flatMap(Optional::stream)
                 .map(path -> {
                     if (analyzer instanceof JavascriptAnalyzer ja) {
-                        return ja.resolveModulePath(root, projectFiles, absolutePaths, file, path);
+                        return resolveModulePath(
+                                ja.getModuleResolutionCache(), root, projectFiles, absolutePaths, file, path);
+                    }
+                    if (analyzer instanceof TypescriptAnalyzer ta) {
+                        return resolveModulePath(
+                                ta.getModuleResolutionCache(), root, projectFiles, absolutePaths, file, path);
                     }
                     return resolveJavaScriptLikeModulePath(root, projectFiles, absolutePaths, file, path);
                 })
@@ -535,16 +535,15 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 .collect(Collectors.toSet());
     }
 
-    private @Nullable ProjectFile resolveModulePath(
+    static @Nullable ProjectFile resolveModulePath(
+            Cache<ModulePathKey, Optional<ProjectFile>> cache,
             Path projectRoot,
             Set<ProjectFile> projectFiles,
             Set<Path> absolutePaths,
             ProjectFile importingFile,
             String modulePath) {
-        return moduleResolutionCache
-                .get(
-                        new ModulePathKey(importingFile, modulePath),
-                        key -> Optional.ofNullable(resolveJavaScriptLikeModulePath(
+        return cache.get(new ModulePathKey(importingFile, modulePath), key -> Optional.ofNullable(
+                        resolveJavaScriptLikeModulePath(
                                 projectRoot, projectFiles, absolutePaths, importingFile, modulePath)))
                 .orElse(null);
     }
