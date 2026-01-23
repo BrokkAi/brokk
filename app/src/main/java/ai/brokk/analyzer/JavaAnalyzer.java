@@ -693,6 +693,12 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
     }
 
+    /**
+     * Extracts type identifiers using Tree-Sitter.
+     * <p>
+     * Trade-off: High Precision. By targeting only {@code type_identifier} nodes, we minimize false positives
+     * from local variables or method names, ensuring that only relevant type-related imports are pulled in.
+     */
     @Override
     protected Set<String> extractTypeIdentifiers(String source) {
         try {

@@ -1033,19 +1033,33 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         return Collections.unmodifiableSet(matchedImports);
     }
 
+    /**
+     * Extracts identifiers from Python source using Tree-Sitter.
+     * <p>
+     * Trade-off: High Recall. Python lacks a distinct 'type_identifier' node type. We capture
+     * all identifiers via AST traversal, which is more precise than regex because it naturally
+     * excludes identifiers inside comments and string literals. While this may over-match local
+     * variables, it ensures we don't miss any imported symbols used as types, decorators, or
+     * function calls. The import filtering logic handles false positives gracefully.
+     */
     @Override
     protected Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         TSTree tree = parser.parseString(null, source);
+        if (tree == null) return identifiers;
         TSNode rootNode = tree.getRootNode();
 
         if (rootNode.isNull()) {
             return identifiers;
         }
 
-        // Capture standalone identifiers and module prefixes in attribute access
-        TSQuery query = new TSQuery(getTSLanguage(), "[(identifier) @id (attribute object: (identifier) @module)]");
+        // Capture all identifiers. This is intentionally broad because Python doesn't distinguish
+        // type identifiers from value identifiers syntactically. The AST-based approach still
+        // provides value over regex by excluding identifiers in comments and string literals.
+        String queryStr = "(identifier) @id";
+
+        TSQuery query = new TSQuery(getTSLanguage(), queryStr);
         TSQueryCursor cursor = new TSQueryCursor();
         cursor.exec(query, rootNode);
 
@@ -1055,7 +1069,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             for (TSQueryCapture capture : match.getCaptures()) {
                 TSNode node = capture.getNode();
                 if (node != null && !node.isNull()) {
-                    identifiers.add(sc.substringFrom(node));
+                    String text = sc.substringFrom(node).strip();
+                    if (!text.isEmpty()) {
+                        identifiers.add(text);
+                    }
                 }
             }
         }

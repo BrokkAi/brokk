@@ -675,6 +675,13 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return identifiers;
     }
 
+    /**
+     * Extracts identifiers and JSX tags from JavaScript source.
+     * <p>
+     * Trade-off: Precision. We capture standard identifiers and JSX-specific tags. While {@code identifier}
+     * can over-match local variables, it is necessary in JS to find the source of functions and constants
+     * imported via ES6 or CommonJS.
+     */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();

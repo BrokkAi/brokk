@@ -1279,6 +1279,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         };
     }
 
+    /**
+     * Extracts identifiers that might require imports in C++.
+     * <p>
+     * Trade-off: High Recall. C++ resolution is complex (macros, templates, namespaces). We capture
+     * {@code type_identifier}, {@code identifier}, and {@code qualified_identifier} to ensure we don't
+     * miss headers required for functions or variables, even if it occasionally over-matches local symbols.
+     */
     @Override
     protected Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();

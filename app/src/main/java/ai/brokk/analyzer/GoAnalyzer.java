@@ -552,6 +552,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         return importPath;
     }
 
+    /**
+     * Extracts type and package identifiers from Go source.
+     * <p>
+     * Trade-off: High Precision. We target {@code type_identifier} for internal types and
+     * {@code selector_expression} operands to identify imported package usage (e.g., 'fmt' in 'fmt.Println').
+     */
     @Override
     protected Set<String> extractTypeIdentifiers(String source) {
         TSParser parser = getTSParser();

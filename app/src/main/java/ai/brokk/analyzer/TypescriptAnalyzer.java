@@ -1143,6 +1143,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
         return identifiers;
     }
 
+    /**
+     * Extracts type and value identifiers from TypeScript source.
+     * <p>
+     * Trade-off: High Precision for types. By specifically capturing {@code type_identifier} alongside
+     * standard identifiers and JSX tags, we ensure both type-only and value imports are correctly identified.
+     */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
