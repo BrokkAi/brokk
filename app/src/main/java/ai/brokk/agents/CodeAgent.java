@@ -1403,13 +1403,19 @@ public class CodeAgent {
                             .orElse(""))
                     .filter(seg -> !seg.isBlank())
                     .collect(Collectors.joining("\n\n"));
+            var changedFilesCdl =
+                    es.changedFiles().stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
             var summaryText =
                     """
                     [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
-                     All changes have been merged into the Workspace files you see above.]
+                     You made changes to %s. These changes are reflected in the Workspace contents above.
+                     Review the current contents carefully before proposing additional changes to fix the build.]
+
                     %s
                     """
-                            .formatted(explanations.isBlank() ? "No explanations provided." : explanations);
+                            .formatted(
+                                    changedFilesCdl,
+                                    explanations.isBlank() ? "No explanations provided." : explanations);
 
             var compactedMessages = new ArrayList<ChatMessage>();
             compactedMessages.add(new UserMessage(originalGoal));
