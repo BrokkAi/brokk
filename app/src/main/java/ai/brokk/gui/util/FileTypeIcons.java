@@ -21,9 +21,9 @@ public final class FileTypeIcons {
 
     private FileTypeIcons() {}
 
-    // Base icon size for tree display (20px - slightly larger than default 16px for better visibility)
+    // Base icon size for tree display (16px - standard tree icon size)
     // Scaled by UIScale for HiDPI support
-    private static final int BASE_ICON_SIZE = 20;
+    private static final int BASE_ICON_SIZE = 16;
 
     // Cache for icons by UIManager key to avoid repeated lookups/allocations per render
     // Uses a simple map since keys are interned strings and icons should persist
