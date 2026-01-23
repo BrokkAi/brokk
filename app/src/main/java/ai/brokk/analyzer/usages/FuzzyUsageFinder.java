@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -41,14 +42,19 @@ public final class FuzzyUsageFinder {
     private final IAnalyzer analyzer;
     private final AbstractService service;
     private final @Nullable Llm llm;
+    private final @Nullable Predicate<ProjectFile> fileFilter;
 
     public static FuzzyUsageFinder create(IContextManager cm) {
+        return create(cm, null);
+    }
+
+    public static FuzzyUsageFinder create(IContextManager cm, @Nullable Predicate<ProjectFile> fileFilter) {
         var service = cm.getService();
         var model = service.getModel(ModelProperties.ModelType.USAGES);
         var llm = model instanceof AbstractService.UnavailableStreamingModel
                 ? null
                 : new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false);
-        return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm);
+        return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm, fileFilter);
     }
 
     /**
@@ -60,10 +66,20 @@ public final class FuzzyUsageFinder {
      * @param llm optional LLM for future disambiguation
      */
     public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, AbstractService service, @Nullable Llm llm) {
+        this(project, analyzer, service, llm, null);
+    }
+
+    public FuzzyUsageFinder(
+            IProject project,
+            IAnalyzer analyzer,
+            AbstractService service,
+            @Nullable Llm llm,
+            @Nullable Predicate<ProjectFile> fileFilter) {
         this.project = project;
         this.analyzer = analyzer;
         this.service = service;
         this.llm = llm;
+        this.fileFilter = fileFilter;
     }
 
     /**
@@ -100,6 +116,11 @@ public final class FuzzyUsageFinder {
         // Use a fast substring scan to prefilter candidate files by the raw identifier, not the regex
         Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
                 List.of(identifier), analyzer.getProject().getAnalyzableFiles(lang));
+
+        // Apply file filter if provided (e.g., to exclude test files)
+        if (fileFilter != null) {
+            candidateFiles = candidateFiles.stream().filter(fileFilter).collect(Collectors.toSet());
+        }
 
         if (maxFiles < candidateFiles.size()) {
             // Case 1: Too many call sites
