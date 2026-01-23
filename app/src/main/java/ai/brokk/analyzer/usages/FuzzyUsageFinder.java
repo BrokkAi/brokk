@@ -135,33 +135,39 @@ public final class FuzzyUsageFinder {
         if (llm != null && !hits.isEmpty()) {
             // Case 4: This symbol is not unique among code units, disambiguate with LLM if possible
             logger.debug("Disambiguating {} hits among {} code units", hits.size(), matchingCodeUnits.size());
-            var unscoredHits = new HashSet<>(hits);
-            var scoredHits = new HashSet<UsageHit>(hits.size());
             var alternatives = matchingCodeUnits.stream()
                     .filter(cu -> !cu.fqName().equals(target.fqName()))
                     .collect(Collectors.toSet());
-            var tasks = new ArrayList<RelevanceTask>(hits.size());
-            var mapping = new ArrayList<UsageHit>(hits.size());
-            for (var hit : hits) {
-                var prompt = UsagePromptBuilder.buildPrompt(hit, target, alternatives, analyzer, identifier, 8_000);
-                // Use the rich prompt text as the candidate text for classification
-                tasks.add(new RelevanceTask(prompt.filterDescription(), prompt.promptText()));
-                mapping.add(hit);
+
+            // Group hits by enclosing CodeUnit to build one prompt per context
+            var groupedHits = hits.stream().collect(Collectors.groupingBy(UsageHit::enclosing));
+
+            var tasks = new ArrayList<RelevanceTask>(groupedHits.size());
+            var taskToHits = new ArrayList<List<UsageHit>>(groupedHits.size());
+
+            for (var entry : groupedHits.entrySet()) {
+                var hitsInGroup = entry.getValue();
+                var prompt = UsagePromptBuilder.buildPrompt(
+                        hitsInGroup, target, alternatives, analyzer, identifier, 8_000);
+
+                var task = new RelevanceTask(prompt.filterDescription(), prompt.promptText());
+                tasks.add(task);
+                taskToHits.add(hitsInGroup);
             }
 
             var scores = RelevanceClassifier.relevanceScoreBatch(project.getDiskCache(), llm, service, tasks);
+            var resultHits = new HashSet<UsageHit>(hits.size());
+
             for (int i = 0; i < tasks.size(); i++) {
                 var task = tasks.get(i);
+                var hitsInGroup = taskToHits.get(i);
                 var score = scores.getOrDefault(task, 0.0);
-                var base = mapping.get(i);
-                var scored = base.withConfidence(score);
-                scoredHits.add(scored);
-                unscoredHits.remove(base);
+
+                for (var hit : hitsInGroup) {
+                    resultHits.add(hit.withConfidence(score));
+                }
             }
-            var combined = new HashSet<UsageHit>(scoredHits.size() + unscoredHits.size());
-            combined.addAll(scoredHits);
-            combined.addAll(unscoredHits);
-            finalHits = combined;
+            finalHits = resultHits;
             logger.debug("Found {} disambiguated hits", finalHits.size());
         }
 
