@@ -372,6 +372,26 @@ class PrReviewServiceTest {
     }
 
     @Test
+    void testParsePrReviewResponse_MissingAllLineFields_ThrowsException() {
+        String json = """
+                {
+                  "summaryMarkdown": "## Review",
+                  "comments": [
+                    {
+                      "path": "src/Foo.java",
+                      "bodyMarkdown": "Issue without line info.",
+                      "severity": "HIGH"
+                    }
+                  ]
+                }
+                """;
+
+        // parsePrReviewResponse catches deserialization errors and returns null
+        var response = PrReviewService.parsePrReviewResponse(json);
+        assertNull(response, "Should return null when comment is missing all line fields");
+    }
+
+    @Test
     void testParsePrReviewResponse_InvalidCommentsType() {
         String json =
                 """
