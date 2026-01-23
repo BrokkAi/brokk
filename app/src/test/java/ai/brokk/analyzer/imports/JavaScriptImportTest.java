@@ -478,16 +478,83 @@ public class JavaScriptImportTest {
                     fs.readFileSync('config.json');
                     readFile('other.json', () => {});
                 }
+
+                export function unusedFunction() {
+                    return 1;
+                }
                 """,
                         "app.js")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
+            var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
+
+            // Test 1: Function using fs and readFile
             var readConfig = analyzer.searchDefinitions("readConfig").iterator().next();
+            Set<String> relevantRead = provider.relevantImportsFor(readConfig);
+            assertTrue(relevantRead.stream().anyMatch(s -> s.contains("const fs = require('fs')")), "Should include fs require");
+            assertTrue(relevantRead.stream().anyMatch(s -> s.contains("const { readFile } = require('fs')")), "Should include readFile require");
+            assertFalse(relevantRead.stream().anyMatch(s -> s.contains("const path = require('path')")), "Should exclude unused path require");
 
-            Set<String> relevant = analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(readConfig);
+            // Test 2: Function NOT using fs
+            var unusedFn = analyzer.searchDefinitions("unusedFunction").iterator().next();
+            Set<String> relevantUnused = provider.relevantImportsFor(unusedFn);
+            assertTrue(relevantUnused.isEmpty(), "Should exclude all requires for unused function");
+        }
+    }
 
-            assertTrue(relevant.stream().anyMatch(s -> s.contains("const fs = require('fs')")), "Should include fs require");
-            assertTrue(relevant.stream().anyMatch(s -> s.contains("const { readFile } = require('fs')")), "Should include readFile require");
+    @Test
+    public void testRelevantImportsForDestructuredRequire() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                const { helper, other } = require('./utils');
+
+                export function callHelper() {
+                    helper();
+                }
+
+                export function callOther() {
+                    other();
+                }
+                """,
+                        "app.js")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
+
+            var callHelper = analyzer.searchDefinitions("callHelper").iterator().next();
+            Set<String> relevant = provider.relevantImportsFor(callHelper);
+
+            assertTrue(relevant.stream().anyMatch(s -> s.contains("const { helper, other } = require('./utils')")),
+                    "Should include destructured require when one member is used");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsMixedEs6AndRequire() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import React from 'react';
+                import { useState } from 'react';
+                const fs = require('fs');
+                const path = require('path');
+
+                export function MyComponent() {
+                    const [val] = useState(0);
+                    fs.readFileSync('foo');
+                    return <div>{val}</div>;
+                }
+                """,
+                        "app.js")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
+
+            var component = analyzer.searchDefinitions("MyComponent").iterator().next();
+            Set<String> relevant = provider.relevantImportsFor(component);
+
+            assertFalse(relevant.contains("import React from 'react';"), "Should exclude unused React default import");
+            assertTrue(relevant.contains("import { useState } from 'react';"), "Should include used useState import");
+            assertTrue(relevant.stream().anyMatch(s -> s.contains("const fs = require('fs')")), "Should include used fs require");
             assertFalse(relevant.stream().anyMatch(s -> s.contains("const path = require('path')")), "Should exclude unused path require");
         }
     }
