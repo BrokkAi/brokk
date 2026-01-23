@@ -146,19 +146,44 @@ public final class MainProject extends AbstractProject {
     private static volatile LlmProxySetting headlessProxySettingOverride = null;
 
     @Nullable
+    private static volatile Path cachedGlobalConfigDir = null;
+
+    @Nullable
     @VisibleForTesting
     public static Properties globalPropertiesCache = null; // protected by synchronized
 
+    private static Path getCachedGlobalConfigDir() {
+        Path result = cachedGlobalConfigDir;
+        if (result == null) {
+            synchronized (MainProject.class) {
+                result = cachedGlobalConfigDir;
+                if (result == null) {
+                    result = BrokkConfigPaths.getGlobalConfigDir();
+                    cachedGlobalConfigDir = result;
+                }
+            }
+        }
+        return result;
+    }
+
+    @VisibleForTesting
+    static void resetGlobalConfigCachesForTests() {
+        synchronized (MainProject.class) {
+            cachedGlobalConfigDir = null;
+            globalPropertiesCache = null;
+        }
+    }
+
     private static Path getGlobalPropertiesPath() {
-        return BrokkConfigPaths.getGlobalConfigDir().resolve("brokk.properties");
+        return getCachedGlobalConfigDir().resolve("brokk.properties");
     }
 
     private static Path getProjectsPropertiesPath() {
-        return BrokkConfigPaths.getGlobalConfigDir().resolve("projects.properties");
+        return getCachedGlobalConfigDir().resolve("projects.properties");
     }
 
     private static Path getOomFlagPath() {
-        return BrokkConfigPaths.getGlobalConfigDir().resolve("oom.flag");
+        return getCachedGlobalConfigDir().resolve("oom.flag");
     }
 
     public enum LlmProxySetting {
@@ -394,7 +419,8 @@ public final class MainProject extends AbstractProject {
                 }
             }
 
-            AtomicWrites.save(getGlobalPropertiesPath(), props, "Brokk global configuration");
+            Files.createDirectories(globalPath.getParent());
+            AtomicWrites.save(globalPath, props, "Brokk global configuration");
             globalPropertiesCache = (Properties) props.clone();
         } catch (IOException e) {
             logger.error("Error saving global properties: {}", e.getMessage());
