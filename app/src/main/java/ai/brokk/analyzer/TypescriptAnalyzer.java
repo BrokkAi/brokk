@@ -1050,8 +1050,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
             SourceContent sourceContent,
             List<String> localImportStatements) {
         super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
-        JsLikeModuleResolver.extractCommonJsRequireImport(
-                capturedNodesForMatch, sourceContent, localImportStatements);
+        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
     }
 
     @Override

@@ -16,8 +16,7 @@ public interface JsLikeModuleResolver {
 
     Cache<ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache();
 
-    default Set<CodeUnit> resolveImportsWithCache(
-            IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
+    default Set<CodeUnit> resolveImportsWithCache(IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
         Path root = analyzer.getProject().getRoot();
         Set<Path> absolutePaths = analyzer.getProject().getAllFiles().stream()
                 .map(ProjectFile::absPath)
@@ -41,8 +40,7 @@ public interface JsLikeModuleResolver {
         return cache.get(
                         new ModulePathKey(importingFile, modulePath),
                         key -> Optional.ofNullable(
-                                resolveJavaScriptLikeModulePath(
-                                        projectRoot, absolutePaths, importingFile, modulePath)))
+                                resolveJavaScriptLikeModulePath(projectRoot, absolutePaths, importingFile, modulePath)))
                 .orElse(null);
     }
 

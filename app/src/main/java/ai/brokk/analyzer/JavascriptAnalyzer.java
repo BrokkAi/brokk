@@ -5,11 +5,9 @@ import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -20,8 +18,7 @@ import org.treesitter.TSQueryException;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJavascript;
 
-public class JavascriptAnalyzer extends TreeSitterAnalyzer
-        implements ImportAnalysisProvider, JsLikeModuleResolver {
+public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, JsLikeModuleResolver {
 
     private final Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
@@ -532,15 +529,13 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer
         return Optional.empty();
     }
 
-
     @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
             List<String> localImportStatements) {
         super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
-        JsLikeModuleResolver.extractCommonJsRequireImport(
-                capturedNodesForMatch, sourceContent, localImportStatements);
+        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
     }
 
     @Override
