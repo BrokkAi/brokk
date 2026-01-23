@@ -217,7 +217,8 @@ public final class PrReviewService {
      *
      * Note: package-private so unit tests can validate contents.
      */
-    static String formatFallbackInlineCommentBody(String path, @Nullable Integer startLine, @Nullable Integer endLine, String body) {
+    static String formatFallbackInlineCommentBody(
+            String path, @Nullable Integer startLine, @Nullable Integer endLine, String body) {
         StringBuilder sb = new StringBuilder();
         if (startLine != null && endLine != null) {
             sb.append(String.format("**Comment on `%s` lines %d-%d:**\n\n", path, startLine, endLine));
@@ -285,7 +286,8 @@ public final class PrReviewService {
                             path,
                             line);
                 }
-                String fallbackBody = formatFallbackInlineCommentBody(path, start, end, Objects.requireNonNullElse(comment.bodyMarkdown(), ""));
+                String fallbackBody = formatFallbackInlineCommentBody(
+                        path, start, end, Objects.requireNonNullElse(comment.bodyMarkdown(), ""));
                 pr.comment(fallbackBody);
                 if (start != null && end != null) {
                     logger.info("Posted fallback comment for {}:{}-{} in PR #{}", path, start, end, pr.getNumber());
