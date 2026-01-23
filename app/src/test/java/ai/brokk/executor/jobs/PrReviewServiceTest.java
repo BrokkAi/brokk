@@ -236,9 +236,6 @@ class PrReviewServiceTest {
         //       refs/remotes/<remoteName>/pr/<N>
         //    d. Call gitRepo.remote().fetchBranch(remoteName, baseBranch), which stores into:
         //       refs/remotes/<remoteName>/<baseBranch>
-        // 2. The diff computation should use refs guaranteed to exist locally after fetch:
-        //    baseRef = "<remoteName>/<baseBranch>"
-        //    prRef   = "<remoteName>/pr/<N>"
     }
 
     @Test
@@ -578,5 +575,70 @@ class PrReviewServiceTest {
         assertTrue(
                 filtered.stream().noneMatch(c -> c.severity() == Severity.MEDIUM || c.severity() == Severity.LOW),
                 "Filtered list must not contain MEDIUM or LOW comments");
+    }
+
+    @Test
+    void testParsePrReviewResponse_WithStartEndLines() {
+        String json =
+                """
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\nRange comment test.",
+                  "comments": [
+                    {
+                      "path": "src/Foo.java",
+                      "startLine": 5,
+                      "endLine": 7,
+                      "severity": "HIGH",
+                      "bodyMarkdown": "Range issue here."
+                    }
+                  ]
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+        assertEquals("## Brokk PR Review\n\nRange comment test.", response.summaryMarkdown());
+        assertEquals(1, response.comments().size());
+
+        var comment = response.comments().get(0);
+        assertEquals("src/Foo.java", comment.path());
+        assertEquals(Integer.valueOf(5), comment.startLine());
+        assertEquals(Integer.valueOf(7), comment.endLine());
+        assertEquals(5, comment.line()); // resolved to startLine when 'line' absent
+        assertEquals(Severity.HIGH, comment.severity());
+    }
+
+    @Test
+    void testParsePrReviewResponse_LegacyLineOnly() {
+        String json =
+                """
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\nLegacy line test.",
+                  "comments": [
+                    {
+                      "path": "src/Bar.java",
+                      "line": 10,
+                      "severity": "MEDIUM",
+                      "bodyMarkdown": "Legacy single-line issue."
+                    }
+                  ]
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+        assertEquals(1, response.comments().size());
+        var comment = response.comments().get(0);
+        assertEquals(10, comment.line());
+        assertNull(comment.startLine());
+        assertNull(comment.endLine());
+        assertEquals(Severity.MEDIUM, comment.severity());
+    }
+
+    @Test
+    void testFormatFallbackInlineCommentBody_IncludesRangeAndBody() {
+        String out = PrReviewService.formatFallbackInlineCommentBody("src/Foo.java", 5, 7, "Issue body");
+        assertTrue(out.contains("src/Foo.java"));
+        assertTrue(out.contains("5"));
+        assertTrue(out.contains("7"));
+        assertTrue(out.contains("Issue body"));
     }
 }

@@ -88,18 +88,48 @@ public final class PrReviewService {
     }
 
     /** Inline comment for a specific file and line. */
-    public record InlineComment(String path, int line, String bodyMarkdown, Severity severity) {
+    public record InlineComment(
+            String path,
+            int line,
+            @Nullable Integer startLine,
+            @Nullable Integer endLine,
+            String bodyMarkdown,
+            Severity severity) {
+
+        /**
+         * Jackson-friendly creator that accepts either legacy 'line' or optional 'startLine'/'endLine'.
+         *
+         * Resolution rules for the primitive 'line' component:
+         * - If JSON 'line' is present (non-null) use that value.
+         * - Else if 'startLine' present use startLine.
+         * - Else if 'endLine' present use endLine.
+         * - Else default to 0.
+         */
         @JsonCreator
         public InlineComment(
                 @JsonProperty("path") String path,
-                @JsonProperty("line") int line,
+                @JsonProperty("line") @Nullable Integer lineJson,
+                @JsonProperty("startLine") @Nullable Integer startLine,
+                @JsonProperty("endLine") @Nullable Integer endLine,
                 @JsonProperty("bodyMarkdown") String bodyMarkdown,
                 @JsonProperty("severity") @Nullable String severity) {
-            this(path, line, bodyMarkdown, Severity.normalize(severity));
+            this(
+                    path,
+                    lineJson != null ? lineJson : (startLine != null ? startLine : (endLine != null ? endLine : 0)),
+                    startLine,
+                    endLine,
+                    bodyMarkdown,
+                    Severity.normalize(severity));
         }
 
+        /** Canonical constructor: ensure severity is non-null. */
         public InlineComment {
             severity = Objects.requireNonNullElse(severity, Severity.LOW);
+        }
+
+        /** Auxiliary convenience constructor used in many tests and callers. */
+        public InlineComment(String path, int line, String bodyMarkdown, Severity severity) {
+            this(path, line, /* startLine= */ null, /* endLine= */ null, bodyMarkdown, severity);
         }
     }
 
@@ -180,10 +210,98 @@ public final class PrReviewService {
     }
 
     /**
-     * Posts an inline review comment on a specific line of a file in the pull request.
+     * Format a fallback PR comment body when inline (or ranged) review comment creation fails.
+     *
+     * The formatted markdown includes the file path, a human-friendly line or range description,
+     * and the original body text.
+     *
+     * Note: package-private so unit tests can validate contents.
+     */
+    static String formatFallbackInlineCommentBody(String path, @Nullable Integer startLine, @Nullable Integer endLine, String body) {
+        StringBuilder sb = new StringBuilder();
+        if (startLine != null && endLine != null) {
+            sb.append(String.format("**Comment on `%s` lines %d-%d:**\n\n", path, startLine, endLine));
+        } else if (startLine != null) {
+            sb.append(String.format("**Comment on `%s` line %d:**\n\n", path, startLine));
+        } else if (endLine != null) {
+            sb.append(String.format("**Comment on `%s` line %d:**\n\n", path, endLine));
+        } else {
+            sb.append(String.format("**Comment on `%s`:**\n\n", path));
+        }
+        sb.append(body == null ? "" : body);
+        return sb.toString();
+    }
+
+    /**
+     * Posts an inline review comment described by an InlineComment record.
      *
      * <p>If the inline comment fails with HTTP 422 (e.g., line not part of the diff), falls back
-     * to posting a regular PR comment with file and line context.
+     * to posting a regular PR comment with file and line/range context.
+     *
+     * @param pr the GitHub pull request
+     * @param comment the structured inline comment (may contain start/end for ranges)
+     * @param commitId the commit SHA to comment on
+     * @throws IOException if the GitHub API call fails (other than HTTP 422)
+     */
+    @Blocking
+    public static void postLineComment(GHPullRequest pr, InlineComment comment, String commitId) throws IOException {
+        String path = Objects.requireNonNullElse(comment.path(), "");
+        @Nullable Integer start = comment.startLine();
+        @Nullable Integer end = comment.endLine();
+        int line = comment.line();
+        try {
+            if (start != null && end != null) {
+                // The underlying GitHub API client does not provide a builder method for ranged inline
+                // comments in all versions. As a best-effort attempt, post the comment on the end line
+                // of the range (the GitHub API will accept a single-line inline comment). We still log
+                // the original start/end for clarity.
+                pr.createReviewComment()
+                        .body(Objects.requireNonNullElse(comment.bodyMarkdown(), ""))
+                        .commitId(commitId)
+                        .path(path)
+                        .line(end)
+                        .create();
+                logger.info("Posted inline comment on {}:{}-{} in PR #{}", path, start, end, pr.getNumber());
+            } else {
+                pr.createReviewComment()
+                        .body(Objects.requireNonNullElse(comment.bodyMarkdown(), ""))
+                        .commitId(commitId)
+                        .path(path)
+                        .line(line)
+                        .create();
+                logger.info("Posted inline comment on {}:{} in PR #{}", path, line, pr.getNumber());
+            }
+        } catch (HttpException e) {
+            if (e.getResponseCode() == 422) {
+                if (start != null && end != null) {
+                    logger.warn(
+                            "Failed to post ranged inline comment on {}:{}-{} (HTTP 422), falling back to regular comment",
+                            path,
+                            start,
+                            end);
+                } else {
+                    logger.warn(
+                            "Failed to post inline comment on {}:{} (HTTP 422), falling back to regular comment",
+                            path,
+                            line);
+                }
+                String fallbackBody = formatFallbackInlineCommentBody(path, start, end, Objects.requireNonNullElse(comment.bodyMarkdown(), ""));
+                pr.comment(fallbackBody);
+                if (start != null && end != null) {
+                    logger.info("Posted fallback comment for {}:{}-{} in PR #{}", path, start, end, pr.getNumber());
+                } else {
+                    logger.info("Posted fallback comment for {}:{} in PR #{}", path, line, pr.getNumber());
+                }
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Posts an inline review comment on a specific line of a file in the pull request.
+     *
+     * <p>Legacy overload kept for existing callers; delegates to {@link #postLineComment(GHPullRequest, InlineComment, String)}.
      *
      * @param pr the GitHub pull request
      * @param path the file path relative to repository root
@@ -195,27 +313,7 @@ public final class PrReviewService {
     @Blocking
     public static void postLineComment(GHPullRequest pr, String path, int line, String body, String commitId)
             throws IOException {
-        try {
-            pr.createReviewComment()
-                    .body(body)
-                    .commitId(commitId)
-                    .path(path)
-                    .line(line)
-                    .create();
-            logger.info("Posted inline comment on {}:{} in PR #{}", path, line, pr.getNumber());
-        } catch (HttpException e) {
-            if (e.getResponseCode() == 422) {
-                logger.warn(
-                        "Failed to post inline comment on {}:{} (HTTP 422), falling back to regular comment",
-                        path,
-                        line);
-                String fallbackBody = String.format("**Comment on `%s` line %d:**\n\n%s", path, line, body);
-                pr.comment(fallbackBody);
-                logger.info("Posted fallback comment for {}:{} in PR #{}", path, line, pr.getNumber());
-            } else {
-                throw e;
-            }
-        }
+        postLineComment(pr, new InlineComment(path, line, body, Severity.LOW), commitId);
     }
 
     /**
@@ -247,6 +345,10 @@ public final class PrReviewService {
      *   <li>Handles missing or null 'comments' field by defaulting to empty list</li>
      *   <li>Returns null if JSON is malformed or missing required fields</li>
      * </ul>
+     *
+     * Note: Jackson will bind comment objects into {@link InlineComment} using the provided
+     * @JsonCreator, which supports legacy single 'line' integers as well as optional
+     * 'startLine' and 'endLine' integers for ranged comments.
      *
      * @param rawText the raw LLM output string
      * @return parsed PrReviewResponse, or null if parsing fails

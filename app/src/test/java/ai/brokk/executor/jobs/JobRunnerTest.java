@@ -106,5 +106,8 @@ class JobRunnerTest {
         assertTrue(
                 prompt.contains("DIFF_START\n" + diff + "\nDIFF_END"),
                 "Prompt should include the provided diff between DIFF_START and DIFF_END");
+        // Ensure prompt mentions optional range fields
+        assertTrue(prompt.contains("startLine"), "Prompt should mention startLine for ranges");
+        assertTrue(prompt.contains("endLine"), "Prompt should mention endLine for ranges");
     }
 }
