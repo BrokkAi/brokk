@@ -733,6 +733,82 @@ public class PythonImportTest {
     }
 
     @Test
+    public void testRelevantImportsForDirectFunctionImport() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        def my_function():
+                            pass
+                        def other_function():
+                            pass
+                        """,
+                        "pkg/utils.py")
+                .addFileContents(
+                        """
+                        from pkg.utils import my_function
+                        from pkg.utils import other_function
+
+                        def consumer():
+                            my_function()
+                        """,
+                        "main.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var mainFile = AnalyzerUtil.getFileFor(analyzer, "main").get();
+            var consumer = analyzer.getDeclarations(mainFile).stream()
+                    .filter(cu -> cu.identifier().equals("consumer"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(consumer))
+                    .orElse(Set.of());
+
+            assertTrue(
+                    relevantImports.contains("from pkg.utils import my_function"),
+                    "Should include used function import");
+            assertFalse(
+                    relevantImports.contains("from pkg.utils import other_function"),
+                    "Should exclude unused function import");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsForAliasedFunctionImport() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        def my_function():
+                            pass
+                        """,
+                        "pkg/utils.py")
+                .addFileContents(
+                        """
+                        from pkg.utils import my_function as mf
+
+                        def consumer():
+                            mf()
+                        """,
+                        "main.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var mainFile = AnalyzerUtil.getFileFor(analyzer, "main").get();
+            var consumer = analyzer.getDeclarations(mainFile).stream()
+                    .filter(cu -> cu.identifier().equals("consumer"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(consumer))
+                    .orElse(Set.of());
+
+            assertTrue(
+                    relevantImports.contains("from pkg.utils import my_function as mf"),
+                    "Should include used aliased function import");
+        }
+    }
+
+    @Test
     public void testSamePackageModuleCollisionWithImports() throws IOException {
         // Test: Two modules in the same package both define class 'C'
         // Validates that "last import wins" correctly resolves ambiguity
