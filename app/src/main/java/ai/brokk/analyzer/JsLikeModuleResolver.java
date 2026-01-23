@@ -41,9 +41,76 @@ public interface JsLikeModuleResolver {
         return cache.get(
                         new ModulePathKey(importingFile, modulePath),
                         key -> Optional.ofNullable(
-                                JavascriptAnalyzer.resolveJavaScriptLikeModulePath(
+                                resolveJavaScriptLikeModulePath(
                                         projectRoot, absolutePaths, importingFile, modulePath)))
                 .orElse(null);
+    }
+
+    /**
+     * Resolves a relative module path (starting with "./" or "../") to a ProjectFile within the project.
+     * Returns null for non-relative specifiers (e.g., bare module names like "react").
+     *
+     * <p>Note: The containment check uses lexical path comparison (startsWith), not filesystem-level
+     * resolution. Symlinks inside the repository that point outside the project root are allowed
+     * and will resolve successfully. This is intentional for performance and flexibility reasons.
+     *
+     * @param projectRoot the project root path
+     * @param importingFile the file containing the import statement
+     * @param modulePath the module specifier from the import/require
+     * @return the resolved ProjectFile, or null if not resolvable within the project
+     */
+    static @Nullable ProjectFile resolveJavaScriptLikeModulePath(
+            Path projectRoot, Set<Path> absolutePaths, ProjectFile importingFile, String modulePath) {
+        if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
+            return null;
+        }
+
+        Path parentDir = importingFile.absPath().getParent();
+        if (parentDir == null) {
+            return null;
+        }
+
+        Path resolvedPath = parentDir.resolve(modulePath).normalize();
+        List<String> knownExtensions = List.of(".js", ".jsx", ".ts", ".tsx");
+        String fileName = resolvedPath.getFileName().toString();
+
+        // 1. If the path already has a known extension, try it directly first
+        if (knownExtensions.stream().anyMatch(fileName::endsWith)) {
+            if (absolutePaths.contains(resolvedPath) && resolvedPath.startsWith(projectRoot)) {
+                return new ProjectFile(projectRoot, projectRoot.relativize(resolvedPath));
+            }
+        }
+
+        // 2. Strip any known extension to get the base name, then try all extension variants
+        String baseName = fileName;
+        for (String ext : knownExtensions) {
+            if (baseName.endsWith(ext)) {
+                baseName = baseName.substring(0, baseName.length() - ext.length());
+                break;
+            }
+        }
+        Path basePath = resolvedPath.resolveSibling(baseName);
+
+        // Try base path (extensionless) and all known extensions
+        List<String> fileExtensions = List.of("", ".js", ".jsx", ".ts", ".tsx");
+        for (String ext : fileExtensions) {
+            Path candidatePath = ext.isEmpty() ? basePath : basePath.resolveSibling(baseName + ext);
+
+            if (absolutePaths.contains(candidatePath) && candidatePath.startsWith(projectRoot)) {
+                return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
+            }
+        }
+
+        // 3. Try directory index files
+        List<String> indexFiles = List.of("index.js", "index.jsx", "index.ts", "index.tsx");
+        for (String indexFile : indexFiles) {
+            Path candidatePath = resolvedPath.resolve(indexFile);
+            if (absolutePaths.contains(candidatePath) && candidatePath.startsWith(projectRoot)) {
+                return new ProjectFile(projectRoot, projectRoot.relativize(candidatePath));
+            }
+        }
+
+        return null;
     }
 
     /**
