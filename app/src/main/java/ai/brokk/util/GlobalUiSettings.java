@@ -54,6 +54,7 @@ public final class GlobalUiSettings {
     private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS =
             "notifications.cost.geminiFlashLite.enabled";
     private static final String KEY_UI_ADVANCED_MODE = "ui.advancedMode";
+    private static final String KEY_UI_FULL_POWER_ACKNOWLEDGED = "ui.fullPowerAcknowledged";
     private static final String KEY_UI_VERTICAL_ACTIVITY_LAYOUT = "ui.verticalActivityLayout";
     private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
     private static final String KEY_VERTICAL_LAYOUT_LEFT_SPLIT = "verticalLayout.leftSplit";
@@ -415,6 +416,15 @@ public final class GlobalUiSettings {
 
     public static void saveAdvancedMode(boolean advanced) {
         setBoolean(KEY_UI_ADVANCED_MODE, advanced);
+    }
+
+    // Full Power first-time acknowledgement (default: false)
+    public static boolean isFullPowerAcknowledged() {
+        return getBoolean(KEY_UI_FULL_POWER_ACKNOWLEDGED, false);
+    }
+
+    public static void saveFullPowerAcknowledged(boolean acknowledged) {
+        setBoolean(KEY_UI_FULL_POWER_ACKNOWLEDGED, acknowledged);
     }
 
     // Preview docked state (default: true = docked in BuildPane)
