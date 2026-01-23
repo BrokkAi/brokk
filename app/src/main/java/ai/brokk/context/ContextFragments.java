@@ -37,6 +37,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -1436,7 +1437,9 @@ public class ContextFragments {
                         .orElseGet(() -> analyzer.importStatementsOf(unit.source()));
 
                 if (!imports.isEmpty()) {
-                    text = "<imports>\n" + String.join("\n", imports) + "\n</imports>\n\n" + text;
+                    List<String> orderedImports = new ArrayList<>(imports);
+                    Collections.sort(orderedImports);
+                    text = "<imports>\n" + String.join("\n", orderedImports) + "\n</imports>\n\n" + text;
                 }
             } else {
                 text = "No source found for %s: %s".formatted(unit.isFunction() ? "method" : "class", fqName);
