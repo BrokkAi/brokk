@@ -150,7 +150,7 @@ public final class MainProject extends AbstractProject {
 
     @Nullable
     @VisibleForTesting
-    public static Properties globalPropertiesCache = null; // protected by synchronized
+    static Properties globalPropertiesCache = null; // protected by synchronized
 
     private static Path getCachedGlobalConfigDir() {
         Path result = cachedGlobalConfigDir;
