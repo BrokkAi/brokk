@@ -25,6 +25,7 @@ import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
+import ai.brokk.gui.components.SwitchIcon;
 import ai.brokk.gui.components.TokenUsageBar;
 import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
@@ -1322,16 +1323,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    private static void updateModeToggleLabelText(JLabel label, boolean isAdvanced) {
-        if (isAdvanced) {
-            label.setText("[Full Power]");
-            label.setToolTipText("Switch to Core Focus mode");
-        } else {
-            label.setText("[Core Focus]");
-            label.setToolTipText("Switch to Full Power mode with more options");
-        }
-    }
-
     private boolean showFullPowerFirstTimeConfirmationDialog() {
         assert SwingUtilities.isEventDispatchThread();
 
@@ -1478,41 +1469,48 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         this.bottomToolbarPanel = bottomPanel;
 
-        // Mode toggle link (EZ/Adv mode) - left aligned
-        var modeToggleLabel = new JLabel();
-        modeToggleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        modeToggleLabel.setFocusable(false);
-        {
-            Color fg = UIManager.getColor("Label.foreground");
-            if (fg != null) {
-                modeToggleLabel.setForeground(fg);
+        // Mode toggle (Core Focus / Full Power) - left aligned
+        var coreFocusLabel = new JLabel("Core Focus");
+        var fullPowerLabel = new JLabel("Full Power");
+        var modeSwitch = new JCheckBox();
+        modeSwitch.setIcon(new SwitchIcon());
+        boolean initialAdvancedMode = GlobalUiSettings.isAdvancedMode();
+        modeSwitch.setSelected(initialAdvancedMode);
+
+        var modeTogglePanel = new ActionGroupPanel(coreFocusLabel, modeSwitch, fullPowerLabel);
+
+        final boolean[] programmaticToggleChange = {false};
+        modeSwitch.addItemListener(e -> {
+            assert SwingUtilities.isEventDispatchThread();
+
+            if (programmaticToggleChange[0]) {
+                programmaticToggleChange[0] = false;
+                return;
             }
-        }
-        updateModeToggleLabelText(modeToggleLabel, GlobalUiSettings.isAdvancedMode());
-        modeToggleLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                assert SwingUtilities.isEventDispatchThread();
 
-                boolean currentMode = GlobalUiSettings.isAdvancedMode();
-                boolean newMode = !currentMode;
+            boolean newMode = modeSwitch.isSelected();
+            boolean currentMode = GlobalUiSettings.isAdvancedMode();
+            if (newMode == currentMode) {
+                return;
+            }
 
-                if (newMode && !GlobalUiSettings.isFullPowerAcknowledged()) {
-                    boolean accepted = showFullPowerFirstTimeConfirmationDialog();
-                    if (!accepted) {
-                        return;
-                    }
-                    GlobalUiSettings.saveFullPowerAcknowledged(true);
+            if (newMode && !GlobalUiSettings.isFullPowerAcknowledged()) {
+                boolean accepted = showFullPowerFirstTimeConfirmationDialog();
+                if (!accepted) {
+                    programmaticToggleChange[0] = true;
+                    modeSwitch.setSelected(false);
+                    return;
                 }
-
-                GlobalUiSettings.saveAdvancedMode(newMode);
-                updateModeToggleLabelText(modeToggleLabel, newMode);
-                chrome.applyAdvancedModeVisibility();
-                applyAdvancedModeForInstructions(newMode);
+                GlobalUiSettings.saveFullPowerAcknowledged(true);
             }
+
+            GlobalUiSettings.saveAdvancedMode(newMode);
+            chrome.applyAdvancedModeVisibility();
+            applyAdvancedModeForInstructions(newMode);
         });
-        modeToggleLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(modeToggleLabel);
+
+        modeTogglePanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(modeTogglePanel);
 
         // Flexible space before right-side controls (model selector + optional status strip + action button)
         bottomPanel.add(Box.createHorizontalGlue());
