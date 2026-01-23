@@ -1103,6 +1103,66 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        return getSource(cu, false)
+                .map(source -> {
+                    Set<String> codeIdentifiers = extractTypeIdentifiers(source);
+                    List<ImportInfo> imports = importInfoOf(cu.source());
+
+                    return imports.stream()
+                            .filter(imp -> importMatchesAnyIdentifier(imp.rawSnippet(), codeIdentifiers))
+                            .map(ImportInfo::rawSnippet)
+                            .collect(java.util.stream.Collectors.toSet());
+                })
+                .orElseGet(Set::of);
+    }
+
+    private boolean importMatchesAnyIdentifier(String importStatement, Set<String> codeIdentifiers) {
+        Set<String> importIdentifiers = extractIdentifiersFromImport(importStatement);
+        for (String id : importIdentifiers) {
+            if (codeIdentifiers.contains(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<String> extractIdentifiersFromImport(String importStatement) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        try {
+            org.treesitter.TSTree tree = parser.parseString(null, importStatement);
+            TSNode rootNode = tree.getRootNode();
+
+            String queryStr =
+                    """
+                (import_clause (identifier) @import.id)
+                (import_specifier name: (identifier) @import.id)
+                (import_specifier alias: (identifier) @import.alias)
+                (namespace_import (identifier) @import.alias)
+                """;
+
+            org.treesitter.TSQuery query = new org.treesitter.TSQuery(getTSLanguage(), queryStr);
+            org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
+            cursor.exec(query, rootNode);
+            org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    String text = importStatement.substring(
+                            byteOffsetToCharPosition(importStatement, node.getStartByte()),
+                            byteOffsetToCharPosition(importStatement, node.getEndByte()));
+                    identifiers.add(text);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse import statement: {}", importStatement, e);
+        }
+        return identifiers;
+    }
+
+    @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
