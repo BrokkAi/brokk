@@ -3,6 +3,8 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -17,8 +19,17 @@ import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterTypescript;
 
-public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
+public final class TypescriptAnalyzer extends TreeSitterAnalyzer
+        implements ImportAnalysisProvider, JsLikeModuleResolver {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
+
+    private final Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
+
+    @Override
+    public Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
+        return moduleResolutionCache;
+    }
 
     // Compiled regex patterns for memory efficiency
     private static final Pattern TRAILING_SEMICOLON = Pattern.compile(";\\s*$");
@@ -1034,6 +1045,15 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch,
+            SourceContent sourceContent,
+            List<String> localImportStatements) {
+        super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
+        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
+    }
+
+    @Override
     protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
@@ -1055,6 +1075,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        return this.resolveImportsWithCache(this, file, importStatements);
+    }
+
+    @Override
     protected @Nullable String extractSignature(
             String captureName, TSNode definitionNode, SourceContent sourceContent) {
         // TypeScript uses signature merging for overloads (shouldMergeSignaturesForSameFqn = true).
@@ -1063,5 +1088,15 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // CodeUnitProperties.signatures list.
         // Return null to avoid setting CodeUnit.signature field.
         return null;
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
     }
 }

@@ -2102,14 +2102,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-            TSNode importNode =
-                    capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
-            if (importNode != null && !importNode.isNull()) {
-                String importText = sourceContent.substringFrom(importNode).strip();
-                if (!importText.isEmpty()) {
-                    localImportStatements.add(importText);
-                }
-            }
+            extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
 
             for (var captureEntry : capturedNodesForMatch.entrySet()) {
                 String captureName = captureEntry.getKey();
@@ -3903,6 +3896,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
         return List.of();
+    }
+
+    /**
+     * Hook for language-specific analyzers to extract additional import statements from query captures.
+     * Called during file analysis for each query match. Override in subclasses to handle language-specific
+     * import patterns (e.g., CommonJS require calls in JavaScript/TypeScript).
+     *
+     * @param capturedNodesForMatch map of capture names to captured nodes for the current match
+     * @param sourceContent the source code content
+     * @param localImportStatements list to add extracted import statements to
+     */
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch,
+            SourceContent sourceContent,
+            List<String> localImportStatements) {
+        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        if (importNode != null && !importNode.isNull()) {
+            String importText = sourceContent.substringFrom(importNode).strip();
+            if (!importText.isEmpty()) {
+                localImportStatements.add(importText);
+            }
+        }
     }
 
     /**
