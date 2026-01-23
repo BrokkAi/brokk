@@ -107,12 +107,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton notificationsButton = new MaterialButton();
     private final List<NotificationEntry> notifications = new CopyOnWriteArrayList<>();
-    private final Queue<NotificationEntry> notificationQueue = new ConcurrentLinkedQueue<>();
+    private final Queue<TransientNotification> notificationQueue = new ConcurrentLinkedQueue<>();
     private final Path notificationsFile;
     private boolean isDisplayingNotification = false;
 
+    private int rolledUpCostCount = 0;
+
     @Nullable
-    private NotificationEntry currentlyDisplayedNotification;
+    private TransientNotification currentlyDisplayedNotification;
 
     @Nullable
     private JPanel currentlyDisplayedNotificationCard;
@@ -639,39 +641,39 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         Runnable r = () -> {
             long now = System.currentTimeMillis();
 
-            // Roll up chains of COST notifications: if the latest notification is also COST,
-            // update it instead of appending a new entry.
-            if (role == IConsoleIO.NotificationRole.COST) {
-                var latest = notifications.isEmpty() ? null : notifications.getLast();
-                if (latest != null && latest.role == IConsoleIO.NotificationRole.COST) {
-                    var merged = new NotificationEntry(
-                            IConsoleIO.NotificationRole.COST, latest.message + "\n" + message, now);
+            var entry = new NotificationEntry(role, message, now);
+            notifications.add(entry);
 
-                    notifications.set(notifications.size() - 1, merged);
+            if (role != IConsoleIO.NotificationRole.COST) {
+                rolledUpCostCount = 0;
+                notificationQueue.offer(new TransientNotification(role, message, 0, entry));
+            } else {
+                if (isDisplayingNotification
+                        && currentlyDisplayedNotification != null
+                        && currentlyDisplayedNotification.role == IConsoleIO.NotificationRole.COST
+                        && notificationQueue.isEmpty()
+                        && currentlyDisplayedNotificationCard != null
+                        && currentlyDisplayedNotificationLabel != null) {
+                    rolledUpCostCount++;
+                    currentlyDisplayedNotification.message = message;
+                    currentlyDisplayedNotification.rolledUpCostCount = rolledUpCostCount;
+                    currentlyDisplayedNotification.persistedEntry = entry;
 
-                    // If the latest COST is currently queued for display (not yet shown), replace it in the queue.
-                    notificationQueue.removeIf(entry -> entry == latest);
-                    notificationQueue.offer(merged);
-
-                    // If the latest COST is currently being displayed, update it immediately and restart animation.
-                    if (currentlyDisplayedNotification == latest
-                            && currentlyDisplayedNotificationCard != null
-                            && currentlyDisplayedNotificationLabel != null) {
-                        currentlyDisplayedNotification = merged;
-                        currentlyDisplayedNotificationLabel.setText(toNotificationLabelHtml(role, merged.message));
-                        restartNotificationCardAnimation(requireNonNull(currentlyDisplayedNotificationCard));
+                    currentlyDisplayedNotificationLabel.setText(toNotificationLabelHtml(
+                            IConsoleIO.NotificationRole.COST, message, rolledUpCostCount));
+                    restartNotificationCardAnimation(requireNonNull(currentlyDisplayedNotificationCard));
+                } else {
+                    var lastQueued = getLastQueuedNotification();
+                    if (lastQueued != null && lastQueued.role == IConsoleIO.NotificationRole.COST) {
+                        lastQueued.rolledUpCostCount++;
+                        lastQueued.message = message;
+                        lastQueued.persistedEntry = entry;
+                    } else {
+                        notificationQueue.offer(new TransientNotification(role, message, 0, entry));
                     }
-
-                    persistNotificationsAsync();
-                    refreshLatestNotificationCard();
-                    refreshNotificationsDialog();
-                    return;
                 }
             }
 
-            var entry = new NotificationEntry(role, message, now);
-            notifications.add(entry);
-            notificationQueue.offer(entry);
             persistNotificationsAsync();
             refreshLatestNotificationCard();
             refreshNotificationsDialog();
@@ -728,6 +730,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return p;
     }
 
+    private @Nullable TransientNotification getLastQueuedNotification() {
+        TransientNotification last = null;
+        for (var n : notificationQueue) {
+            last = n;
+        }
+        return last;
+    }
+
     // Show the next notification from the queue
     private void refreshLatestNotificationCard() {
         if (isDisplayingNotification || notificationQueue.isEmpty()) {
@@ -735,10 +745,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var nextToShow = notificationQueue.poll();
+        if (nextToShow == null) {
+            return;
+        }
 
         notificationAreaPanel.removeAll();
         isDisplayingNotification = true;
         currentlyDisplayedNotification = nextToShow;
+        rolledUpCostCount = nextToShow.role == IConsoleIO.NotificationRole.COST ? nextToShow.rolledUpCostCount : 0;
+
         JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
         currentlyDisplayedNotificationCard = card;
         notificationAreaPanel.add(card);
@@ -801,6 +816,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         currentlyDisplayedNotification = null;
         currentlyDisplayedNotificationCard = null;
         currentlyDisplayedNotificationLabel = null;
+        rolledUpCostCount = 0;
 
         notificationAreaPanel.removeAll();
         notificationAreaPanel.revalidate();
@@ -824,7 +840,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         card.setBorder(new EmptyBorder(2, 8, 2, 8));
 
         // Center: show full message (including full cost details for COST)
-        var msg = new JLabel(toNotificationLabelHtml(role, message));
+        int costCount = role == IConsoleIO.NotificationRole.COST ? rolledUpCostCount : 0;
+        var msg = new JLabel(toNotificationLabelHtml(role, message, costCount));
         msg.setForeground(fg);
         msg.setVerticalAlignment(JLabel.CENTER);
         msg.setHorizontalAlignment(JLabel.LEFT);
@@ -879,7 +896,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     private static String toNotificationLabelHtml(IConsoleIO.NotificationRole role, String message) {
+        return toNotificationLabelHtml(role, message, 0);
+    }
+
+    private static String toNotificationLabelHtml(IConsoleIO.NotificationRole role, String message, int rolledUpCount) {
         String display = compactMessageForToolbar(role, message);
+        if (rolledUpCount > 0) {
+            display = display + " (+" + rolledUpCount + " more)";
+        }
         return "<html><div style='width:100%; text-align: left; word-wrap: break-word; white-space: normal;'>"
                 + escapeHtml(display) + "</div></html>";
     }
@@ -1190,7 +1214,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 });
                 closeBtn.addActionListener(e -> {
                     notifications.remove(n);
-                    notificationQueue.removeIf(entry -> entry == n);
+                    notificationQueue.removeIf(entry -> entry.persistedEntry == n);
                     persistNotificationsAsync();
                     rebuildNotificationsList(dialog, listPanel);
                 });
@@ -1269,6 +1293,23 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int x = (getWidth() - 1) / 2;
             g.setColor(UIManager.getColor("Label.foreground"));
             g.drawLine(x, 0, x, getHeight());
+        }
+    }
+
+    private static final class TransientNotification {
+        final IConsoleIO.NotificationRole role;
+        String message;
+        int rolledUpCostCount;
+
+        @Nullable
+        NotificationEntry persistedEntry;
+
+        TransientNotification(
+                IConsoleIO.NotificationRole role, String message, int rolledUpCostCount, @Nullable NotificationEntry persistedEntry) {
+            this.role = role;
+            this.message = message;
+            this.rolledUpCostCount = rolledUpCostCount;
+            this.persistedEntry = persistedEntry;
         }
     }
 
