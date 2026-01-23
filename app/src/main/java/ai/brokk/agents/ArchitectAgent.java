@@ -1030,7 +1030,7 @@ public class ArchitectAgent {
                 .toList());
 
         // Add related identifiers as a separate message/ack pair
-        var related = context.buildRelatedIdentifiers(10);
+        var related = context.buildRelatedSymbols(10);
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             var topFilesText =

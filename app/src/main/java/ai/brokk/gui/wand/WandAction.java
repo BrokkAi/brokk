@@ -4,11 +4,9 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
-import ai.brokk.TaskResult;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.dialogs.TextAreaConsoleIO;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
@@ -44,7 +42,7 @@ public class WandAction {
         contextManager.submitLlmAction(() -> {
             try {
                 var wandIo = new TextAreaConsoleIO(instructionsArea, chromeIO, "Enriching Context...\n");
-                
+
                 var model = contextManager.getCodeModel();
                 ContextAgent agent = new ContextAgent(contextManager, model, original, chromeIO);
                 Context context = contextManager.liveContext();
@@ -59,7 +57,8 @@ public class WandAction {
 
                 SwingUtilities.invokeLater(() -> {
                     instructionsArea.setText("");
-                    wandIo.llmOutput("Generating New Prompt...\n", ChatMessageType.AI, new LlmOutputMeta(true, false, false));
+                    wandIo.llmOutput(
+                            "Generating New Prompt...\n", ChatMessageType.AI, new LlmOutputMeta(true, false, false));
                 });
 
                 @Nullable String refined = refinePrompt(original, context, wandIo);
@@ -81,7 +80,8 @@ public class WandAction {
         });
     }
 
-    public @Nullable String refinePrompt(String originalPrompt, Context ctx, IConsoleIO consoleIO) throws InterruptedException {
+    public @Nullable String refinePrompt(String originalPrompt, Context ctx, IConsoleIO consoleIO)
+            throws InterruptedException {
         var model = contextManager.getCodeModel();
 
         String instruction =

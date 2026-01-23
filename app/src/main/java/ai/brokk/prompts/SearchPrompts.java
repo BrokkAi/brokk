@@ -328,7 +328,7 @@ public class SearchPrompts {
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)
-        var related = context.buildRelatedIdentifiers(10);
+        var related = context.buildRelatedSymbols(10);
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             messages.add(new UserMessage(
