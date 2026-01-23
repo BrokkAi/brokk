@@ -178,10 +178,13 @@ class BrokkConfigPathsTest {
     @Test
     void testMigrationIsNoOpInTestMode(@TempDir Path tempDir) throws IOException {
         String originalTestMode = System.getProperty("brokk.test.mode");
+        String originalHome = System.getProperty("user.home");
         System.setProperty("brokk.test.mode", "true");
+        System.setProperty("user.home", tempDir.toString());
         try {
-            // Setup a fake legacy directory
-            Path legacyDir = tempDir.resolve(".config/brokk");
+            // Setup a fake legacy directory under tempDir
+            // BrokkConfigPaths.getLegacyConfigDir() resolves to user.home + .config/brokk
+            Path legacyDir = tempDir.resolve(".config").resolve("brokk");
             Files.createDirectories(legacyDir);
             Files.writeString(legacyDir.resolve("brokk.properties"), "key=value");
 
@@ -202,6 +205,9 @@ class BrokkConfigPathsTest {
                 System.setProperty("brokk.test.mode", originalTestMode);
             } else {
                 System.clearProperty("brokk.test.mode");
+            }
+            if (originalHome != null) {
+                System.setProperty("user.home", originalHome);
             }
         }
     }
