@@ -129,6 +129,14 @@ public final class UsagePromptBuilder {
         return new UsagePrompt(filterDescription, combinedSnippets, sb.toString());
     }
 
+    /**
+     * Merges snippets from multiple hits into a single block.
+     *
+     * <p>This algorithm is best-effort: it attempts to deduplicate overlapping lines by looking for
+     * literal matches between the end of the previous snippet and the start of the current one. If
+     * snippets don't literally overlap (e.g. due to inconsistent context or whitespace), it may
+     * occasionally include duplicate lines.
+     */
     private static String combineSnippets(List<UsageHit> hits) {
         if (hits.size() == 1) {
             return hits.get(0).snippet();
@@ -146,7 +154,7 @@ public final class UsagePromptBuilder {
         for (UsageHit hit : sortedHits) {
             String currentSnippet = hit.snippet();
             int currentLine = hit.line();
-            // Snippets have ~3 lines above/below.
+            // Snippets have ~3 lines above/below context.
             int currentStartLine = Math.max(0, currentLine - 3);
 
             if (lastSnippet != null && currentStartLine <= lastEndLine + 1) {
@@ -154,18 +162,15 @@ public final class UsagePromptBuilder {
                 String[] lastLines = lastSnippet.split("\n", -1);
                 String[] currentLines = currentSnippet.split("\n", -1);
 
-                // Find where the current snippet starts relative to the last snippet's first line
-                // lastEndLine corresponds to the last line of the previous snippet's logic
-                // The previous snippet had length lastLines.length.
-                int lastStartLine = lastEndLine - 3 - (lastLines.length / 2); // heuristic check
-                // However, a simpler way is to just look for overlapping lines
+                // Simple sliding-window overlap detection based on line content.
                 int overlapIndex = -1;
                 for (int i = 0; i < lastLines.length; i++) {
-                    if (lastLines[i].equals(currentLines[0])) {
-                        // Potential start of overlap. Check if subsequent lines match.
+                    // Check if the current line matches the start of the next snippet.
+                    // We trim to handle minor indentation/whitespace differences.
+                    if (lastLines[i].trim().equals(currentLines[0].trim())) {
                         boolean match = true;
                         for (int j = 0; j < Math.min(lastLines.length - i, currentLines.length); j++) {
-                            if (!lastLines[i + j].equals(currentLines[j])) {
+                            if (!lastLines[i + j].trim().equals(currentLines[j].trim())) {
                                 match = false;
                                 break;
                             }
