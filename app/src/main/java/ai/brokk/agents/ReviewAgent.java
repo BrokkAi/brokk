@@ -1045,8 +1045,9 @@ public class ReviewAgent {
         if (!instructions.isEmpty()) {
             String mergedInstructions =
                     """
-                    These are the instructions given to the Code Agent to generate this patch.
+                    These are the instructions given to the Code Agent to generate this patch, separated by `-----`.
 
+                    -----
                     """
                             + String.join("\n-----\n", instructions);
             results.add(new ContextFragments.StringFragment(
