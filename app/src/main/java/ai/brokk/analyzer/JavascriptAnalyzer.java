@@ -510,26 +510,6 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer
         return this.resolveImportsWithCache(this, file, importStatements);
     }
 
-    public static Set<CodeUnit> resolveJavaScriptLikeImports(
-            IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
-        if (analyzer instanceof JsLikeModuleResolver resolver) {
-            return resolver.resolveImportsWithCache(analyzer, file, importStatements);
-        }
-
-        Path root = analyzer.getProject().getRoot();
-        Set<Path> absolutePaths = analyzer.getProject().getAllFiles().stream()
-                .map(ProjectFile::absPath)
-                .collect(Collectors.toSet());
-
-        return importStatements.stream()
-                .map(JavascriptAnalyzer::extractModulePathFromImport)
-                .flatMap(Optional::stream)
-                .map(path -> resolveJavaScriptLikeModulePath(root, absolutePaths, file, path))
-                .filter(Objects::nonNull)
-                .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
-                .collect(Collectors.toSet());
-    }
-
     public static Optional<String> extractModulePathFromImport(String importStatement) {
         // Try ES6 pattern first (imports with 'from')
         Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
