@@ -1,6 +1,5 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.analyzer.JavascriptAnalyzer.extractCommonJsRequireImport;
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
@@ -1051,7 +1050,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
             SourceContent sourceContent,
             List<String> localImportStatements) {
         super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
-        extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
+        JsLikeModuleResolver.extractCommonJsRequireImport(
+                capturedNodesForMatch, sourceContent, localImportStatements);
     }
 
     @Override

@@ -599,43 +599,14 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer
         return null;
     }
 
-    /**
-     * Extracts CommonJS require() import statements from Tree-sitter query captures.
-     * This is a shared helper for JavaScript-like languages since the #eq? predicate
-     * doesn't work in JNI Tree-sitter, requiring Java-side filtering.
-     *
-     * @param capturedNodesForMatch map of capture names to captured nodes for the current match
-     * @param sourceContent the source code content
-     * @param localImportStatements list to add extracted import statements to
-     */
-    public static void extractCommonJsRequireImport(
-            Map<String, TSNode> capturedNodesForMatch,
-            SourceContent sourceContent,
-            List<String> localImportStatements) {
-        TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
-        TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
-        if (requireCallNode != null
-                && !requireCallNode.isNull()
-                && requireFuncNode != null
-                && !requireFuncNode.isNull()) {
-            String funcName = sourceContent.substringFrom(requireFuncNode).strip();
-            if ("require".equals(funcName)) {
-                String requireText =
-                        sourceContent.substringFrom(requireCallNode).strip();
-                if (!requireText.isEmpty()) {
-                    localImportStatements.add(requireText);
-                }
-            }
-        }
-    }
-
     @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
             List<String> localImportStatements) {
         super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
-        extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
+        JsLikeModuleResolver.extractCommonJsRequireImport(
+                capturedNodesForMatch, sourceContent, localImportStatements);
     }
 
     @Override
