@@ -37,7 +37,7 @@ public class CppAnalyzerTest {
         final var testPath =
                 Path.of("src/test/resources/testcode-cpp").toAbsolutePath().normalize();
         assertTrue(Files.exists(testPath), "Test resource directory 'testcode-cpp' not found.");
-        testProject = new TestProject(testPath, Languages.CPP_TREESITTER);
+        testProject = new TestProject(testPath, Languages.C_CPP);
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());
@@ -1563,7 +1563,7 @@ public class CppAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();

@@ -176,20 +176,25 @@ public class CodePrompts {
                    1a. You can create new files without asking!
                    1b. If you only need to change individual functions whose code you CAN see,
                        you may do so without having the entire file in the Workspace.
-                   1c. Ask for additional files if having them would enable a cleaner solution,
-                       even if you could hack around it without them.
-                       For example,
-                       - If a field or method is private and you would need reflection to access it,
-                         ask for the file so you can relax the visibility instead.
-                       - If you could preserve DRY by editing a data structure or a function instead of substantially duplicating
-                         its functionality.
+                   1c. Ask for additional files if you are blocked by visibility or best practices.
+                        - **Do not stop** and ask for files just to add convenience methods, overloads, or helpers
+                          in files that are not editable in your Workspace; if a valid solution is available, use it.
+                        - **Do ask** if the alternative is an "unnatural" hack.
+                          For example:
+                          - If you need reflection to access a private member (ask for the file to relax visibility instead).
+                          - If you would have to copy-paste significant logic (ask for the file to preserve DRY).
+                        - **Do ask** if you do not have the APIs visible to confidently write a solution without guessing.
+                          (Generally you do not need to insist on the full source when you have an api summary visible.)
+                   1d. When refactoring or changing signatures, adopt a "Closed World" assumption.
+                       Assume that the callers visible in the Workspace are the only ones that exist;
+                       update those visible callers as needed and proceed.
+
                    If you need to propose changes to code you can't see,
-                   tell the user their full class or file names and ask them to *add them to the Workspace*;
+                   tell the user their full class or file names and ask them to *add them to the Context*;
                    end your reply and wait for their approval.
 
-                2. Explain the needed changes in a few short sentences.
-
-                3. Give each change as a *SEARCH/REPLACE* block.
+                %s
+                1. Give each change as a *SEARCH/REPLACE* block.
 
                 If an appropriate test file is in the Workspace, add or update tests to cover the changes you make.
                 If no such test file exists, only create a new one if instructed to do so.
@@ -198,10 +203,17 @@ public class CodePrompts {
 
                 If you do not know how to use a dependency or API correctly, you MUST stop and ask the user for help.
 
-                All changes to files must use this *SEARCH/REPLACE* block format.
+                If the user just says something like "ok" or "go ahead" or "do that", they probably want you
+                to make SEARCH/REPLACE blocks for the code changes you just proposed.
+                The user will say when they've applied your edits.
+                If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
 
+                Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
+
+                All changes to files must use the *SEARCH/REPLACE* block format in the rules section.
+                </instructions>
                 <rules>
-                # EXTENDED *SEARCH/REPLACE block* Rules:
+                EXTENDED *SEARCH/REPLACE block* Rules:
 
                 The *SEARCH/REPLACE* engine supports multiple SEARCH types. Choose the most precise option that fits your edit.
                 Line-based SEARCH remains the default for most changes.
@@ -241,11 +253,6 @@ public class CodePrompts {
                 Pay attention to which filenames the user wants you to edit, especially if they are asking
                 you to create a new filename.
 
-                If the user just says something like "ok" or "go ahead" or "do that", they probably want you
-                to make SEARCH/REPLACE blocks for the code changes you just proposed.
-                The user will say when they've applied your edits.
-                If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
-
                 NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
                 use vanilla ascii single and double quotes.
 
@@ -256,33 +263,36 @@ public class CodePrompts {
                 When writing REPLACE blocks, do **not** repeat the `BRK_` line.
                 The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
 
-                # General
-                Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
-
                 Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
 
                 %s
-
-                <goal>
                 %s
-                </goal>
-
                 You are diligent and tireless!
                 You NEVER leave comments describing code without implementing it!
                 You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
                 </rules>
-                </instructions>
                 """
                         .formatted(
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
                                         : "ask questions",
+                                service.isReasoning(model)
+                                        ? ""
+                                        : "1. Explain the needed changes in a few short sentences.\n\n",
                                 searchTypePriorityTable,
                                 searchDefinitions,
                                 examples,
                                 searchHints,
                                 reminder,
-                                goal));
+                                prologue.isEmpty()
+                                        ? """
+
+                                        <goal>
+                                        %s
+                                        </goal>
+                                        """
+                                                .formatted(goal)
+                                        : ""));
         messages.add(sys);
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(prologue);

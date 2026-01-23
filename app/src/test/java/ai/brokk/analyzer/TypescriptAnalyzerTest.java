@@ -3299,7 +3299,7 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(project, analyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();

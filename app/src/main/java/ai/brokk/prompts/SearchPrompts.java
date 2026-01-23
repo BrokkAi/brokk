@@ -73,6 +73,18 @@ public class SearchPrompts {
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.WORKSPACE);
             }
+        },
+        ISSUE_DIAGNOSIS {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ISSUE_JSON);
+            }
+        },
+        PROMPT_ENRICHMENT {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER);
+            }
         };
 
         public abstract Set<Terminal> terminals();
@@ -352,37 +364,48 @@ public class SearchPrompts {
         }
 
         var finals = new ArrayList<String>();
-        if (objective.terminals().contains(Terminal.ANSWER)) {
-            finals.add(
-                    "- Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <persistence>).");
-            finals.add(
-                    "- Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.");
-        }
-        if (objective.terminals().contains(Terminal.TASK_LIST)) {
+        boolean issueJsonOnly = objective.terminals().contains(Terminal.ISSUE_JSON);
+
+        if (issueJsonOnly) {
             finals.add(
                     """
-                    - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
-                      Guidance:
-                        - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
-                        - Each task is a single Markdown-formatted string that MUST contain these labeled sections:
-                          **Task**: Describe what to do. Be specific and self-contained.
-                          **Acceptance**: State how to verify success. You MAY omit Acceptance only for purely mechanical refactors with no behavior change.
-                          **Touch points**: List concrete file paths (required when known, in `inline code`) and symbols (optional but helpful, in `inline code`).
-                        - Wherever possible, include automated tests in Acceptance; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
-                        - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
-                          temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
+                    - Use issueWriterOutput(String json) to finalize.
+                      Output MUST be ONLY a single JSON object (no fences, no preamble, no trailing text).
+                      abortSearch(explanation) is the only other allowed final tool.
                     """);
-        }
-        if (objective.terminals().contains(Terminal.WORKSPACE)) {
+        } else {
+            if (objective.terminals().contains(Terminal.ANSWER)) {
+                finals.add(
+                        "- Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <persistence>).");
+                finals.add(
+                        "- Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.");
+            }
+            if (objective.terminals().contains(Terminal.TASK_LIST)) {
+                finals.add(
+                        """
+                        - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
+                          Guidance:
+                            - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
+                            - Each task is a single Markdown-formatted string that MUST contain these labeled sections:
+                              **Task**: Describe what to do. Be specific and self-contained.
+                              **Acceptance**: State how to verify success. You MAY omit Acceptance only for purely mechanical refactors with no behavior change.
+                              **Touch points**: List concrete file paths (required when known, in `inline code`) and symbols (optional but helpful, in `inline code`).
+                            - Wherever possible, include automated tests in Acceptance; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
+                            - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
+                              temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
+                        """);
+            }
+            if (objective.terminals().contains(Terminal.WORKSPACE)) {
+                finals.add(
+                        "- Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.");
+            }
+            if (objective.terminals().contains(Terminal.CODE)) {
+                finals.add(
+                        "- Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
+            }
             finals.add(
-                    "- Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.");
+                    "- If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.");
         }
-        if (objective.terminals().contains(Terminal.CODE)) {
-            finals.add(
-                    "- Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
-        }
-        finals.add(
-                "- If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.");
 
         String finalsStr = String.join("\n", finals);
 
@@ -427,6 +450,8 @@ public class SearchPrompts {
                     </build-setup-task-guidance>
                     """;
         }
+
+        String markdownReminder = issueJsonOnly ? "" : SystemPrompts.MARKDOWN_REMINDER;
 
         String directive =
                 """
@@ -478,7 +503,7 @@ public class SearchPrompts {
                                 testsGuidance,
                                 finalsStr,
                                 warning,
-                                SystemPrompts.MARKDOWN_REMINDER,
+                                markdownReminder,
                                 WorkspacePrompts.formatToc(context, suppressed));
 
         // Beast mode directive
@@ -503,7 +528,8 @@ public class SearchPrompts {
         ANSWER,
         WORKSPACE,
         CODE,
-        REVIEW
+        REVIEW,
+        ISSUE_JSON
     }
 
     private record TerminalObjective(String type, String text) {}
@@ -550,6 +576,50 @@ public class SearchPrompts {
                       - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
                     """
                                 .formatted(FINALIZATION_INVARIANT, WORKSPACE_CONTEXT_GUIDANCE));
+            case ISSUE_DIAGNOSIS ->
+                new TerminalObjective(
+                        "issue_diagnosis",
+                        """
+                    Deliver ONLY a single JSON object using the issueWriterOutput(String json) tool.
+
+                    Required output schema (STRICT):
+                      { "title": "...", "bodyMarkdown": "..." }
+
+                    Requirements:
+                      - Output MUST be a single JSON object (no fences, no preamble, no trailing text).
+                      - "title": concise, specific issue title.
+                      - "bodyMarkdown": GitHub-flavored Markdown describing the problem and impact.
+                        It MUST include evidence/references to code, such as:
+                          - file paths
+                          - identifiers/symbol names
+                          - fragment ids when available
+                        It MAY include a section like "## Agent Instructions" but it must be inside bodyMarkdown.
+                    """);
+            case PROMPT_ENRICHMENT ->
+                new TerminalObjective(
+                        "prompt_enrichment",
+                        """
+                    Write an execution-ready enrichment of the user's request. Output ONLY the enriched prompt text via answer(String).
+
+                    Rules:
+                      - Restate the request and preserve ALL explicit facts/constraints from the input.
+                      - Do NOT invent. Do NOT guess. Do NOT add new tech, requirements, or details not stated.
+                      - Ambiguities/missing info must become questions under **Open Questions** (no assumptions).
+                      - Identify the primary code changes needed in this repo to implement the request (what to edit/add/remove at a high level).
+                      - If input names files/functions/symbols, cite them; otherwise do NOT invent paths/symbols.
+                      - Put test/verification expectations in **Acceptance Criteria** and/or **Verification**.
+
+                    Output (REQUIRED; exact labels, in order):
+                    **Summary**
+                    **Context**
+                    **Requirements**
+                    **Constraints**
+                    **Edge Cases**
+                    **Acceptance Criteria**
+                    **Open Questions**
+                    **Verification**
+                    **Plan** (explicit step-by-step; in **Plan**, name the key files/modules/classes/methods to change only if supported by the input or discovered from the repo; otherwise ask in **Open Questions**)
+                    """);
         };
     }
 }

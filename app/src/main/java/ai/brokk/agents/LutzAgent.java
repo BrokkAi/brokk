@@ -75,6 +75,11 @@ public class LutzAgent extends SearchAgent {
     protected List<String> calculateTerminalTools() {
         var terminals = new ArrayList<String>();
         var allowed = objective.terminals();
+        if (allowed.contains(Terminal.ISSUE_JSON)) {
+            terminals.add("issueWriterOutput");
+            terminals.add("abortSearch");
+            return terminals;
+        }
         if (allowed.contains(Terminal.ANSWER)) {
             terminals.add("answer");
             terminals.add("askForClarification");
@@ -111,6 +116,13 @@ public class LutzAgent extends SearchAgent {
             @P("A concise question or clarification request for the human user.") String queryForUser) {
         io.llmOutput(queryForUser, ChatMessageType.AI, LlmOutputMeta.newMessage());
         return queryForUser;
+    }
+
+    @Tool(
+            "Issue Writer final output. Provide EXACTLY the JSON string. No markdown fences, no preamble, no additional text.")
+    public String issueWriterOutput(@P("A single JSON object string.") String json) {
+        io.llmOutput(json, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        return json;
     }
 
     @Tool(

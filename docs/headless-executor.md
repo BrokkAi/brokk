@@ -380,6 +380,46 @@ JSON
 - **Fallback behavior**: Falls back to regular PR comment if inline comment fails (HTTP 422)
 - **Read-only to local repo**: Does not modify local files or make commits
 
+## ISSUE_WRITER Mode: Create a GitHub Issue
+
+ISSUE_WRITER mode is a headless workflow that uses repository discovery to draft a high-quality GitHub issue and then creates it via the GitHub API.
+
+### Configuration
+
+ISSUE_WRITER requires:
+- `plannerModel`: The LLM model to use for repository discovery and issue drafting.
+- Tags:
+  - `mode=ISSUE_WRITER`
+  - `github_token`
+  - `repo_owner`
+  - `repo_name`
+
+ISSUE_WRITER is read-only to the local repo (no file modifications or commits), but it creates a GitHub issue.
+
+### Example: Create an issue via POST /v1/jobs
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: issue-writer-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Create an issue describing the NPE when AuthenticationProvider receives a null user, including evidence from the codebase.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ISSUE_WRITER",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo"
+  }
+}
+JSON
+```
+
 ## ISSUE Mode: Automated Issue Resolution with Build Verification
 
 ISSUE mode enables **end-to-end resolution of GitHub Issues**. It fetches the issue content, generates a multi-step plan, executes the changes, and runs a build verification loop to ensure the fix is valid.
@@ -418,7 +458,7 @@ ISSUE mode requires:
 - `codeModel` (optional): The LLM model for code generation; defaults to project default.
 - GitHub Issue metadata: `github_token`, `repo_owner`, `repo_name`, `issue_number`.
 - `buildSettings` (optional): JSON object defining how to verify the project (see below).
-- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap). After it is exhausted, the executor stops and does not create a PR. Default: 5.
+- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap). After it is exhausted, the executor stops and does not create a PR. Default: 20.
 
 ### Retry limits: per-task vs overall
 
@@ -427,7 +467,7 @@ ISSUE mode has two retry limits: one for repeating build verification for a sing
 | Setting | What it limits | Default |
 |---------|----------------|---------|
 | `buildSettings.maxBuildAttempts` | Per task: how many times to rerun build/lint/test for that task after attempting fixes when verification fails. | 3 |
-| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 5 |
+| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 20 |
 
 Example: if `maxBuildAttempts=3` and `maxIssueFixAttempts=5`, each task can retry verification up to 3 times, but the job will stop entirely after 5 overall ISSUE attempts.
 
@@ -460,7 +500,7 @@ curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
   "githubToken": "ghp_xxxxxxxxxxxx",
   "plannerModel": "gpt-4o",
   "codeModel": "gpt-4o",
-  "maxIssueFixAttempts": 5,
+  "maxIssueFixAttempts": 20,
   "buildSettings": {
     "buildLintCommand": "./gradlew classes",
     "environmentVariables": {
@@ -529,6 +569,7 @@ Once running, the executor exposes the following endpoints:
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
   - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
+  - **ISSUE_WRITER mode**: Set `"tags": { "mode": "ISSUE_WRITER" }` to discover evidence in the repo and create a GitHub issue (requires github_token, repo_owner, repo_name in tags).
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 
 #### Job-level model overrides (optional)

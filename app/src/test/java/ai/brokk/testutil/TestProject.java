@@ -170,15 +170,6 @@ public class TestProject implements IProject {
     }
 
     @Override
-    public long getRunCommandTimeoutSeconds() {
-        return runCommandTimeoutSeconds;
-    }
-
-    public void setRunCommandTimeoutSeconds(long seconds) {
-        this.runCommandTimeoutSeconds = seconds;
-    }
-
-    @Override
     public Path getRoot() {
         return root;
     }

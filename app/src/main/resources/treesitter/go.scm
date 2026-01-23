@@ -1,3 +1,7 @@
+(package_clause (package_identifier) @package.definition)
+
+(import_declaration) @import.declaration
+
 (function_declaration
   name: (identifier) @function.name) @function.definition;
 

@@ -99,6 +99,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         updateGuidedReviewButton();
 
+        if (newMode == PanelMode.REVIEW) {
+            codeReviewPanel.clearSelection();
+            fileTreePanel.clearSelection();
+            diffContainer.removeAll();
+            diffActive = false;
+            updateDiffToolbarVisibility();
+            diffContainer.revalidate();
+            diffContainer.repaint();
+        }
+
         if (newMode == PanelMode.EMPTY || newMode == PanelMode.ERROR) {
             diffCore.updateFileComparisons(List.of());
             emptyLabel.setText(getEmptyStateMessage());
@@ -181,6 +191,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private ReviewParser.CodeExcerpt activeExcerpt = null;
+
+    private boolean diffActive = false;
 
     private List<FileComparisonInfo> fileComparisons = List.of();
 
@@ -359,6 +371,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } else {
                 fileTreePanel.clearSelection();
                 diffContainer.removeAll();
+                diffActive = false;
+                updateDiffToolbarVisibility();
                 diffContainer.revalidate();
                 diffContainer.repaint();
                 activeExcerpt = null;
@@ -469,6 +483,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
                 diffContainer.removeAll();
                 diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+                diffActive = true;
+                updateDiffToolbarVisibility();
 
                 // Apply saved font size to the panel
                 applyFontSizeToPanel(panel);
@@ -538,14 +554,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         return;
                     }
 
-                    lastCumulativeChanges = computed.ctx.changes();
+                    if (!computed.scope.changes().equals(lastCumulativeChanges)) {
+                        lastCumulativeChanges = computed.scope.changes();
 
-                    SwingUtilities.invokeLater(() -> {
-                        if (thisGeneration != updateGeneration.get()) return;
-                        emitReviewTabStateFromResult(computed.ctx.changes(), computed.state.baselineLabel());
-                    });
+                        SwingUtilities.invokeLater(() -> {
+                            if (thisGeneration != updateGeneration.get()) return;
+                            emitReviewTabStateFromResult(computed.scope.changes(), computed.state.baselineLabel());
+                        });
 
-                    deferredUpdateHelper.requestUpdate();
+                        deferredUpdateHelper.requestUpdate();
+                    }
                 })
                 .exceptionally(ex -> {
                     if (thisGeneration != updateGeneration.get()) return null;
@@ -559,7 +577,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 });
     }
 
-    private record ComputedUpdate(BaselineState state, ReviewScope ctx) {}
+    private record ComputedUpdate(BaselineState state, ReviewScope scope) {}
 
     /**
      * Result of baseline resolution.
@@ -909,6 +927,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } else {
             diffContainer.removeAll();
             diffContainer.add(new JLabel("No file changes to display", SwingConstants.CENTER), BorderLayout.CENTER);
+            diffActive = false;
+            updateDiffToolbarVisibility();
         }
         applyTheme(chrome.getTheme());
     }
@@ -1036,8 +1056,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
             mainSplitPane.setDividerLocation(300);
 
-            // Hide navigation buttons in guided review mode (navigation via review items)
-            diffToolbar.setNavigationVisible(!isReview);
+            // Ensure navigation buttons are visible
+            diffToolbar.setNavigationVisible(true);
+            updateDiffToolbarVisibility();
 
             revalidate();
             repaint();
@@ -1529,6 +1550,26 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 });
     }
 
+    private void updateDiffToolbarVisibility() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (currentMode == PanelMode.PREVIEW) {
+            diffToolbar.setVisible(true);
+            if (!diffActive) {
+                diffToolbar.disableAllControlButtons();
+            }
+        } else if (currentMode == PanelMode.REVIEW) {
+            diffToolbar.setVisible(diffActive);
+            if (!diffActive) {
+                diffToolbar.disableAllControlButtons();
+            }
+        } else {
+            // EMPTY or ERROR
+            diffToolbar.setVisible(false);
+            diffToolbar.disableAllControlButtons();
+        }
+    }
+
     private @Nullable String formatStalenessMessage(StalenessInfo staleness) {
         int commits = staleness.commitsBehind();
         int uncommitted = staleness.uncommittedChanges();
@@ -1595,8 +1636,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     nextFile();
                 } else {
                     contentPanel.doDown();
-                    panel.diffToolbar.updateButtonStates();
                 }
+                panel.diffToolbar.updateButtonStates();
             }
         }
 
@@ -1613,8 +1654,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     }
                 } else {
                     contentPanel.doUp();
-                    panel.diffToolbar.updateButtonStates();
                 }
+                panel.diffToolbar.updateButtonStates();
             }
         }
 

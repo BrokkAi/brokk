@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -75,15 +76,7 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public record MinimalSessionInfo(UUID id, long created, long modified) {
-        public Instant createdAt() {
-            return Instant.ofEpochMilli(created);
-        }
-
-        public Instant lastModified() {
-            return Instant.ofEpochMilli(modified);
-        }
-    }
+    public record MinimalSessionInfo(UUID id, Instant createdAt, Instant lastModified) {}
 
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
 
@@ -181,21 +174,20 @@ public class SessionManager implements AutoCloseable {
 
     public List<MinimalSessionInfo> filterForeignSessions(Instant minBound, Instant maxBound) {
         Path foreignDir = foreignSessionsPath();
-        long minBoundMs = minBound.toEpochMilli();
-        long maxBoundMs = maxBound.toEpochMilli();
-        long ctimeGracePeriodMs = TimeUnit.DAYS.toMillis(7);
 
-        record Candidate(Path zipPath, UUID sessionId, long created) {}
+        record Candidate(Path zipPath, UUID sessionId, Instant createdAt) {}
 
         try (var stream = Files.list(foreignDir)) {
             return stream.filter(p -> p.getFileName().toString().endsWith(".zip"))
-                    .flatMap(p -> parseUuidFromFilename(p).stream()
-                            .map(id -> new Candidate(p, id, UuidUtil.getTimestamp(id))))
-                    .filter(c -> c.created() > (minBoundMs - ctimeGracePeriodMs) && c.created() < maxBoundMs)
+                    .flatMap(p ->
+                            parseUuidFromFilename(p).stream().map(id -> new Candidate(p, id, UuidUtil.getInstant(id))))
+                    .filter(c -> c.createdAt().isAfter(minBound.minus(Duration.ofDays(7)))
+                            && c.createdAt().isBefore(maxBound))
                     .flatMap(c -> {
-                        long modified;
+                        Instant modified;
                         try {
-                            modified = Files.getLastModifiedTime(c.zipPath()).toMillis();
+                            modified = Instant.ofEpochMilli(
+                                    Files.getLastModifiedTime(c.zipPath()).toMillis());
                         } catch (IOException e) {
                             logger.warn(
                                     "Error reading mtime for foreign session {}: {}",
@@ -204,7 +196,7 @@ public class SessionManager implements AutoCloseable {
                             return Stream.empty();
                         }
 
-                        return Stream.of(new MinimalSessionInfo(c.sessionId(), c.created(), modified));
+                        return Stream.of(new MinimalSessionInfo(c.sessionId(), c.createdAt(), modified));
                     })
                     .filter(s ->
                             s.lastModified().isAfter(minBound) && s.createdAt().isBefore(maxBound))
