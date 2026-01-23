@@ -44,8 +44,7 @@ class BrokkConfigPathsTest {
         System.setProperty("os.name", "Windows 10");
         System.setProperty("user.home", "C:\\Users\\TestUser");
 
-        // Mock APPDATA environment variable is not possible without native code,
-        // so we test the fallback path
+        // We use ignoreTestMode=true to bypass the global sandbox usually set in build.gradle.kts
         Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.empty(), true);
 
         // Should fall back to ~/AppData/Roaming/Brokk if APPDATA is not set
@@ -60,6 +59,7 @@ class BrokkConfigPathsTest {
         System.setProperty("os.name", "Mac OS X");
         System.setProperty("user.home", "/Users/testuser");
 
+        // We use ignoreTestMode=true to bypass the global sandbox
         Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.empty(), true);
 
         assertEquals(
@@ -70,9 +70,10 @@ class BrokkConfigPathsTest {
     @EnabledOnOs(OS.LINUX)
     void testLinuxConfigPath() {
         // On actual Linux systems, verify the path structure is correct
-        // We use the actual user.home to avoid CI environment issues
-        Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.empty(), true);
         var actualUserHome = System.getProperty("user.home");
+
+        // We use ignoreTestMode=true to bypass the global sandbox
+        Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.empty(), true);
 
         // Without XDG_CONFIG_HOME, should be ~/.config/Brokk
         assertEquals(
@@ -176,18 +177,33 @@ class BrokkConfigPathsTest {
 
     @Test
     void testMigrationIsNoOpInTestMode(@TempDir Path tempDir) throws IOException {
+        String originalTestMode = System.getProperty("brokk.test.mode");
         System.setProperty("brokk.test.mode", "true");
         try {
+            // Setup a fake legacy directory
             Path legacyDir = tempDir.resolve(".config/brokk");
             Files.createDirectories(legacyDir);
             Files.writeString(legacyDir.resolve("brokk.properties"), "key=value");
 
-            boolean migrated = BrokkConfigPaths.attemptMigration(Optional.of(tempDir.resolve("Brokk").toString()));
+            // Setup a fake target directory that would normally receive migration
+            Path targetDir = tempDir.resolve("BrokkTarget");
 
+            // When: attempt migration in test mode
+            boolean migrated = BrokkConfigPaths.attemptMigration(Optional.of(targetDir.toString()));
+
+            // Then: migration is skipped
             assertFalse(migrated, "Migration should be no-op in test mode");
-            assertFalse(Files.exists(tempDir.resolve("Brokk")), "No files should have been written");
+            assertFalse(Files.exists(targetDir), "No files or directories should have been created in target");
+            assertTrue(Files.exists(legacyDir.resolve("brokk.properties")), "Legacy file should remain untouched");
+            assertFalse(
+                    Files.exists(legacyDir.resolve("brokk.properties.bak")),
+                    "No backup file should have been created");
         } finally {
-            System.clearProperty("brokk.test.mode");
+            if (originalTestMode != null) {
+                System.setProperty("brokk.test.mode", originalTestMode);
+            } else {
+                System.clearProperty("brokk.test.mode");
+            }
         }
     }
 
