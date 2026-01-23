@@ -38,7 +38,8 @@ class SessionSynchronizer {
     private static final String TMP_DIR = "tmp";
     private static final String SYNC_INFO_DIR = "sync";
     private static final String SYNC_INFO_FILE = "sync_info.json";
-    private static final String SYNC_INFO_EXECUTOR_KEY = "sync_info";
+
+    private static final Object SYNC_INFO_LOCK = new Object();
 
     private final SessionManager sessionManager;
     private final IContextManager contextManager;
@@ -619,51 +620,48 @@ class SessionSynchronizer {
     }
 
     SyncInfo readSyncInfo() throws ExecutionException, InterruptedException {
-        return sessionManager
-                .getSessionExecutorByKey()
-                .submit(SYNC_INFO_EXECUTOR_KEY, () -> {
-                    Path syncInfoPath = sessionsDir.resolve(SYNC_INFO_DIR).resolve(SYNC_INFO_FILE);
-                    if (!Files.exists(syncInfoPath)) {
-                        return new SyncInfo();
-                    }
-                    try {
-                        return AbstractProject.objectMapper.readValue(syncInfoPath.toFile(), SyncInfo.class);
-                    } catch (IOException e) {
-                        logger.warn("Failed to read sync info, returning empty: {}", e.getMessage());
-                        return new SyncInfo();
-                    }
-                })
-                .get();
+        synchronized (SYNC_INFO_LOCK) {
+            Path syncInfoPath = sessionsDir.resolve(SYNC_INFO_DIR).resolve(SYNC_INFO_FILE);
+            if (!Files.exists(syncInfoPath)) {
+                return new SyncInfo();
+            }
+            try {
+                return AbstractProject.objectMapper.readValue(syncInfoPath.toFile(), SyncInfo.class);
+            } catch (IOException e) {
+                logger.warn("Failed to read sync info, returning empty: {}", e.getMessage());
+                return new SyncInfo();
+            }
+        }
     }
 
     void addOversizedSession(UUID id) throws ExecutionException, InterruptedException {
-        sessionManager
-                .getSessionExecutorByKey()
-                .submit(SYNC_INFO_EXECUTOR_KEY, (Callable<Void>) () -> {
-                    Path syncDir = sessionsDir.resolve(SYNC_INFO_DIR);
-                    Files.createDirectories(syncDir);
-                    Path syncInfoPath = syncDir.resolve(SYNC_INFO_FILE);
+        synchronized (SYNC_INFO_LOCK) {
+            try {
+                Path syncDir = sessionsDir.resolve(SYNC_INFO_DIR);
+                Files.createDirectories(syncDir);
+                Path syncInfoPath = syncDir.resolve(SYNC_INFO_FILE);
 
-                    SyncInfo existing;
-                    if (Files.exists(syncInfoPath)) {
-                        try {
-                            existing = AbstractProject.objectMapper.readValue(syncInfoPath.toFile(), SyncInfo.class);
-                        } catch (IOException e) {
-                            logger.warn("Failed to read existing sync info, creating new: {}", e.getMessage());
-                            existing = new SyncInfo();
-                        }
-                    } else {
+                SyncInfo existing;
+                if (Files.exists(syncInfoPath)) {
+                    try {
+                        existing = AbstractProject.objectMapper.readValue(syncInfoPath.toFile(), SyncInfo.class);
+                    } catch (IOException e) {
+                        logger.warn("Failed to read existing sync info, creating new: {}", e.getMessage());
                         existing = new SyncInfo();
                     }
+                } else {
+                    existing = new SyncInfo();
+                }
 
-                    Set<UUID> updatedIds = new HashSet<>(existing.oversizedSessionIds());
-                    updatedIds.add(id);
-                    SyncInfo updated = new SyncInfo(updatedIds);
-                    String json = AbstractProject.objectMapper.writeValueAsString(updated);
-                    AtomicWrites.save(syncInfoPath, json);
-                    logger.info("Added session {} to oversized sessions list", id);
-                    return null;
-                })
-                .get();
+                Set<UUID> updatedIds = new HashSet<>(existing.oversizedSessionIds());
+                updatedIds.add(id);
+                SyncInfo updated = new SyncInfo(updatedIds);
+                String json = AbstractProject.objectMapper.writeValueAsString(updated);
+                AtomicWrites.save(syncInfoPath, json);
+                logger.info("Added session {} to oversized sessions list", id);
+            } catch (IOException e) {
+                logger.warn("Failed to write sync info: {}", e.getMessage());
+            }
+        }
     }
 }
