@@ -52,43 +52,6 @@ public class ToolRegistry {
      */
     public record SignatureUnit(String toolName, String paramName, Object item) {}
 
-    /** Mapping of tool names to display headlines (icons removed). */
-    private static final Map<String, String> HEADLINES = Map.ofEntries(
-            Map.entry("callSearchAgent", "Calling the search Agent"),
-            Map.entry("searchSymbols", "Searching for symbols"),
-            Map.entry("getSymbolLocations", "Finding files for symbols"),
-            Map.entry("searchSubstrings", "Searching for substrings"),
-            Map.entry("searchFilenames", "Searching for filenames"),
-            Map.entry("getFileContents", "Getting file contents"),
-            Map.entry("getFileSummaries", "Getting file summaries"),
-            Map.entry("getUsages", "Finding usages"),
-            Map.entry("getRelatedClasses", "Finding related code"),
-            Map.entry("getClassSkeletons", "Getting class overview"),
-            Map.entry("getClassSources", "Fetching class source"),
-            Map.entry("getMethodSources", "Fetching method source"),
-            Map.entry("getCallGraphTo", "Getting call graph TO"),
-            Map.entry("getCallGraphFrom", "Getting call graph FROM"),
-            Map.entry("searchGitCommitMessages", "Searching git commits"),
-            Map.entry("listFiles", "Listing files"),
-            Map.entry("addFilesToWorkspace", "Adding files to workspace"),
-            Map.entry("addClassesToWorkspace", "Adding classes to workspace"),
-            Map.entry("addUrlContentsToWorkspace", "Adding URL contents to workspace"),
-            Map.entry("appendNote", "Appending note"),
-            Map.entry("addSymbolUsagesToWorkspace", "Adding symbol usages to workspace"),
-            Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),
-            Map.entry("addFileSummariesToWorkspace", "Adding file summaries to workspace"),
-            Map.entry("addMethodsToWorkspace", "Adding method sources to workspace"),
-            Map.entry("dropWorkspaceFragments", "Removing from workspace"),
-            Map.entry("recommendContext", "Recommending context"),
-            Map.entry("createOrReplaceTaskList", "Creating or replacing task list"),
-            Map.entry("callCodeAgent", "Calling code agent"),
-            Map.entry("performedInitialReview", "Performed initial review"));
-
-    /** Returns a human-readable headline for the given tool. Falls back to the tool name if there is no mapping. */
-    private static String headlineFor(String toolName) {
-        return HEADLINES.getOrDefault(toolName, toolName);
-    }
-
     /** Creates a new root ToolRegistry and self-registers internal tools. */
     public ToolRegistry() {
         this(new LinkedHashMap<>());
@@ -392,37 +355,15 @@ public class ToolRegistry {
         }
     }
 
-    /** Generates a user-friendly explanation for a tool request validated against THIS registry. */
+    /** Generates a user-friendly explanation for a tool request without requiring registry validation. */
     public String getExplanationForToolRequest(ToolExecutionRequest request) {
-        // hide tool calls which are rendered in another way (directly as markdown or with own taskEntry)
-        if (request.name().equals("answer")
-                || request.name().equals("abortSearch")
-                || request.name().equals("projectFinished")
-                || request.name().equals("callCodeAgent")
-                || request.name().equals("searchAgent")
-                || request.name().equals("createOrReplaceTaskList")) {
-            return "";
-        }
         try {
-            var vi = validateTool(request);
-            var headline = headlineFor(request.name());
-            return ExplanationRenderer.renderExplanation(headline, buildArgsMap(vi));
+            validateTool(request);
+            return ExplanationRenderer.renderToolRequest(request);
         } catch (ToolValidationException e) {
             logger.debug("Could not generate explanation for tool request '{}': {}", request.name(), e.getMessage());
             return "Skip invalid tool request.";
         }
-    }
-
-    /** Helper to build a map of parameter names to values from a ValidatedInvocation. */
-    private static Map<String, Object> buildArgsMap(ValidatedInvocation vi) {
-        var named = new LinkedHashMap<String, Object>();
-        var params = vi.method().getParameters();
-        var values = vi.parameters();
-        assert params.length == values.size();
-        for (int i = 0; i < params.length; i++) {
-            named.put(params[i].getName(), values.get(i));
-        }
-        return named;
     }
 
     /** Deduplication helper producing one signature unit per element of the single list param. */

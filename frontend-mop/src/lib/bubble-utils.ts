@@ -9,7 +9,7 @@ type BubbleDisplayDefaults = {
 
 // The 'CUSTOM' type is handled in MessageBubble.svelte, but not in the Bubble type definition.
 // We'll support it here to centralize the logic.
-type ExtendedBubbleType = Bubble['type'] | 'CUSTOM';
+type ExtendedBubbleType = Bubble['type'] | 'CUSTOM' | 'TOOL_EXECUTION_RESULT';
 
 export function getBubbleDisplayDefaults(type: ExtendedBubbleType): BubbleDisplayDefaults {
   switch (type) {
@@ -36,10 +36,17 @@ export function getBubbleDisplayDefaults(type: ExtendedBubbleType): BubbleDispla
       };
     case 'CUSTOM':
       return {
-        title: 'Custom',
+        title: 'System',
         iconId: 'mdi:wrench',
         hlVar: '--message-border-custom',
         bgVar: '--custom-message-background',
+      };
+    case 'TOOL_EXECUTION_RESULT':
+      return {
+        title: 'Tool Result',
+        iconId: 'mdi:tools',
+        hlVar: '--message-border-custom',
+        bgVar: '--message-background',
       };
     default:
         // Fallback for any unknown type

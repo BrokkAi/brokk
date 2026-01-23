@@ -1,6 +1,5 @@
 package ai.brokk.tools;
 
-import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.*;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
@@ -12,7 +11,6 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
-import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.output.structured.Description;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -22,7 +20,6 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;
@@ -494,22 +491,13 @@ public class WorkspaceTools {
         // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
         context = cm.createOrReplaceTaskList(context, tasks);
 
-        var lines = IntStream.range(0, tasks.size())
-                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
-                .collect(Collectors.joining("\n"));
-        var formattedTaskList = "# Task List\n" + lines + "\n";
-
-        var io = cm.getIo();
-        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
-
         int count = tasks.size();
         String suffix = (count == 1) ? "" : "s";
-        String message =
+        String statusMessage =
                 "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
                         .formatted(count, suffix);
-        io.llmOutput(message, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
-        return formattedTaskList;
+        return "# Explanation\n\n" + explanation + "\n\n" + statusMessage;
     }
 
     // --- Helper Methods ---

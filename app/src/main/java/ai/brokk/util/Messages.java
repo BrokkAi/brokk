@@ -6,6 +6,7 @@ import ai.brokk.LlmOutputMeta;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.tools.ExplanationRenderer;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
@@ -192,5 +193,32 @@ public class Messages {
 
     public static boolean isTerminalMessage(ChatMessage message) {
         return message instanceof CustomMessage cm && cm.attributes().get("isTerminal") != null;
+    }
+
+    /**
+     * Determines if a message should be displayed in the MOP (Markdown Output Panel).
+     * ToolExecutionResultMessage is hidden unless dev mode is enabled.
+     */
+    public static boolean shouldDisplayInMop(ChatMessage message) {
+        if (message instanceof ToolExecutionResultMessage) {
+            return Boolean.parseBoolean(System.getProperty("brokk.showtoolresult", "false"));
+        }
+        return true;
+    }
+
+    public static String getTextWithToolCalls(ChatMessage message) {
+        if (!(message instanceof AiMessage aiMessage) || !aiMessage.hasToolExecutionRequests()) {
+            return getText(message);
+        }
+
+        var text = getText(message);
+        var rendered = aiMessage.toolExecutionRequests().stream()
+                .map(ExplanationRenderer::renderToolRequest)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n\n"));
+        if (rendered.isBlank()) {
+            return text;
+        }
+        return text + "\n\n" + rendered;
     }
 }

@@ -234,7 +234,10 @@ public final class MOPBridge {
         if (taskFragment != null) {
             var msgs = taskFragment.messages();
             for (var message : msgs) {
-                var text = Messages.getText(message);
+                if (!Messages.shouldDisplayInMop(message)) {
+                    continue;
+                }
+                var text = Messages.getTextWithToolCalls(message);
                 messages.add(new BrokkEvent.HistoryTask.Message(
                         text,
                         message.type(),

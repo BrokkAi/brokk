@@ -18,14 +18,17 @@ import ai.brokk.util.HistoryIo.ContentWriter;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import com.google.common.collect.Streams;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -529,6 +532,8 @@ public class DtoMapper {
         // Package-private for tests in ai.brokk.context and internal mapping use.
         String reasoningContentId = null;
         String contentId;
+        List<FragmentDtos.ToolExecutionRequestDto> toolDtos = null;
+        FragmentDtos.ToolExecutionResultDto toolResultDto = null;
 
         Map<String, Object> attributes = null;
 
@@ -542,6 +547,17 @@ public class DtoMapper {
             if (reasoning != null && !reasoning.isBlank()) {
                 reasoningContentId = writer.writeContent(reasoning, null);
             }
+            // Serialize tool execution requests if present
+            if (aiMessage.hasToolExecutionRequests()) {
+                toolDtos = aiMessage.toolExecutionRequests().stream()
+                        .map(req -> new FragmentDtos.ToolExecutionRequestDto(req.id(), req.name(), req.arguments()))
+                        .toList();
+            }
+        } else if (message instanceof ToolExecutionResultMessage toolResult) {
+            String text = toolResult.text();
+            contentId = writer.writeContent(text != null ? text : "", null);
+            toolResultDto = new FragmentDtos.ToolExecutionResultDto(
+                    toolResult.id(), toolResult.toolName(), text != null ? text : "");
         } else if (message instanceof CustomMessage customMessage) {
             Object rawText = customMessage.attributes().get("text");
             String text = rawText instanceof String s ? s : "";
@@ -556,7 +572,12 @@ public class DtoMapper {
         }
 
         return new ChatMessageDto(
-                message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId, attributes);
+                message.type().name().toLowerCase(Locale.ROOT),
+                contentId,
+                reasoningContentId,
+                toolDtos,
+                toolResultDto,
+                attributes);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
@@ -571,13 +592,40 @@ public class DtoMapper {
         return switch (dto.role().toLowerCase(Locale.ROOT)) {
             case "user" -> UserMessage.from(content);
             case "ai" -> {
-                // Prefer structured reasoningContentId if available
-                if (dto.reasoningContentId() != null) {
-                    String reasoning = reader.readContent(dto.reasoningContentId());
-                    yield new AiMessage(content, reasoning);
+                // Reconstruct tool execution requests if present
+                List<ToolExecutionRequest> toolRequests = null;
+                if (dto.toolExecutionRequests() != null
+                        && !dto.toolExecutionRequests().isEmpty()) {
+                    toolRequests = dto.toolExecutionRequests().stream()
+                            .map(tre -> ToolExecutionRequest.builder()
+                                    .id(tre.id())
+                                    .name(tre.name())
+                                    .arguments(tre.arguments())
+                                    .build())
+                            .toList();
                 }
-                // Graceful degrade: treat entire content as text when reasoningContentId is absent
-                yield new AiMessage(content);
+
+                String reasoning =
+                        dto.reasoningContentId() != null ? reader.readContent(dto.reasoningContentId()) : null;
+
+                // Use the most complete constructor available
+                if (reasoning != null && toolRequests != null) {
+                    yield new AiMessage(content, reasoning, toolRequests);
+                } else if (reasoning != null) {
+                    yield new AiMessage(content, reasoning);
+                } else if (toolRequests != null) {
+                    yield new AiMessage(content, toolRequests);
+                } else {
+                    yield new AiMessage(content);
+                }
+            }
+            case "tool_execution_result" -> {
+                if (dto.toolExecutionResult() != null) {
+                    var ter = dto.toolExecutionResult();
+                    yield new ToolExecutionResultMessage(ter.id(), ter.toolName(), ter.text());
+                } else {
+                    yield new ToolExecutionResultMessage(null, "unknown", content);
+                }
             }
             case "system" -> SystemMessage.from(content);
             case "custom" -> {

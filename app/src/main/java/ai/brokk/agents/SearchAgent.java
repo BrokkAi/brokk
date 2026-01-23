@@ -31,10 +31,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.io.IOException;
@@ -106,10 +103,11 @@ public class SearchAgent {
     protected boolean contextPruned;
 
     // Local working context snapshot for this agent
+    private Context initialContext;
     protected Context context;
 
     // Session-local conversation for this agent
-    protected final List<ChatMessage> sessionMessages = new ArrayList<>();
+    protected final AgentConversation conversation;
 
     // State toggles
     protected boolean beastMode;
@@ -149,6 +147,11 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
+        // tracks internal and MOP messages
+        this.conversation = new AgentConversation(io);
+        // append initial goal (it's already streamed to MOP by InstructionPanel)
+        this.conversation.appendUi(UserMessage.from(goal), false);
+
         var llmOptions = new Llm.Options(model, "Search: " + goal).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
@@ -163,6 +166,7 @@ public class SearchAgent {
 
         this.mcpTools = initMcpTools(cm.getProject());
         this.context = initialContext;
+        this.initialContext = initialContext;
         this.scanConfig = scanConfig;
         this.staticTools = initStaticTools(staticTools, cm.getProject(), mcpTools);
     }
@@ -266,8 +270,8 @@ public class SearchAgent {
         while (true) {
             wst.setContext(context);
 
-            var promptResult =
-                    SearchPrompts.instance.buildPrompt(context, model, goal, getObjective(), mcpTools, sessionMessages);
+            var promptResult = SearchPrompts.instance.buildPrompt(
+                    initialContext, context, model, goal, getObjective(), mcpTools, conversation.getInternalMessages());
             var messages = promptResult.messages();
 
             if (!beastMode && promptResult.engageBeastMode()) {
@@ -313,8 +317,8 @@ public class SearchAgent {
                 continue;
             }
 
-            sessionMessages.add(new UserMessage("What tools do you want to use next?"));
-            sessionMessages.add(result.aiMessage());
+            conversation.appendInternal(new UserMessage("What tools do you want to use next?"));
+            conversation.append(result.aiMessage());
 
             if (!ai.hasToolExecutionRequests()) {
                 return errorResult(
@@ -356,7 +360,7 @@ public class SearchAgent {
                         finalResult = toolResult;
                     }
 
-                    sessionMessages.add(finalResult.toExecutionResultMessage());
+                    conversation.append(finalResult.toExecutionResultMessage());
 
                     var category = categorizeTool(req.name());
                     if (category != ToolCategory.WORKSPACE_HYGIENE) {
@@ -376,7 +380,13 @@ public class SearchAgent {
                 if (terminal.isPresent() && contextSafeForTerminal && !executedResearch) {
                     var termReq = terminal.get();
                     var termExec = executeTool(termReq, tr, wst);
-                    sessionMessages.add(termExec.toExecutionResultMessage());
+                    var toolExecResult = termExec.toExecutionResultMessage();
+                    conversation.append(toolExecResult);
+
+                    // show explanation in md for the user
+                    if (termReq.name().equals("createOrReplaceTaskList")) {
+                        conversation.appendUi(termExec.resultText(), true);
+                    }
 
                     if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                         return errorResult(
@@ -528,19 +538,25 @@ public class SearchAgent {
         }
         var toolSpecs = tr.getTools(toolNames);
 
-        io.llmOutput(
-                "\n**Brokk** performing initial workspace review…", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        var label = "Initial workspace review";
+        io.showTransientMessage(label);
         var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+
+        var aiMsg = result.aiMessage();
+        var enhAiMsg = AiMessage.from(label + "\n\n", aiMsg.reasoningContent(), aiMsg.toolExecutionRequests());
+
+        conversation.append(enhAiMsg);
         if (result.error() != null || result.isEmpty()) {
             return context;
         }
 
         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
         for (var req : ai.toolExecutionRequests()) {
-            executeTool(req, tr, wst);
+            var toolResult = executeTool(req, tr, wst);
+            conversation.append(toolResult.toExecutionResultMessage());
         }
 
         contextPruned = true;
@@ -560,11 +576,8 @@ public class SearchAgent {
         StreamingChatModel scanModel = getScanModel();
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
+        io.showTransientMessage("Scanning the repository");
         var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
-        io.llmOutput(
-                "\n**Brokk Context Engine** analyzing repository context…\n",
-                ChatMessageType.AI,
-                LlmOutputMeta.newMessage());
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
@@ -591,7 +604,7 @@ public class SearchAgent {
                         LlmOutputMeta.DEFAULT);
             }
         } else {
-            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+            conversation.appendUi("No context recommendations found.", true);
         }
 
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
@@ -662,6 +675,9 @@ public class SearchAgent {
         }
 
         var explanation = ExplanationRenderer.renderExplanation("Adding context to workspace", details);
+        // Fake this like an AI message (it's not a real tool call)
+        var aiMsg = new AiMessage("Context recommendations\n\n" + explanation);
+        conversation.append(aiMsg, true);
         io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
     }
 
@@ -679,7 +695,7 @@ public class SearchAgent {
     @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
-        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+        conversation.appendUi(explanation, true);
         return explanation;
     }
 
@@ -712,7 +728,7 @@ public class SearchAgent {
     }
 
     protected TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta) {
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
+        List<ChatMessage> finalMessages = new ArrayList<>(conversation.consumeUiMessages());
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
@@ -727,7 +743,7 @@ public class SearchAgent {
     }
 
     protected TaskResult errorResult(TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta) {
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
+        List<ChatMessage> finalMessages = new ArrayList<>(conversation.consumeUiMessages());
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 

@@ -116,23 +116,50 @@ public class FragmentDtos {
         }
     }
 
+    /** DTO for ToolExecutionRequest - contains id, name, and arguments. */
+    public record ToolExecutionRequestDto(@Nullable String id, String name, String arguments) {
+        public ToolExecutionRequestDto {
+            if (name.isEmpty()) {
+                throw new IllegalArgumentException("name cannot be null or empty");
+            }
+        }
+    }
+
+    /** DTO for ToolExecutionResultMessage - contains id, toolName, and text. */
+    public record ToolExecutionResultDto(@Nullable String id, String toolName, String text) {
+        public ToolExecutionResultDto {
+            if (toolName.isEmpty()) {
+                throw new IllegalArgumentException("toolName cannot be null or empty");
+            }
+        }
+    }
+
     /** DTO for ChatMessage - simplified representation with role and content. */
     public record ChatMessageDto(
             String role,
             String contentId,
             @Nullable String reasoningContentId,
+            @Nullable List<ToolExecutionRequestDto> toolExecutionRequests,
+            @Nullable ToolExecutionResultDto toolExecutionResult,
             @Nullable Map<String, Object> attributes) {
         public ChatMessageDto {
             if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");
             }
+            // Normalize empty list to null for cleaner JSON
+            if (toolExecutionRequests != null && toolExecutionRequests.isEmpty()) {
+                toolExecutionRequests = null;
+            } else if (toolExecutionRequests != null) {
+                toolExecutionRequests = List.copyOf(toolExecutionRequests);
+            }
+
             if (attributes != null) {
                 attributes = Map.copyOf(attributes);
             }
         }
 
         public ChatMessageDto(String role, String contentId) {
-            this(role, contentId, null, null);
+            this(role, contentId, null, null, null, null);
         }
     }
 

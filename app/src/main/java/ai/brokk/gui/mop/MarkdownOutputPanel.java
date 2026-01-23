@@ -268,6 +268,9 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         clearMain();
         messages.addAll(newMessages);
         for (var message : newMessages) {
+            if (!Messages.shouldDisplayInMop(message)) {
+                continue;
+            }
             LlmOutputMeta meta = LlmOutputMeta.DEFAULT
                     .withReasoning(Messages.isReasoningMessage(message))
                     .withTerminal(Messages.isTerminalMessage(message));
