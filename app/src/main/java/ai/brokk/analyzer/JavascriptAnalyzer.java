@@ -7,6 +7,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.*;
 import java.util.regex.Matcher;
+import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -536,8 +537,68 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
             List<ImportInfo> localImportInfos) {
-        super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        if (importNode != null && !importNode.isNull()) {
+            String rawSnippet = sourceContent.substringFrom(importNode);
+            
+            // Extract all identifiers and aliases from this import statement
+            List<String> identifiers = new ArrayList<>();
+            List<String> aliases = new ArrayList<>();
+            extractNamedImportIdentifiers(importNode, sourceContent, identifiers, aliases);
+            
+            // Create ONE ImportInfo per import statement to avoid duplicate raw snippets
+            // Store first identifier/alias found (for basic matching)
+            // relevantImportsFor will do full parsing for comprehensive matching
+            String firstId = identifiers.isEmpty() ? null : identifiers.getFirst();
+            String firstAlias = aliases.isEmpty() ? null : aliases.getFirst();
+            localImportInfos.add(new ImportInfo(rawSnippet, false, firstId, firstAlias));
+        }
         JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportInfos);
+    }
+
+    /**
+     * Extracts identifiers and aliases from an import statement into the provided lists.
+     */
+    private void extractNamedImportIdentifiers(
+            TSNode importNode,
+            SourceContent sourceContent,
+            List<String> identifiers,
+            List<String> aliases) {
+        // Query for:
+        // 1. Default imports: import Foo from ...
+        // 2. Named imports: import { Bar } from ...
+        // 3. Aliased imports: import { Baz as Quux } from ...
+        // 4. Namespace imports: import * as Telemetry from ...
+        String queryStr =
+                """
+            (import_clause (identifier) @import.id)
+            (import_specifier name: (identifier) @import.id)
+            (import_specifier alias: (identifier) @import.alias)
+            (namespace_import (identifier) @import.alias)
+            """;
+
+        try {
+            TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(query, importNode);
+            TSQueryMatch match = new TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = query.getCaptureNameForId(capture.getIndex());
+                    TSNode node = capture.getNode();
+                    String text = sourceContent.substringFrom(node);
+
+                    if ("import.id".equals(captureName)) {
+                        identifiers.add(text);
+                    } else if ("import.alias".equals(captureName)) {
+                        aliases.add(text);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to parse named imports in JS", e);
+        }
     }
 
     @Override
@@ -569,6 +630,73 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        return getSource(cu, false)
+                .map(source -> {
+                    Set<String> codeIdentifiers = extractTypeIdentifiers(source);
+                    List<ImportInfo> imports = importInfoOf(cu.source());
+
+                    return imports.stream()
+                            .filter(imp -> importMatchesAnyIdentifier(imp.rawSnippet(), codeIdentifiers))
+                            .map(ImportInfo::rawSnippet)
+                            .collect(Collectors.toSet());
+                })
+                .orElseGet(Set::of);
+    }
+
+    /**
+     * Checks if an import statement contains any identifier that matches the given set.
+     * Parses the import to extract all named imports, default imports, and namespace aliases.
+     */
+    private boolean importMatchesAnyIdentifier(String importStatement, Set<String> codeIdentifiers) {
+        Set<String> importIdentifiers = extractIdentifiersFromImport(importStatement);
+        for (String id : importIdentifiers) {
+            if (codeIdentifiers.contains(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Extracts all identifiers (names and aliases) from an import statement string.
+     */
+    private Set<String> extractIdentifiersFromImport(String importStatement) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        try {
+            TSTree tree = parser.parseString(null, importStatement);
+            TSNode rootNode = tree.getRootNode();
+
+            String queryStr =
+                    """
+                (import_clause (identifier) @import.id)
+                (import_specifier name: (identifier) @import.id)
+                (import_specifier alias: (identifier) @import.alias)
+                (namespace_import (identifier) @import.alias)
+                """;
+
+            TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(query, rootNode);
+            TSQueryMatch match = new TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    String text = importStatement.substring(
+                            byteOffsetToCharPosition(importStatement, node.getStartByte()),
+                            byteOffsetToCharPosition(importStatement, node.getEndByte()));
+                    identifiers.add(text);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse import statement: {}", importStatement, e);
+        }
+        return identifiers;
     }
 
     @Override

@@ -421,6 +421,52 @@ public class JavaScriptImportTest {
     }
 
     @Test
+    public void testRelevantImportsForFunction() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import { Foo } from './foo';
+                import { Bar } from './bar';
+
+                export function useFoo() {
+                    return new Foo();
+                }
+                """,
+                        "main.js")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var useFoo = analyzer.searchDefinitions("useFoo").iterator().next();
+
+            Set<String> relevant = analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(useFoo);
+
+            assertTrue(relevant.contains("import { Foo } from './foo';"), "Should include Foo import");
+            assertFalse(relevant.contains("import { Bar } from './bar';"), "Should exclude unused Bar import");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsExcludesUnused() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import { Used } from './used';
+                import { Unused } from './unused';
+
+                export function doWork() {
+                    Used.process();
+                }
+                """,
+                        "work.js")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var doWork = analyzer.searchDefinitions("doWork").iterator().next();
+
+            Set<String> relevant = analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(doWork);
+
+            assertEquals(1, relevant.size());
+            assertTrue(relevant.contains("import { Used } from './used';"));
+        }
+    }
+
+    @Test
     public void testExplicitFileNotFallbackToDirectoryIndex() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
