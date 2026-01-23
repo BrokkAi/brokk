@@ -44,7 +44,8 @@
     name: (dotted_name) @import.name
     alias: (identifier) @import.alias)) @import.declaration
 
-; Fallback for simple import statements without named components
+; Fallback for simple import statements without named components.
+; These must remain after the specific patterns above so that we don't skip structured captures.
 (import_statement) @import.declaration
 (import_from_statement) @import.declaration
 
