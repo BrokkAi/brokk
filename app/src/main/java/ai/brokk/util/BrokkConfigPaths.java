@@ -55,6 +55,28 @@ public final class BrokkConfigPaths {
      * @return the global config directory path
      */
     static Path getGlobalConfigDir(Optional<String> configDirOverride) {
+        return getGlobalConfigDir(configDirOverride, false);
+    }
+
+    /**
+     * Returns the platform-appropriate global configuration directory for Brokk.
+     *
+     * @param configDirOverride optional override for the config directory
+     * @param ignoreTestMode if true, bypasses test-mode sandboxing logic
+     * @return the global config directory path
+     */
+    static Path getGlobalConfigDir(Optional<String> configDirOverride, boolean ignoreTestMode) {
+        if (!ignoreTestMode && "true".equalsIgnoreCase(System.getProperty("brokk.test.mode"))) {
+            String sandboxRoot = System.getProperty("brokk.test.sandbox.root");
+            Path root;
+            if (sandboxRoot != null && !sandboxRoot.isBlank()) {
+                root = Path.of(sandboxRoot);
+            } else {
+                root = Path.of(System.getProperty("java.io.tmpdir"), "brokk-test-sandbox-" + ProcessHandle.current().pid());
+            }
+            return root.resolve("Brokk");
+        }
+
         return configDirOverride
                 .filter(s -> !s.isBlank())
                 .flatMap(override -> {
@@ -126,6 +148,10 @@ public final class BrokkConfigPaths {
      * @return true if any files were migrated, false otherwise
      */
     static boolean attemptMigration(Optional<String> configDirOverride) {
+        if ("true".equalsIgnoreCase(System.getProperty("brokk.test.mode"))) {
+            return false;
+        }
+
         Path newConfigDir = getGlobalConfigDir(configDirOverride);
         Path legacyConfigDir = getLegacyConfigDir();
 
