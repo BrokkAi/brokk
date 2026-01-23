@@ -228,7 +228,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
 
-        this.resolveConflictsBtn = new MaterialButton("C") {
+        this.resolveConflictsBtn = new MaterialButton("") {
             @Override
             public Dimension getPreferredSize() {
                 return new Dimension(24, 24);
@@ -244,6 +244,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 return new Dimension(24, 24);
             }
         };
+        this.resolveConflictsBtn.setIcon(Icons.MERGE);
         this.resolveConflictsBtn.setToolTipText("Resolve merge conflicts with AI assistance");
         this.resolveConflictsBtn.setEnabled(false);
         this.resolveConflictsBtn.setMargin(new Insets(0, 0, 0, 0));
