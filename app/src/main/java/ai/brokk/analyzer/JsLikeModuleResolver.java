@@ -125,8 +125,8 @@ public interface JsLikeModuleResolver {
             SourceContent sourceContent,
             List<String> localImportStatements) {
         // Use the constant names directly as strings since they're simple capture names
-        String REQUIRE_CALL_CAPTURE_NAME = "require.call";
-        String REQUIRE_FUNC_CAPTURE_NAME = "require.func";
+        String REQUIRE_CALL_CAPTURE_NAME = "module.require_call";
+        String REQUIRE_FUNC_CAPTURE_NAME = "_require_func";
 
         TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
         TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
