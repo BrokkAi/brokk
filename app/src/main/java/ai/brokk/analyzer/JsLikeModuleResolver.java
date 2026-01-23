@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
 
@@ -16,6 +17,8 @@ import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE
 
 public interface JsLikeModuleResolver {
     record ModulePathKey(ProjectFile importingFile, String modulePath) {}
+
+    List<String> KNOWN_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx");
 
     Cache<ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache();
 
@@ -72,11 +75,10 @@ public interface JsLikeModuleResolver {
         }
 
         Path resolvedPath = parentDir.resolve(modulePath).normalize();
-        List<String> knownExtensions = List.of(".js", ".jsx", ".ts", ".tsx");
         String fileName = resolvedPath.getFileName().toString();
 
         // 1. If the path already has a known extension, try it directly first
-        if (knownExtensions.stream().anyMatch(fileName::endsWith)) {
+        if (KNOWN_EXTENSIONS.stream().anyMatch(fileName::endsWith)) {
             if (absolutePaths.contains(resolvedPath) && resolvedPath.startsWith(projectRoot)) {
                 return new ProjectFile(projectRoot, projectRoot.relativize(resolvedPath));
             }
@@ -84,7 +86,7 @@ public interface JsLikeModuleResolver {
 
         // 2. Strip any known extension to get the base name, then try all extension variants
         String baseName = fileName;
-        for (String ext : knownExtensions) {
+        for (String ext : KNOWN_EXTENSIONS) {
             if (baseName.endsWith(ext)) {
                 baseName = baseName.substring(0, baseName.length() - ext.length());
                 break;
@@ -93,7 +95,7 @@ public interface JsLikeModuleResolver {
         Path basePath = resolvedPath.resolveSibling(baseName);
 
         // Try base path (extensionless) and all known extensions
-        List<String> fileExtensions = List.of("", ".js", ".jsx", ".ts", ".tsx");
+        List<String> fileExtensions = Stream.concat(Stream.of(""), KNOWN_EXTENSIONS.stream()).toList();
         for (String ext : fileExtensions) {
             Path candidatePath = ext.isEmpty() ? basePath : basePath.resolveSibling(baseName + ext);
 
