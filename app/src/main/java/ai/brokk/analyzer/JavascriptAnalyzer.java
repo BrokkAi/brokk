@@ -507,26 +507,24 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        return resolveJavaScriptLikeImports(this, file, importStatements);
+        return this.resolveImportsWithCache(this, file, importStatements);
     }
 
     public static Set<CodeUnit> resolveJavaScriptLikeImports(
             IAnalyzer analyzer, ProjectFile file, List<String> importStatements) {
+        if (analyzer instanceof JsLikeModuleResolver resolver) {
+            return resolver.resolveImportsWithCache(analyzer, file, importStatements);
+        }
+
         Path root = analyzer.getProject().getRoot();
-        Set<ProjectFile> projectFiles = analyzer.getProject().getAllFiles();
-        Set<Path> absolutePaths =
-                projectFiles.stream().map(ProjectFile::absPath).collect(Collectors.toSet());
+        Set<Path> absolutePaths = analyzer.getProject().getAllFiles().stream()
+                .map(ProjectFile::absPath)
+                .collect(Collectors.toSet());
 
         return importStatements.stream()
                 .map(JavascriptAnalyzer::extractModulePathFromImport)
                 .flatMap(Optional::stream)
-                .map(path -> {
-                    if (analyzer instanceof JsLikeModuleResolver resolver) {
-                        return JsLikeModuleResolver.resolveModulePath(
-                                resolver.getModuleResolutionCache(), root, absolutePaths, file, path);
-                    }
-                    return resolveJavaScriptLikeModulePath(root, absolutePaths, file, path);
-                })
+                .map(path -> resolveJavaScriptLikeModulePath(root, absolutePaths, file, path))
                 .filter(Objects::nonNull)
                 .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
                 .collect(Collectors.toSet());

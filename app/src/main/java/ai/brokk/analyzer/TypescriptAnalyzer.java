@@ -1077,7 +1077,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        return JavascriptAnalyzer.resolveJavaScriptLikeImports(this, file, importStatements);
+        return this.resolveImportsWithCache(this, file, importStatements);
     }
 
     @Override
