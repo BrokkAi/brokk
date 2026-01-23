@@ -180,8 +180,20 @@ public interface JsLikeModuleResolver {
                 && !requireFuncNode.isNull()) {
             String funcName = sourceContent.substringFrom(requireFuncNode).strip();
             if ("require".equals(funcName)) {
-                String requireText =
-                        sourceContent.substringFrom(requireCallNode).strip();
+                // For require, we want to capture the whole declaration line if possible
+                // (e.g. const fs = require('fs')) so extractIdentifiersFromImport can find the variable name.
+                TSNode nodeToCapture = requireCallNode;
+                TSNode parent = requireCallNode.getParent();
+                if (parent != null && "variable_declarator".equals(parent.getType())) {
+                    TSNode decl = parent.getParent();
+                    if (decl != null
+                            && ("lexical_declaration".equals(decl.getType())
+                                    || "variable_declaration".equals(decl.getType()))) {
+                        nodeToCapture = decl;
+                    }
+                }
+
+                String requireText = sourceContent.substringFrom(nodeToCapture).strip();
                 if (!requireText.isEmpty()) {
                     localImportInfos.add(new ImportInfo(requireText, false, "", ""));
                 }

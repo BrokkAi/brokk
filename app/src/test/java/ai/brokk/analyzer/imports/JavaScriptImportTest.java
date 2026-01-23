@@ -467,6 +467,32 @@ public class JavaScriptImportTest {
     }
 
     @Test
+    public void testRelevantImportsForRequire() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                const fs = require('fs');
+                const { readFile } = require('fs');
+                const path = require('path');
+
+                export function readConfig() {
+                    fs.readFileSync('config.json');
+                    readFile('other.json', () => {});
+                }
+                """,
+                        "app.js")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var readConfig = analyzer.searchDefinitions("readConfig").iterator().next();
+
+            Set<String> relevant = analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(readConfig);
+
+            assertTrue(relevant.stream().anyMatch(s -> s.contains("const fs = require('fs')")), "Should include fs require");
+            assertTrue(relevant.stream().anyMatch(s -> s.contains("const { readFile } = require('fs')")), "Should include readFile require");
+            assertFalse(relevant.stream().anyMatch(s -> s.contains("const path = require('path')")), "Should exclude unused path require");
+        }
+    }
+
+    @Test
     public void testExplicitFileNotFallbackToDirectoryIndex() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """

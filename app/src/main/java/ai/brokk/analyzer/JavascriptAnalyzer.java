@@ -654,6 +654,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 (import_specifier name: (identifier) @import.id)
                 (import_specifier alias: (identifier) @import.alias)
                 (namespace_import (identifier) @import.alias)
+                (variable_declarator name: (identifier) @import.id value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                (variable_declarator name: (object_pattern (shorthand_property_identifier_pattern) @import.id) value: (call_expression function: (identifier) @func (#eq? @func "require")))
                 """;
 
             TSQuery query = new TSQuery(getTSLanguage(), queryStr);
@@ -663,11 +665,14 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
             while (cursor.nextMatch(match)) {
                 for (TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    String text = importStatement.substring(
-                            byteOffsetToCharPosition(importStatement, node.getStartByte()),
-                            byteOffsetToCharPosition(importStatement, node.getEndByte()));
-                    identifiers.add(text);
+                    String captureName = query.getCaptureNameForId(capture.getIndex());
+                    if (captureName.startsWith("import.")) {
+                        TSNode node = capture.getNode();
+                        String text = importStatement.substring(
+                                byteOffsetToCharPosition(importStatement, node.getStartByte()),
+                                byteOffsetToCharPosition(importStatement, node.getEndByte()));
+                        identifiers.add(text);
+                    }
                 }
             }
         } catch (Exception e) {
