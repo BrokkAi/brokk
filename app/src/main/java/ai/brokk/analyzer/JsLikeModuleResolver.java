@@ -24,7 +24,8 @@ public interface JsLikeModuleResolver {
      * @param cu       the code unit to find imports for
      * @return a set of relevant import snippets
      */
-    default <T extends IAnalyzer & ImportAnalysisProvider> Set<String> relevantImportsForJsLike(T analyzer, CodeUnit cu) {
+    default <T extends IAnalyzer & ImportAnalysisProvider> Set<String> relevantImportsForJsLike(
+            T analyzer, CodeUnit cu) {
         return analyzer.getSource(cu, false)
                 .map(source -> {
                     Set<String> codeIdentifiers = extractTypeIdentifiers(source);
