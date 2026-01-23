@@ -647,7 +647,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             notifications.add(entry);
 
             if (role != IConsoleIO.NotificationRole.COST) {
-                rolledUpCostCount = 0;
                 notificationQueue.offer(new TransientNotification(role, message, 0, entry));
             } else {
                 if (isDisplayingNotification
