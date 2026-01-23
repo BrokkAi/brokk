@@ -1,12 +1,12 @@
 package ai.brokk.exception;
 
 import ai.brokk.ExceptionReporter;
-import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.MainProject;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -14,7 +14,7 @@ import org.apache.logging.log4j.Logger;
 
 public class GlobalExceptionHandler implements UncaughtExceptionHandler {
     private static final Logger logger = LogManager.getLogger(GlobalExceptionHandler.class);
-    private static final ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(1, "GlobalExceptionHandler");
+    private static final ExecutorService executor = Executors.newFixedThreadPool(1);
 
     @Override
     public void uncaughtException(Thread thread, Throwable throwable) {
