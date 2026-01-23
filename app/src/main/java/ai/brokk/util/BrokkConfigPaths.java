@@ -36,14 +36,23 @@ public final class BrokkConfigPaths {
     private BrokkConfigPaths() {}
 
     /**
+     * System property to override the global config directory.
+     * Used by tests to isolate them from real user settings.
+     */
+    public static final String CONFIG_DIR_OVERRIDE_PROPERTY = "brokk.config.dir.override";
+
+    /**
      * Returns the platform-appropriate global configuration directory for Brokk.
      *
      * <p>The directory name "Brokk" (capital B) is used consistently across all platforms.
      *
+     * <p>If the system property {@value #CONFIG_DIR_OVERRIDE_PROPERTY} is set, that path
+     * will be used instead. This allows tests to use an isolated config directory.
+     *
      * @return the global config directory path
      */
     public static Path getGlobalConfigDir() {
-        return getGlobalConfigDir(Optional.empty());
+        return getGlobalConfigDir(Optional.ofNullable(System.getProperty(CONFIG_DIR_OVERRIDE_PROPERTY)));
     }
 
     /**

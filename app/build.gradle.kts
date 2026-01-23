@@ -571,6 +571,8 @@ tasks.withType<Test> {
     // System properties for tests
     systemProperty("brokk.test.mode", "true")
     systemProperty("java.awt.headless", "true")
+    // Isolate tests from real user settings - use a test-specific config directory
+    systemProperty("brokk.config.dir.override", layout.buildDirectory.dir("test-config").get().asFile.absolutePath)
 }
 
 tasks.register<JavaExec>("runCli") {
