@@ -1,11 +1,11 @@
 package ai.brokk.exception;
 
 import ai.brokk.ExceptionReporter;
+import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.MainProject;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.CancellationException;
-import ai.brokk.concurrent.ExecutorsUtil;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import javax.swing.*;
