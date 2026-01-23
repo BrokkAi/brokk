@@ -116,9 +116,12 @@
     const text = getCodeText();
     if (!text) return;
 
+    // Wrap content in a code fence
+    const wrapped = "```\n" + text + "\n```";
+
     const javaBridge = window.javaBridge;
     if (javaBridge?.insertIntoInstructions) {
-      javaBridge.insertIntoInstructions(text);
+      javaBridge.insertIntoInstructions(wrapped);
     } else {
       console.warn("`window.javaBridge.insertIntoInstructions` is not available");
     }
