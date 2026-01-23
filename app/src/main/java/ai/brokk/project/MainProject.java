@@ -2,7 +2,6 @@ package ai.brokk.project;
 
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.Brokk;
-import ai.brokk.ExceptionReporter;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.Service;
@@ -306,9 +305,7 @@ public final class MainProject extends AbstractProject {
             }
         }
 
-        // DISABLED FOR TESTING: Model settings migration
-        // This was causing writes during reads when multiple CLI instances run
-        /*
+        // Perform model settings migration if needed
         int storedVersion = 0;
         String versionStr = props.getProperty(ModelProperties.MODEL_SETTINGS_VERSION_KEY);
         if (versionStr != null) {
@@ -338,21 +335,12 @@ public final class MainProject extends AbstractProject {
         if (needsSave) {
             saveGlobalProperties(props);
         }
-        */
 
         globalPropertiesCache = (Properties) props.clone();
         return props;
     }
 
     private static synchronized void saveGlobalProperties(Properties props) {
-        // LOG EVERY CALL with stack trace to find who's writing
-        var trace = ExceptionReporter.formatStackTrace(new Exception("saveGlobalProperties trace"));
-        logger.warn("saveGlobalProperties called - stack trace:\n{}", trace);
-        // Also print to stderr in case logging isn't working
-        System.err.println("=== saveGlobalProperties called ===");
-        System.err.println(trace);
-        System.err.println("=== end trace ===");
-
         try {
             // Load directly from disk to avoid re-triggering migration in loadGlobalProperties
             var existingProps = new Properties();
