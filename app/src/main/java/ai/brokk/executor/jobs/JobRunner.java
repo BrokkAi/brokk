@@ -1921,20 +1921,20 @@ public final class JobRunner {
                 - Removed lines: "[OLD:N NEW:-] -<content>" where N is the exact line number in the old file
                 - Context lines: "[OLD:N NEW:N]  <content>" where N/N are the exact line numbers in the old/new files
 
-                When writing your review, cite line numbers using just the number, choosing the appropriate number:
-                - For additions ("+"): use the NEW line number from the annotation
-                - For deletions ("-"): use the OLD line number from the annotation
-                - For context/unchanged lines (" "): use the NEW line number from the annotation
+                LINE NUMBER FORMAT:
+                - PREFER using "startLine" and "endLine" to indicate the exact range of lines affected by the issue.
+                - For single-line issues, set startLine = endLine (both to the same line number).
+                - Only use the legacy "line" field if you cannot determine a range.
 
-                RANGE SUPPORT:
-                - Each comment object MAY include either a single integer "line" (legacy) OR optional integer
-                  fields "startLine" and "endLine" to indicate a contiguous range.
-                - Semantics: when reporting a range, prefer the smallest contiguous block that captures the issue
-                  and include both "startLine" and "endLine". For additions use NEW numbers, for deletions use OLD
-                  numbers, and for context lines use NEW numbers.
+                When writing your review, cite line numbers using the appropriate numbers from the annotations:
+                - For additions ("+"): use the NEW line numbers
+                - For deletions ("-"): use the OLD line numbers
+                - For context/unchanged lines (" "): use the NEW line numbers
 
                 Your task:
                 Analyze the diff content above using the context of related methods and code files.
+
+                %s
 
                 OUTPUT FORMAT
                 -------------
@@ -1945,12 +1945,10 @@ public final class JobRunner {
                   "comments": [
                     {
                       "path": "src/main/java/Example.java",
-                      "line": 42,               // legacy: single integer
-                      // optional for ranges:
-                      // "startLine": 40,
-                      // "endLine": 43,
+                      "startLine": 40,
+                      "endLine": 43,
                       "severity": "HIGH",
-                      "bodyMarkdown": "Describe the issue, why it matters, and a minimal actionable fix."
+                      "bodyMarkdown": "Describe the issue..."
                     }
                   ]
                 }
@@ -1960,12 +1958,10 @@ public final class JobRunner {
                 - "comments": Array of inline comment objects (MUST be [] if nothing meets threshold).
 
                 Each comment object MUST have:
-                - "path": File path relative to repository root (e.g., "src/main/java/Foo.java")
-                - "line": Single integer line number from the diff annotation when using legacy single-line comments.
-                  * For "+" lines: use the NEW line number
-                  * For "-" lines: use the OLD line number
-                  * For " " lines: use the NEW line number
-                - OR optionally both "startLine" and "endLine" integers to indicate a contiguous range.
+                - "path": File path relative to repository root
+                - "startLine": Integer line number where the issue begins (PREFERRED)
+                - "endLine": Integer line number where the issue ends (PREFERRED, can equal startLine for single-line issues)
+                - OR "line": Single integer line number (legacy fallback, only if range cannot be determined)
                 - "severity": One of "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"
                 - "bodyMarkdown": Markdown description of the issue with a minimal actionable fix
 
