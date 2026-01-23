@@ -2,6 +2,7 @@ package ai.brokk.analyzer.imports;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
@@ -427,7 +428,7 @@ public class JavaScriptImportTest {
                     .anyMatch(cu -> cu.source().getRelPath().equals(indexPath));
 
             assertTrue(foundFromFile, "Should resolve from util-dir.js");
-            assertTrue(!foundFromIndex, "Should NOT resolve from util-dir/index.js when explicit file exists");
+            assertFalse(foundFromIndex, "Should NOT resolve from util-dir/index.js when explicit file exists");
         }
     }
 }

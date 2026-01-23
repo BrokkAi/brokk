@@ -2,6 +2,7 @@ package ai.brokk.analyzer.imports;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -391,7 +392,7 @@ public class TypeScriptImportTest {
                     .anyMatch(cu -> cu.source().getRelPath().equals(indexPath));
 
             assertTrue(foundFromFile, "Should resolve from util-dir.ts");
-            assertTrue(!foundFromIndex, "Should NOT resolve from util-dir/index.ts when explicit file exists");
+            assertFalse(foundFromIndex, "Should NOT resolve from util-dir/index.ts when explicit file exists");
         }
     }
 }
