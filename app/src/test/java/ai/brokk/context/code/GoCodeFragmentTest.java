@@ -21,23 +21,26 @@ public class GoCodeFragmentTest {
     @Test
     void testFunctionFiltersUnusedGoImports() throws IOException {
         try (var project = InlineTestProjectCreator.code(
-                """
+                        """
                 package main
-                
+
                 import (
                     "fmt"
                     "os"
                 )
-                
+
                 func Hello() {
                     fmt.Println("Hello, World!")
                 }
-                """, "main.go").build()) {
+                """,
+                        "main.go")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var function = analyzer.getDefinitions("main.Hello").stream().findFirst().orElseThrow();
+
+            var function =
+                    analyzer.getDefinitions("main.Hello").stream().findFirst().orElseThrow();
             var fragment = new CodeFragment(contextManager, function);
             String text = fragment.text().join();
 
@@ -51,15 +54,15 @@ public class GoCodeFragmentTest {
     @Test
     void testFunctionIncludesMultipleRelevantGoImports() throws IOException {
         try (var project = InlineTestProjectCreator.code(
-                """
+                        """
                 package util
-                
+
                 import (
                     "bytes"
                     "io"
                     "strings"
                 )
-                
+
                 func Process(r io.Reader) (*bytes.Buffer, error) {
                     data, err := io.ReadAll(r)
                     if err != nil {
@@ -67,12 +70,15 @@ public class GoCodeFragmentTest {
                     }
                     return bytes.NewBuffer(data), nil
                 }
-                """, "util.go").build()) {
+                """,
+                        "util.go")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var function = analyzer.getDefinitions("util.Process").stream().findFirst().orElseThrow();
+
+            var function =
+                    analyzer.getDefinitions("util.Process").stream().findFirst().orElseThrow();
             var fragment = new CodeFragment(contextManager, function);
             String text = fragment.text().join();
 

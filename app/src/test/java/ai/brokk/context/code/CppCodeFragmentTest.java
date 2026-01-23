@@ -21,34 +21,39 @@ public class CppCodeFragmentTest {
     @Test
     void testFunctionFiltersUnusedCppIncludes() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 #ifndef HELPER_H
                 #define HELPER_H
                 void helperFunction() {}
                 #endif
-                """, "helper.h")
+                """,
+                        "helper.h")
                 .addFileContents(
-                """
+                        """
                 #ifndef UNUSED_H
                 #define UNUSED_H
                 void unusedFunction() {}
                 #endif
-                """, "unused.h");
+                """,
+                        "unused.h");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 #include "helper.h"
                 #include "unused.h"
 
                 void mainFunction() {
                     helperFunction();
                 }
-                """, "main.cpp").build()) {
+                """,
+                        "main.cpp")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var function = analyzer.getDefinitions("mainFunction").stream().findFirst().orElseThrow();
+
+            var function =
+                    analyzer.getDefinitions("mainFunction").stream().findFirst().orElseThrow();
             var fragment = new CodeFragment(contextManager, function);
             String text = fragment.text().join();
 
@@ -61,21 +66,18 @@ public class CppCodeFragmentTest {
 
     @Test
     void testClassIncludesMultipleRelevantCppIncludes() throws IOException {
-        var builder = InlineTestProjectCreator.code(
-                """
+        var builder = InlineTestProjectCreator.code("""
                 class TypeA {};
                 """, "type_a.h")
-                .addFileContents(
-                """
+                .addFileContents("""
                 class TypeB {};
                 """, "type_b.h")
-                .addFileContents(
-                """
+                .addFileContents("""
                 class TypeC {};
                 """, "type_c.h");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 #include "type_a.h"
                 #include "type_b.h"
                 #include "type_c.h"
@@ -85,11 +87,13 @@ public class CppCodeFragmentTest {
                     TypeA a;
                     void process(TypeB b);
                 };
-                """, "my_class.h").build()) {
+                """,
+                        "my_class.h")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
+
             var cls = analyzer.getDefinitions("MyClass").stream().findFirst().orElseThrow();
             var fragment = new CodeFragment(contextManager, cls);
             String text = fragment.text().join();

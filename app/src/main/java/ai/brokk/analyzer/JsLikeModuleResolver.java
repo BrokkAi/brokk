@@ -18,7 +18,8 @@ import org.treesitter.TSNode;
 public interface JsLikeModuleResolver {
 
     default Set<String> relevantImportsForJsLike(IAnalyzer analyzer, CodeUnit cu) {
-        ImportAnalysisProvider provider = analyzer.as(ImportAnalysisProvider.class).orElse(null);
+        ImportAnalysisProvider provider =
+                analyzer.as(ImportAnalysisProvider.class).orElse(null);
         if (provider == null) {
             return Set.of();
         }
@@ -58,6 +59,7 @@ public interface JsLikeModuleResolver {
      * Extracts all type/value identifiers from a source string.
      */
     Set<String> extractTypeIdentifiers(String source);
+
     record ModulePathKey(ProjectFile importingFile, String modulePath) {}
 
     List<String> KNOWN_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx");
@@ -166,12 +168,10 @@ public interface JsLikeModuleResolver {
      *
      * @param capturedNodesForMatch map of capture names to captured nodes for the current match
      * @param sourceContent the source code content
-     * @param localImportStatements list to add extracted import statements to
+     * @param localImportInfos list to add extracted import statements to
      */
     static void extractCommonJsRequireImport(
-            Map<String, TSNode> capturedNodesForMatch,
-            SourceContent sourceContent,
-            List<ImportInfo> localImportInfos) {
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
         TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
         if (requireCallNode != null

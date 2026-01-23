@@ -21,28 +21,30 @@ public class JavaScriptCodeFragmentTest {
     @Test
     void testFunctionFiltersUnusedEs6Imports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 export class Foo {}
                 """, "foo.js")
-                .addFileContents(
-                """
+                .addFileContents("""
                 export class Bar {}
                 """, "bar.js");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 import { Foo } from './foo';
                 import { Bar } from './bar';
 
                 export function useFoo() {
                     const f = new Foo();
                 }
-                """, "consumer.js").build()) {
+                """,
+                        "consumer.js")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var function = analyzer.getDefinitions("useFoo").stream().findFirst().orElseThrow();
+
+            var function =
+                    analyzer.getDefinitions("useFoo").stream().findFirst().orElseThrow();
             var fragment = new CodeFragment(contextManager, function);
             String text = fragment.text().join();
 
@@ -55,23 +57,24 @@ public class JavaScriptCodeFragmentTest {
     @Test
     void testFunctionFiltersUnusedDefaultImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 export default class Foo {}
                 """, "foo.js")
-                .addFileContents(
-                """
+                .addFileContents("""
                 export default class Bar {}
                 """, "bar.js");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 import Foo from './foo';
                 import Bar from './bar';
 
                 export function work() {
                     const f = new Foo();
                 }
-                """, "app.js").build()) {
+                """,
+                        "app.js")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
@@ -88,21 +91,18 @@ public class JavaScriptCodeFragmentTest {
 
     @Test
     void testClassIncludesMultipleRelevantImports() throws IOException {
-        var builder = InlineTestProjectCreator.code(
-                """
+        var builder = InlineTestProjectCreator.code("""
                 export class A {}
                 """, "a.js")
-                .addFileContents(
-                """
+                .addFileContents("""
                 export class B {}
                 """, "b.js")
-                .addFileContents(
-                """
+                .addFileContents("""
                 export class C {}
                 """, "c.js");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 import { A } from './a';
                 import { B } from './b';
                 import { C } from './c';
@@ -115,11 +115,13 @@ public class JavaScriptCodeFragmentTest {
                         return new B();
                     }
                 }
-                """, "multi.js").build()) {
+                """,
+                        "multi.js")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
+
             var cls = analyzer.getDefinitions("MultiUser").stream().findFirst().orElseThrow();
             var fragment = new CodeFragment(contextManager, cls);
             String text = fragment.text().join();

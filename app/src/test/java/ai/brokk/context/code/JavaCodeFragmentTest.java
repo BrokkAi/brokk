@@ -21,18 +21,20 @@ public class JavaCodeFragmentTest {
     @Test
     void testMethodFiltersUnusedImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 package pkg;
                 public class Foo {}
-                """, "pkg/Foo.java")
+                """,
+                        "pkg/Foo.java")
                 .addFileContents(
-                """
+                        """
                 package pkg;
                 public class Bar {}
-                """, "pkg/Bar.java");
+                """,
+                        "pkg/Bar.java");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 package consumer;
                 import pkg.Foo;
                 import pkg.Bar;
@@ -42,12 +44,16 @@ public class JavaCodeFragmentTest {
                         // only uses Foo
                     }
                 }
-                """, "consumer/Consumer.java").build()) {
+                """,
+                        "consumer/Consumer.java")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var method = analyzer.getDefinitions("consumer.Consumer.useFoo").stream().findFirst().orElseThrow();
+
+            var method = analyzer.getDefinitions("consumer.Consumer.useFoo").stream()
+                    .findFirst()
+                    .orElseThrow();
             var fragment = new CodeFragment(contextManager, method);
             String text = fragment.text().join();
 
@@ -61,23 +67,26 @@ public class JavaCodeFragmentTest {
     @Test
     void testClassIncludesMultipleRelevantImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 package pkg;
                 public class A {}
-                """, "pkg/A.java")
+                """,
+                        "pkg/A.java")
                 .addFileContents(
-                """
+                        """
                 package pkg;
                 public class B {}
-                """, "pkg/B.java")
+                """,
+                        "pkg/B.java")
                 .addFileContents(
-                """
+                        """
                 package pkg;
                 public class C {}
-                """, "pkg/C.java");
+                """,
+                        "pkg/C.java");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 package consumer;
                 import pkg.A;
                 import pkg.B;
@@ -87,12 +96,16 @@ public class JavaCodeFragmentTest {
                     private A a;
                     public void doWork(B b) {}
                 }
-                """, "consumer/MultiUser.java").build()) {
+                """,
+                        "consumer/MultiUser.java")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var cls = analyzer.getDefinitions("consumer.MultiUser").stream().findFirst().orElseThrow();
+
+            var cls = analyzer.getDefinitions("consumer.MultiUser").stream()
+                    .findFirst()
+                    .orElseThrow();
             var fragment = new CodeFragment(contextManager, cls);
             String text = fragment.text().join();
 
@@ -107,18 +120,20 @@ public class JavaCodeFragmentTest {
     @Test
     void testInnerClassFiltersRelevantImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 package pkg;
                 public class TypeA {}
-                """, "pkg/TypeA.java")
+                """,
+                        "pkg/TypeA.java")
                 .addFileContents(
-                """
+                        """
                 package pkg;
                 public class TypeB {}
-                """, "pkg/TypeB.java");
+                """,
+                        "pkg/TypeB.java");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 package consumer;
                 import pkg.TypeA;
                 import pkg.TypeB;
@@ -127,20 +142,26 @@ public class JavaCodeFragmentTest {
                     public static class Inner {
                         public void method(TypeB b) {}
                     }
-                    
+
                     public void outerMethod(TypeA a) {}
                 }
-                """, "consumer/Outer.java").build()) {
+                """,
+                        "consumer/Outer.java")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var innerCls = analyzer.getDefinitions("consumer.Outer.Inner").stream().findFirst().orElseThrow();
+
+            var innerCls = analyzer.getDefinitions("consumer.Outer.Inner").stream()
+                    .findFirst()
+                    .orElseThrow();
             var fragment = new CodeFragment(contextManager, innerCls);
             String text = fragment.text().join();
 
             assertTrue(text.contains("import pkg.TypeB;"), "Inner class should include import for TypeB it uses");
-            assertFalse(text.contains("import pkg.TypeA;"), "Inner class fragment should not include imports used only by outer class");
+            assertFalse(
+                    text.contains("import pkg.TypeA;"),
+                    "Inner class fragment should not include imports used only by outer class");
             assertTrue(text.contains("class Inner"), "Should contain the inner class");
             assertTrue(text.contains("method(TypeB b)"), "Should contain the method using TypeB");
         }

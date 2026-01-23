@@ -7,7 +7,6 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.*;
 import java.util.regex.Matcher;
-import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -534,18 +533,16 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     @Override
     protected void extractImports(
-            Map<String, TSNode> capturedNodesForMatch,
-            SourceContent sourceContent,
-            List<ImportInfo> localImportInfos) {
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
         if (importNode != null && !importNode.isNull()) {
             String rawSnippet = sourceContent.substringFrom(importNode);
-            
+
             // Extract all identifiers and aliases from this import statement
             List<String> identifiers = new ArrayList<>();
             List<String> aliases = new ArrayList<>();
             extractNamedImportIdentifiers(importNode, sourceContent, identifiers, aliases);
-            
+
             // Create ONE ImportInfo per import statement to avoid duplicate raw snippets
             // Store first identifier/alias found (for basic matching)
             // relevantImportsFor will do full parsing for comprehensive matching
@@ -560,10 +557,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
      * Extracts identifiers and aliases from an import statement into the provided lists.
      */
     private void extractNamedImportIdentifiers(
-            TSNode importNode,
-            SourceContent sourceContent,
-            List<String> identifiers,
-            List<String> aliases) {
+            TSNode importNode, SourceContent sourceContent, List<String> identifiers, List<String> aliases) {
         // Query for:
         // 1. Default imports: import Foo from ...
         // 2. Named imports: import { Bar } from ...

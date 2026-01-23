@@ -21,32 +21,37 @@ public class TypeScriptCodeFragmentTest {
     @Test
     void testFunctionFiltersUnusedTsImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 export interface Foo {
                     id: string;
                 }
-                """, "foo.ts")
+                """,
+                        "foo.ts")
                 .addFileContents(
-                """
+                        """
                 export interface Bar {
                     name: string;
                 }
-                """, "bar.ts");
+                """,
+                        "bar.ts");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 import { Foo } from './foo';
                 import { Bar } from './bar';
 
                 export function processFoo(f: Foo) {
                     console.log(f.id);
                 }
-                """, "app.ts").build()) {
+                """,
+                        "app.ts")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var function = analyzer.getDefinitions("processFoo").stream().findFirst().orElseThrow();
+
+            var function =
+                    analyzer.getDefinitions("processFoo").stream().findFirst().orElseThrow();
             var fragment = new CodeFragment(contextManager, function);
             String text = fragment.text().join();
 
@@ -59,25 +64,27 @@ public class TypeScriptCodeFragmentTest {
     @Test
     void testHandlesTypeOnlyImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 export interface User {
                     username: string;
                 }
-                """, "types.ts")
-                .addFileContents(
-                """
+                """,
+                        "types.ts")
+                .addFileContents("""
                 export class Utils {}
                 """, "utils.ts");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 import type { User } from './types';
                 import { Utils } from './utils';
 
                 export function greet(u: User) {
                     return "Hello " + u.username;
                 }
-                """, "service.ts").build()) {
+                """,
+                        "service.ts")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
@@ -86,28 +93,28 @@ public class TypeScriptCodeFragmentTest {
             var fragment = new CodeFragment(contextManager, function);
             String text = fragment.text().join();
 
-            assertTrue(text.contains("import type { User } from './types';"), "Should include type-only import for User");
-            assertFalse(text.contains("import { Utils } from './utils';"), "Unused import Utils should be filtered out");
+            assertTrue(
+                    text.contains("import type { User } from './types';"), "Should include type-only import for User");
+            assertFalse(
+                    text.contains("import { Utils } from './utils';"), "Unused import Utils should be filtered out");
         }
     }
 
     @Test
     void testClassIncludesMultipleRelevantImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 export class Engine {}
                 """, "engine.ts")
-                .addFileContents(
-                """
+                .addFileContents("""
                 export interface Config {}
                 """, "config.ts")
-                .addFileContents(
-                """
+                .addFileContents("""
                 export class Unused {}
                 """, "unused.ts");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 import { Engine } from './engine';
                 import { Config } from './config';
                 import { Unused } from './unused';
@@ -118,18 +125,24 @@ public class TypeScriptCodeFragmentTest {
                         this.engine = new Engine();
                     }
                 }
-                """, "controller.ts").build()) {
+                """,
+                        "controller.ts")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
+
             var cls = analyzer.getDefinitions("Controller").stream().findFirst().orElseThrow();
             var fragment = new CodeFragment(contextManager, cls);
             String text = fragment.text().join();
 
-            assertTrue(text.contains("import { Engine } from './engine';"), "Should include import for used class Engine");
-            assertTrue(text.contains("import { Config } from './config';"), "Should include import for used interface Config");
-            assertFalse(text.contains("import { Unused } from './unused';"), "Unused import Unused should be filtered out");
+            assertTrue(
+                    text.contains("import { Engine } from './engine';"), "Should include import for used class Engine");
+            assertTrue(
+                    text.contains("import { Config } from './config';"),
+                    "Should include import for used interface Config");
+            assertFalse(
+                    text.contains("import { Unused } from './unused';"), "Unused import Unused should be filtered out");
             assertTrue(text.contains("class Controller"), "Should contain the class definition");
         }
     }

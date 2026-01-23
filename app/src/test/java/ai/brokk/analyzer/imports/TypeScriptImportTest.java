@@ -413,7 +413,8 @@ public class TypeScriptImportTest {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var useFoo = analyzer.searchDefinitions("useFoo").iterator().next();
 
-            Set<String> relevant = analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(useFoo);
+            Set<String> relevant =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(useFoo);
 
             assertTrue(relevant.contains("import { Foo } from './foo';"), "Should include Foo import");
             assertFalse(relevant.contains("import { Bar } from './bar';"), "Should exclude unused Bar import");
@@ -436,7 +437,8 @@ public class TypeScriptImportTest {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var doWork = analyzer.searchDefinitions("doWork").iterator().next();
 
-            Set<String> relevant = analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(doWork);
+            Set<String> relevant =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(doWork);
 
             assertEquals(1, relevant.size());
             assertTrue(relevant.contains("import { Used } from './used';"));
@@ -455,7 +457,8 @@ public class TypeScriptImportTest {
                         "test.ts")
                 .build()) {
             var analyzer = (TypescriptAnalyzer) createTreeSitterAnalyzer(testProject);
-            String source = """
+            String source =
+                    """
                 function process(input: Foo): void {
                     console.log(input);
                 }
@@ -504,7 +507,8 @@ public class TypeScriptImportTest {
                     "Should exclude unused path require");
 
             // Test 2: Function NOT using fs
-            var unusedFn = analyzer.searchDefinitions("unusedFunction").iterator().next();
+            var unusedFn =
+                    analyzer.searchDefinitions("unusedFunction").iterator().next();
             Set<String> relevantUnused = provider.relevantImportsFor(unusedFn);
             assertTrue(relevantUnused.isEmpty(), "Should exclude all requires for unused function");
         }

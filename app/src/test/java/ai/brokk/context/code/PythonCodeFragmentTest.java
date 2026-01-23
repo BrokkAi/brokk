@@ -21,29 +21,32 @@ public class PythonCodeFragmentTest {
     @Test
     void testFunctionFiltersUnusedImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 class Foo:
                     pass
                 """, "pkg/foo.py")
                 .addFileContents(
-                """
+                        """
                 class Bar:
                     pass
                 """, "pkg/bar.py");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 from pkg.foo import Foo
                 from pkg.bar import Bar
 
                 def use_foo(val: Foo):
                     print(val)
-                """, "main.py").build()) {
+                """,
+                        "main.py")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var function = analyzer.getDefinitions("main.use_foo").stream().findFirst().orElseThrow();
+
+            var function =
+                    analyzer.getDefinitions("main.use_foo").stream().findFirst().orElseThrow();
             var fragment = new CodeFragment(contextManager, function);
             String text = fragment.text().join();
 
@@ -56,30 +59,34 @@ public class PythonCodeFragmentTest {
     @Test
     void testClassIncludesRelevantModuleImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 class UtilA:
                     pass
                 """, "lib/util_a.py")
                 .addFileContents(
-                """
+                        """
                 class UtilB:
                     pass
                 """, "lib/util_b.py");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 from lib import util_a
                 from lib import util_b
 
                 class Processor:
                     def process(self):
                         print(util_a.UtilA())
-                """, "processor.py").build()) {
+                """,
+                        "processor.py")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
 
-            var cls = analyzer.getDefinitions("processor.Processor").stream().findFirst().orElseThrow();
+            var cls = analyzer.getDefinitions("processor.Processor").stream()
+                    .findFirst()
+                    .orElseThrow();
             var fragment = new CodeFragment(contextManager, cls);
             String text = fragment.text().join();
 
@@ -92,32 +99,34 @@ public class PythonCodeFragmentTest {
     @Test
     void testFunctionWithMultipleRelevantImports() throws IOException {
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 class A: pass
                 """, "models/a.py")
-                .addFileContents(
-                """
+                .addFileContents("""
                 class B: pass
                 """, "models/b.py")
-                .addFileContents(
-                """
+                .addFileContents("""
                 class C: pass
                 """, "models/c.py");
 
         try (var project = builder.addFileContents(
-                """
+                        """
                 from models.a import A
                 from models.b import B
                 from models.c import C
 
                 def multi_use(a: A, b: B):
                     return None
-                """, "app.py").build()) {
+                """,
+                        "app.py")
+                .build()) {
 
             var analyzer = createTreeSitterAnalyzer(project);
             var contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
-            
-            var function = analyzer.getDefinitions("app.multi_use").stream().findFirst().orElseThrow();
+
+            var function = analyzer.getDefinitions("app.multi_use").stream()
+                    .findFirst()
+                    .orElseThrow();
             var fragment = new CodeFragment(contextManager, function);
             String text = fragment.text().join();
 
