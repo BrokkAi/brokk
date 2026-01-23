@@ -146,13 +146,20 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         if (rect == null) {
             return;
         }
-        JViewport viewport = getViewportFromParent();
-        if (viewport != null) {
-            Rectangle visibleRect = viewport.getViewRect();
-            // Only scroll if the target rect is not fully contained within the visible area
-            if (visibleRect.contains(rect)) {
-                return; // Already fully visible, no scroll needed
-            }
+        // Use getVisibleRect() which returns the visible area in the tree's coordinate system,
+        // matching the coordinate system of the rect parameter.
+        Rectangle visibleRect = getVisibleRect();
+
+        // Check if rect is fully within the visible area using boundary-inclusive comparison.
+        // Rectangle.contains() uses strict inequality which returns false when rect touches
+        // the boundary, causing unnecessary scrolling for items at the edge of the viewport.
+        boolean fullyVisible = rect.x >= visibleRect.x
+                && rect.y >= visibleRect.y
+                && (rect.x + rect.width) <= (visibleRect.x + visibleRect.width)
+                && (rect.y + rect.height) <= (visibleRect.y + visibleRect.height);
+
+        if (fullyVisible) {
+            return; // Already fully visible, no scroll needed
         }
         super.scrollRectToVisible(rect);
     }
@@ -1475,20 +1482,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             }
         }
         return best;
-    }
-
-    /**
-     * Gets the JViewport that contains this tree, if any.
-     * Used to save/restore scroll position during operations that might cause unwanted scrolling.
-     *
-     * @return the parent viewport, or null if the tree is not in a scroll pane
-     */
-    private @Nullable JViewport getViewportFromParent() {
-        Container parent = getParent();
-        if (parent instanceof JViewport viewport) {
-            return viewport;
-        }
-        return null;
     }
 
     /**
