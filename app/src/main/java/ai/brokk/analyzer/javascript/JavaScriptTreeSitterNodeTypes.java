@@ -30,7 +30,12 @@ public final class JavaScriptTreeSitterNodeTypes {
     // Function-like declarations
     public static final String FUNCTION_EXPRESSION = "function_expression";
 
-    public static final String IMPORT_DECLARATION = "module.import_statement";
+    public static final String IMPORT_DECLARATION = "import_declaration";
+
+    // Capture name used in Tree-sitter queries for CommonJS require calls
+    // These need to be filtered in Java code since #eq? predicate doesn't work in JNI Tree-sitter
+    public static final String REQUIRE_CALL_CAPTURE_NAME = "module.require_call";
+    public static final String REQUIRE_FUNC_CAPTURE_NAME = "_require_func";
 
     private JavaScriptTreeSitterNodeTypes() {}
 }

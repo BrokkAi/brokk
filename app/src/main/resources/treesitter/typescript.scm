@@ -285,3 +285,17 @@
       name: (property_identifier) @value.name
       value: (_)) @value.definition
   ])
+
+; ============================================================================
+; IMPORTS
+; ============================================================================
+
+; ES6 import statements
+(import_statement) @import_declaration
+
+; CommonJS require statements - captured as call_expression, filtered in Java code
+; Note: #eq? predicate is not enforced by JNI Tree-sitter, so filtering is done in TypescriptAnalyzer
+(call_expression
+  function: (identifier) @_require_func
+  arguments: (arguments (string) @_require_path)
+) @module.require_call

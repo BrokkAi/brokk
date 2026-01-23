@@ -12,11 +12,9 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.util.Collection;
@@ -68,10 +66,6 @@ public interface IContextManager {
 
     default ExecutorService getBackgroundTasks() {
         throw new UnsupportedOperationException();
-    }
-
-    default Collection<ChatMessage> getHistoryMessages() {
-        return CodePrompts.instance.getHistoryMessages(liveContext());
     }
 
     /**

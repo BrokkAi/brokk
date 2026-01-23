@@ -155,6 +155,15 @@ public class Messages {
     }
 
     /**
+     * Returns a passive, historical representation of a tool execution request
+     * that does not resemble executable tool-call syntax.
+     * Format: Tool `toolName` was invoked with {"arg": "value"}
+     */
+    public static String getRedactedRepr(ToolExecutionRequest tr) {
+        return "Tool `%s` was invoked with %s".formatted(tr.name(), tr.arguments());
+    }
+
+    /**
      * Estimates the token count of a text string. This can remain static as it only depends on the static token count
      * estimator.
      */

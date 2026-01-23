@@ -8,6 +8,8 @@ import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
+import ai.brokk.TaskResult.TaskMeta;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
@@ -28,6 +30,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -102,8 +105,8 @@ public class CodePrompts {
      * @param aiMessage The AiMessage to process.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
-        return redactAiMessage(aiMessage, true);
+    public static Optional<AiMessage> redactEditBlocks(AiMessage aiMessage) {
+        return redactEditBlocks(aiMessage, true);
     }
 
     /**
@@ -114,12 +117,18 @@ public class CodePrompts {
      *                  If false, they are removed entirely.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, boolean leaveMarker) {
-        var parsedResult = EditBlockParser.instance.parse(aiMessage.text(), Collections.emptySet());
+    public static Optional<AiMessage> redactEditBlocks(AiMessage aiMessage, boolean leaveMarker) {
+        var text = aiMessage.text();
+
+        if (text == null) {
+            return aiMessage.hasToolExecutionRequests() ? Optional.of(aiMessage) : Optional.empty();
+        }
+
+        var parsedResult = EditBlockParser.instance.parse(text, Collections.emptySet());
         boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
 
         if (!hasSrBlocks) {
-            return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
+            return text.isBlank() ? Optional.empty() : Optional.of(aiMessage);
         }
 
         var blocks = parsedResult.blocks();
@@ -137,11 +146,67 @@ public class CodePrompts {
         }
 
         String redactedText = sb.toString();
-        return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
+        if (redactedText.isBlank()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(
+                aiMessage.hasToolExecutionRequests()
+                        ? new AiMessage(redactedText, aiMessage.toolExecutionRequests())
+                        : new AiMessage(redactedText));
+    }
+
+    /**
+     * Orchestrates history-message redaction.
+     *
+     * <p>If {@code redactToolCalls} is true, tool execution results are omitted and {@link AiMessage}s with tool
+     * execution requests are converted into passive historical descriptions. Regardless of {@code redactToolCalls},
+     * this method always redacts SEARCH/REPLACE blocks from {@link AiMessage}s via {@link #redactEditBlocks(AiMessage)}.
+     */
+    public static List<ChatMessage> redactHistoryMessages(List<ChatMessage> messages, boolean redactToolCalls) {
+        var toolProcessed = redactToolCalls ? redactToolCallsFromOtherModels(messages) : messages;
+
+        return toolProcessed.stream()
+                .flatMap(msg -> msg instanceof AiMessage ai ? redactEditBlocks(ai).stream() : Stream.of(msg))
+                .toList();
+    }
+
+    /**
+     * Removes tool-call semantics from history: drops tool execution result messages and rewrites tool-request
+     * {@link AiMessage}s into passive, non-executable text.
+     */
+    private static List<ChatMessage> redactToolCallsFromOtherModels(List<ChatMessage> messages) {
+        var result = new ArrayList<ChatMessage>();
+
+        for (var message : messages) {
+            // skip tool execution result messages
+            if (message instanceof ToolExecutionResultMessage) {
+                continue;
+            }
+
+            // redact tool execution requests
+            if (message instanceof AiMessage aiMessage && aiMessage.hasToolExecutionRequests()) {
+                var existingText = aiMessage.text();
+                var prefix = (existingText != null && !existingText.isBlank()) ? existingText + "\n\n" : "";
+
+                var toolDescriptions = aiMessage.toolExecutionRequests().stream()
+                        .map(Messages::getRedactedRepr)
+                        .collect(Collectors.joining("\n"));
+
+                var rewrittenText = prefix + "[Historical tool usage by a different model]\n" + toolDescriptions;
+                result.add(new AiMessage(rewrittenText));
+                continue;
+            }
+
+            result.add(message);
+        }
+
+        return result;
     }
 
     public final List<ChatMessage> collectCodeMessages(
             StreamingChatModel model,
+            TaskResult.TaskMeta taskMeta,
             Context ctx,
             List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
@@ -176,20 +241,25 @@ public class CodePrompts {
                    1a. You can create new files without asking!
                    1b. If you only need to change individual functions whose code you CAN see,
                        you may do so without having the entire file in the Workspace.
-                   1c. Ask for additional files if having them would enable a cleaner solution,
-                       even if you could hack around it without them.
-                       For example,
-                       - If a field or method is private and you would need reflection to access it,
-                         ask for the file so you can relax the visibility instead.
-                       - If you could preserve DRY by editing a data structure or a function instead of substantially duplicating
-                         its functionality.
+                   1c. Ask for additional files if you are blocked by visibility or best practices.
+                        - **Do not stop** and ask for files just to add convenience methods, overloads, or helpers
+                          in files that are not editable in your Workspace; if a valid solution is available, use it.
+                        - **Do ask** if the alternative is an "unnatural" hack.
+                          For example:
+                          - If you need reflection to access a private member (ask for the file to relax visibility instead).
+                          - If you would have to copy-paste significant logic (ask for the file to preserve DRY).
+                        - **Do ask** if you do not have the APIs visible to confidently write a solution without guessing.
+                          (Generally you do not need to insist on the full source when you have an api summary visible.)
+                   1d. When refactoring or changing signatures, adopt a "Closed World" assumption.
+                       Assume that the callers visible in the Workspace are the only ones that exist;
+                       update those visible callers as needed and proceed.
+
                    If you need to propose changes to code you can't see,
-                   tell the user their full class or file names and ask them to *add them to the Workspace*;
+                   tell the user their full class or file names and ask them to *add them to the Context*;
                    end your reply and wait for their approval.
 
-                2. Explain the needed changes in a few short sentences.
-
-                3. Give each change as a *SEARCH/REPLACE* block.
+                %s
+                1. Give each change as a *SEARCH/REPLACE* block.
 
                 If an appropriate test file is in the Workspace, add or update tests to cover the changes you make.
                 If no such test file exists, only create a new one if instructed to do so.
@@ -198,10 +268,17 @@ public class CodePrompts {
 
                 If you do not know how to use a dependency or API correctly, you MUST stop and ask the user for help.
 
-                All changes to files must use this *SEARCH/REPLACE* block format.
+                If the user just says something like "ok" or "go ahead" or "do that", they probably want you
+                to make SEARCH/REPLACE blocks for the code changes you just proposed.
+                The user will say when they've applied your edits.
+                If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
 
+                Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
+
+                All changes to files must use the *SEARCH/REPLACE* block format in the rules section.
+                </instructions>
                 <rules>
-                # EXTENDED *SEARCH/REPLACE block* Rules:
+                EXTENDED *SEARCH/REPLACE block* Rules:
 
                 The *SEARCH/REPLACE* engine supports multiple SEARCH types. Choose the most precise option that fits your edit.
                 Line-based SEARCH remains the default for most changes.
@@ -241,11 +318,6 @@ public class CodePrompts {
                 Pay attention to which filenames the user wants you to edit, especially if they are asking
                 you to create a new filename.
 
-                If the user just says something like "ok" or "go ahead" or "do that", they probably want you
-                to make SEARCH/REPLACE blocks for the code changes you just proposed.
-                The user will say when they've applied your edits.
-                If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
-
                 NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
                 use vanilla ascii single and double quotes.
 
@@ -256,35 +328,38 @@ public class CodePrompts {
                 When writing REPLACE blocks, do **not** repeat the `BRK_` line.
                 The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
 
-                # General
-                Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
-
                 Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
 
                 %s
-
-                <goal>
                 %s
-                </goal>
-
                 You are diligent and tireless!
                 You NEVER leave comments describing code without implementing it!
                 You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
                 </rules>
-                </instructions>
                 """
                         .formatted(
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
                                         : "ask questions",
+                                service.isReasoning(model)
+                                        ? ""
+                                        : "1. Explain the needed changes in a few short sentences.\n\n",
                                 searchTypePriorityTable,
                                 searchDefinitions,
                                 examples,
                                 searchHints,
                                 reminder,
-                                goal));
+                                prologue.isEmpty()
+                                        ? """
+
+                                        <goal>
+                                        %s
+                                        </goal>
+                                        """
+                                                .formatted(goal)
+                                        : ""));
         messages.add(sys);
-        messages.addAll(getHistoryMessages(ctx));
+        messages.addAll(getHistoryMessages(ctx, taskMeta));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
         messages.addAll(taskMessages);
@@ -490,21 +565,21 @@ public class CodePrompts {
         return (base + (base.endsWith("\n") ? "" : "\n") + guidance).trim();
     }
 
-    public List<ChatMessage> getHistoryMessages(Context ctx) {
+    public List<ChatMessage> getHistoryMessages(Context ctx, TaskMeta currentMeta) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
 
         // Merge compressed messages into a single taskhistory message
         var compressed = taskHistory.stream()
                 .filter(TaskEntry::isCompressed)
-                .map(TaskEntry::toString) // This will use raw messages if TaskEntry was created with them
+                .map(TaskEntry::toString)
                 .collect(Collectors.joining("\n\n"));
         if (!compressed.isEmpty()) {
             messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
             messages.add(new AiMessage("Ok, I see the history."));
         }
 
-        // Uncompressed messages: process for S/R block redaction
+        // Uncompressed messages: process for tool and S/R block redaction
         taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
             var entryRawMessages = castNonNull(e.log()).messages();
             if (entryRawMessages.isEmpty()) {
@@ -516,16 +591,16 @@ public class CodePrompts {
                     ? entryRawMessages
                     : entryRawMessages.subList(0, entryRawMessages.size() - 1);
 
-            List<ChatMessage> processedMessages = new ArrayList<>();
-            for (var chatMessage : relevantEntryMessages) {
-                if (chatMessage instanceof AiMessage aiMessage) {
-                    redactAiMessage(aiMessage).ifPresent(processedMessages::add);
-                } else {
-                    // Not an AiMessage (e.g., UserMessage, CustomMessage), add as is
-                    processedMessages.add(chatMessage);
-                }
-            }
-            messages.addAll(processedMessages);
+            var entryMeta = e.meta();
+
+            var currentPrimaryModel = currentMeta.primaryModel();
+            var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
+
+            // Redact tool calls if the primary models differ
+            boolean redactToolCalls =
+                    entryPrimaryModel != null && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
+
+            messages.addAll(redactHistoryMessages(relevantEntryMessages, redactToolCalls));
         });
 
         return messages;

@@ -17,6 +17,7 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
+import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -907,7 +908,11 @@ public class ArchitectAgent {
                 io.getLlmRawMessages(),
                 context,
                 new TaskResult.StopDetails(StopReason.SUCCESS),
-                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
+                taskMeta());
+    }
+
+    private TaskResult.TaskMeta taskMeta() {
+        return new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService()));
     }
 
     private TaskResult resultWithMessages(StopReason reason, String message) {
@@ -1007,7 +1012,7 @@ public class ArchitectAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // History from previous tasks/sessions
-        messages.addAll(cm.getHistoryMessages());
+        messages.addAll(CodePrompts.instance.getHistoryMessages(context, taskMeta()));
 
         // This agent's own conversational history for the current goal, with the instructionsMarker
         // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)

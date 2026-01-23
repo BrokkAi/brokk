@@ -3,7 +3,11 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -14,7 +18,20 @@ import org.treesitter.TSQueryException;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJavascript;
 
-public class JavascriptAnalyzer extends TreeSitterAnalyzer {
+public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, JsLikeModuleResolver {
+
+    private final Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
+
+    @Override
+    public Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
+        return moduleResolutionCache;
+    }
+
+    private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
+    private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
+    private static final Pattern CJS_REQUIRE_PATTERN = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
+
     // JS_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
@@ -486,6 +503,42 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        return this.resolveImportsWithCache(this, file, importStatements);
+    }
+
+    public static Optional<String> extractModulePathFromImport(String importStatement) {
+        // Try ES6 pattern first (imports with 'from')
+        Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
+        if (es6Matcher.find()) {
+            return Optional.of(es6Matcher.group(1));
+        }
+
+        // Try ES6 side-effect imports (import './polyfill')
+        Matcher sideEffectMatcher = ES6_SIDE_EFFECT_IMPORT_PATTERN.matcher(importStatement);
+        if (sideEffectMatcher.find()) {
+            return Optional.of(sideEffectMatcher.group(1));
+        }
+
+        // Try CommonJS pattern
+        Matcher cjsMatcher = CJS_REQUIRE_PATTERN.matcher(importStatement);
+        if (cjsMatcher.find()) {
+            return Optional.of(cjsMatcher.group(1));
+        }
+
+        return Optional.empty();
+    }
+
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch,
+            SourceContent sourceContent,
+            List<String> localImportStatements) {
+        super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
+        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
+    }
+
+    @Override
     protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
@@ -504,5 +557,15 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 localTopLevelCUs,
                 localSignatures,
                 localSourceRanges);
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
     }
 }

@@ -19,14 +19,17 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.TextUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -60,14 +63,167 @@ import org.jetbrains.annotations.Nullable;
 public final class JobRunner {
     private static final Logger logger = LogManager.getLogger(JobRunner.class);
 
+    static final String COMMAND_RESULT_EVENT_TYPE = "COMMAND_RESULT";
+
+    static final class CommandResultEvent {
+        private static final int MAX_OUTPUT_CHARS = 25_000;
+
+        private final String stage;
+        private final String command;
+        private final @Nullable Integer attempt;
+        private final boolean skipped;
+        private final @Nullable String skipReason;
+        private final boolean success;
+        private final String output;
+        private final @Nullable String exception;
+
+        CommandResultEvent(
+                String stage,
+                String command,
+                @Nullable Integer attempt,
+                boolean skipped,
+                @Nullable String skipReason,
+                boolean success,
+                String output,
+                @Nullable String exception) {
+            this.stage = stage;
+            this.command = command;
+            this.attempt = attempt;
+            this.skipped = skipped;
+            this.skipReason = skipReason;
+            this.success = success;
+            this.output = output;
+            this.exception = exception;
+        }
+
+        Map<String, Object> toJson() {
+            var data = new LinkedHashMap<String, Object>();
+            data.put("stage", stage);
+            data.put("command", command);
+            if (attempt != null) {
+                data.put("attempt", attempt.intValue());
+            }
+            data.put("skipped", skipped);
+            if (skipReason != null && !skipReason.isBlank()) {
+                data.put("skipReason", skipReason);
+            }
+            data.put("success", success);
+            if (output.length() > MAX_OUTPUT_CHARS) {
+                data.put("output", output.substring(0, MAX_OUTPUT_CHARS));
+                data.put("outputTruncated", true);
+            } else {
+                data.put("output", output);
+            }
+            if (exception != null && !exception.isBlank()) {
+                data.put("exception", exception);
+            }
+            return data;
+        }
+    }
+
+    private static CommandResultEvent commandResult(
+            String stage,
+            @Nullable String command,
+            @Nullable Integer attempt,
+            boolean skipped,
+            @Nullable String skipReason,
+            boolean success,
+            @Nullable String output,
+            @Nullable Throwable exception) {
+        String safeCommand = command == null ? "" : command;
+        String safeOutput = output == null ? "" : output;
+
+        @Nullable String exceptionText = null;
+        if (exception != null) {
+            var msg = exception.getMessage();
+            exceptionText = (msg == null || msg.isBlank())
+                    ? exception.getClass().getSimpleName()
+                    : exception.getClass().getSimpleName() + ": " + msg;
+        }
+
+        return new CommandResultEvent(
+                stage, safeCommand, attempt, skipped, skipReason, success, safeOutput, exceptionText);
+    }
+
+    private static void emitCommandResult(
+            String jobId, JobStore store, IConsoleIO io, CommandResultEvent event, String summaryMessage) {
+        try {
+            store.appendEvent(jobId, JobEvent.of(COMMAND_RESULT_EVENT_TYPE, event.toJson()));
+        } catch (IOException e) {
+            logger.warn(
+                    "Failed to append {} event for job {}: {}", COMMAND_RESULT_EVENT_TYPE, jobId, e.getMessage(), e);
+        }
+
+        if (!event.success) {
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, summaryMessage);
+            } catch (Throwable ignore) {
+                // best-effort
+            }
+        }
+    }
+
+    private static String runAndEmitCommand(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            String stage,
+            String command,
+            int attempt,
+            Function<String, String> commandRunner) {
+        try {
+            String output = Objects.requireNonNullElse(commandRunner.apply(command), "");
+            boolean success = output.isBlank();
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult(
+                            stage,
+                            command,
+                            attempt,
+                            /* skipped= */ false,
+                            /* skipReason= */ null,
+                            success,
+                            output,
+                            null),
+                    stage + ": " + (success ? "PASS" : "FAIL"));
+            return output;
+        } catch (RuntimeException re) {
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult(stage, command, attempt, /* skipped= */ false, /* skipReason= */ null, false, "", re),
+                    stage + ": ERROR");
+            throw re;
+        }
+    }
+
+    private static void emitSkippedCommand(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            String stage,
+            @Nullable String command,
+            int attempt,
+            String skipReason) {
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult(stage, command, attempt, /* skipped= */ true, skipReason, /* success= */ true, "", null),
+                stage + ": SKIP");
+    }
+
     static final class IssueCancelledException extends IssueExecutionException {
         IssueCancelledException(String message) {
             super(message);
         }
     }
 
-    private static final PrReviewService.Severity DEFAULT_REVIEW_SEVERITY_THRESHOLD = PrReviewService.Severity.HIGH;
-    private static final int DEFAULT_REVIEW_MAX_INLINE_COMMENTS = 5;
+    static final PrReviewService.Severity DEFAULT_REVIEW_SEVERITY_THRESHOLD = PrReviewService.Severity.HIGH;
+    static final int DEFAULT_REVIEW_MAX_INLINE_COMMENTS = 3;
 
     private final ContextManager cm;
     private final JobStore store;
@@ -75,6 +231,8 @@ public final class JobRunner {
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+
+    static final int ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD = 100;
 
     enum Mode {
         ARCHITECT,
@@ -632,7 +790,8 @@ public final class JobRunner {
                                                 logger.warn(
                                                         "Failed to append fetch notification event for job {}: {}",
                                                         jobId,
-                                                        ioe.getMessage());
+                                                        ioe.getMessage(),
+                                                        ioe);
                                             }
 
                                             try {
@@ -847,6 +1006,48 @@ public final class JobRunner {
                                             String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
                                                     .formatted(issueNumber, details.title(), details.body());
 
+                                            if (shouldEnrichIssuePrompt(details.body())) {
+                                                try {
+                                                    store.appendEvent(
+                                                            jobId,
+                                                            JobEvent.of(
+                                                                    "NOTIFICATION",
+                                                                    "Issue body is brief; performing prompt enrichment..."));
+                                                    try (var enrichmentScope =
+                                                            cm.beginTaskUngrouped("Prompt Enrichment")) {
+                                                        var enrichmentAgent = new LutzAgent(
+                                                                cm.liveContext(),
+                                                                issueTaskPrompt,
+                                                                issuePlannerModel,
+                                                                SearchPrompts.Objective.PROMPT_ENRICHMENT,
+                                                                enrichmentScope);
+                                                        var enrichmentResult = enrichmentAgent.execute();
+                                                        if (enrichmentResult
+                                                                        .stopDetails()
+                                                                        .reason()
+                                                                == TaskResult.StopReason.SUCCESS) {
+                                                            issueTaskPrompt += "\n\nEnriched Context:\n"
+                                                                    + enrichmentResult
+                                                                            .output()
+                                                                            .text()
+                                                                            .join();
+                                                            logger.info(
+                                                                    "ISSUE job {}: prompt enrichment successful",
+                                                                    jobId);
+                                                        } else {
+                                                            logger.warn(
+                                                                    "ISSUE job {}: prompt enrichment did not complete successfully: {}",
+                                                                    jobId,
+                                                                    enrichmentResult
+                                                                            .stopDetails()
+                                                                            .reason());
+                                                        }
+                                                    }
+                                                } catch (Exception e) {
+                                                    logger.warn("ISSUE job {}: prompt enrichment failed", jobId, e);
+                                                }
+                                            }
+
                                             // 4. Lutz-style execution: Planning then Task Iteration
                                             String taskDescription = "Issue #" + issueNumber + ": " + details.title();
                                             try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
@@ -883,6 +1084,15 @@ public final class JobRunner {
                                                         }
                                                     };
 
+                                                    @Nullable String verificationCommand = null;
+                                                    try {
+                                                        verificationCommand = BuildAgent.determineVerificationCommand(
+                                                                cm.liveContext(), buildDetailsOverride);
+                                                    } catch (InterruptedException ie) {
+                                                        Thread.currentThread().interrupt();
+                                                        throw new RuntimeException(ie);
+                                                    }
+
                                                     Consumer<String> fixTaskRunner = prompt -> {
                                                         String taskLabel = Objects.requireNonNullElse(
                                                                 generatedTask.text(), "(unnamed task)");
@@ -907,6 +1117,7 @@ public final class JobRunner {
                                                             jobId,
                                                             store,
                                                             console != null ? console : cm.getIo(),
+                                                            verificationCommand,
                                                             verificationRunner,
                                                             fixTaskRunner);
                                                 }
@@ -949,93 +1160,59 @@ public final class JobRunner {
                                                     var taskIndex = new AtomicInteger(0);
                                                     var lastTaskDescription = new AtomicReference<String>("");
 
-                                                    Function<PrReviewService.InlineComment, String> commentToPrompt =
-                                                            JobRunner::buildInlineCommentFixPrompt;
+                                                    Consumer<PrReviewService.InlineComment> reviewFixTaskRunner =
+                                                            comment -> {
+                                                                int idx = taskIndex.incrementAndGet();
 
-                                                    Consumer<String> taskRunner = prompt -> {
-                                                        int idx = taskIndex.incrementAndGet();
-                                                        if (cancelled.get()) {
-                                                            logger.info(
-                                                                    "ISSUE job {} cancelled before starting review-fix task {}/{}",
-                                                                    jobId,
-                                                                    idx,
-                                                                    total);
-                                                            return;
-                                                        }
+                                                                String path =
+                                                                        Objects.requireNonNullElse(comment.path(), "");
+                                                                int line = comment.line();
 
-                                                        var comment = inlineComments.get(idx - 1);
-                                                        String path = Objects.requireNonNullElse(comment.path(), "");
-                                                        int line = comment.line();
+                                                                String reviewFixTaskDescription = "Review-fix " + idx
+                                                                        + "/" + total + ": " + path + ":" + line;
+                                                                lastTaskDescription.set(reviewFixTaskDescription);
 
-                                                        String startMsg = "Review-fix task %d/%d starting: %s:%d"
-                                                                .formatted(idx, total, path, line);
-                                                        try {
-                                                            store.appendEvent(
-                                                                    jobId, JobEvent.of("NOTIFICATION", startMsg));
-                                                        } catch (Exception e) {
-                                                            logger.warn(
-                                                                    "Failed to append review-fix start notification event for job {}: {}",
-                                                                    jobId,
-                                                                    e.getMessage(),
-                                                                    e);
-                                                        }
-
-                                                        String reviewFixTaskDescription = "Review-fix " + idx + "/"
-                                                                + total + ": " + path + ":" + line;
-                                                        lastTaskDescription.set(reviewFixTaskDescription);
-
-                                                        try {
-                                                            try (var reviewFixScope =
-                                                                    cm.beginTaskUngrouped(reviewFixTaskDescription)) {
-                                                                var liveCtx = cm.liveContext();
-                                                                var reviewFixAgent = new LutzAgent(
-                                                                        liveCtx,
-                                                                        reviewFixTaskDescription,
-                                                                        issuePlannerModel,
-                                                                        SearchPrompts.Objective.LUTZ,
-                                                                        reviewFixScope);
+                                                                String prompt = buildInlineCommentFixPrompt(comment);
 
                                                                 try {
-                                                                    reviewFixAgent.callCodeAgent(prompt);
+                                                                    try (var reviewFixScope = cm.beginTaskUngrouped(
+                                                                            reviewFixTaskDescription)) {
+                                                                        var liveCtx = cm.liveContext();
+                                                                        var reviewFixAgent = new LutzAgent(
+                                                                                liveCtx,
+                                                                                reviewFixTaskDescription,
+                                                                                issuePlannerModel,
+                                                                                SearchPrompts.Objective.LUTZ,
+                                                                                reviewFixScope);
+
+                                                                        try {
+                                                                            reviewFixAgent.callCodeAgent(prompt);
+                                                                        } catch (InterruptedException ie) {
+                                                                            Thread.currentThread()
+                                                                                    .interrupt();
+                                                                            throw new RuntimeException(ie);
+                                                                        }
+                                                                    }
                                                                 } catch (InterruptedException ie) {
                                                                     Thread.currentThread()
                                                                             .interrupt();
                                                                     throw new RuntimeException(ie);
+                                                                } catch (RuntimeException re) {
+                                                                    if (re.getCause() instanceof InterruptedException) {
+                                                                        throw re;
+                                                                    }
+                                                                    logger.warn(
+                                                                            "ISSUE job {} review-fix task {}/{} failed for {}:{}: {}",
+                                                                            jobId,
+                                                                            idx,
+                                                                            total,
+                                                                            path,
+                                                                            line,
+                                                                            re.getMessage(),
+                                                                            re);
+                                                                    throw re;
                                                                 }
-                                                            }
-                                                        } catch (InterruptedException ie) {
-                                                            Thread.currentThread()
-                                                                    .interrupt();
-                                                            throw new RuntimeException(ie);
-                                                        } catch (RuntimeException re) {
-                                                            if (re.getCause() instanceof InterruptedException) {
-                                                                throw re;
-                                                            }
-                                                            logger.warn(
-                                                                    "ISSUE job {} review-fix task {}/{} failed for {}:{}: {}",
-                                                                    jobId,
-                                                                    idx,
-                                                                    total,
-                                                                    path,
-                                                                    line,
-                                                                    re.getMessage(),
-                                                                    re);
-                                                            throw re;
-                                                        }
-
-                                                        String doneMsg = "Review-fix task %d/%d complete: %s:%d"
-                                                                .formatted(idx, total, path, line);
-                                                        try {
-                                                            store.appendEvent(
-                                                                    jobId, JobEvent.of("NOTIFICATION", doneMsg));
-                                                        } catch (Exception e) {
-                                                            logger.warn(
-                                                                    "Failed to append review-fix completion notification event for job {}: {}",
-                                                                    jobId,
-                                                                    e.getMessage(),
-                                                                    e);
-                                                        }
-                                                    };
+                                                            };
 
                                                     Runnable branchUpdateHook = () -> {
                                                         int idx = taskIndex.get();
@@ -1124,6 +1301,9 @@ public final class JobRunner {
                                                         };
 
                                                         runIssueModeTestLintRetryLoop(
+                                                                jobId,
+                                                                store,
+                                                                (console != null ? console : cm.getIo()),
                                                                 cancelled::get,
                                                                 (attempt, message) -> {
                                                                     try {
@@ -1167,12 +1347,23 @@ public final class JobRunner {
                                                                 spec.effectiveMaxIssueFixAttempts());
                                                     };
 
-                                                    runIssueReviewTaskSequence(
+                                                    runIssueReviewFixAttemptsWithCommandResultEvents(
+                                                            jobId,
+                                                            store,
+                                                            (console != null ? console : cm.getIo()),
+                                                            cancelled::get,
                                                             inlineComments,
-                                                            commentToPrompt,
-                                                            taskRunner,
-                                                            branchUpdateHook,
-                                                            finalVerificationPass);
+                                                            reviewFixTaskRunner,
+                                                            branchUpdateHook);
+
+                                                    if (cancelled.get()) {
+                                                        logger.info(
+                                                                "ISSUE job {} cancelled after review-fix; skipping final verification",
+                                                                jobId);
+                                                        return;
+                                                    }
+
+                                                    finalVerificationPass.run();
                                                 }
 
                                                 if (cancelled.get()) {
@@ -1384,12 +1575,26 @@ public final class JobRunner {
 
                                             String finalBodyMarkdown = maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
 
+                                            logger.info(
+                                                    "ISSUE_WRITER job {}: creating GitHub issue in {}/{}",
+                                                    jobId,
+                                                    repoOwner,
+                                                    repoName);
+
                                             var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
 
                                             var issueService = new GitHubIssueService(cm.getProject(), auth);
 
                                             IssueHeader created =
                                                     issueService.createIssue(parsed.title(), finalBodyMarkdown);
+
+                                            logger.info(
+                                                    "ISSUE_WRITER job {} created GitHub issue in {}/{}: id={} url={}",
+                                                    jobId,
+                                                    repoOwner,
+                                                    repoName,
+                                                    created.id(),
+                                                    created.htmlUrl());
 
                                             String createdMsg = "ISSUE_WRITER: issue created";
                                             if (!created.id().isBlank()) {
@@ -1657,7 +1862,7 @@ public final class JobRunner {
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
         List<ChatMessage> messages;
-        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
         // Create an LLM instance for the planner model and route output to the ContextManager IO
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
         llm.setOutput(cm.getIo());
@@ -1688,18 +1893,17 @@ public final class JobRunner {
     }
 
     /**
-     * Generates a diff review using the planner model and returns the result as Markdown.
+     * Build the review prompt text for a given diff and comment policy.
      *
-     * @param ctx the current Context with workspace and diff
-     * @param model the model to use for the review
-     * @param diff the diff content to review
-     * @return a TaskResult containing the review
+     * Package-private for tests to validate the policy text without invoking the LLM.
      */
-    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
-        var svc = cm.getService();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
-
+    static String buildReviewPrompt(String diff, PrReviewService.Severity minSeverity, int maxComments) {
         String fencedDiff = "```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```";
+
+        // Compose the policy lines using explicit phrasing that tests can rely on.
+        String severityLine = "ONLY emit comments with severity >= " + minSeverity.name() + ".";
+        String maxLine =
+                "MAX " + maxComments + " comments total. Merge similar issues into one comment instead of repeating.";
 
         String prompt =
                 """
@@ -1761,15 +1965,31 @@ public final class JobRunner {
                 - LOW: style, nits, subjective preference, minor readability, minor refactors.
 
                 COMMENT POLICY (STRICT):
-                - ONLY emit comments with severity >= HIGH.
-                - MAX 5 comments total. Merge similar issues into one comment instead of repeating.
+                - %s
+                - %s
+                - Do NOT comment on missing import statements.
+                - Do NOT flag undefined symbols or assume the code will fail to compile.
+                - Do NOT attempt to act as a compiler or duplicate CI/build failure messages. Assume the compiler and CI will surface genuine compilation issues; prioritize human, context-aware review and actionable suggestions instead.
                 - NO style-only/nit suggestions. NO repetitive variants of the same point.
                 - SKIP correct code and skip minor improvements.
-                - If nothing meets severity >= HIGH, "comments" MUST be [].
+                - If nothing meets the requested severity threshold, "comments" MUST be [].
 
                 OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
                 """
-                        .formatted(fencedDiff);
+                        .formatted(severityLine, maxLine, fencedDiff);
+
+        return prompt;
+    }
+
+    /**
+     * Backing implementation that sends the structured prompt to the LLM using a specified policy.
+     */
+    private TaskResult reviewDiffWithPolicy(
+            Context ctx, StreamingChatModel model, String diff, PrReviewService.Severity minSeverity, int maxComments) {
+        var svc = cm.getService();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
+
+        String prompt = buildReviewPrompt(diff, minSeverity, maxComments);
 
         List<ChatMessage> messages = List.of(new UserMessage(prompt));
 
@@ -1791,6 +2011,15 @@ public final class JobRunner {
 
         Objects.requireNonNull(stop);
         return new TaskResult(cm, "Diff Review", List.copyOf(cm.getIo().getLlmRawMessages()), ctx, stop, meta);
+    }
+
+    /**
+     * Legacy-friendly reviewDiff retained for REVIEW mode callers. REVIEW mode enforces the stricter
+     * policy: severity >= DEFAULT_REVIEW_SEVERITY_THRESHOLD and MAX DEFAULT_REVIEW_MAX_INLINE_COMMENTS.
+     */
+    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
+        return reviewDiffWithPolicy(
+                ctx, model, diff, DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
@@ -1954,62 +2183,116 @@ public final class JobRunner {
             String jobId,
             JobStore store,
             IConsoleIO io,
+            @Nullable String verificationCommand,
             java.util.function.Supplier<String> verificationRunner,
             java.util.function.Consumer<String> fixTaskRunner) {
+        String commandLabel = verificationCommand == null ? "" : verificationCommand;
+
         // First verification
-        String firstOut;
+        final String firstOut;
         try {
-            firstOut = verificationRunner.get();
+            firstOut = Objects.requireNonNullElse(verificationRunner.get(), "");
         } catch (RuntimeException re) {
-            throw new IssueExecutionException("Verification runner failed: " + re.getMessage(), re);
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult(
+                            "verification",
+                            commandLabel,
+                            1,
+                            /* skipped= */ false,
+                            /* skipReason= */ null,
+                            false,
+                            "",
+                            re),
+                    "Verification: ERROR");
+
+            String exMsg = re.getMessage();
+            String detail = (exMsg == null || exMsg.isBlank()) ? re.getClass().getSimpleName() : exMsg;
+            throw new IssueExecutionException("Verification runner failed: " + detail, re);
         }
 
-        boolean passedFirst = firstOut == null || firstOut.isBlank();
-        try {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Verification: " + (passedFirst ? "PASS" : "FAIL"));
-        } catch (Throwable ignore) {
-            // best-effort
-        }
-        try {
-            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Verification: " + (passedFirst ? "PASS" : "FAIL")));
-        } catch (IOException ioe) {
-            logger.warn(
-                    "Failed to append verification notification event for job {}: {}", jobId, ioe.getMessage(), ioe);
-        }
+        boolean passedFirst = firstOut.isBlank();
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult(
+                        "verification",
+                        commandLabel,
+                        1,
+                        /* skipped= */ false,
+                        /* skipReason= */ null,
+                        passedFirst,
+                        firstOut,
+                        null),
+                "Verification: " + (passedFirst ? "PASS" : "FAIL"));
 
         if (passedFirst) {
             return;
         }
+
+        // Surface failure output when triggering the fix attempt.
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult(
+                        "fix_trigger",
+                        commandLabel,
+                        1,
+                        /* skipped= */ false,
+                        /* skipReason= */ null,
+                        false,
+                        firstOut,
+                        null),
+                "Fix attempt: TRIGGERED");
 
         // Perform exactly one fix attempt
         String prompt = "Verification failed. Output:\n" + firstOut + "\n\nPlease make a single fix attempt.";
         fixTaskRunner.accept(prompt);
 
         // Re-run verification exactly once
-        String secondOut;
+        final String secondOut;
         try {
-            secondOut = verificationRunner.get();
+            secondOut = Objects.requireNonNullElse(verificationRunner.get(), "");
         } catch (RuntimeException re) {
-            throw new IssueExecutionException("Verification runner failed after fix: " + re.getMessage(), re);
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult(
+                            "verification",
+                            commandLabel,
+                            2,
+                            /* skipped= */ false,
+                            /* skipReason= */ null,
+                            false,
+                            "",
+                            re),
+                    "Verification after fix: ERROR");
+
+            String exMsg = re.getMessage();
+            String detail = (exMsg == null || exMsg.isBlank()) ? re.getClass().getSimpleName() : exMsg;
+            throw new IssueExecutionException("Verification runner failed after fix: " + detail, re);
         }
 
-        boolean passedSecond = secondOut == null || secondOut.isBlank();
-        try {
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
-        } catch (Throwable ignore) {
-            // best-effort
-        }
-        try {
-            store.appendEvent(
-                    jobId, JobEvent.of("NOTIFICATION", "Verification after fix: " + (passedSecond ? "PASS" : "FAIL")));
-        } catch (IOException ioe) {
-            logger.warn(
-                    "Failed to append verification-after-fix notification event for job {}: {}",
-                    jobId,
-                    ioe.getMessage(),
-                    ioe);
-        }
+        boolean passedSecond = secondOut.isBlank();
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult(
+                        "verification",
+                        commandLabel,
+                        2,
+                        /* skipped= */ false,
+                        /* skipReason= */ null,
+                        passedSecond,
+                        secondOut,
+                        null),
+                "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
 
         if (passedSecond) {
             return;
@@ -2051,7 +2334,10 @@ public final class JobRunner {
                             attemptNumber, maxIterations, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
             progressSink.accept(attemptNumber, startMsg);
 
-            String testOut = testsSkipped ? "" : commandRunner.apply(testCmd);
+            String testOut = "";
+            if (!testsSkipped) {
+                testOut = commandRunner.apply(testCmd);
+            }
             boolean testsPassed = testsSkipped || testOut.isBlank();
 
             if (!testsPassed) {
@@ -2071,7 +2357,114 @@ public final class JobRunner {
                 throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
             }
 
-            String lintOut = lintSkipped ? "" : commandRunner.apply(lintCmd);
+            String lintOut = "";
+            if (!lintSkipped) {
+                lintOut = commandRunner.apply(lintCmd);
+            }
+            boolean lintPassed = lintSkipped || lintOut.isBlank();
+
+            String resultMsg = "Final verification attempt %d/%d results: tests=%s, lint=%s"
+                    .formatted(
+                            attemptNumber,
+                            maxIterations,
+                            testsSkipped ? "SKIP" : "PASS",
+                            lintSkipped ? "SKIP" : (lintPassed ? "PASS" : "FAIL"));
+            progressSink.accept(attemptNumber, resultMsg);
+
+            if (!lintPassed) {
+                lastFailStage = "lint";
+                lastFailCommand = lintCmd;
+                lastFailOutput = lintOut;
+
+                fixTaskRunner.accept(lintOut);
+                continue;
+            }
+
+            return;
+        }
+
+        String baseMessage = "Tests/lint failed after " + maxIterations + " iteration(s)";
+        if (lastFailStage != null && lastFailCommand != null && lastFailOutput != null && !lastFailOutput.isBlank()) {
+            throw new IssueExecutionException(baseMessage + ". Last failure: stage=" + lastFailStage + ", command="
+                    + lastFailCommand + "\nOutput:\n" + lastFailOutput);
+        }
+
+        throw new IssueExecutionException(baseMessage);
+    }
+
+    static void runIssueModeTestLintRetryLoop(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            BooleanSupplier isCancelled,
+            BiConsumer<Integer, String> progressSink,
+            Function<String, String> commandRunner,
+            Consumer<String> fixTaskRunner,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            int maxIterations) {
+        if (maxIterations < 1) {
+            throw new IllegalArgumentException("maxIterations must be >= 1");
+        }
+
+        String testCmd = buildDetailsOverride.testAllCommand();
+        String lintCmd = buildDetailsOverride.buildLintCommand();
+
+        boolean testsSkipped = testCmd.isBlank();
+        boolean lintSkipped = lintCmd.isBlank();
+
+        @Nullable String lastFailStage = null; // "tests" | "lint"
+        @Nullable String lastFailCommand = null;
+        @Nullable String lastFailOutput = null;
+
+        for (int i = 0; i < maxIterations; i++) {
+            int attemptNumber = i + 1;
+
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
+            }
+
+            String startMsg = "Final verification attempt %d/%d: tests=%s, lint=%s"
+                    .formatted(
+                            attemptNumber, maxIterations, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
+            progressSink.accept(attemptNumber, startMsg);
+
+            String testOut = "";
+            if (testsSkipped) {
+                emitSkippedCommand(jobId, store, io, "tests", testCmd, attemptNumber, "blank_command");
+            } else {
+                testOut = runAndEmitCommand(jobId, store, io, "tests", testCmd, attemptNumber, commandRunner);
+            }
+            boolean testsPassed = testsSkipped || testOut.isBlank();
+
+            if (!testsPassed) {
+                lastFailStage = "tests";
+                lastFailCommand = testCmd;
+                lastFailOutput = testOut;
+
+                if (lintSkipped) {
+                    emitSkippedCommand(jobId, store, io, "lint", lintCmd, attemptNumber, "blank_command");
+                } else {
+                    emitSkippedCommand(jobId, store, io, "lint", lintCmd, attemptNumber, "tests_failed");
+                }
+
+                String resultMsg = "Final verification attempt %d/%d results: tests=FAIL, lint=SKIP"
+                        .formatted(attemptNumber, maxIterations);
+                progressSink.accept(attemptNumber, resultMsg);
+
+                fixTaskRunner.accept(testOut);
+                continue;
+            }
+
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("Cancelled during final verification (tests/lint)");
+            }
+
+            String lintOut = "";
+            if (lintSkipped) {
+                emitSkippedCommand(jobId, store, io, "lint", lintCmd, attemptNumber, "blank_command");
+            } else {
+                lintOut = runAndEmitCommand(jobId, store, io, "lint", lintCmd, attemptNumber, commandRunner);
+            }
             boolean lintPassed = lintSkipped || lintOut.isBlank();
 
             String resultMsg = "Final verification attempt %d/%d results: tests=%s, lint=%s"
@@ -2143,6 +2536,10 @@ public final class JobRunner {
         }
         // Fall back to repository-level build details
         return project.awaitBuildDetails();
+    }
+
+    static boolean shouldEnrichIssuePrompt(@Nullable String body) {
+        return TextUtil.countWords(body) < ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD;
     }
 
     static boolean issueDeliveryEnabled(JobSpec spec) {
@@ -2235,6 +2632,135 @@ public final class JobRunner {
         }
 
         finalVerificationPass.run();
+    }
+
+    /**
+     * ISSUE-mode review-fix loop with structured COMMAND_RESULT emission.
+     *
+     * <p>Contract:
+     * - Emits exactly one COMMAND_RESULT event per inline comment attempt (1-based).
+     * - If cancelled before a given attempt, emits a skipped event for that attempt and all remaining attempts.
+     * - If the task execution throws, emits a failed event (success=false, exception populated) and rethrows.
+     * - On success, emits a completed event.
+     *
+     * <p>Package-private for deterministic unit testing.
+     */
+    static void runIssueReviewFixAttemptsWithCommandResultEvents(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            BooleanSupplier isCancelled,
+            List<PrReviewService.InlineComment> inlineComments,
+            Consumer<PrReviewService.InlineComment> reviewFixTaskRunner,
+            Runnable perTaskBranchUpdate) {
+
+        for (int i = 0; i < inlineComments.size(); i++) {
+            int attempt = i + 1;
+            var comment = inlineComments.get(i);
+
+            String path = Objects.requireNonNullElse(comment.path(), "");
+            int line = comment.line();
+            String command = path + ":" + line;
+
+            String severity = comment.severity().name();
+            String body = Objects.requireNonNullElse(comment.bodyMarkdown(), "").trim();
+
+            String contextBlock =
+                    """
+                    Finding:
+                    - path: %s
+                    - line: %d
+                    - severity: %s
+                    - bodyMarkdown:
+                    %s
+                    """
+                            .formatted(path, line, severity, body.isEmpty() ? "(empty)" : body);
+
+            if (isCancelled.getAsBoolean()) {
+                for (int j = i; j < inlineComments.size(); j++) {
+                    int skippedAttempt = j + 1;
+                    var skipped = inlineComments.get(j);
+                    String skippedPath = Objects.requireNonNullElse(skipped.path(), "");
+                    int skippedLine = skipped.line();
+                    String skippedCommand = skippedPath + ":" + skippedLine;
+
+                    String skippedSeverity = skipped.severity().name();
+                    String skippedBody = Objects.requireNonNullElse(skipped.bodyMarkdown(), "")
+                            .trim();
+
+                    String skippedContextBlock =
+                            """
+                            Finding:
+                            - path: %s
+                            - line: %d
+                            - severity: %s
+                            - bodyMarkdown:
+                            %s
+
+                            Outcome: skipped
+                            """
+                                    .formatted(
+                                            skippedPath,
+                                            skippedLine,
+                                            skippedSeverity,
+                                            skippedBody.isEmpty() ? "(empty)" : skippedBody);
+
+                    emitCommandResult(
+                            jobId,
+                            store,
+                            io,
+                            commandResult(
+                                    "review_fix",
+                                    skippedCommand,
+                                    skippedAttempt,
+                                    /* skipped= */ true,
+                                    /* skipReason= */ "cancelled",
+                                    /* success= */ true,
+                                    skippedContextBlock,
+                                    null),
+                            "review_fix: SKIP");
+                }
+                return;
+            }
+
+            try {
+                reviewFixTaskRunner.accept(comment);
+                perTaskBranchUpdate.run();
+
+                String output = contextBlock + "\nOutcome: completed\n";
+                emitCommandResult(
+                        jobId,
+                        store,
+                        io,
+                        commandResult(
+                                "review_fix",
+                                command,
+                                attempt,
+                                /* skipped= */ false,
+                                /* skipReason= */ null,
+                                /* success= */ true,
+                                output,
+                                null),
+                        "review_fix: PASS");
+            } catch (RuntimeException re) {
+                String output = contextBlock + "\nOutcome: failed\n";
+                emitCommandResult(
+                        jobId,
+                        store,
+                        io,
+                        commandResult(
+                                "review_fix",
+                                command,
+                                attempt,
+                                /* skipped= */ false,
+                                /* skipReason= */ null,
+                                /* success= */ false,
+                                output,
+                                re),
+                        "review_fix: ERROR");
+                throw re;
+            }
+        }
     }
 
     static List<PrReviewService.InlineComment> issueModeComputeInlineCommentsOrEmpty(

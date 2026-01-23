@@ -8,6 +8,7 @@ import ai.brokk.SessionSynchronizer.ActionType;
 import ai.brokk.SessionSynchronizer.SyncAction;
 import ai.brokk.SessionSynchronizer.SyncCallbacks;
 import ai.brokk.SessionSynchronizer.SyncExecutor;
+import ai.brokk.SessionSynchronizer.SyncInfo;
 import ai.brokk.SessionSynchronizer.SyncResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -280,6 +282,42 @@ class SessionSyncExecutorTest {
     }
 
     @Test
+    void testExecuteUpload_413PersistsOversizedSession() throws IOException, InterruptedException, ExecutionException {
+        UUID id = UUID.randomUUID();
+        String name = "Large Session";
+        long modified = System.currentTimeMillis();
+
+        // Create local session file
+        Path zipPath = sessionManager.getSessionHistoryPath(id);
+        Files.createDirectories(zipPath.getParent());
+        Files.write(zipPath, createValidSessionZip(id, name, modified));
+
+        SessionInfo localInfo = new SessionInfo(id, name, modified, modified);
+        sessionManager.getSessionsCache().put(id, localInfo);
+
+        // Configure callback to throw 413
+        callbacks.exceptionOnUpload413 = true;
+
+        SyncAction action = new SyncAction(id, ActionType.UPLOAD, localInfo, null);
+
+        SyncResult result = syncExecutor.execute(List.of(action), callbacks, Collections.emptyMap(), REMOTE_PROJECT);
+
+        // Action should fail
+        assertTrue(result.failed().containsKey(id));
+        assertFalse(result.succeeded().contains(id));
+
+        // Session should be persisted in sync_info.json
+        SyncInfo syncInfo = sessionSynchronizer.readSyncInfo();
+        assertTrue(syncInfo.oversizedSessionIds().contains(id));
+
+        // Verify file exists with correct structure
+        Path syncInfoPath = sessionsDir.resolve("sync").resolve("sync_info.json");
+        assertTrue(Files.exists(syncInfoPath));
+        String content = Files.readString(syncInfoPath);
+        assertTrue(content.contains(id.toString()));
+    }
+
+    @Test
     void testExecute_ConcurrentActions() throws IOException, InterruptedException {
         // 1. Download
         UUID dlId = UUID.randomUUID();
@@ -350,6 +388,7 @@ class SessionSyncExecutorTest {
         List<UUID> downloadedIds = new ArrayList<>();
 
         boolean exceptionOnDownload = false;
+        boolean exceptionOnUpload413 = false;
 
         @Override
         public List<RemoteSessionMeta> listRemoteSessions(String remote) {
@@ -364,7 +403,11 @@ class SessionSyncExecutorTest {
         }
 
         @Override
-        public void writeRemoteSession(UUID id, String remote, String name, long modifiedAt, byte[] contentZip) {
+        public void writeRemoteSession(UUID id, String remote, String name, long modifiedAt, byte[] contentZip)
+                throws IOException {
+            if (exceptionOnUpload413) {
+                throw new ServiceHttpException(413, "Payload Too Large", "Session content exceeds maximum size");
+            }
             uploadedIds.add(id);
         }
 

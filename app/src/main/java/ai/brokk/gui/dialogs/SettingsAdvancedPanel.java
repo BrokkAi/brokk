@@ -58,7 +58,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     private final JSpinner memorySpinner = new JSpinner();
     private final JCheckBox instructionsTabInsertIndentationCheckbox =
             new JCheckBox("Tab inserts indentation in Instructions (Code-style)");
-    private final JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
+    private final JCheckBox advancedModeCheckbox = new JCheckBox("Enable Full Power mode");
     private final JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
     private final JLabel watchServiceImplLabel = new JLabel("File watcher implementation:");
     private final JComboBox<String> watchServiceImplCombo =

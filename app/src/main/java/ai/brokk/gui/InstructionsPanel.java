@@ -19,6 +19,7 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
@@ -97,7 +98,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_PLAN = "Plan";
 
     private static final String PLACEHOLDER_PREFIX = "Type your prompt here. ";
-    private static final String PLACEHOLDER_NEWLINE_HINT = "Shift+Enter = newline.";
 
     private boolean placeholderActive = false;
     private String currentPlaceholderText = "";
@@ -652,6 +652,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.addFocusListener(new FocusAdapter() {
             @Override
             public void focusLost(FocusEvent e) {
+                if (e.isTemporary()) return;
                 // Restore placeholder state if text is empty
                 SwingUtilities.invokeLater(() -> deactivateCommandInput());
             }
@@ -724,7 +725,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Add Shift+Enter shortcut to insert a newline
-        var shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+        var shiftEnter = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
         area.getInputMap().put(shiftEnter, "insertNewline");
         area.getActionMap().put("insertNewline", new AbstractAction() {
             @Override
@@ -1321,31 +1322,126 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    private String buildPlaceholderTextFromCurrentKeybindings() {
-        KeyStroke submitKs =
-                GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
-        String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-        String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
-
-        String base = PLACEHOLDER_PREFIX + PLACEHOLDER_NEWLINE_HINT;
-        if (submitHint.isBlank()) {
-            return (base + "\n").stripIndent();
+    private static void updateModeToggleLabelText(JLabel label, boolean isAdvanced) {
+        if (isAdvanced) {
+            label.setText("[Full Power]");
+            label.setToolTipText("Switch to Core Focus mode");
+        } else {
+            label.setText("[Core Focus]");
+            label.setToolTipText("Switch to Full Power mode with more options");
         }
-        return (base + " " + submitHint + "\n").stripIndent();
+    }
+
+    private boolean showFullPowerFirstTimeConfirmationDialog() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        String bodyText = "I think it is time to demonstrate the full power of this station.";
+        String linkText = "Here is what Full Power unlocks.";
+        String linkUrl = "https://brokk.ai/documentation/overview";
+
+        var messagePanel = new JPanel();
+        messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
+        messagePanel.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
+
+        var bodyArea = new JTextArea(bodyText);
+        bodyArea.setColumns(40);
+        bodyArea.setEditable(false);
+        bodyArea.setFocusable(false);
+        bodyArea.setOpaque(false);
+        bodyArea.setLineWrap(true);
+        bodyArea.setWrapStyleWord(true);
+        // JTextArea has a default margin/border that can shift its rendered text vs a JLabel; clear them for alignment.
+        bodyArea.setMargin(new Insets(0, 0, 0, 0));
+        bodyArea.setBorder(BorderFactory.createEmptyBorder());
+        var labelFont = UIManager.getFont("Label.font");
+        if (labelFont != null) {
+            bodyArea.setFont(labelFont);
+        }
+        bodyArea.setAlignmentX(Component.LEFT_ALIGNMENT);
+        messagePanel.add(bodyArea);
+
+        messagePanel.add(Box.createVerticalStrut(12));
+
+        var linkLabel = new BrowserLabel(linkUrl, linkText);
+        linkLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        messagePanel.add(linkLabel);
+
+        String primary = "Fire when ready";
+        String cancel = "Cancel";
+        String[] options = {primary, cancel};
+
+        int choice = MaterialOptionPane.showOptionDialog(
+                chrome.getFrame(),
+                messagePanel,
+                "Full Power",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.INFORMATION_MESSAGE,
+                null,
+                options,
+                primary);
+
+        return choice == 0;
+    }
+
+    private String buildPlaceholderTextFromCurrentKeybindings() {
+        String placeholder;
+        try {
+            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
+                    "instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
+            String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
+            String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
+
+            KeyStroke newlineKs = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
+            String newlineStr = KeyboardShortcutUtil.formatKeyStroke(newlineKs);
+            String newlineHint = newlineStr.isBlank() ? "" : newlineStr + " = newline.";
+
+            String base = PLACEHOLDER_PREFIX + newlineHint;
+            if (submitHint.isBlank()) {
+                placeholder = (base + "\n").stripIndent();
+            } else {
+                placeholder = (base + " " + submitHint + "\n").stripIndent();
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to build placeholder text from keybindings, falling back to default prefix.", e);
+            placeholder = PLACEHOLDER_PREFIX;
+        }
+
+        if (placeholder == null || placeholder.trim().isEmpty()) {
+            logger.warn(
+                    "Computed placeholder text was blank; falling back to default prefix. Raw placeholder='{}'",
+                    placeholder);
+            placeholder = PLACEHOLDER_PREFIX;
+        }
+
+        return placeholder;
     }
 
     private void showPlaceholder(JTextArea area) {
         assert SwingUtilities.isEventDispatchThread();
-        currentPlaceholderText = buildPlaceholderTextFromCurrentKeybindings();
+        String computed = buildPlaceholderTextFromCurrentKeybindings();
+        if (computed == null || computed.trim().isEmpty()) {
+            logger.warn(
+                    "showPlaceholder received blank placeholder text; using default prefix instead. Text='{}'",
+                    computed);
+            computed = PLACEHOLDER_PREFIX;
+        }
+        currentPlaceholderText = computed;
         placeholderActive = true;
         area.setText(currentPlaceholderText);
     }
 
-    private boolean isPlaceholderText(String text) {
-        if (!placeholderActive) {
+    static boolean isPlaceholderMatch(@Nullable String text, @Nullable String placeholder) {
+        if (text == null || placeholder == null) {
             return false;
         }
-        return Objects.equals(text, currentPlaceholderText);
+        String normalizedText = text.replace("\r\n", "\n");
+        String normalizedPlaceholder = placeholder.replace("\r\n", "\n");
+        return normalizedText.equals(normalizedPlaceholder);
+    }
+
+    private boolean isPlaceholderText(String text) {
+        if (!placeholderActive) return false;
+        return isPlaceholderMatch(text, currentPlaceholderText);
     }
 
     /**
@@ -1381,6 +1477,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         this.bottomToolbarPanel = bottomPanel;
+
+        // Mode toggle link (EZ/Adv mode) - left aligned
+        var modeToggleLabel = new JLabel();
+        modeToggleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        modeToggleLabel.setFocusable(false);
+        {
+            Color fg = UIManager.getColor("Label.foreground");
+            if (fg != null) {
+                modeToggleLabel.setForeground(fg);
+            }
+        }
+        updateModeToggleLabelText(modeToggleLabel, GlobalUiSettings.isAdvancedMode());
+        modeToggleLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                assert SwingUtilities.isEventDispatchThread();
+
+                boolean currentMode = GlobalUiSettings.isAdvancedMode();
+                boolean newMode = !currentMode;
+
+                if (newMode && !GlobalUiSettings.isFullPowerAcknowledged()) {
+                    boolean accepted = showFullPowerFirstTimeConfirmationDialog();
+                    if (!accepted) {
+                        return;
+                    }
+                    GlobalUiSettings.saveFullPowerAcknowledged(true);
+                }
+
+                GlobalUiSettings.saveAdvancedMode(newMode);
+                updateModeToggleLabelText(modeToggleLabel, newMode);
+                chrome.applyAdvancedModeVisibility();
+                applyAdvancedModeForInstructions(newMode);
+            }
+        });
+        modeToggleLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(modeToggleLabel);
 
         // Flexible space before right-side controls (model selector + optional status strip + action button)
         bottomPanel.add(Box.createHorizontalGlue());
@@ -1704,7 +1836,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         List<ChatMessage> messages;
         Context ctx = cm.liveContext();
-        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
 
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
         return executeAskCommand(llm, messages, cm, question, meta);
