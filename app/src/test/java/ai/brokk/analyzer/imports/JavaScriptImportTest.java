@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.JavascriptAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -387,6 +388,35 @@ public class JavaScriptImportTest {
                             && cu.source().getRelPath().equals(expectedPath));
 
             assertTrue(foundLibFunc, "Should have resolved 'libFunc' from lib/index.js via require");
+        }
+    }
+
+    @Test
+    public void testExtractTypeIdentifiers() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import { Foo } from './foo';
+                import { Bar } from './bar';
+
+                function useFoo() {
+                    const x = new Foo();
+                    return <Bar prop={x} />;
+                }
+                """,
+                        "test.js")
+                .build()) {
+            var analyzer = (JavascriptAnalyzer) createTreeSitterAnalyzer(testProject);
+            String source = """
+                function useFoo() {
+                    const x = new Foo();
+                    return <Bar prop={x} />;
+                }
+                """;
+            Set<String> identifiers = analyzer.extractTypeIdentifiers(source);
+
+            assertTrue(identifiers.contains("Foo"), "Should contain Foo from constructor call");
+            assertTrue(identifiers.contains("Bar"), "Should contain Bar from JSX element");
+            assertTrue(identifiers.contains("x"), "Should contain local variable x");
         }
     }
 

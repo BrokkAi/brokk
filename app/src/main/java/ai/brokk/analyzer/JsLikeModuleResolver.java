@@ -129,7 +129,7 @@ public interface JsLikeModuleResolver {
     static void extractCommonJsRequireImport(
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
-            List<String> localImportStatements) {
+            List<ImportInfo> localImportInfos) {
         TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
         TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
         if (requireCallNode != null
@@ -141,7 +141,7 @@ public interface JsLikeModuleResolver {
                 String requireText =
                         sourceContent.substringFrom(requireCallNode).strip();
                 if (!requireText.isEmpty()) {
-                    localImportStatements.add(requireText);
+                    localImportInfos.add(new ImportInfo(requireText, false, "", ""));
                 }
             }
         }

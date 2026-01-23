@@ -11,11 +11,13 @@ import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSParser;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryException;
 import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJavascript;
 
 public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, JsLikeModuleResolver {
@@ -533,9 +535,9 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch,
             SourceContent sourceContent,
-            List<String> localImportStatements) {
-        super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
-        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
+            List<ImportInfo> localImportInfos) {
+        super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportInfos);
     }
 
     @Override
@@ -567,5 +569,50 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        try {
+            TSTree tree = parser.parseString(null, source);
+            TSNode rootNode = tree.getRootNode();
+            TSLanguage jsLanguage = getTSLanguage();
+
+            // Query for standard identifiers and JSX tag names
+            String queryStr =
+                    """
+                (identifier) @id
+                (jsx_opening_element name: (identifier) @id)
+                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
+                (jsx_self_closing_element name: (identifier) @id)
+                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
+                """;
+
+            TSQuery query = new TSQuery(jsLanguage, queryStr);
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(query, rootNode);
+            TSQueryMatch match = new TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    String id = source.substring(
+                            byteOffsetToCharPosition(source, node.getStartByte()),
+                            byteOffsetToCharPosition(source, node.getEndByte()));
+                    identifiers.add(id);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to extract type identifiers from JavaScript source", e);
+        }
+        return identifiers;
+    }
+
+    private int byteOffsetToCharPosition(String source, int byteOffset) {
+        // Simple byte-to-char conversion for ASCII-heavy source; SourceContent usually handles this
+        // but we are working with a raw String here.
+        return SourceContent.of(source).byteOffsetToCharPosition(byteOffset);
     }
 }
