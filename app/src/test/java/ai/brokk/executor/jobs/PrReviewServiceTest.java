@@ -373,7 +373,8 @@ class PrReviewServiceTest {
 
     @Test
     void testParsePrReviewResponse_MissingAllLineFields_ThrowsException() {
-        String json = """
+        String json =
+                """
                 {
                   "summaryMarkdown": "## Review",
                   "comments": [
@@ -657,7 +658,8 @@ class PrReviewServiceTest {
     void testParsePrReviewResponse_ExplicitLineTakesPrecedenceOverRange() {
         // When JSON has both line: 10 and startLine: 5, endLine: 8,
         // the resolved line should be 10 (not 5), confirming legacy line takes precedence
-        String json = """
+        String json =
+                """
                 {
                   "summaryMarkdown": "## Review",
                   "comments": [
@@ -686,7 +688,8 @@ class PrReviewServiceTest {
     @Test
     void testParsePrReviewResponse_InvalidRangeDoesNotThrow() {
         // When startLine > endLine, parsing should still succeed gracefully
-        String json = """
+        String json =
+                """
                 {
                   "summaryMarkdown": "## Review",
                   "comments": [

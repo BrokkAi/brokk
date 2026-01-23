@@ -122,7 +122,8 @@ public final class PrReviewService {
                     Severity.normalize(severity));
         }
 
-        private static int resolveLineNumber(@Nullable Integer lineJson, @Nullable Integer startLine, @Nullable Integer endLine) {
+        private static int resolveLineNumber(
+                @Nullable Integer lineJson, @Nullable Integer startLine, @Nullable Integer endLine) {
             if (lineJson != null) {
                 return lineJson;
             }
@@ -132,7 +133,8 @@ public final class PrReviewService {
             if (endLine != null) {
                 return endLine;
             }
-            throw new IllegalArgumentException("InlineComment requires at least one of 'line', 'startLine', or 'endLine'");
+            throw new IllegalArgumentException(
+                    "InlineComment requires at least one of 'line', 'startLine', or 'endLine'");
         }
 
         /** Canonical constructor: ensure severity is non-null. */
