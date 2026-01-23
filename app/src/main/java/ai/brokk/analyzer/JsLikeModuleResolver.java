@@ -17,17 +17,18 @@ import org.treesitter.TSNode;
 
 public interface JsLikeModuleResolver {
 
-    default Set<String> relevantImportsForJsLike(IAnalyzer analyzer, CodeUnit cu) {
-        ImportAnalysisProvider provider =
-                analyzer.as(ImportAnalysisProvider.class).orElse(null);
-        if (provider == null) {
-            return Set.of();
-        }
-
+    /**
+     * Finds imports relevant to a specific CodeUnit in JavaScript-like languages.
+     *
+     * @param analyzer the analyzer instance which must provide both source access and import analysis
+     * @param cu       the code unit to find imports for
+     * @return a set of relevant import snippets
+     */
+    default <T extends IAnalyzer & ImportAnalysisProvider> Set<String> relevantImportsForJsLike(T analyzer, CodeUnit cu) {
         return analyzer.getSource(cu, false)
                 .map(source -> {
                     Set<String> codeIdentifiers = extractTypeIdentifiers(source);
-                    List<ImportInfo> imports = provider.importInfoOf(cu.source());
+                    List<ImportInfo> imports = analyzer.importInfoOf(cu.source());
 
                     return imports.stream()
                             .filter(imp -> importMatchesAnyIdentifier(imp.rawSnippet(), codeIdentifiers))
