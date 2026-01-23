@@ -54,8 +54,9 @@ public class Environment {
         return Duration.ofMinutes(2);
     }
 
-    /** Timeout for fast git commands (status, branch, etc.). */
-    public static final Duration GIT_TIMEOUT = Duration.ofSeconds(10);
+    /** Timeout for fast git commands (status, branch, etc.). Configurable via BRK_GIT_TIMEOUT_SECONDS env var. */
+    public static final Duration GIT_TIMEOUT = Duration.ofSeconds(
+            Integer.parseInt(System.getenv().getOrDefault("BRK_GIT_TIMEOUT_SECONDS", "120")));
 
     /** Timeout for network-heavy git operations (fetch, clone, push, pull). */
     public static final Duration GIT_NETWORK_TIMEOUT = Duration.ofMinutes(5);
