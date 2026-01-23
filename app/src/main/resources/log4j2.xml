@@ -7,6 +7,10 @@
   </Properties>
 
   <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="${pattern}"/>
+    </Console>
+
     <RollingFile name="RollingFileLogger" fileName="${logFile}"
                  filePattern="${sys:user.home}/.brokk/debug.log.%d{yyyy-MM-dd}">
       <PatternLayout pattern="${pattern}"/>
@@ -28,26 +32,33 @@
     <!-- Logger configuration for specific packages logging only errors -->
     <Logger name="org.eclipse" level="error" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
+      <AppenderRef ref="Console"/>
     </Logger>
     <Logger name="dev.langchain4j" level="warn" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
+      <AppenderRef ref="Console"/>
     </Logger>
     <Logger name="com.github.tjake.jlama" level="warn" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
+      <AppenderRef ref="Console"/>
     </Logger>
     <Logger name="com.jediterm" level="info" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
+      <AppenderRef ref="Console"/>
     </Logger>
     <Logger name="io.methvin.watcher" level="warn" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
+      <AppenderRef ref="Console"/>
     </Logger>
     <Logger name="com.github.difflib" level="error" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
+      <AppenderRef ref="Console"/>
     </Logger>
 
     <!-- Root logger for all other log messages -->
     <Root level="debug">
       <AppenderRef ref="RollingFileLogger"/>
+      <AppenderRef ref="Console"/>
     </Root>
   </Loggers>
 </Configuration>
