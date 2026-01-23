@@ -20,14 +20,14 @@ import org.treesitter.TSQueryException;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJavascript;
 
-public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
+public class JavascriptAnalyzer extends TreeSitterAnalyzer
+        implements ImportAnalysisProvider, JsLikeModuleResolver {
 
-    record ModulePathKey(ProjectFile importingFile, String modulePath) {}
-
-    private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
+    private final Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
 
-    Cache<ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
+    @Override
+    public Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
         return moduleResolutionCache;
     }
 
@@ -521,30 +521,15 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 .map(JavascriptAnalyzer::extractModulePathFromImport)
                 .flatMap(Optional::stream)
                 .map(path -> {
-                    if (analyzer instanceof JavascriptAnalyzer ja) {
-                        return resolveModulePath(ja.getModuleResolutionCache(), root, absolutePaths, file, path);
-                    }
-                    if (analyzer instanceof TypescriptAnalyzer ta) {
-                        return resolveModulePath(ta.getModuleResolutionCache(), root, absolutePaths, file, path);
+                    if (analyzer instanceof JsLikeModuleResolver resolver) {
+                        return JsLikeModuleResolver.resolveModulePath(
+                                resolver.getModuleResolutionCache(), root, absolutePaths, file, path);
                     }
                     return resolveJavaScriptLikeModulePath(root, absolutePaths, file, path);
                 })
                 .filter(Objects::nonNull)
                 .flatMap(resolvedFile -> analyzer.getDeclarations(resolvedFile).stream())
                 .collect(Collectors.toSet());
-    }
-
-    static @Nullable ProjectFile resolveModulePath(
-            Cache<ModulePathKey, Optional<ProjectFile>> cache,
-            Path projectRoot,
-            Set<Path> absolutePaths,
-            ProjectFile importingFile,
-            String modulePath) {
-        return cache.get(
-                        new ModulePathKey(importingFile, modulePath),
-                        key -> Optional.ofNullable(
-                                resolveJavaScriptLikeModulePath(projectRoot, absolutePaths, importingFile, modulePath)))
-                .orElse(null);
     }
 
     public static Optional<String> extractModulePathFromImport(String importStatement) {

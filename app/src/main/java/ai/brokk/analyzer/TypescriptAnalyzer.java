@@ -20,13 +20,15 @@ import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterTypescript;
 
-public final class TypescriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
+public final class TypescriptAnalyzer extends TreeSitterAnalyzer
+        implements ImportAnalysisProvider, JsLikeModuleResolver {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
 
-    private final Cache<JavascriptAnalyzer.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
+    private final Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
 
-    Cache<JavascriptAnalyzer.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
+    @Override
+    public Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
         return moduleResolutionCache;
     }
 
