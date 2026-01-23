@@ -375,4 +375,23 @@ public class FuzzyUsageFinderJavaTest {
 
         assertEquals(Set.of(hitIncluded, hitHigh), filtered);
     }
+
+    @Test
+    public void testUsageHitEqualityBasedOnPosition() {
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var file = new ProjectFile(root, Path.of("A.java"));
+        var enclosing = new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.FUNCTION, "p", "m", null);
+
+        // Two hits in the same enclosing method but at different offsets
+        UsageHit hit1 = new UsageHit(file, 10, 100, 110, enclosing, 1.0, "snippet1");
+        UsageHit hit2 = new UsageHit(file, 12, 200, 210, enclosing, 1.0, "snippet2");
+
+        assertNotEquals(hit1, hit2, "Hits at different offsets should not be equal even if enclosing is same");
+        assertNotEquals(hit1.hashCode(), hit2.hashCode(), "Hash codes should differ for different offsets");
+
+        Set<UsageHit> hitSet = new HashSet<>();
+        hitSet.add(hit1);
+        hitSet.add(hit2);
+        assertEquals(2, hitSet.size(), "Set should preserve both hits within the same enclosing unit");
+    }
 }
