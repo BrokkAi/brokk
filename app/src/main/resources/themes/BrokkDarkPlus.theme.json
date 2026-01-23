@@ -233,6 +233,7 @@
       "git_badge_background": "#1e88e5",
       "git_badge_text": "#ffffff",
       "ci_excluded_foreground": "#707070",
+      "untracked_foreground": "#CC8844",
 
       "mode_answer_bg": "#1e88e5",
       "mode_answer_fg": "#ffffff",
