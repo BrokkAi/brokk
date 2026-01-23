@@ -954,6 +954,86 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> extractedIdentifiers = extractTypeIdentifiers(sourceOpt.get());
+        if (extractedIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        List<ImportInfo> imports = importInfoOf(cu.source());
+        if (imports.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> matchedImports = new LinkedHashSet<>();
+        Set<String> resolvedIdentifiers = new HashSet<>();
+        List<ImportInfo> wildcardImports = new ArrayList<>();
+
+        // First pass: match explicit (non-wildcard) imports
+        for (ImportInfo info : imports) {
+            if (info.isWildcard()) {
+                wildcardImports.add(info);
+                continue;
+            }
+
+            String identifier = info.identifier();
+            String alias = info.alias();
+
+            if (identifier != null && extractedIdentifiers.contains(identifier)) {
+                matchedImports.add(info.rawSnippet());
+                resolvedIdentifiers.add(identifier);
+            }
+            if (alias != null && extractedIdentifiers.contains(alias)) {
+                matchedImports.add(info.rawSnippet());
+                resolvedIdentifiers.add(alias);
+            }
+        }
+
+        // Determine unresolved identifiers
+        Set<String> unresolvedIdentifiers = new HashSet<>(extractedIdentifiers);
+        unresolvedIdentifiers.removeAll(resolvedIdentifiers);
+
+        // Second pass: check wildcard imports for unresolved identifiers
+        if (!unresolvedIdentifiers.isEmpty() && !wildcardImports.isEmpty()) {
+            Set<String> resolvedViaWildcard = new HashSet<>();
+            Set<ImportInfo> usedWildcards = new LinkedHashSet<>();
+
+            for (String id : unresolvedIdentifiers) {
+                for (ImportInfo wildcard : wildcardImports) {
+                    String packageName = extractPackageFromWildcard(wildcard.rawSnippet());
+                    if (packageName.isEmpty()) continue;
+
+                    var definitions = getDefinitions(packageName + "." + id);
+                    if (!definitions.isEmpty()) {
+                        usedWildcards.add(wildcard);
+                        resolvedViaWildcard.add(id);
+                    }
+                }
+            }
+
+            // Add wildcards that resolved identifiers
+            for (ImportInfo wildcard : usedWildcards) {
+                matchedImports.add(wildcard.rawSnippet());
+            }
+
+            // If any identifiers remain unresolved, include all wildcards as fallback
+            unresolvedIdentifiers.removeAll(resolvedViaWildcard);
+            if (!unresolvedIdentifiers.isEmpty()) {
+                for (ImportInfo wildcard : wildcardImports) {
+                    matchedImports.add(wildcard.rawSnippet());
+                }
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    @Override
     protected Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();

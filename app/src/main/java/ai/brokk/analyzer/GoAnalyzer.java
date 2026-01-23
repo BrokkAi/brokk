@@ -438,6 +438,40 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> extractedIdentifiers = extractTypeIdentifiers(sourceOpt.get());
+        if (extractedIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        List<ImportInfo> imports = importInfoOf(cu.source());
+        if (imports.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> matchedImports = new LinkedHashSet<>();
+
+        for (ImportInfo info : imports) {
+            String identifier = info.identifier();
+            String alias = info.alias();
+
+            // Match by identifier (package name) or alias
+            if (identifier != null && extractedIdentifiers.contains(identifier)) {
+                matchedImports.add(info.rawSnippet());
+            } else if (alias != null && extractedIdentifiers.contains(alias)) {
+                matchedImports.add(info.rawSnippet());
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(GO_SYNTAX_PROFILE.importNodeType());
