@@ -24,14 +24,6 @@ public final class UsagePromptBuilder {
 
     /**
      * Build a prompt for a single usage hit.
-     *
-     * @param hit single usage occurrence (snippet should contain ~3 lines above/below already if desired)
-     * @param codeUnitTarget the intended target code unit
-     * @param alternatives other code units with the same short name that are not the target
-     * @param analyzer used to retrieve import statements for the file containing the usage
-     * @param shortName the short name being searched (e.g., "A.method2")
-     * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
-     * @return UsagePrompt containing filterDescription, candidateText, and promptText
      */
     public static UsagePrompt buildPrompt(
             UsageHit hit,
@@ -40,6 +32,32 @@ public final class UsagePromptBuilder {
             IAnalyzer analyzer,
             String shortName,
             int maxTokens) {
+        return buildPrompt(List.of(hit), codeUnitTarget, alternatives, analyzer, shortName, maxTokens);
+    }
+
+    /**
+     * Build a prompt for multiple usage hits sharing the same enclosing CodeUnit.
+     *
+     * @param hits list of usage occurrences (must all share the same enclosing CodeUnit and file)
+     * @param codeUnitTarget the intended target code unit
+     * @param alternatives other code units with the same short name that are not the target
+     * @param analyzer used to retrieve import statements for the file containing the usage
+     * @param shortName the short name being searched (e.g., "A.method2")
+     * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
+     * @return UsagePrompt containing filterDescription, combined candidateText, and promptText
+     */
+    public static UsagePrompt buildPrompt(
+            List<UsageHit> hits,
+            CodeUnit codeUnitTarget,
+            Collection<CodeUnit> alternatives,
+            IAnalyzer analyzer,
+            String shortName,
+            int maxTokens) {
+        if (hits.isEmpty()) {
+            throw new IllegalArgumentException("hits must not be empty");
+        }
+
+        UsageHit first = hits.get(0);
 
         // Approximate token-to-character budget (very conservative)
         final int maxChars = (maxTokens <= 0) ? Integer.MAX_VALUE : Math.max(512, maxTokens * 4);
@@ -47,9 +65,6 @@ public final class UsagePromptBuilder {
 
         // Filter description for RelevanceClassifier.relevanceScore
         String filterDescription = buildFilterDescription(codeUnitTarget, !alternatives.isEmpty());
-
-        // Candidate text is the raw snippet for this single usage
-        String candidateText = hit.snippet();
 
         // Metadata headers
         sb.append("Short Name of Search: ").append(shortName).append("\n");
@@ -65,17 +80,17 @@ public final class UsagePromptBuilder {
             }
         }
 
-        sb.append("File of Hit: ").append(hit.file().getRelPath()).append("\n");
+        sb.append("File of Hit: ").append(first.file().getRelPath()).append("\n");
 
         // Gather imports (best effort)
         List<String> imports;
         try {
-            imports = analyzer.importStatementsOf(hit.file());
+            imports = analyzer.importStatementsOf(first.file());
         } catch (Throwable t) {
             imports = List.of(); // fail open
         }
 
-        String extension = hit.file().extension();
+        String extension = first.file().extension();
         sb.append("```").append(extension).append("\n");
 
         for (String imp : imports) {
@@ -86,9 +101,13 @@ public final class UsagePromptBuilder {
         }
 
         sb.append("// snippet of method containing possible usage ")
-                .append(hit.enclosing().fqName())
+                .append(first.enclosing().fqName())
                 .append("\n");
-        sb.append(candidateText).append("\n");
+
+        // Combine and deduplicate snippets
+        String combinedSnippets = combineSnippets(hits);
+        sb.append(combinedSnippets).append("\n");
+
         sb.append("// rest of class\n");
         sb.append("```\n");
 
@@ -107,7 +126,78 @@ public final class UsagePromptBuilder {
             sb.append(marker);
         }
 
-        return new UsagePrompt(filterDescription, candidateText, sb.toString());
+        return new UsagePrompt(filterDescription, combinedSnippets, sb.toString());
+    }
+
+    private static String combineSnippets(List<UsageHit> hits) {
+        if (hits.size() == 1) {
+            return hits.get(0).snippet();
+        }
+
+        // Sort hits by line number
+        List<UsageHit> sortedHits = hits.stream()
+                .sorted((a, b) -> Integer.compare(a.line(), b.line()))
+                .toList();
+
+        StringBuilder result = new StringBuilder();
+        String lastSnippet = null;
+        int lastEndLine = -1;
+
+        for (UsageHit hit : sortedHits) {
+            String currentSnippet = hit.snippet();
+            int currentLine = hit.line();
+            // Snippets have ~3 lines above/below.
+            int currentStartLine = Math.max(0, currentLine - 3);
+
+            if (lastSnippet != null && currentStartLine <= lastEndLine + 1) {
+                // Overlap or adjacency: try to merge
+                String[] lastLines = lastSnippet.split("\n", -1);
+                String[] currentLines = currentSnippet.split("\n", -1);
+
+                // Find where the current snippet starts relative to the last snippet's first line
+                // lastEndLine corresponds to the last line of the previous snippet's logic
+                // The previous snippet had length lastLines.length.
+                int lastStartLine = lastEndLine - 3 - (lastLines.length / 2); // heuristic check
+                // However, a simpler way is to just look for overlapping lines
+                int overlapIndex = -1;
+                for (int i = 0; i < lastLines.length; i++) {
+                    if (lastLines[i].equals(currentLines[0])) {
+                        // Potential start of overlap. Check if subsequent lines match.
+                        boolean match = true;
+                        for (int j = 0; j < Math.min(lastLines.length - i, currentLines.length); j++) {
+                            if (!lastLines[i + j].equals(currentLines[j])) {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match) {
+                            overlapIndex = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (overlapIndex != -1) {
+                    int remainingStart = lastLines.length - overlapIndex;
+                    for (int i = remainingStart; i < currentLines.length; i++) {
+                        result.append("\n").append(currentLines[i]);
+                    }
+                } else {
+                    // Fallback if content doesn't literally overlap despite line proximity
+                    result.append("\n").append(currentSnippet);
+                }
+            } else {
+                if (lastSnippet != null) {
+                    result.append("\n...\n");
+                }
+                result.append(currentSnippet);
+            }
+
+            lastSnippet = currentSnippet;
+            lastEndLine = currentLine + 3; // Approximate based on snippet generation logic
+        }
+
+        return result.toString();
     }
 
     private static String buildFilterDescription(CodeUnit targetCodeUnit, boolean hasAlternatives) {
