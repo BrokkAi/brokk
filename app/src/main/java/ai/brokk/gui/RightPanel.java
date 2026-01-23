@@ -892,6 +892,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void selectBuildTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Build");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
@@ -899,6 +900,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void selectReviewTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Review");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
@@ -906,6 +908,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void selectPreviewTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Preview");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
@@ -913,6 +916,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void cycleBuildReviewPreview(boolean forward) {
+        assert SwingUtilities.isEventDispatchThread();
         List<Integer> indices = new ArrayList<>();
         int buildIdx = buildReviewTabs.indexOfTab("Build");
         if (buildIdx != -1) {
@@ -941,6 +945,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void selectTerminalTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Terminal");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
@@ -948,6 +953,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void selectTasksTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int buildIdx = buildReviewTabs.indexOfTab("Build");
         if (buildIdx != -1) {
             buildReviewTabs.setSelectedIndex(buildIdx);
@@ -960,6 +966,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void selectInstructionsTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int buildIdx = buildReviewTabs.indexOfTab("Build");
         if (buildIdx != -1) {
             buildReviewTabs.setSelectedIndex(buildIdx);
