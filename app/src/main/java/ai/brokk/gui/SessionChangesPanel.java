@@ -557,14 +557,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                     if (!computed.scope.changes().equals(lastCumulativeChanges)) {
                         lastCumulativeChanges = computed.scope.changes();
-
-                        SwingUtilities.invokeLater(() -> {
-                            if (thisGeneration != updateGeneration.get()) return;
-                            emitReviewTabStateFromResult(computed.scope.changes(), computed.state.baselineLabel());
-                        });
-
                         deferredUpdateHelper.requestUpdate();
                     }
+
+                    SwingUtilities.invokeLater(() -> {
+                        if (thisGeneration != updateGeneration.get()) return;
+                        emitReviewTabStateFromResult(computed.scope.changes(), computed.state.baselineLabel());
+                    });
                 })
                 .exceptionally(ex -> {
                     if (thisGeneration != updateGeneration.get()) return null;
@@ -1448,6 +1447,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     lastReviewState = new ReviewState(scope.metadata().fromRef(), now);
                     reviewTargetCommit = currentHash;
                     setMode(PanelMode.REVIEW);
+                    emitReviewTabStateFromCached();
                     codeReviewPanel.displayReview(result.review(), result.context());
                     codeReviewPanel.setBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
