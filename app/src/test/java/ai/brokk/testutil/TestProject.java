@@ -101,10 +101,6 @@ public class TestProject implements IProject {
         return styleGuide;
     }
 
-    public void setStyleGuide(String styleGuide) {
-        this.styleGuide = styleGuide;
-    }
-
     public void setExclusionPatterns(Set<String> patterns) {
         this.exclusionPatterns = patterns;
     }
