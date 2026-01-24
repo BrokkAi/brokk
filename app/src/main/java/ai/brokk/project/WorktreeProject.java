@@ -89,16 +89,6 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public String getReviewGuide() {
-        return parent.getReviewGuide();
-    }
-
-    @Override
-    public void saveReviewGuide(String reviewGuide) {
-        parent.saveReviewGuide(reviewGuide);
-    }
-
-    @Override
     public boolean isDataShareAllowed() {
         return parent.isDataShareAllowed();
     }

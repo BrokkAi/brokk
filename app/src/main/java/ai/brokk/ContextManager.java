@@ -429,7 +429,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
 
         // Ensure build details are loaded/generated asynchronously
-        // (style and review guides are handled by ensureGuidesAsync() called earlier)
+        // (style guide is handled by ensureGuidesAsync() called earlier)
         ensureBuildDetailsAsync();
         cleanupOldHistoryAsync();
 
@@ -1973,15 +1973,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Removed BuildCommand record
 
     /**
-     * Ensure both style and review guides exist, reading from disk off EDT.
-     * Style guide is generated via LLM if missing; review guide uses a default template.
+     * Ensures style guide exists, reading from disk off EDT.
+     * Style guide is generated via LLM if missing.
      * Returns a CompletableFuture for the style guide content.
      */
     public CompletableFuture<String> ensureGuidesAsync() {
         return submitBackgroundTask("Loading project guides", () -> {
-            // Handle review guide off EDT
-            ensureReviewGuide();
-
             // Handle style guide off EDT
             String existingStyleGuide = project.getStyleGuide();
             if (!existingStyleGuide.isEmpty()) {
@@ -2129,15 +2126,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public boolean wasStyleGenerationSkipped() {
         return styleGenerationSkipped;
-    }
-
-    /** Ensure review guide exists, creating default if needed. Safe to call from any thread. */
-    private void ensureReviewGuide() {
-        if (!project.getReviewGuide().isEmpty()) {
-            return;
-        }
-        project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "Review guide created at .brokk/review.md");
     }
 
     /**
@@ -2755,7 +2743,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         initializeCurrentSessionAndHistory(true);
 
-        ensureReviewGuide();
         cleanupOldHistoryAsync();
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
         // otherwise we leave them empty

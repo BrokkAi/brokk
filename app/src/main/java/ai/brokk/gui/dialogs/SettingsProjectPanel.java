@@ -55,9 +55,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final JTextArea styleGuideArea = new JTextArea(5, 40);
     private final JTextArea commitFormatArea = new JTextArea(5, 40);
 
-    @Nullable
-    private JTextArea reviewGuideArea;
-
     // Unified exclusion patterns (directories and file patterns combined)
     private final DefaultListModel<String> exclusionPatternsListModel = new DefaultListModel<>();
     private final JList<String> exclusionPatternsList = new JList<>(exclusionPatternsListModel);
@@ -153,10 +150,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         styleGuideArea.setCaretPosition(0); // Reset scroll position to top
         commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
         commitFormatArea.setCaretPosition(0); // Reset scroll position to top
-        if (reviewGuideArea != null) {
-            reviewGuideArea.setText(data.reviewGuide() != null ? data.reviewGuide() : "");
-            reviewGuideArea.setCaretPosition(0); // Reset scroll position to top
-        }
     }
 
     private void populateIssuesTab() {
@@ -429,46 +422,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 .deriveFont(Font.ITALIC, commitFormatInfo.getFont().getSize() * 0.9f));
         gbc.insets = new Insets(0, 2, 8, 2); // Increased bottom inset
         generalPanel.add(commitFormatInfo, gbc);
-
-        gbc.insets = new Insets(2, 2, 2, 2);
-
-        var project = chrome.getProject();
-        boolean showReviewGuide = project.isGitHubRepo();
-
-        if (showReviewGuide) {
-            gbc.gridx = 0;
-            gbc.gridy = row;
-            gbc.weightx = 0.0;
-            gbc.anchor = GridBagConstraints.NORTHWEST;
-            gbc.fill = GridBagConstraints.NONE;
-            generalPanel.add(new JLabel("Review Guide:"), gbc);
-            reviewGuideArea = new JTextArea(5, 40);
-            reviewGuideArea.setWrapStyleWord(true);
-            reviewGuideArea.setLineWrap(true);
-            var reviewGuideScrollPane = new JScrollPane(reviewGuideArea);
-            reviewGuideScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-            reviewGuideScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-            gbc.gridx = 1;
-            gbc.gridy = row++;
-            gbc.weightx = 1.0;
-            gbc.weighty = 0.5;
-            gbc.fill = GridBagConstraints.BOTH;
-            generalPanel.add(reviewGuideScrollPane, gbc);
-
-            gbc.gridx = 1;
-            gbc.gridy = row++;
-            gbc.weightx = 1.0;
-            gbc.weighty = 0.0;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.anchor = GridBagConstraints.NORTHWEST;
-            var reviewGuideInfo = new JLabel(
-                    "<html>The Review Guide is used to auto-populate the Instructions when capturing a pull request.</html>");
-            reviewGuideInfo.setFont(reviewGuideInfo
-                    .getFont()
-                    .deriveFont(Font.ITALIC, reviewGuideInfo.getFont().getSize() * 0.9f));
-            gbc.insets = new Insets(0, 2, 8, 2);
-            generalPanel.add(reviewGuideInfo, gbc);
-        }
 
         gbc.weighty = 0.0; // Reset for any future components
         gbc.gridy = row; // Use current row for glue
@@ -1267,9 +1220,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // General Tab
         project.saveStyleGuide(styleGuideArea.getText());
         project.setCommitMessageFormat(commitFormatArea.getText());
-        if (reviewGuideArea != null) {
-            project.saveReviewGuide(reviewGuideArea.getText());
-        }
 
         // Issues Tab
         IssueProviderType selectedType = (IssueProviderType) issueProviderTypeComboBox.getSelectedItem();

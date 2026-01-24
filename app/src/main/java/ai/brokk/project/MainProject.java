@@ -73,7 +73,6 @@ public final class MainProject extends AbstractProject {
     private final Properties projectProps;
     private final Path styleGuidePath;
     private final Path legacyStyleGuidePath;
-    private final Path reviewGuidePath;
     private final SessionManager sessionManager;
     private final SessionRegistry sessionRegistry = new SessionRegistry();
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
@@ -176,17 +175,6 @@ public final class MainProject extends AbstractProject {
 
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
 
-    public static final String DEFAULT_REVIEW_GUIDE =
-            """
-            When reviewing the pull request, please address the following points:
-            - Explain your understanding of what this PR is intended to do.
-            - Does it accomplish its goals in the simplest way possible?
-            - What parts are the trickiest and how could they be simplified?
-            - What additional tests, if any, would add the most value?
-
-            Conclude with a summary of serious functional or design issues ONLY.
-            """;
-
     public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {}
 
@@ -202,7 +190,6 @@ public final class MainProject extends AbstractProject {
         this.styleGuidePath = this.masterRootPathForConfig.resolve(STYLE_GUIDE_FILE);
         this.legacyStyleGuidePath =
                 this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
-        this.reviewGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(REVIEW_GUIDE_FILE);
         var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
         this.sessionManager = new SessionManager(sessionsDir);
 
@@ -927,28 +914,6 @@ public final class MainProject extends AbstractProject {
             logger.debug("Saved style guide to {}", targetPath);
         } catch (IOException e) {
             logger.error("Error saving style guide to {}: {}", targetPath, e.getMessage());
-        }
-    }
-
-    @Override
-    public String getReviewGuide() {
-        try {
-            if (Files.exists(reviewGuidePath)) {
-                return Files.readString(reviewGuidePath);
-            }
-        } catch (IOException e) {
-            logger.error("Error reading review guide: {}", e.getMessage());
-        }
-        return ""; // Return empty string if not found or error
-    }
-
-    @Override
-    public void saveReviewGuide(String reviewGuide) {
-        try {
-            Files.createDirectories(reviewGuidePath.getParent());
-            AtomicWrites.save(reviewGuidePath, reviewGuide);
-        } catch (IOException e) {
-            logger.error("Error saving review guide: {}", e.getMessage());
         }
     }
 
