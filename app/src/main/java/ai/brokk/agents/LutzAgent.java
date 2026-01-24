@@ -10,6 +10,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.SearchPrompts.Terminal;
+import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -19,6 +20,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * LutzAgent: - Specialization of SearchAgent that includes code execution and task list objectives.
@@ -26,6 +28,7 @@ import java.util.List;
 public class LutzAgent extends SearchAgent {
 
     private final SearchPrompts.Objective objective;
+    private final Optional<DependencyTools> depTools;
 
     /**
      * Primary constructor with explicit IO and ScanConfig.
@@ -40,6 +43,8 @@ public class LutzAgent extends SearchAgent {
             ScanConfig scanConfig) {
         super(initialContext, goal, model, scope, io, scanConfig);
         this.objective = objective;
+        this.depTools =
+                DependencyTools.isSupported(cm.getProject()) ? Optional.of(new DependencyTools(cm)) : Optional.empty();
     }
 
     /**
@@ -68,7 +73,10 @@ public class LutzAgent extends SearchAgent {
 
     @Override
     protected ToolRegistry createToolRegistry(WorkspaceTools wst) {
-        return cm.getToolRegistry().builder().register(wst).register(this).build();
+        var builder = cm.getToolRegistry().builder().register(wst).register(this);
+        // Add dependency tools if supported for this project
+        depTools.ifPresent(builder::register);
+        return builder.build();
     }
 
     @Override
@@ -181,6 +189,10 @@ public class LutzAgent extends SearchAgent {
             if (!names.contains("askHuman")) {
                 names.add("askHuman");
             }
+        }
+        // Add dependency import tool if supported for this project
+        if (depTools.isPresent()) {
+            names.add("importDependency");
         }
         return names;
     }
