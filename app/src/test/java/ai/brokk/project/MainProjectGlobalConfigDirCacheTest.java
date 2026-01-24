@@ -48,17 +48,20 @@ class MainProjectGlobalConfigDirCacheTest {
         System.setProperty("brokk.test.mode", "true");
         System.setProperty("brokk.test.sandbox.root", dir1.toString());
 
-        // First access: should resolve to dir1/Brokk
+        // First access: should resolve to dir1/brokk-test-{pid}/Brokk
         MainProject.setTheme("theme1");
 
-        Path propertiesFile1 = dir1.resolve("Brokk").resolve("brokk.properties");
+        long pid = ProcessHandle.current().pid();
+        Path propertiesFile1 =
+                dir1.resolve("brokk-test-" + pid).resolve("Brokk").resolve("brokk.properties");
         assertTrue(Files.exists(propertiesFile1), "Properties should be written to dir1");
 
         // Change sandbox root: the cache should ensure we stick to dir1
         System.setProperty("brokk.test.sandbox.root", dir2.toString());
         MainProject.setTheme("theme2");
 
-        Path propertiesFile2 = dir2.resolve("Brokk").resolve("brokk.properties");
+        Path propertiesFile2 =
+                dir2.resolve("brokk-test-" + pid).resolve("Brokk").resolve("brokk.properties");
         assertFalse(Files.exists(propertiesFile2), "Properties should NOT be written to dir2 because of caching");
 
         // Verify content in dir1 reflects the update because we are still using that path

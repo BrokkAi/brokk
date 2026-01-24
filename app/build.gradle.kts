@@ -1,7 +1,5 @@
 import net.ltgt.gradle.errorprone.errorprone
-import java.nio.file.Path
 import java.time.Duration
-import java.util.UUID
 import org.gradle.process.CommandLineArgumentProvider
 
 plugins {
@@ -571,15 +569,13 @@ tasks.withType<Test> {
     timeout.set(Duration.ofMinutes(30))
 
     // System properties for tests (must be present at JVM startup)
+    // Compute once outside the provider to ensure stable value for Gradle caching
+    val testSandboxRoot = layout.buildDirectory.dir("test-sandbox").get().asFile.absolutePath
     jvmArgumentProviders.add(object : CommandLineArgumentProvider {
         override fun asArguments(): Iterable<String> {
-            val sandboxRoot = Path.of(
-                System.getProperty("java.io.tmpdir"),
-                "brokk-test-sandbox-" + UUID.randomUUID().toString()
-            ).toString()
             return listOf(
                 "-Dbrokk.test.mode=true",
-                "-Dbrokk.test.sandbox.root=$sandboxRoot"
+                "-Dbrokk.test.sandbox.root=$testSandboxRoot"
             )
         }
     })

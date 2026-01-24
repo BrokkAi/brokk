@@ -71,17 +71,15 @@ public final class BrokkConfigPaths {
     }
 
     private static Path getGlobalConfigDirInternal(Optional<String> configDirOverride, boolean ignoreTestMode) {
-        if (!ignoreTestMode && "true".equalsIgnoreCase(System.getProperty("brokk.test.mode"))) {
-            String sandboxRoot = System.getProperty("brokk.test.sandbox.root");
-            Path root;
-            if (sandboxRoot != null && !sandboxRoot.isBlank()) {
-                root = Path.of(sandboxRoot);
-            } else {
-                root = Path.of(
-                        System.getProperty("java.io.tmpdir"),
-                        "brokk-test-sandbox-" + ProcessHandle.current().pid());
-            }
-            return root.resolve("Brokk");
+        String sandboxRoot = System.getProperty("brokk.test.sandbox.root");
+        if (!ignoreTestMode
+                && "true".equalsIgnoreCase(System.getProperty("brokk.test.mode"))
+                && sandboxRoot != null
+                && !sandboxRoot.isBlank()) {
+            logger.warn("Test mode enabled - config redirected to sandbox: {}", sandboxRoot);
+            var base = Path.of(sandboxRoot);
+            // Append PID for per-fork isolation
+            return base.resolve("brokk-test-" + ProcessHandle.current().pid()).resolve("Brokk");
         }
 
         return configDirOverride
@@ -155,7 +153,10 @@ public final class BrokkConfigPaths {
      * @return true if any files were migrated, false otherwise
      */
     static boolean attemptMigration(Optional<String> configDirOverride) {
-        if ("true".equalsIgnoreCase(System.getProperty("brokk.test.mode"))) {
+        String sandboxRoot = System.getProperty("brokk.test.sandbox.root");
+        if ("true".equalsIgnoreCase(System.getProperty("brokk.test.mode"))
+                && sandboxRoot != null
+                && !sandboxRoot.isBlank()) {
             return false;
         }
 
