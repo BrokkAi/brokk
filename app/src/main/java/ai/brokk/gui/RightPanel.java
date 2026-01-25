@@ -22,7 +22,9 @@ import java.awt.event.MouseEvent;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -889,14 +891,61 @@ public class RightPanel extends JPanel implements ThemeAware {
         });
     }
 
+    public void selectBuildTab() {
+        assert SwingUtilities.isEventDispatchThread();
+        int idx = buildReviewTabs.indexOfTab("Build");
+        if (idx != -1) {
+            buildReviewTabs.setSelectedIndex(idx);
+        }
+    }
+
+    public void selectReviewTab() {
+        assert SwingUtilities.isEventDispatchThread();
+        int idx = buildReviewTabs.indexOfTab("Review");
+        if (idx != -1) {
+            buildReviewTabs.setSelectedIndex(idx);
+        }
+    }
+
     public void selectPreviewTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Preview");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
         }
     }
 
+    public void cycleBuildReviewPreview(boolean forward) {
+        assert SwingUtilities.isEventDispatchThread();
+        List<Integer> indices = new ArrayList<>();
+        int buildIdx = buildReviewTabs.indexOfTab("Build");
+        if (buildIdx != -1) {
+            indices.add(buildIdx);
+        }
+        // Use component-based lookup for Review since its title changes dynamically
+        int reviewIdx = getReviewTabIndex();
+        if (reviewIdx != -1) {
+            indices.add(reviewIdx);
+        }
+        int previewIdx = buildReviewTabs.indexOfTab("Preview");
+        if (previewIdx != -1) {
+            indices.add(previewIdx);
+        }
+        if (indices.isEmpty()) {
+            return;
+        }
+        int current = buildReviewTabs.getSelectedIndex();
+        int pos = indices.indexOf(current);
+        if (pos == -1) {
+            buildReviewTabs.setSelectedIndex(indices.getFirst());
+            return;
+        }
+        int nextPos = forward ? (pos + 1) % indices.size() : (pos - 1 + indices.size()) % indices.size();
+        buildReviewTabs.setSelectedIndex(indices.get(nextPos));
+    }
+
     public void selectTerminalTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Terminal");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
@@ -904,6 +953,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void selectTasksTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int buildIdx = buildReviewTabs.indexOfTab("Build");
         if (buildIdx != -1) {
             buildReviewTabs.setSelectedIndex(buildIdx);
@@ -912,6 +962,31 @@ public class RightPanel extends JPanel implements ThemeAware {
         if (taskIdx != -1) {
             commandPane.setSelectedIndex(taskIdx);
         }
+        taskListPanel.getTaskInput().requestFocusInWindow();
+    }
+
+    public void selectInstructionsTab() {
+        assert SwingUtilities.isEventDispatchThread();
+        int buildIdx = buildReviewTabs.indexOfTab("Build");
+        if (buildIdx != -1) {
+            buildReviewTabs.setSelectedIndex(buildIdx);
+        }
+        int instructionsIdx = commandPane.indexOfTab("Instructions");
+        if (instructionsIdx != -1) {
+            commandPane.setSelectedIndex(instructionsIdx);
+        }
+        instructionsPanel.requestCommandInputFocus();
+    }
+
+    public void toggleInstructionsTasksTab() {
+        SwingUtilities.invokeLater(() -> {
+            var selected = commandPane.getSelectedComponent();
+            if (selected == instructionsPanel) {
+                selectTasksTab();
+            } else {
+                selectInstructionsTab();
+            }
+        });
     }
 
     public PreviewTabbedPane getPreviewTabbedPane() {

@@ -759,8 +759,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         RowAdder adder = new RowAdder();
         // A subset of bindings; keep the same IDs for compatibility
-        adder.add("instructions.submit", "Submit");
-        adder.add("instructions.toggleMode", "Toggle Code/Ask/Lutz");
+        adder.add("instructions.submit", "Submit (Lutz)");
         adder.add("global.undo", "Undo");
         adder.add("global.redo", "Redo");
         adder.add("global.copy", "Copy");
@@ -770,16 +769,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("global.closeWindow", "Close Window");
         adder.add("global.closeTab", "Close Tab");
         adder.add("panel.switchToProjectFiles", "Switch to Project Files");
-        adder.add("panel.switchToDependencies", "Switch to Dependencies");
-        adder.add("panel.switchToChanges", "Switch to Changes");
-        adder.add("panel.switchToWorktrees", "Switch to Worktrees");
-        adder.add("panel.switchToLog", "Switch to Log");
-        adder.add("panel.switchToPullRequests", "Switch to Pull Requests");
-        adder.add("panel.switchToIssues", "Switch to Issues");
-        adder.add("drawer.toggleTerminal", "Toggle Terminal Drawer");
-        adder.add("drawer.toggleDependencies", "Toggle Dependencies Drawer");
-        adder.add("drawer.switchToTerminal", "Switch to Terminal Tab");
-        adder.add("drawer.switchToTasks", "Switch to Tasks Tab");
+        adder.add("panel.switchToTests", "Switch to Tests");
+        adder.add("panel.toggleInstructionsTasks", "Toggle Instructions/Tasks");
+        adder.add("panel.cycleBuildReviewPreview", "Cycle Build/Review/Preview");
+        adder.add("panel.cycleBuildReviewPreviewBackward", "Cycle Build/Review/Preview (Reverse)");
+        adder.add("tools.openTerminal", "Open Terminal");
+        adder.add("tools.gitLog", "Git: Log");
+        adder.add("tools.gitWorktrees", "Git: Worktrees");
+        adder.add("tools.gitPullRequests", "Git: Pull Requests");
         adder.add("view.zoomIn", "Zoom In");
         adder.add("view.zoomInAlt", "Zoom In (Alt)");
         adder.add("view.zoomOut", "Zoom Out");
@@ -892,7 +889,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         String[] allKeybindingIds = {
             "instructions.submit",
-            "instructions.toggleMode",
             "global.undo",
             "global.redo",
             "global.copy",
@@ -902,16 +898,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.closeWindow",
             "global.closeTab",
             "panel.switchToProjectFiles",
-            "panel.switchToDependencies",
-            "panel.switchToChanges",
-            "panel.switchToWorktrees",
-            "panel.switchToLog",
-            "panel.switchToPullRequests",
-            "panel.switchToIssues",
-            "drawer.toggleTerminal",
-            "drawer.toggleDependencies",
-            "drawer.switchToTerminal",
-            "drawer.switchToTasks",
+            "panel.switchToTests",
+            "panel.toggleInstructionsTasks",
+            "panel.cycleBuildReviewPreview",
+            "panel.cycleBuildReviewPreviewBackward",
+            "tools.openTerminal",
+            "tools.gitLog",
+            "tools.gitWorktrees",
+            "tools.gitPullRequests",
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
@@ -932,8 +926,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private static String getKeybindingDisplayName(String id) {
         return switch (id) {
-            case "instructions.submit" -> "Submit";
-            case "instructions.toggleMode" -> "Toggle Code/Ask/Lutz";
+            case "instructions.submit" -> "Submit (Lutz)";
             case "global.undo" -> "Undo";
             case "global.redo" -> "Redo";
             case "global.copy" -> "Copy";
@@ -943,16 +936,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "global.closeWindow" -> "Close Window";
             case "global.closeTab" -> "Close Tab";
             case "panel.switchToProjectFiles" -> "Switch to Project Files";
-            case "panel.switchToDependencies" -> "Switch to Dependencies";
-            case "panel.switchToChanges" -> "Switch to Changes";
-            case "panel.switchToWorktrees" -> "Switch to Worktrees";
-            case "panel.switchToLog" -> "Switch to Log";
-            case "panel.switchToPullRequests" -> "Switch to Pull Requests";
-            case "panel.switchToIssues" -> "Switch to Issues";
-            case "drawer.toggleTerminal" -> "Toggle Terminal Drawer";
-            case "drawer.toggleDependencies" -> "Toggle Dependencies Drawer";
-            case "drawer.switchToTerminal" -> "Switch to Terminal Tab";
-            case "drawer.switchToTasks" -> "Switch to Tasks Tab";
+            case "panel.switchToTests" -> "Switch to Tests";
+            case "panel.toggleInstructionsTasks" -> "Toggle Instructions/Tasks";
+            case "panel.cycleBuildReviewPreview" -> "Cycle Build/Review/Preview";
+            case "panel.cycleBuildReviewPreviewBackward" -> "Cycle Build/Review/Preview (Reverse)";
+            case "tools.openTerminal" -> "Open Terminal";
+            case "tools.gitLog" -> "Git: Log";
+            case "tools.gitWorktrees" -> "Git: Worktrees";
+            case "tools.gitPullRequests" -> "Git: Pull Requests";
             case "view.zoomIn" -> "Zoom In";
             case "view.zoomInAlt" -> "Zoom In (Alt)";
             case "view.zoomOut" -> "Zoom Out";
@@ -966,7 +957,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private static void resetAllKeybindingsToDefaults() {
         String[] allKeybindingIds = {
             "instructions.submit",
-            "instructions.toggleMode",
             "global.undo",
             "global.redo",
             "global.copy",
@@ -976,16 +966,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.closeWindow",
             "global.closeTab",
             "panel.switchToProjectFiles",
-            "panel.switchToDependencies",
-            "panel.switchToChanges",
-            "panel.switchToWorktrees",
-            "panel.switchToLog",
-            "panel.switchToPullRequests",
-            "panel.switchToIssues",
-            "drawer.toggleTerminal",
-            "drawer.toggleDependencies",
-            "drawer.switchToTerminal",
-            "drawer.switchToTasks",
+            "panel.switchToTests",
+            "panel.toggleInstructionsTasks",
+            "panel.cycleBuildReviewPreview",
+            "panel.cycleBuildReviewPreviewBackward",
+            "tools.openTerminal",
+            "tools.gitLog",
+            "tools.gitWorktrees",
+            "tools.gitPullRequests",
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
@@ -2203,10 +2191,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     // Default keybinding helpers and defaults
-    private static KeyStroke defaultToggleMode() {
-        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
-    }
-
     private static KeyStroke defaultUndo() {
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_Z);
     }
@@ -2234,46 +2218,39 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier);
     }
 
-    private static KeyStroke defaultSwitchToDependencies() {
+    private static KeyStroke defaultSwitchToTests() {
         int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
                 ? KeyEvent.META_DOWN_MASK
                 : KeyEvent.ALT_DOWN_MASK;
         return KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier);
     }
 
-    private static KeyStroke defaultSwitchToChanges() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier);
+    private static KeyStroke defaultToggleInstructionsTasks() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_K);
     }
 
-    private static KeyStroke defaultSwitchToWorktrees() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier);
+    private static KeyStroke defaultCycleBuildReviewPreview() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_F);
     }
 
-    private static KeyStroke defaultSwitchToLog() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier);
+    private static KeyStroke defaultCycleBuildReviewPreviewBackward() {
+        return KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_F);
     }
 
-    private static KeyStroke defaultSwitchToPullRequests() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier);
+    private static KeyStroke defaultOpenTerminal() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_T);
     }
 
-    private static KeyStroke defaultSwitchToIssues() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_7, modifier);
+    private static KeyStroke defaultGitLog() {
+        return KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3);
+    }
+
+    private static KeyStroke defaultGitWorktrees() {
+        return KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4);
+    }
+
+    private static KeyStroke defaultGitPullRequests() {
+        return KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5);
     }
 
     private static KeyStroke defaultCloseWindow() {
@@ -2286,24 +2263,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private static KeyStroke defaultOpenSettings() {
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
-    }
-
-    private static KeyStroke defaultToggleTerminalDrawer() {
-        return KeyStroke.getKeyStroke(
-                KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
-    }
-
-    private static KeyStroke defaultToggleDependenciesDrawer() {
-        return KeyStroke.getKeyStroke(
-                KeyEvent.VK_D, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
-    }
-
-    private static KeyStroke defaultSwitchToTerminalTab() {
-        return KeyStroke.getKeyStroke(KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-    }
-
-    private static KeyStroke defaultSwitchToTasksTab() {
-        return KeyStroke.getKeyStroke(KeyEvent.VK_K, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
     }
 
     private static KeyStroke defaultZoomIn() {
@@ -2329,23 +2288,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private static KeyStroke defaultFor(String id) {
         return switch (id) {
             case "instructions.submit" -> KeyboardShortcutUtil.defaultInstructionsSubmit();
-            case "instructions.toggleMode" -> defaultToggleMode();
             case "global.undo" -> defaultUndo();
             case "global.redo" -> defaultRedo();
             case "global.copy" -> defaultCopy();
             case "global.paste" -> defaultPaste();
             case "global.toggleMicrophone" -> defaultToggleMicrophone();
             case "panel.switchToProjectFiles" -> defaultSwitchToProjectFiles();
-            case "panel.switchToDependencies" -> defaultSwitchToDependencies();
-            case "panel.switchToChanges" -> defaultSwitchToChanges();
-            case "panel.switchToWorktrees" -> defaultSwitchToWorktrees();
-            case "panel.switchToLog" -> defaultSwitchToLog();
-            case "panel.switchToPullRequests" -> defaultSwitchToPullRequests();
-            case "panel.switchToIssues" -> defaultSwitchToIssues();
-            case "drawer.toggleTerminal" -> defaultToggleTerminalDrawer();
-            case "drawer.toggleDependencies" -> defaultToggleDependenciesDrawer();
-            case "drawer.switchToTerminal" -> defaultSwitchToTerminalTab();
-            case "drawer.switchToTasks" -> defaultSwitchToTasksTab();
+            case "panel.switchToTests" -> defaultSwitchToTests();
+            case "panel.toggleInstructionsTasks" -> defaultToggleInstructionsTasks();
+            case "panel.cycleBuildReviewPreview" -> defaultCycleBuildReviewPreview();
+            case "panel.cycleBuildReviewPreviewBackward" -> defaultCycleBuildReviewPreviewBackward();
+            case "tools.openTerminal" -> defaultOpenTerminal();
+            case "tools.gitLog" -> defaultGitLog();
+            case "tools.gitWorktrees" -> defaultGitWorktrees();
+            case "tools.gitPullRequests" -> defaultGitPullRequests();
             case "view.zoomIn" -> defaultZoomIn();
             case "view.zoomInAlt" -> defaultZoomInAlt();
             case "view.zoomOut" -> defaultZoomOut();
