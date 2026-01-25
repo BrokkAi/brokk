@@ -54,6 +54,15 @@ class MainProjectGlobalConfigDirCacheTest {
                 dir1.resolve("brokk-test-" + pid).resolve("Brokk").resolve("brokk.properties");
         assertTrue(Files.exists(propertiesFile1), "Properties should be written to dir1");
 
+        // Verify sandbox isolates from real config directory (platform-specific paths)
+        String userHome = System.getProperty("user.home");
+        String sandboxPath = propertiesFile1.getParent().getParent().toString();
+        assertFalse(
+                sandboxPath.contains(userHome + "/.config/Brokk")
+                        || sandboxPath.contains(userHome + "/Library/Application Support/Brokk")
+                        || sandboxPath.contains(userHome + "\\AppData\\Roaming\\Brokk"),
+                "Sandbox path should not be in user's real config directory: " + sandboxPath);
+
         // Change sandbox root: without caching, the next write should go to dir2
         System.setProperty("brokk.test.sandbox.root", dir2.toString());
         MainProject.setTheme("theme2");

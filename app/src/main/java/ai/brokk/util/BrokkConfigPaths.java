@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
-import org.jetbrains.annotations.TestOnly;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * Central utility for resolving Brokk's global configuration directory and handling

@@ -33,9 +33,13 @@ class BrokkConfigPathsTest {
         // Restore original system properties
         if (originalOsName != null) {
             System.setProperty("os.name", originalOsName);
+        } else {
+            System.clearProperty("os.name");
         }
         if (originalUserHome != null) {
             System.setProperty("user.home", originalUserHome);
+        } else {
+            System.clearProperty("user.home");
         }
     }
 
@@ -222,6 +226,8 @@ class BrokkConfigPathsTest {
             }
             if (originalHome != null) {
                 System.setProperty("user.home", originalHome);
+            } else {
+                System.clearProperty("user.home");
             }
         }
     }
