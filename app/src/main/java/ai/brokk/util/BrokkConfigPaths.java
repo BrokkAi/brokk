@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
+import org.jetbrains.annotations.TestOnly;
 import org.apache.logging.log4j.Logger;
 
 /**
@@ -66,6 +67,7 @@ public final class BrokkConfigPaths {
      * @param configDirOverride optional override for the config directory
      * @return the global config directory path
      */
+    @TestOnly
     static Path getGlobalConfigDirIgnoringTestMode(Optional<String> configDirOverride) {
         return getGlobalConfigDirInternal(configDirOverride, true);
     }
