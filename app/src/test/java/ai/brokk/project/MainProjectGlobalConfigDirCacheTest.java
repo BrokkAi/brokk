@@ -22,6 +22,7 @@ class MainProjectGlobalConfigDirCacheTest {
     void setUp() {
         originalTestMode = System.getProperty("brokk.test.mode");
         originalSandboxRoot = System.getProperty("brokk.test.sandbox.root");
+        MainProject.resetGlobalConfigCachesForTests();
     }
 
     @AfterEach
@@ -36,17 +37,18 @@ class MainProjectGlobalConfigDirCacheTest {
         } else {
             System.clearProperty("brokk.test.sandbox.root");
         }
+        MainProject.resetGlobalConfigCachesForTests();
     }
 
     @Test
-    void testGlobalConfigDirResolvesLiveWithoutCaching(@TempDir Path tempDir) throws IOException {
+    void testGlobalConfigDirIsCached(@TempDir Path tempDir) throws IOException {
         Path dir1 = tempDir.resolve("dir1");
         Path dir2 = tempDir.resolve("dir2");
 
         System.setProperty("brokk.test.mode", "true");
         System.setProperty("brokk.test.sandbox.root", dir1.toString());
 
-        // First access: should resolve to dir1 based on current system property
+        // First access: should resolve to dir1/brokk-test-{pid}/Brokk
         MainProject.setTheme("theme1");
 
         long pid = ProcessHandle.current().pid();
@@ -63,26 +65,20 @@ class MainProjectGlobalConfigDirCacheTest {
                         || sandboxPath.contains(userHome + "\\AppData\\Roaming\\Brokk"),
                 "Sandbox path should not be in user's real config directory: " + sandboxPath);
 
-        // Change sandbox root: without caching, the next write should go to dir2
+        // Change sandbox root: the cache should ensure we stick to dir1
         System.setProperty("brokk.test.sandbox.root", dir2.toString());
         MainProject.setTheme("theme2");
 
         Path propertiesFile2 =
                 dir2.resolve("brokk-test-" + pid).resolve("Brokk").resolve("brokk.properties");
-        assertTrue(Files.exists(propertiesFile2), "Properties should be written to dir2 after sandbox root change");
+        assertFalse(Files.exists(propertiesFile2), "Properties should NOT be written to dir2 because of caching");
 
-        // Verify content in dir2 reflects the latest update
-        Properties props2 = new Properties();
-        try (var reader = Files.newBufferedReader(propertiesFile2)) {
-            props2.load(reader);
-        }
-        assertEquals("theme2", props2.getProperty("theme"), "Theme should be updated in the new path");
-
-        // Verify content in dir1 was NOT updated by the second call
-        Properties props1 = new Properties();
+        // Verify content in dir1 reflects the update because we are still using that path
+        Properties props = new Properties();
         try (var reader = Files.newBufferedReader(propertiesFile1)) {
-            props1.load(reader);
+            props.load(reader);
         }
-        assertEquals("theme1", props1.getProperty("theme"), "Theme in original path should remain theme1");
+        assertEquals(
+                "theme2", props.getProperty("theme"), "Theme should have been updated in the original cached path");
     }
 }

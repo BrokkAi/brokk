@@ -27,6 +27,7 @@ import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.PathNormalizer;
 import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.annotations.VisibleForTesting;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
 import java.io.IOException;
@@ -144,16 +145,45 @@ public final class MainProject extends AbstractProject {
     @Nullable
     private static volatile LlmProxySetting headlessProxySettingOverride = null;
 
+    @Nullable
+    private static volatile Path cachedGlobalConfigDir = null;
+
+    @Nullable
+    @VisibleForTesting
+    static Properties globalPropertiesCache = null; // protected by synchronized
+
+    private static Path getCachedGlobalConfigDir() {
+        Path result = cachedGlobalConfigDir;
+        if (result == null) {
+            synchronized (MainProject.class) {
+                result = cachedGlobalConfigDir;
+                if (result == null) {
+                    result = BrokkConfigPaths.getGlobalConfigDir();
+                    cachedGlobalConfigDir = result;
+                }
+            }
+        }
+        return result;
+    }
+
+    @VisibleForTesting
+    static void resetGlobalConfigCachesForTests() {
+        synchronized (MainProject.class) {
+            cachedGlobalConfigDir = null;
+            globalPropertiesCache = null;
+        }
+    }
+
     private static Path getGlobalPropertiesPath() {
-        return BrokkConfigPaths.getGlobalConfigDir().resolve("brokk.properties");
+        return getCachedGlobalConfigDir().resolve("brokk.properties");
     }
 
     private static Path getProjectsPropertiesPath() {
-        return BrokkConfigPaths.getGlobalConfigDir().resolve("projects.properties");
+        return getCachedGlobalConfigDir().resolve("projects.properties");
     }
 
     private static Path getOomFlagPath() {
-        return BrokkConfigPaths.getGlobalConfigDir().resolve("oom.flag");
+        return getCachedGlobalConfigDir().resolve("oom.flag");
     }
 
     public enum LlmProxySetting {
@@ -290,7 +320,11 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    public static Properties loadGlobalProperties() {
+    public static synchronized Properties loadGlobalProperties() {
+        if (globalPropertiesCache != null) {
+            return (Properties) globalPropertiesCache.clone();
+        }
+
         var props = new Properties();
         boolean needsSave = false;
         Path globalPath = getGlobalPropertiesPath();
@@ -299,6 +333,7 @@ public final class MainProject extends AbstractProject {
                 props.load(reader);
             } catch (IOException e) {
                 logger.warn("Unable to read global properties file: {}", e.getMessage());
+                globalPropertiesCache = (Properties) props.clone();
                 return props;
             }
         }
@@ -334,10 +369,11 @@ public final class MainProject extends AbstractProject {
             saveGlobalProperties(props);
         }
 
+        globalPropertiesCache = (Properties) props.clone();
         return props;
     }
 
-    private static void saveGlobalProperties(Properties props) {
+    private static synchronized void saveGlobalProperties(Properties props) {
         try {
             // Load directly from disk to avoid re-triggering migration in loadGlobalProperties
             var existingProps = new Properties();
@@ -385,8 +421,10 @@ public final class MainProject extends AbstractProject {
 
             Files.createDirectories(globalPath.getParent());
             AtomicWrites.save(globalPath, props, "Brokk global configuration");
+            globalPropertiesCache = (Properties) props.clone();
         } catch (IOException e) {
             logger.error("Error saving global properties: {}", e.getMessage());
+            globalPropertiesCache = null; // Invalidate cache on error
         }
     }
 
