@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * Central utility for resolving Brokk's global configuration directory and handling
@@ -55,6 +56,34 @@ public final class BrokkConfigPaths {
      * @return the global config directory path
      */
     static Path getGlobalConfigDir(Optional<String> configDirOverride) {
+        return getGlobalConfigDirInternal(configDirOverride, false);
+    }
+
+    /**
+     * Returns the platform-appropriate global configuration directory for Brokk,
+     * explicitly bypassing test-mode sandboxing. This is primarily used for testing
+     * the platform-specific path resolution logic itself.
+     *
+     * @param configDirOverride optional override for the config directory
+     * @return the global config directory path
+     */
+    @TestOnly
+    static Path getGlobalConfigDirIgnoringTestMode(Optional<String> configDirOverride) {
+        return getGlobalConfigDirInternal(configDirOverride, true);
+    }
+
+    private static Path getGlobalConfigDirInternal(Optional<String> configDirOverride, boolean ignoreTestMode) {
+        String sandboxRoot = System.getProperty("brokk.test.sandbox.root");
+        if (!ignoreTestMode
+                && "true".equalsIgnoreCase(System.getProperty("brokk.test.mode"))
+                && sandboxRoot != null
+                && !sandboxRoot.isBlank()) {
+            logger.warn("Test mode enabled - config redirected to sandbox: {}", sandboxRoot);
+            var base = Path.of(sandboxRoot);
+            // Append PID for per-fork isolation
+            return base.resolve("brokk-test-" + ProcessHandle.current().pid()).resolve("Brokk");
+        }
+
         return configDirOverride
                 .filter(s -> !s.isBlank())
                 .flatMap(override -> {
@@ -126,6 +155,13 @@ public final class BrokkConfigPaths {
      * @return true if any files were migrated, false otherwise
      */
     static boolean attemptMigration(Optional<String> configDirOverride) {
+        String sandboxRoot = System.getProperty("brokk.test.sandbox.root");
+        if ("true".equalsIgnoreCase(System.getProperty("brokk.test.mode"))
+                && sandboxRoot != null
+                && !sandboxRoot.isBlank()) {
+            return false;
+        }
+
         Path newConfigDir = getGlobalConfigDir(configDirOverride);
         Path legacyConfigDir = getLegacyConfigDir();
 
