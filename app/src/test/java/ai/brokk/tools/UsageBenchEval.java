@@ -44,9 +44,9 @@ public class UsageBenchEval implements Callable<Integer> {
 
     @CommandLine.Option(
             names = {"--output"},
-            defaultValue = "./usage-results.json",
-            description = "Output file path for results (default: ./usage-results.json)")
-    private Path output = Path.of("./usage-results.json");
+            defaultValue = "./usage-results",
+            description = "Output directory for results (default: ./usage-results)")
+    private Path output = Path.of("./usage-results");
 
     @CommandLine.Option(
             names = {"--projects"},
@@ -68,14 +68,22 @@ public class UsageBenchEval implements Callable<Integer> {
         List<ProjectEntry> projectEntries = discoverProjects();
         printStartupBanner(projectEntries.size());
 
-        List<ProjectResult> results = new ArrayList<>();
+        List<ProjectResult> projectResults = new ArrayList<>();
+        List<CodeUnitDetail> allTPDetails = new ArrayList<>();
+        List<CodeUnitDetail> allFPDetails = new ArrayList<>();
+
         for (ProjectEntry entry : projectEntries) {
             String projectName = entry.projectDir().getFileName().toString();
             System.out.printf("Evaluating project: %s (%s)...%n", projectName, entry.language().internalName());
             try (SimpleProject project = (SimpleProject) loadProject(entry)) {
                 ProgramUsages groundTruth = loadGroundTruth(entry.usagesJsonPath());
-                ProjectResult result = evaluateProject(project, groundTruth, entry.language());
-                results.add(result);
+                EvaluationData evalData = evaluateProject(project, groundTruth, entry.language());
+
+                projectResults.add(evalData.projectResult());
+                allTPDetails.addAll(evalData.tpDetails());
+                allFPDetails.addAll(evalData.fpDetails());
+
+                ProjectResult result = evalData.projectResult();
                 System.out.printf(
                         "  TP=%d, FP=%d, FN=%d, P=%.3f, R=%.3f, F1=%.3f%n",
                         result.truePositives(),
@@ -86,15 +94,21 @@ public class UsageBenchEval implements Callable<Integer> {
                         result.f1());
             } catch (Exception e) {
                 System.err.printf("Failed to process %s: %s%n", entry.projectDir(), e.getMessage());
+                e.printStackTrace();
             }
         }
 
-        AggregateMetrics aggregate = computeAggregateMetrics(results);
-        EvalResults evalResults = new EvalResults(results, aggregate);
+        Files.createDirectories(output);
+        AggregateMetrics aggregate = computeAggregateMetrics(projectResults);
+        EvalResults evalResults = new EvalResults(projectResults, aggregate);
 
-        ObjectMapper mapper = new ObjectMapper();
-        String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(evalResults);
-        Files.writeString(output, json);
+        var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
+
+        Files.writeString(output.resolve("summary.json"), writer.writeValueAsString(evalResults));
+        Files.writeString(
+                output.resolve("true-positives.json"), writer.writeValueAsString(new DetailedResults(allTPDetails)));
+        Files.writeString(
+                output.resolve("false-positives.json"), writer.writeValueAsString(new DetailedResults(allFPDetails)));
 
         printSummary(aggregate);
         return 0;
@@ -137,7 +151,10 @@ public class UsageBenchEval implements Callable<Integer> {
         System.out.printf(" Recall:    %.3f%n", aggregate.recall());
         System.out.printf(" F1 Score:  %.3f%n", aggregate.f1());
         System.out.println("================================================================================");
-        System.out.printf(" Results written to: %s%n", output.toAbsolutePath());
+        System.out.printf(" Results written to directory: %s%n", output.toAbsolutePath());
+        System.out.println("  - summary.json");
+        System.out.println("  - true-positives.json");
+        System.out.println("  - false-positives.json");
     }
 
     private List<ProjectEntry> discoverProjects() throws IOException {
@@ -201,10 +218,14 @@ public class UsageBenchEval implements Callable<Integer> {
         return mapper.readValue(path.toFile(), ProgramUsages.class);
     }
 
-    private ProjectResult evaluateProject(SimpleProject project, ProgramUsages groundTruth, Language language)
+    private EvaluationData evaluateProject(SimpleProject project, ProgramUsages groundTruth, Language language)
             throws InterruptedException {
         IAnalyzer analyzer = language.createAnalyzer(project);
         FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, null, null);
+
+        String projectName = project.getRoot().getFileName().toString();
+        List<CodeUnitDetail> projectTPs = new ArrayList<>();
+        List<CodeUnitDetail> projectFPs = new ArrayList<>();
 
         int totalTP = 0;
         int totalFP = 0;
@@ -224,7 +245,8 @@ public class UsageBenchEval implements Callable<Integer> {
                         .map(hit -> hit.enclosing().fqName())
                         .collect(Collectors.toSet());
             } else if (either.hasErrorMessage()) {
-                System.err.printf("  Warning: Finder failed for %s: %s%n", unit.fullyQualifiedName(), either.getErrorMessage());
+                System.err.printf(
+                        "  Warning: Finder failed for %s: %s%n", unit.fullyQualifiedName(), either.getErrorMessage());
             }
 
             Set<String> tp = new HashSet<>(detectedFqns);
@@ -236,6 +258,15 @@ public class UsageBenchEval implements Callable<Integer> {
             Set<String> fn = new HashSet<>(expectedFqns);
             fn.removeAll(detectedFqns);
 
+            if (!tp.isEmpty()) {
+                projectTPs.add(new CodeUnitDetail(
+                        unit.fullyQualifiedName(), projectName, language.internalName(), List.copyOf(tp)));
+            }
+            if (!fp.isEmpty()) {
+                projectFPs.add(new CodeUnitDetail(
+                        unit.fullyQualifiedName(), projectName, language.internalName(), List.copyOf(fp)));
+            }
+
             totalTP += tp.size();
             totalFP += fp.size();
             totalFN += fn.size();
@@ -245,15 +276,10 @@ public class UsageBenchEval implements Callable<Integer> {
         double recall = calculateRecall(totalTP, totalFN);
         double f1 = calculateF1(precision, recall);
 
-        return new ProjectResult(
-                project.getRoot().getFileName().toString(),
-                language.internalName(),
-                totalTP,
-                totalFP,
-                totalFN,
-                precision,
-                recall,
-                f1);
+        ProjectResult result = new ProjectResult(
+                projectName, language.internalName(), totalTP, totalFP, totalFN, precision, recall, f1);
+
+        return new EvaluationData(result, projectTPs, projectFPs);
     }
 
     private double calculatePrecision(int tp, int fp) {
@@ -334,4 +360,11 @@ public class UsageBenchEval implements Callable<Integer> {
 
     public record AggregateMetrics(
             int totalTP, int totalFP, int totalFN, double precision, double recall, double f1) {}
+
+    public record CodeUnitDetail(String searchedFqn, String project, String language, List<String> fqNames) {}
+
+    public record DetailedResults(List<CodeUnitDetail> codeUnits) {}
+
+    private record EvaluationData(
+            ProjectResult projectResult, List<CodeUnitDetail> tpDetails, List<CodeUnitDetail> fpDetails) {}
 }
