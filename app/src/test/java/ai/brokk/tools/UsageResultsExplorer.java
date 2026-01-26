@@ -222,7 +222,12 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         sb.append("// Searched FQN: ").append(detail.searchedFqn()).append("\n");
         sb.append("// Project: ").append(detail.project()).append("\n\n");
 
+        String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+
         for (UsageDetail usage : detail.usages()) {
+            if (syntaxStyle.equals(SyntaxConstants.SYNTAX_STYLE_NONE) && !usage.syntaxStyle().isEmpty()) {
+                syntaxStyle = usage.syntaxStyle();
+            }
             sb.append("// ----------------------------------------------------------------\n");
             sb.append("// Usage in: ").append(usage.fqName()).append("\n");
             sb.append("// File: ").append(usage.filePath()).append("\n");
@@ -230,6 +235,8 @@ public class UsageResultsExplorer extends BaseThemedDialog {
             String snippet = usage.snippet();
             sb.append(snippet.isEmpty() ? "(No snippet - usage not detected)" : snippet).append("\n\n");
         }
+
+        previewArea.setSyntaxEditingStyle(syntaxStyle);
         previewArea.setText(sb.toString());
         previewArea.setCaretPosition(0);
     }

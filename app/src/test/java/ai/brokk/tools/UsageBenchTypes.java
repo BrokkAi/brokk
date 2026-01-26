@@ -50,7 +50,8 @@ public class UsageBenchTypes {
     public record UsageDetail(
             @JsonProperty("fqName") String fqName,
             @JsonProperty("snippet") String snippet,
-            @JsonProperty("filePath") String filePath) {}
+            @JsonProperty("filePath") String filePath,
+            @JsonProperty("syntaxStyle") String syntaxStyle) {}
 
     public record CodeUnitDetail(
             @JsonProperty("searchedFqn") String searchedFqn,

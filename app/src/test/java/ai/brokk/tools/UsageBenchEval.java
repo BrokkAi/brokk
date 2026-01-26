@@ -306,7 +306,8 @@ public class UsageBenchEval implements Callable<Integer> {
                             return new UsageDetail(
                                     fqn,
                                     hit != null ? hit.snippet() : "",
-                                    hit != null ? hit.file().absPath().toString() : "");
+                                    hit != null ? hit.file().absPath().toString() : "",
+                                    hit != null ? hit.file().getSyntaxStyle() : "");
                         })
                         .toList();
                 projectTPs.add(new CodeUnitDetail(
@@ -324,7 +325,8 @@ public class UsageBenchEval implements Callable<Integer> {
                             return new UsageDetail(
                                     fqn,
                                     hit != null ? hit.snippet() : "",
-                                    hit != null ? hit.file().absPath().toString() : "");
+                                    hit != null ? hit.file().absPath().toString() : "",
+                                    hit != null ? hit.file().getSyntaxStyle() : "");
                         })
                         .toList();
                 projectFPs.add(new CodeUnitDetail(
@@ -337,7 +339,7 @@ public class UsageBenchEval implements Callable<Integer> {
             }
             if (!fn.isEmpty()) {
                 List<UsageDetail> fnDetails =
-                        fn.stream().map(fqn -> new UsageDetail(fqn, "", "")).toList();
+                        fn.stream().map(fqn -> new UsageDetail(fqn, "", "", "")).toList();
                 projectFNs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
                         searchedFilePath,
