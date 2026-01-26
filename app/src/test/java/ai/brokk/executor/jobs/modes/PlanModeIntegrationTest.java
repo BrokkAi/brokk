@@ -21,6 +21,7 @@ import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.Response;
+import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -87,42 +88,45 @@ public class PlanModeIntegrationTest {
         StreamingChatModel mockModel = (StreamingChatModel) java.lang.reflect.Proxy.newProxyInstance(
                 StreamingChatModel.class.getClassLoader(),
                 new Class<?>[]{StreamingChatModel.class},
-                (proxy, method, args) -> {
-                    if ("generate".equals(method.getName())) {
-                        for (Object arg : args) {
-                            if (arg instanceof StreamingResponseHandler) {
-                                @SuppressWarnings("unchecked")
-                                StreamingResponseHandler<Object> handler = (StreamingResponseHandler<Object>) arg;
-                                handler.onNext(llmResponse);
-
-                                // Determine return type based on first parameter (ChatRequest vs List<ChatMessage>)
-                                if (args.length > 0 && args[0].getClass().getSimpleName().equals("ChatRequest")) {
-                                    // ChatRequest -> ChatResponse
-                                    try {
-                                        Class<?> aiMsgClass = Class.forName("dev.langchain4j.data.message.AiMessage");
-                                        Object aiMsg = aiMsgClass.getMethod("from", String.class).invoke(null, llmResponse);
-
-                                        Class<?> chatRespClass = Class.forName("dev.langchain4j.model.chat.response.ChatResponse");
-                                        Object builder = chatRespClass.getMethod("builder").invoke(null);
-                                        builder.getClass().getMethod("aiMessage", aiMsgClass).invoke(builder, aiMsg);
-                                        Object chatResp = builder.getClass().getMethod("build").invoke(builder);
-
-                                        handler.onComplete(Response.from(chatResp));
-                                    } catch (Exception e) {
-                                        // If reflection fails (e.g. classes moved), try falling back to AiMessage or just log
-                                        System.err.println("Failed to construct ChatResponse via reflection: " + e);
-                                        // Try standard AiMessage as fallback, though it might fail generics check
-                                        handler.onComplete(Response.from(AiMessage.from(llmResponse)));
+                new java.lang.reflect.InvocationHandler() {
+                    @Override
+                    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                        if ("defaultRequestParameters".equals(method.getName())) {
+                            Class<?> returnType = method.getReturnType();
+                            // Intercept the parameters call and return a proxy that provides token counts
+                            if (returnType.isInterface()) {
+                                return java.lang.reflect.Proxy.newProxyInstance(
+                                        returnType.getClassLoader(),
+                                        new Class<?>[]{returnType},
+                                        (p, m, a) -> {
+                                            if ("maxCompletionTokens".equals(m.getName()) || "maxOutputTokens".equals(m.getName())) {
+                                                return 1024;
+                                            }
+                                            return null;
+                                        });
+                            }
+                            return null;
+                        }
+                        if ("generate".equals(method.getName())) {
+                            dev.langchain4j.model.StreamingResponseHandler<Object> handler = null;
+                            if (args != null) {
+                                for (Object arg : args) {
+                                    if (arg instanceof dev.langchain4j.model.StreamingResponseHandler<?> h) {
+                                        @SuppressWarnings("unchecked")
+                                        var casted = (dev.langchain4j.model.StreamingResponseHandler<Object>) h;
+                                        handler = casted;
+                                        break;
                                     }
-                                } else {
-                                    // List<ChatMessage> -> AiMessage
-                                    handler.onComplete(Response.from(AiMessage.from(llmResponse)));
                                 }
-                                return null;
+                            }
+
+                            if (handler != null) {
+                                handler.onNext(llmResponse);
+                                handler.onComplete(dev.langchain4j.model.output.Response.from(dev.langchain4j.data.message.AiMessage.from(llmResponse)));
                             }
                         }
+                        return null;
                     }
-                    return null;
                 });
 
         var spec = new JobSpec(

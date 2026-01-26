@@ -105,7 +105,8 @@ public class ContextAgent {
         // Token budgeting: estimate the usable input-context budget by reserving an output (completion) budget.
         // Some model implementations don't provide a default maxCompletionTokens (it may be null), so fall back
         // to a conservative default to avoid NPEs and to keep prompt budgeting deterministic.
-        Integer maxCompletionTokens = model.defaultRequestParameters().maxCompletionTokens();
+        var params = model.defaultRequestParameters();
+        Integer maxCompletionTokens = params != null ? params.maxCompletionTokens() : null;
         int outputTokens = maxCompletionTokens != null ? maxCompletionTokens : 4096;
         int actualInputTokens = contextManager.getService().getMaxInputTokens(model) - outputTokens;
         // god, our estimation is so bad (yes we do observe the ratio being this far off)
