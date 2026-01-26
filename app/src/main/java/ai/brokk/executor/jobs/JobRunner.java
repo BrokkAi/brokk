@@ -65,7 +65,8 @@ public final class JobRunner {
         LUTZ,
         PLAN,
         ISSUE,
-        ISSUE_WRITER
+        ISSUE_WRITER,
+        TASK
     }
 
     static Mode parseMode(JobSpec spec) {
@@ -155,7 +156,7 @@ public final class JobRunner {
                 // Resolve all potential models based on mode requirements
                 final StreamingChatModel plannerModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, PLAN, ISSUE, REVIEW, ASK -> resolver.resolveModelOrThrow(
+                            case ARCHITECT, LUTZ, PLAN, ISSUE, REVIEW, ASK, TASK -> resolver.resolveModelOrThrow(
                                     spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
                             case CODE -> trimmedCodeModelName != null
                                     ? resolver.resolveModelOrThrow(
@@ -166,7 +167,7 @@ public final class JobRunner {
 
                 final StreamingChatModel codeModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> trimmedCodeModelName != null
+                            case ARCHITECT, LUTZ, ISSUE, TASK -> trimmedCodeModelName != null
                                     ? resolver.resolveModelOrThrow(
                                             trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
                                     : resolver.defaultCodeModel(spec);
@@ -211,6 +212,7 @@ public final class JobRunner {
                                 case REVIEW -> ReviewModeHandler.run(execCtx);
                                 case ISSUE -> IssueModeHandler.run(execCtx);
                                 case ISSUE_WRITER -> IssueWriterModeHandler.run(execCtx);
+                                case TASK -> runTaskMode(execCtx);
                                 default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                             }
                         })
@@ -516,6 +518,30 @@ public final class JobRunner {
                     new TaskList.TaskItem("", ctx.spec().taskInput(), false),
                     Objects.requireNonNull(ctx.plannerModel(), "plannerModel required for ARCHITECT jobs"),
                     Objects.requireNonNull(ctx.codeModel(), "code model unavailable for ARCHITECT jobs"));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void runTaskMode(JobExecutionContext ctx) {
+        String taskId = ctx.spec().tags().get("task_id");
+        if (taskId == null) {
+            throw new IllegalStateException("task_id tag required for TASK mode");
+        }
+
+        var taskOpt = ctx.cm().getTaskList().tasks().stream()
+                .filter(t -> t.id().equals(taskId))
+                .findFirst();
+
+        if (taskOpt.isEmpty()) {
+            throw new IllegalStateException("Task not found in current session: " + taskId);
+        }
+
+        try {
+            ctx.cm().executeTask(
+                    taskOpt.get(),
+                    Objects.requireNonNull(ctx.plannerModel(), "plannerModel required for TASK jobs"),
+                    Objects.requireNonNull(ctx.codeModel(), "code model unavailable for TASK jobs"));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

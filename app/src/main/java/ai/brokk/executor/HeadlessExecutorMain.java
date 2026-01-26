@@ -440,6 +440,11 @@ public final class HeadlessExecutorMain {
         return this.server.getPort();
     }
 
+    /** Visible for testing to verify session state. */
+    ContextManager getContextManager() {
+        return contextManager;
+    }
+
     // ============================================================================
     // Helpers
     // ============================================================================
@@ -575,6 +580,20 @@ public final class HeadlessExecutorMain {
         var method = exchange.getRequestMethod();
         var path = exchange.getRequestURI().getPath();
         var normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
+
+        // POST /v1/sessions/{sessionId}/tasks/{taskId}/execute
+        if (method.equals("POST")) {
+            var parts = Splitter.on('/').splitToList(normalizedPath);
+            if (parts.size() == 7 && "sessions".equals(parts.get(2)) && "tasks".equals(parts.get(4)) && "execute".equals(parts.get(6))) {
+                try {
+                    var sessionId = UUID.fromString(parts.get(3));
+                    var taskId = parts.get(5);
+                    handlePostTaskExecute(exchange, sessionId, taskId);
+                    return;
+                } catch (IllegalArgumentException ignore) {}
+            }
+        }
+
         if (method.equals("POST") && normalizedPath.equals("/v1/sessions")) {
             handleCreateSession(exchange);
             return;
@@ -586,6 +605,11 @@ public final class HeadlessExecutorMain {
         if (method.equals("GET")) {
             var parseResult = parseSessionPath(normalizedPath);
             if (parseResult.status() == SessionPathStatus.VALID) {
+                // GET /v1/sessions/{sessionId}/tasks
+                if (normalizedPath.endsWith("/tasks")) {
+                    handleGetSessionTasks(exchange, Objects.requireNonNull(parseResult.sessionId()));
+                    return;
+                }
                 handleGetSessionZip(exchange, Objects.requireNonNull(parseResult.sessionId()));
                 return;
             }
@@ -1258,6 +1282,81 @@ public final class HeadlessExecutorMain {
     }
 
     /**
+     * POST /v1/sessions/{sessionId}/tasks/{taskId}/execute
+     */
+    void handlePostTaskExecute(HttpExchange exchange, UUID sessionId, String taskId) throws IOException {
+        if (!ensureMethod(exchange, "POST")) return;
+
+        try {
+            var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+            if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                sendValidationError(exchange, "Idempotency-Key header is required");
+                return;
+            }
+
+            if (!awaitHeadlessInitOrRespond(exchange, "task-" + taskId)) return;
+
+            // Verify task exists in the current session context
+            var taskOpt = contextManager.getTaskList().tasks().stream()
+                    .filter(t -> t.id().equals(taskId))
+                    .findFirst();
+
+            if (taskOpt.isEmpty()) {
+                var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Task not found: " + taskId);
+                SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+                return;
+            }
+
+            var req = SimpleHttpServer.parseJsonRequest(exchange, TaskExecuteRequest.class);
+            if (req == null) {
+                sendValidationError(exchange, "Invalid TaskExecuteRequest in request body");
+                return;
+            }
+
+            var tags = new HashMap<String, String>();
+            tags.put("mode", "TASK");
+            tags.put("task_id", taskId);
+            tags.put("session_id", sessionId.toString());
+
+            var jobSpec = JobSpec.of(
+                    taskOpt.get().text(),
+                    req.autoCommit(),
+                    req.autoCompress(),
+                    Objects.requireNonNullElse(req.plannerModel(), ""),
+                    null, // scanModel
+                    req.codeModel(),
+                    false, // preScan
+                    tags,
+                    new JobSpec.ModelOverrides(
+                            req.reasoningLevel(),
+                            req.reasoningLevelCode(),
+                            req.temperature(),
+                            req.temperatureCode()));
+
+            var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+            var jobId = createResult.jobId();
+
+            if (createResult.isNewJob()) {
+                if (!tryReserveJobSlot(jobId)) {
+                    var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                    SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+                executeJobAsync(jobId, jobSpec, List.of());
+                SimpleHttpServer.sendJsonResponse(exchange, 201, Map.of("jobId", jobId, "state", "queued"));
+            } else {
+                var status = jobStore.loadStatus(jobId);
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, 200, Map.of("jobId", jobId, "state", status != null ? status.state() : "queued"));
+            }
+        } catch (Exception e) {
+            logger.error("Error handling task execution", e);
+            var error = ErrorPayload.internalError("Failed to start task execution", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
      * POST /v1/jobs/{jobId}/cancel - Cancel job execution.
      */
     void handleCancelJob(HttpExchange exchange, String jobId) throws IOException {
@@ -1638,6 +1737,16 @@ public final class HeadlessExecutorMain {
     private record AddContextTextRequest(String text) {}
 
     private record AddContextTextResponse(String id, int chars) {}
+
+    private record TaskExecuteRequest(
+            @Nullable String plannerModel,
+            @Nullable String codeModel,
+            boolean autoCommit,
+            boolean autoCompress,
+            @Nullable String reasoningLevel,
+            @Nullable String reasoningLevelCode,
+            @Nullable Double temperature,
+            @Nullable Double temperatureCode) {}
 
     private record IssueJobRequest(
             @Nullable String owner,

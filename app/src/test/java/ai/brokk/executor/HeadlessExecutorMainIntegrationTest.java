@@ -703,6 +703,27 @@ class HeadlessExecutorMainIntegrationTest {
     }
 
     @Test
+    void testPostTaskExecute_UnknownTaskId() throws Exception {
+        uploadSession();
+        var sessionId = executor.getContextManager().getCurrentSessionId();
+        var url = URI.create(baseUrl + "/v1/sessions/" + sessionId + "/tasks/non-existent/execute").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Idempotency-Key", "test-task-404");
+        conn.setDoOutput(true);
+
+        var body = Map.of("plannerModel", "test-model");
+        try (var os = conn.getOutputStream()) {
+            os.write(toJson(body).getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(404, conn.getResponseCode());
+        conn.disconnect();
+    }
+
+    @Test
     void testContextMethodsEndpoint_WithValidAuth_EmptyNames() throws Exception {
         uploadSession();
 
