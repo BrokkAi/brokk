@@ -1328,9 +1328,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 .thenAccept(scope -> SwingUtilities.invokeLater(() -> {
                     var diffFragment = SpecialTextType.REVIEW_DIFF.create(
                             cm, scope.changes().toDiff());
-                    cm.addFragmentAsync(diffFragment)
-                            .thenAccept(unused -> chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO, "Selected diff captured."));
+                    cm.addFragments(diffFragment);
                 }))
                 .exceptionally(ex -> {
                     logger.error("Failed to capture selected diff", ex);
@@ -1541,14 +1539,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, changes.toDiff());
-        cm.addFragmentAsync(diffFragment)
-                .thenAccept(unused -> chrome.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Diff captured and added to workspace context."))
-                .exceptionally(ex -> {
-                    logger.error("Failed to capture diff", ex);
-                    chrome.toolError("Failed to capture diff: " + ex.getMessage());
-                    return null;
-                });
+        cm.addFragments(diffFragment);
     }
 
     private void updateDiffToolbarVisibility() {

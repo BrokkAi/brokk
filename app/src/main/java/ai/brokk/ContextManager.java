@@ -1150,18 +1150,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         addFragments(fragment);
     }
 
-    /**
-     * Adds a specific ContextFragment (like GitHistoryFragment) to the live context.
-     *
-     * @param fragment The PathFragment to add.
-     * @return
-     */
-    public CompletableFuture<Void> addFragmentAsync(ContextFragment fragment) {
-        return submitContextTask(() -> {
-            pushContext(currentLiveCtx -> currentLiveCtx.addFragments(List.of(fragment)));
-        });
-    }
-
     /** Captures text from the LLM output area and adds it to the context. Called from Chrome's capture button. */
     public void captureTextFromContextAsync() {
         submitContextTask(() -> {
