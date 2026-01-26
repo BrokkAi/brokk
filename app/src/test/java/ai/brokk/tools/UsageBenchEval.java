@@ -80,7 +80,7 @@ public class UsageBenchEval implements Callable<Integer> {
             System.out.printf(
                     "Evaluating project: %s (%s)...%n",
                     projectName, entry.language().internalName());
-            try (SimpleProject project = (SimpleProject) loadProject(entry)) {
+            try (IProject project = loadProject(entry)) {
                 ProgramUsages groundTruth = loadGroundTruth(entry.usagesJsonPath());
                 EvaluationData evalData = evaluateProject(project, groundTruth, entry.language());
 
@@ -242,7 +242,7 @@ public class UsageBenchEval implements Callable<Integer> {
         return mapper.readValue(path.toFile(), ProgramUsages.class);
     }
 
-    private EvaluationData evaluateProject(SimpleProject project, ProgramUsages groundTruth, Language language)
+    private EvaluationData evaluateProject(IProject project, ProgramUsages groundTruth, Language language)
             throws InterruptedException {
         IAnalyzer analyzer = language.createAnalyzer(project);
         FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, null, null);
