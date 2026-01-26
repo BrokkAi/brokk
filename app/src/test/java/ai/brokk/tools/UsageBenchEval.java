@@ -60,29 +60,84 @@ public class UsageBenchEval implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+        if (!Files.exists(inputDir) || !Files.isDirectory(inputDir)) {
+            System.err.println("Error: --input-dir does not exist or is not a directory: " + inputDir);
+            return 1;
+        }
+
         List<ProjectEntry> projectEntries = discoverProjects();
-        System.out.printf("Discovered %d projects for evaluation.%n", projectEntries.size());
+        printStartupBanner(projectEntries.size());
 
         List<ProjectResult> results = new ArrayList<>();
         for (ProjectEntry entry : projectEntries) {
-            System.out.printf("Processing %s [%s]...%n", entry.projectDir().getFileName(), entry.language().name());
+            String projectName = entry.projectDir().getFileName().toString();
+            System.out.printf("Evaluating project: %s (%s)...%n", projectName, entry.language().internalName());
             try (SimpleProject project = (SimpleProject) loadProject(entry)) {
                 ProgramUsages groundTruth = loadGroundTruth(entry.usagesJsonPath());
                 ProjectResult result = evaluateProject(project, groundTruth, entry.language());
                 results.add(result);
                 System.out.printf(
-                        "  Result: TP=%d, FP=%d, FN=%d, F1=%.2f%n",
+                        "  TP=%d, FP=%d, FN=%d, P=%.3f, R=%.3f, F1=%.3f%n",
                         result.truePositives(),
                         result.falsePositives(),
                         result.falseNegatives(),
+                        result.precision(),
+                        result.recall(),
                         result.f1());
             } catch (Exception e) {
                 System.err.printf("Failed to process %s: %s%n", entry.projectDir(), e.getMessage());
-                e.printStackTrace();
             }
         }
 
+        AggregateMetrics aggregate = computeAggregateMetrics(results);
+        EvalResults evalResults = new EvalResults(results, aggregate);
+
+        ObjectMapper mapper = new ObjectMapper();
+        String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(evalResults);
+        Files.writeString(output, json);
+
+        printSummary(aggregate);
         return 0;
+    }
+
+    private void printStartupBanner(int projectCount) {
+        System.out.println("================================================================================");
+        System.out.println(" UsageBenchEval - FuzzyUsageFinder Benchmark");
+        System.out.println("================================================================================");
+        System.out.printf(" Input Directory: %s%n", inputDir.toAbsolutePath());
+        System.out.printf(" Language Filter: %s%n", language);
+        System.out.printf(" Output File:     %s%n", output.toAbsolutePath());
+        System.out.printf(" Projects Found:  %d%n", projectCount);
+        if (!projects.isEmpty()) {
+            System.out.printf(" Targeted:        %s%n", String.join(", ", projects));
+        }
+        System.out.println("--------------------------------------------------------------------------------");
+    }
+
+    private AggregateMetrics computeAggregateMetrics(List<ProjectResult> results) {
+        int totalTP = results.stream().mapToInt(ProjectResult::truePositives).sum();
+        int totalFP = results.stream().mapToInt(ProjectResult::falsePositives).sum();
+        int totalFN = results.stream().mapToInt(ProjectResult::falseNegatives).sum();
+
+        double p = calculatePrecision(totalTP, totalFP);
+        double r = calculateRecall(totalTP, totalFN);
+        double f1 = calculateF1(p, r);
+
+        return new AggregateMetrics(totalTP, totalFP, totalFN, p, r, f1);
+    }
+
+    private void printSummary(AggregateMetrics aggregate) {
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println(" Summary Results");
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.printf(" Total TP: %d%n", aggregate.totalTP());
+        System.out.printf(" Total FP: %d%n", aggregate.totalFP());
+        System.out.printf(" Total FN: %d%n", aggregate.totalFN());
+        System.out.printf(" Precision: %.3f%n", aggregate.precision());
+        System.out.printf(" Recall:    %.3f%n", aggregate.recall());
+        System.out.printf(" F1 Score:  %.3f%n", aggregate.f1());
+        System.out.println("================================================================================");
+        System.out.printf(" Results written to: %s%n", output.toAbsolutePath());
     }
 
     private List<ProjectEntry> discoverProjects() throws IOException {
