@@ -124,13 +124,25 @@ public class UsageResultsExplorer extends BaseThemedDialog {
 
     private JTree createTree(DetailedResults results) {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("Results");
-        Map<String, List<CodeUnitDetail>> grouped = results.codeUnits().stream()
-                .collect(Collectors.groupingBy(CodeUnitDetail::project));
+        Map<String, Map<String, List<CodeUnitDetail>>> grouped = results.codeUnits().stream()
+                .collect(Collectors.groupingBy(
+                        CodeUnitDetail::project,
+                        Collectors.groupingBy(cud -> {
+                            String path = cud.searchedFilePath();
+                            return (path == null || path.isEmpty()) ? "(unknown file)" : path;
+                        })
+                ));
 
-        for (Map.Entry<String, List<CodeUnitDetail>> entry : grouped.entrySet()) {
-            DefaultMutableTreeNode projectNode = new DefaultMutableTreeNode(new ProjectNode(entry.getKey(), entry.getValue().size()));
-            for (CodeUnitDetail detail : entry.getValue()) {
-                projectNode.add(new DefaultMutableTreeNode(detail));
+        for (Map.Entry<String, Map<String, List<CodeUnitDetail>>> projectEntry : grouped.entrySet()) {
+            int projectUnitCount = projectEntry.getValue().values().stream().mapToInt(List::size).sum();
+            DefaultMutableTreeNode projectNode = new DefaultMutableTreeNode(new ProjectNode(projectEntry.getKey(), projectUnitCount));
+
+            for (Map.Entry<String, List<CodeUnitDetail>> fileEntry : projectEntry.getValue().entrySet()) {
+                DefaultMutableTreeNode fileNode = new DefaultMutableTreeNode(new FileNode(fileEntry.getKey(), fileEntry.getValue().size()));
+                for (CodeUnitDetail detail : fileEntry.getValue()) {
+                    fileNode.add(new DefaultMutableTreeNode(detail));
+                }
+                projectNode.add(fileNode);
             }
             root.add(projectNode);
         }
@@ -147,19 +159,21 @@ public class UsageResultsExplorer extends BaseThemedDialog {
                     Object userObj = node.getUserObject();
                     if (userObj instanceof ProjectNode pn) {
                         setText(String.format("%s (%d units)", pn.name, pn.count));
-                    } else if (userObj instanceof CodeUnitDetail cud) {
-                        String fileName = "";
-                        if (cud.searchedFilePath() != null && !cud.searchedFilePath().isEmpty()) {
+                    } else if (userObj instanceof FileNode fn) {
+                        String displayName = fn.path();
+                        if (!displayName.equals("(unknown file)")) {
                             try {
-                                Path p = Paths.get(cud.searchedFilePath());
-                                Path fn = p.getFileName();
-                                if (fn != null) {
-                                    fileName = " [" + fn + "]";
+                                Path p = Paths.get(fn.path());
+                                Path fileName = p.getFileName();
+                                if (fileName != null) {
+                                    displayName = fileName.toString();
                                 }
                             } catch (Exception ignored) {
                             }
                         }
-                        setText(String.format("%s%s (%d usages)", cud.searchedFqn(), fileName, cud.usages().size()));
+                        setText(String.format("%s (%d code units)", displayName, fn.count));
+                    } else if (userObj instanceof CodeUnitDetail cud) {
+                        setText(String.format("%s (%d usages)", cud.searchedFqn(), cud.usages().size()));
                     }
                 }
                 return this;
@@ -235,6 +249,8 @@ public class UsageResultsExplorer extends BaseThemedDialog {
     // --- UI Helpers ---
 
     private record ProjectNode(String name, int count) {}
+
+    private record FileNode(String path, int count) {}
 
     // --- JSON Data Models ---
 
