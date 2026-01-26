@@ -519,19 +519,7 @@ public class ContextActionsHandler {
 
         if (fragments == null) return;
 
-        contextManager.submitContextTask(() -> {
-            if (fragments.isEmpty()) {
-                return;
-            }
-
-            for (var fragment : fragments) {
-                if (fragment instanceof ContextFragments.PathFragment pathFrag) {
-                    contextManager.addFragmentAsync(pathFrag);
-                } else {
-                    contextManager.addFragments(fragment);
-                }
-            }
-        });
+        contextManager.submitContextTask(() -> contextManager.addFragments(fragments));
     }
 
     @Blocking
