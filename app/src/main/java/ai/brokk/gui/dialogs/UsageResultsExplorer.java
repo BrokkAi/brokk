@@ -45,6 +45,7 @@ public class UsageResultsExplorer extends BaseThemedDialog {
     private final JTree fpTree;
     private final JTree fnTree;
     private final RSyntaxTextArea previewArea;
+    private @Nullable JTabbedPane tabs;
 
     public UsageResultsExplorer(Path resultsDir) throws Exception {
         super(null, "UsageBenchEval Results Explorer");
@@ -84,10 +85,20 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         root.add(summaryPanel, BorderLayout.NORTH);
 
         // CENTER: Tabs
-        JTabbedPane tabs = new JTabbedPane();
+        this.tabs = new JTabbedPane();
         tabs.addTab("True Positives", createTabComponent(tpTree));
         tabs.addTab("False Positives", createTabComponent(fpTree));
         tabs.addTab("False Negatives", createTabComponent(fnTree));
+
+        tabs.addChangeListener(e -> {
+            previewArea.setText("");
+            // Clear selections on non-active trees
+            int selectedIndex = tabs.getSelectedIndex();
+            if (selectedIndex != 0) tpTree.clearSelection();
+            if (selectedIndex != 1) fpTree.clearSelection();
+            if (selectedIndex != 2) fnTree.clearSelection();
+        });
+
         root.add(tabs, BorderLayout.CENTER);
 
         // SOUTH: Close
@@ -146,14 +157,25 @@ public class UsageResultsExplorer extends BaseThemedDialog {
     }
 
     private void setupSelectionListeners() {
-        tpTree.addTreeSelectionListener(e -> updatePreviewFromTree(e.getPath()));
-        fpTree.addTreeSelectionListener(e -> updatePreviewFromTree(e.getPath()));
-        fnTree.addTreeSelectionListener(e -> updatePreviewFromTree(e.getPath()));
+        tpTree.addTreeSelectionListener(e -> {
+            if (tabs != null && tabs.getSelectedIndex() == 0) {
+                updatePreviewFromTree(e.getPath());
+            }
+        });
+        fpTree.addTreeSelectionListener(e -> {
+            if (tabs != null && tabs.getSelectedIndex() == 1) {
+                updatePreviewFromTree(e.getPath());
+            }
+        });
+        fnTree.addTreeSelectionListener(e -> {
+            if (tabs != null && tabs.getSelectedIndex() == 2) {
+                updatePreviewFromTree(e.getPath());
+            }
+        });
     }
 
     private void updatePreviewFromTree(@Nullable TreePath path) {
         if (path == null) {
-            previewArea.setText("");
             return;
         }
         DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
