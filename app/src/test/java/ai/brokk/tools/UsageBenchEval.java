@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -107,13 +108,26 @@ public class UsageBenchEval implements Callable<Integer> {
 
         var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
 
-        Files.writeString(output.resolve("summary.json"), writer.writeValueAsString(evalResults));
         Files.writeString(
-                output.resolve("true-positives.json"), writer.writeValueAsString(new DetailedResults(allTPDetails)));
+                output.resolve("summary.json"),
+                writer.writeValueAsString(evalResults),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
         Files.writeString(
-                output.resolve("false-positives.json"), writer.writeValueAsString(new DetailedResults(allFPDetails)));
+                output.resolve("true-positives.json"),
+                writer.writeValueAsString(new DetailedResults(allTPDetails)),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
         Files.writeString(
-                output.resolve("false-negatives.json"), writer.writeValueAsString(new DetailedResults(allFNDetails)));
+                output.resolve("false-positives.json"),
+                writer.writeValueAsString(new DetailedResults(allFPDetails)),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(
+                output.resolve("false-negatives.json"),
+                writer.writeValueAsString(new DetailedResults(allFNDetails)),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
 
         printSummary(aggregate);
         return 0;
