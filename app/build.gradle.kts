@@ -686,8 +686,8 @@ tasks.register<JavaExec>("runUsageBenchEval") {
 tasks.register<JavaExec>("runUsageResultsExplorer") {
     group = "application"
     description = "Runs the UsageResultsExplorer GUI for browsing UsageBenchEval results"
-    mainClass.set("ai.brokk.gui.dialogs.UsageResultsExplorer")
-    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("ai.brokk.tools.UsageResultsExplorer")
+    classpath = sourceSets.test.get().runtimeClasspath
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }

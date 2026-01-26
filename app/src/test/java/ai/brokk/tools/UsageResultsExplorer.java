@@ -1,7 +1,8 @@
-package ai.brokk.gui.dialogs;
+package ai.brokk.tools;
 
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.BorderLayout;

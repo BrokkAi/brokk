@@ -228,7 +228,7 @@ Run via Gradle:
 Alternatively, run directly from the command line:
 
 ```bash
-java -cp <classpath> ai.brokk.gui.dialogs.UsageResultsExplorer /path/to/usage-results
+java -cp <classpath> ai.brokk.tools.UsageResultsExplorer /path/to/usage-results
 ```
 
 The argument is the path to the results directory created by `UsageBenchEval` (the `--output` directory).
