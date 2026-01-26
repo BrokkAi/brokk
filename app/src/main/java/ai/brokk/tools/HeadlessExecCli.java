@@ -316,16 +316,22 @@ public class HeadlessExecCli {
 
         // Include scanModel only when explicitly provided and relevant:
         // - SEARCH mode: use scanModel if provided
+        // - PLAN mode: use scanModel if provided (planning-only scan override)
         // - ASK mode: include scanModel only when preScan is requested
         if (!scanModel.isBlank()) {
-            if ("SEARCH".equals(mode) || ("ASK".equals(mode) && preScan)) {
+            if ("SEARCH".equals(mode) || "PLAN".equals(mode) || ("ASK".equals(mode) && preScan)) {
                 jobSpec.put("scanModel", scanModel);
             }
         }
 
-        // Preserve existing behavior for codeModel (optional override)
+        // Preserve existing behavior for codeModel (optional override) only for modes that use it:
+        // ARCHITECT, LUTZ, ISSUE, CODE
         if (!codeModel.isBlank()) {
-            jobSpec.put("codeModel", codeModel);
+            if ("ARCHITECT".equals(mode) || "LUTZ".equals(mode) || "ISSUE".equals(mode) || "CODE".equals(mode)) {
+                jobSpec.put("codeModel", codeModel);
+            } else {
+                // codeModel is ignored for SEARCH, ASK, REVIEW, ISSUE_WRITER, PLAN
+            }
         }
 
         // Include preScan boolean only for ASK jobs when requested
@@ -603,10 +609,10 @@ public class HeadlessExecCli {
         System.out.println();
         System.out.println("Options:");
         System.out.println(
-                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER (default: ARCHITECT)");
+                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, PLAN, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER (default: ARCHITECT)");
         System.out.println("  --planner-model MODEL    Planner model name (required)");
         System.out.println(
-                "  --scan-model MODEL       Scan model name (optional; used by SEARCH mode; used by ASK only when --pre-scan is enabled)");
+                "  --scan-model MODEL       Scan model name (optional; used by SEARCH and PLAN modes; used by ASK only when --pre-scan is enabled)");
         System.out.println("  --code-model MODEL       Code model name (optional)");
         System.out.println(
                 "  --pre-scan               Enable repository prescan before ASK (uses --scan-model if provided)");
@@ -634,7 +640,7 @@ public class HeadlessExecCli {
         System.out.println("  --issue-delivery MODE    Delivery mode ('none' to skip PR creation)");
         System.out.println();
         System.out.println(
-                "Note: In SEARCH mode, --code-model is ignored (SearchAgent is read-only and does not generate code).");
+                "Note: In SEARCH and PLAN modes, --code-model is ignored (SearchAgent is read-only and does not generate code).");
         System.out.println();
         System.out.println("Example:");
         System.out.println(
@@ -791,9 +797,10 @@ public class HeadlessExecCli {
                     return false;
                 }
                 mode = Ascii.toUpperCase(value);
-                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE|ISSUE_WRITER)$")) {
+                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE|ISSUE_WRITER)$")
+                        && !"PLAN".equals(mode)) {
                     System.err.println("ERROR: Invalid mode: " + value
-                            + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER");
+                            + ". Must be ASK, CODE, ARCHITECT, LUTZ, PLAN, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER");
                     return false;
                 }
             }
