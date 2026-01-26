@@ -86,8 +86,12 @@ public class JbrCefProvider implements CefAppProvider {
             CefApp.addAppHandler(stateHandler);
         }
 
+        // Build args array for HiDPI support
+        String hiDpiArg = CefSettingsHelper.getHiDpiArg();
+        String[] args = hiDpiArg != null ? new String[] {hiDpiArg} : new String[0];
+
         logger.info("Calling CefApp.getInstance()");
-        return CefApp.getInstance(settings);
+        return CefApp.getInstance(args, settings);
     }
 
     /**

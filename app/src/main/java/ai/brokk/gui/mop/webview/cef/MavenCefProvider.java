@@ -92,6 +92,12 @@ public class MavenCefProvider implements CefAppProvider {
         CefSettingsHelper.configureCommonSettings(settings);
         CefSettingsHelper.configureCachePath(settings, "maven", null);
 
+        // Configure HiDPI scaling if needed
+        String hiDpiArg = CefSettingsHelper.getHiDpiArg();
+        if (hiDpiArg != null) {
+            builder.addJcefArgs(hiDpiArg);
+        }
+
         // Wrap the state handler if provided
         // Note: Wrapped in try-catch since JCEF callbacks bypass Java's uncaught exception handler
         builder.setAppHandler(new MavenCefAppHandlerAdapter() {
