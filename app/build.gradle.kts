@@ -672,7 +672,11 @@ tasks.register<JavaExec>("runUsageBenchEval") {
     mainClass.set("ai.brokk.tools.UsageBenchEval")
     classpath = sourceSets.test.get().runtimeClasspath
     jvmArgumentProviders.add(object : CommandLineArgumentProvider {
-        override fun asArguments(): Iterable<String> = listOf("-Xmx4g", "-XX:+UseG1GC")
+        override fun asArguments(): Iterable<String> = listOf(
+            "-Xmx4g",
+            "-XX:+UseG1GC",
+            "-Dlog4j.configurationFile=log4j2-usages.xml"
+        )
     })
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
