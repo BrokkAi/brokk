@@ -1,56 +1,30 @@
 package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
-import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
-import ai.brokk.Llm;
-import ai.brokk.Service;
-import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.agents.CodeAgent;
-import ai.brokk.agents.LutzAgent;
-import ai.brokk.agents.SearchAgent;
-import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
-import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitWorkflow;
-import ai.brokk.issues.GitHubIssueService;
-import ai.brokk.issues.IssueHeader;
-import ai.brokk.project.IProject;
-import ai.brokk.prompts.SearchPrompts;
-import ai.brokk.tasks.TaskList;
-import ai.brokk.util.TextUtil;
 import ai.brokk.executor.jobs.modes.*;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
+import ai.brokk.git.GitRepo;
+import ai.brokk.project.IProject;
+import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
-import java.io.IOException;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -81,9 +55,6 @@ public final class JobRunner {
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
-    private final JobModelResolver modelResolver;
-
-    static final int ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD = 100;
 
     enum Mode {
         ARCHITECT,
@@ -122,7 +93,6 @@ public final class JobRunner {
             t.setDaemon(true);
             return t;
         });
-        this.modelResolver = new JobModelResolver(cm);
     }
 
     /**
@@ -145,6 +115,7 @@ public final class JobRunner {
         cancelled.set(false);
         console = new HeadlessHttpConsole(store, jobId);
         final var previousIo = cm.getIo();
+        console = new HeadlessHttpConsole(store, jobId);
         cm.setIo(console);
         logger.info("Job {} attaching streaming console", jobId);
 
@@ -175,177 +146,75 @@ public final class JobRunner {
                 // Determine execution mode (default ARCHITECT)
                 Mode mode = parseMode(spec);
 
-                var completed = new AtomicInteger(0);
+                final JobModelResolver resolver = new JobModelResolver(cm);
 
-                var rawCodeModelName = spec.codeModel() != null
-                        ? spec.codeModel()
-                        : spec.tags().get("code_model");
+                var rawCodeModelName = spec.codeModel() != null ? spec.codeModel() : spec.tags().get("code_model");
                 var trimmedCodeModelName =
                         (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
-                var hasCodeModelOverride = trimmedCodeModelName != null;
 
-                final StreamingChatModel architectPlannerModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE || mode == Mode.PLAN)
-                                ? modelResolver.resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
-                                : null;
-                final StreamingChatModel architectCodeModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
-                                ? (trimmedCodeModelName != null
-                                        ? modelResolver.resolveModelOrThrow(
-                                                trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
-                                        : modelResolver.defaultCodeModel(spec))
-                                : null;
-                final StreamingChatModel reviewPlannerModel = mode == Mode.REVIEW
-                        ? modelResolver.resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
-                        : null;
-                // Resolve scan model for REVIEW mode (prefer explicit spec.scanModel() if provided; otherwise project
-                // default)
-                final StreamingChatModel reviewScanModel = mode == Mode.REVIEW
-                        ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? modelResolver.resolveModelOrThrow(
-                                        spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
-                                : modelResolver.defaultScanModel(spec))
-                        : null;
-                final StreamingChatModel askPlannerModel = mode == Mode.ASK || mode == Mode.ISSUE
-                        ? modelResolver.resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
-                        : null;
-                final StreamingChatModel codeModeModel = mode == Mode.CODE
-                        ? (hasCodeModelOverride
-                                ? modelResolver.resolveModelOrThrow(
-                                        Objects.requireNonNull(trimmedCodeModelName),
-                                        spec.reasoningLevelCode(),
-                                        spec.temperatureCode())
-                                : modelResolver.defaultCodeModel(spec))
-                        : null;
-
-                var service = cm.getService();
-
-                // Resolve a scan model for SEARCH mode if needed (prefer explicit spec.scanModel() if provided;
-                // otherwise project default)
-                final StreamingChatModel searchPlannerModel = mode == Mode.SEARCH
-                        ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? modelResolver.resolveModelOrThrow(
-                                        spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
-                                : modelResolver.defaultScanModel(spec))
-                        : null;
-
-                String plannerModelNameForLog =
+                // Resolve all potential models based on mode requirements
+                final StreamingChatModel plannerModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, PLAN, ISSUE ->
-                                service.nameOf(Objects.requireNonNull(architectPlannerModel));
-                            case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
-                            case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
-                            case CODE -> {
-                                var plannerName = spec.plannerModel();
-                                yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
-                            }
-                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
-                            case ISSUE_WRITER -> "(unused)";
+                            case ARCHITECT, LUTZ, PLAN, ISSUE, REVIEW, ASK -> resolver.resolveModelOrThrow(
+                                    spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
+                            case CODE -> trimmedCodeModelName != null
+                                    ? resolver.resolveModelOrThrow(
+                                            trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
+                                    : resolver.defaultCodeModel(spec);
+                            case SEARCH, ISSUE_WRITER -> null;
                         };
-                String codeModelNameForLog =
-                        switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(Objects.requireNonNull(architectCodeModel));
-                            case PLAN -> "(default, ignored for PLAN)";
-                            case ASK -> "(default, ignored for ASK)";
-                            case SEARCH -> "(default, ignored for SEARCH)";
-                            case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
-                            case REVIEW -> "(default, ignored for REVIEW)";
-                            case ISSUE_WRITER -> "(unused)";
-                        };
-                boolean usesDefaultCodeModel =
-                        switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
-                            case ASK, SEARCH, REVIEW, PLAN -> true;
-                            case CODE -> !hasCodeModelOverride;
-                            case ISSUE_WRITER -> true;
-                        };
-                if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
-                    plannerModelNameForLog = (mode == Mode.CODE) ? "(unused)" : "(unknown)";
-                }
-                if (codeModelNameForLog == null || codeModelNameForLog.isBlank()) {
-                    codeModelNameForLog = usesDefaultCodeModel ? "(default)" : "(unknown)";
-                } else if (usesDefaultCodeModel && mode != Mode.ASK && mode != Mode.SEARCH && mode != Mode.REVIEW) {
-                    codeModelNameForLog = codeModelNameForLog + " (default)";
-                }
 
-                logger.info(
-                        "Job {} mode={} plannerModel={} codeModel={}",
+                final StreamingChatModel codeModel =
+                        switch (mode) {
+                            case ARCHITECT, LUTZ, ISSUE -> trimmedCodeModelName != null
+                                    ? resolver.resolveModelOrThrow(
+                                            trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
+                                    : resolver.defaultCodeModel(spec);
+                            case CODE -> plannerModel; // plannerModel was already resolved as the code model above
+                            default -> null;
+                        };
+
+                final StreamingChatModel scanModel =
+                        switch (mode) {
+                            case REVIEW, SEARCH, PLAN -> (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
+                                    ? resolver.resolveModelOrThrow(
+                                            spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
+                                    : resolver.defaultScanModel(spec));
+                            default -> null;
+                        };
+
+                logger.info("Job {} mode={} resolved", jobId, mode);
+
+                final JobExecutionContext execCtx = new JobExecutionContext(
                         jobId,
-                        mode,
-                        plannerModelNameForLog,
-                        codeModelNameForLog);
+                        spec,
+                        cm,
+                        store,
+                        console,
+                        cancelled::get,
+                        plannerModel,
+                        codeModel,
+                        scanModel);
 
-                // Execute within submitLlmAction to honor cancellation semantics
-                // Prepare a compact execution context per-mode and delegate to per-mode handlers.
-                {
-                    // Choose the planner/code/scan models that are relevant for the selected mode.
-                    final StreamingChatModel plannerForMode = switch (mode) {
-                        case ARCHITECT, LUTZ, PLAN, ISSUE -> architectPlannerModel;
-                        case ASK -> askPlannerModel;
-                        case SEARCH -> searchPlannerModel;
-                        case CODE -> codeModeModel;
-                        case REVIEW -> reviewPlannerModel;
-                        case ISSUE_WRITER -> null;
-                    };
-                    final StreamingChatModel codeForMode = switch (mode) {
-                        case ARCHITECT, LUTZ, ISSUE -> architectCodeModel;
-                        case CODE -> codeModeModel;
-                        default -> null;
-                    };
-                    final StreamingChatModel scanForMode = switch (mode) {
-                        case REVIEW -> reviewScanModel;
-                        case SEARCH -> searchPlannerModel;
-                        default -> null;
-                    };
-
-                    final JobExecutionContext execCtx = new JobExecutionContext(
-                            jobId,
-                            spec,
-                            cm,
-                            store,
-                            console != null ? console : cm.getIo(),
-                            cancelled::get,
-                            plannerForMode,
-                            codeForMode,
-                            scanForMode);
-
-                    cm.submitLlmAction(() -> {
-                                if (cancelled.get()) {
-                                    logger.info("Job {} execution cancelled by user", jobId);
-                                    return;
-                                }
-                                try {
-                                    switch (mode) {
-                                        case ARCHITECT -> runArchitectMode(execCtx);
-                                        case LUTZ -> runLutzMode(execCtx);
-                                        case PLAN -> runPlanMode(execCtx);
-                                        case CODE -> runCodeMode(execCtx);
-                                        case ASK -> runAskMode(execCtx);
-                                        case SEARCH -> runSearchMode(execCtx);
-                                        case REVIEW -> runReviewMode(execCtx);
-                                        case ISSUE -> IssueModeHandler.run(execCtx);
-                                        case ISSUE_WRITER -> IssueWriterModeHandler.run(execCtx);
-                                        default -> throw new IllegalStateException("Unhandled job mode: " + mode);
-                                    }
-
-                                    completed.incrementAndGet();
-
-                                    try {
-                                        JobStatus s = store.loadStatus(jobId);
-                                        if (s != null) {
-                                            store.updateStatus(jobId, s);
-                                        }
-                                    } catch (Exception e) {
-                                        logger.debug("Unable to update job {} for {}", jobId, e);
-                                    }
-                                } catch (Exception e) {
-                                    logger.warn("Task execution failed for job {}: {}", jobId, e.getMessage());
-                                    // Continue to next task or exit depending on requirements
-                                    throw e;
-                                }
-                            })
-                            .join();
-                }
+                cm.submitLlmAction(() -> {
+                            if (cancelled.get()) {
+                                logger.info("Job {} execution cancelled by user", jobId);
+                                return;
+                            }
+                            switch (mode) {
+                                case ARCHITECT -> runArchitectMode(execCtx);
+                                case LUTZ -> LutzModeHandler.run(execCtx);
+                                case PLAN -> PlanModeHandler.run(execCtx);
+                                case CODE -> CodeModeHandler.run(execCtx);
+                                case ASK -> AskModeHandler.run(execCtx);
+                                case SEARCH -> SearchModeHandler.run(execCtx);
+                                case REVIEW -> ReviewModeHandler.run(execCtx);
+                                case ISSUE -> IssueModeHandler.run(execCtx);
+                                case ISSUE_WRITER -> IssueWriterModeHandler.run(execCtx);
+                                default -> throw new IllegalStateException("Unhandled job mode: " + mode);
+                            }
+                        })
+                        .join();
 
                 // Optional compress after execution:
                 // - For ARCHITECT/LUTZ: per-task compression already honored via spec.autoCompress().
@@ -495,125 +364,12 @@ public final class JobRunner {
         }
     }
 
-    private record AppliedOverrides(
-            Service.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {}
-
-    private AppliedOverrides applyOverrides(
-            Service.ModelConfig baseConfig,
-            @Nullable String reasoningLevelOverride,
-            @Nullable Double temperatureOverride) {
-        Service.ReasoningLevel reasoning =
-                Service.ReasoningLevel.fromString(reasoningLevelOverride, baseConfig.reasoning());
-
-        var config = reasoning == baseConfig.reasoning()
-                ? baseConfig
-                : new Service.ModelConfig(baseConfig.name(), reasoning, baseConfig.tier());
-
-        @Nullable OpenAiChatRequestParameters.Builder parametersOverride = null;
-        if (temperatureOverride != null) {
-            if (cm.getService().supportsTemperature(baseConfig.name())) {
-                parametersOverride = OpenAiChatRequestParameters.builder().temperature(temperatureOverride);
-            } else {
-                logger.debug("Skipping temperature override for model {} as it is not supported.", baseConfig.name());
-            }
-        }
-
-        return new AppliedOverrides(config, parametersOverride);
-    }
-
-    private StreamingChatModel resolveModelOrThrow(
-            String name, @Nullable String reasoningLevelOverride, @Nullable Double temperatureOverride) {
-        var service = cm.getService();
-
-        var applied = applyOverrides(new Service.ModelConfig(name), reasoningLevelOverride, temperatureOverride);
-        var model = service.getModel(applied.config(), applied.parametersOverride());
-        if (model == null) {
-            throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
-        }
-        return model;
-    }
-
-    private StreamingChatModel resolveModelOrThrow(
-            Service.ModelConfig baseConfig,
-            @Nullable String reasoningLevelOverride,
-            @Nullable Double temperatureOverride) {
-        var service = cm.getService();
-
-        var applied = applyOverrides(baseConfig, reasoningLevelOverride, temperatureOverride);
-        var model = service.getModel(applied.config(), applied.parametersOverride());
-        if (model == null) {
-            throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + baseConfig.name());
-        }
-        return model;
-    }
-
-    private StreamingChatModel defaultCodeModel(JobSpec spec) {
-        var service = cm.getService();
-        var baseConfig = Service.ModelConfig.from(cm.getCodeModel(), service);
-        return resolveModelOrThrow(baseConfig, spec.reasoningLevelCode(), spec.temperatureCode());
-    }
-
-    private StreamingChatModel defaultScanModel(JobSpec spec) {
-        var service = cm.getService();
-        var baseConfig = Service.ModelConfig.from(service.getScanModel(), service);
-        return resolveModelOrThrow(baseConfig, spec.reasoningLevel(), spec.temperature());
-    }
-
     /**
      * Package-private helper used by unit tests to verify which scan model name would be selected
-     * for PLAN mode. If the JobSpec explicitly provides scanModel (non-blank) that value (trimmed)
-     * is returned; otherwise the supplier is invoked to obtain the project-default scan model name.
-     *
-     * This helper is intentionally simple and returns the chosen model name rather than resolving
-     * a StreamingChatModel so tests can assert model-selection semantics without requiring a full
-     * Service/ContextManager environment.
+     * for PLAN mode.
      */
     static String chooseScanModelNameForPlan(JobSpec spec, java.util.function.Supplier<String> projectDefaultSupplier) {
         return JobModelResolver.chooseScanModelNameForPlan(spec, projectDefaultSupplier);
-    }
-
-    /**
-     * Build a single-shot workspace-only prompt using the provided planner model and return
-     * a TaskResult representing the answer (or an error TaskResult on failure). This helper
-     * is read-only and does not mutate workspace state.
-     *
-     * @param model the model to use for the single-shot answer
-     * @param question the user's question / task text
-     * @return a TaskResult suitable for appending to a TaskScope
-     */
-    private TaskResult askUsingPlannerModel(Context ctx, StreamingChatModel model, String question) {
-        var svc = cm.getService();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
-
-        List<ChatMessage> messages;
-        messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
-        // Create an LLM instance for the planner model and route output to the ContextManager IO
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
-        llm.setOutput(cm.getIo());
-        // Build and send the request to the LLM
-        TaskResult.StopDetails stop = null;
-        Llm.StreamingResult response = null;
-        try {
-            response = llm.sendRequest(messages);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-        }
-
-        // Determine stop details based on the response
-        if (response != null) {
-            stop = TaskResult.StopDetails.fromResponse(response);
-        }
-
-        // construct TaskResult
-        Objects.requireNonNull(stop);
-        return new TaskResult(
-                cm,
-                "Ask: " + question,
-                List.copyOf(cm.getIo().getLlmRawMessages()),
-                ctx, // Ask never changes files; use current live context
-                stop,
-                meta);
     }
 
     /**
@@ -754,47 +510,15 @@ public final class JobRunner {
         return IssueModeSupport.buildInlineCommentFixPrompt(comment);
     }
 
-    // New per-mode delegating methods ---------------------------------------------------------
-
-    private void runArchitectMode(JobExecutionContext ctx) throws Exception {
-        var jobId = ctx.jobId();
-        var spec = ctx.spec();
-        var cm = ctx.cm();
-        var store = ctx.store();
-        var console = ctx.io();
-        var cancelledSupplier = ctx.cancelled();
-        var plannerModel = ctx.plannerModel();
-        var codeModel = ctx.codeModel();
-        var scanModel = ctx.scanModel();
-
-        cm.executeTask(
-                new TaskList.TaskItem("", spec.taskInput(), false),
-                Objects.requireNonNull(plannerModel, "plannerModel required for ARCHITECT jobs"),
-                Objects.requireNonNull(codeModel, "code model unavailable for ARCHITECT jobs"));
-    }
-
-    private void runLutzMode(JobExecutionContext ctx) throws Exception {
-        LutzModeHandler.run(ctx);
-    }
-
-    private void runPlanMode(JobExecutionContext ctx) throws Exception {
-        PlanModeHandler.run(ctx);
-    }
-
-    private void runCodeMode(JobExecutionContext ctx) throws Exception {
-        CodeModeHandler.run(ctx);
-    }
-
-    private void runAskMode(JobExecutionContext ctx) throws Exception {
-        AskModeHandler.run(ctx);
-    }
-
-    private void runSearchMode(JobExecutionContext ctx) throws Exception {
-        SearchModeHandler.run(ctx);
-    }
-
-    private void runReviewMode(JobExecutionContext ctx) throws Exception {
-        ReviewModeHandler.run(ctx);
+    private void runArchitectMode(JobExecutionContext ctx) {
+        try {
+            ctx.cm().executeTask(
+                    new TaskList.TaskItem("", ctx.spec().taskInput(), false),
+                    Objects.requireNonNull(ctx.plannerModel(), "plannerModel required for ARCHITECT jobs"),
+                    Objects.requireNonNull(ctx.codeModel(), "code model unavailable for ARCHITECT jobs"));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
 }
