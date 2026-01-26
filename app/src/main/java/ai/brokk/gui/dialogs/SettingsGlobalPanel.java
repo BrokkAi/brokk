@@ -761,6 +761,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         RowAdder adder = new RowAdder();
         // A subset of bindings; keep the same IDs for compatibility
         adder.add("instructions.submit", "Submit (Lutz)");
+        adder.add("instructions.toggleMode", "Toggle Code/Ask/Lutz");
         adder.add("global.undo", "Undo");
         adder.add("global.redo", "Redo");
         adder.add("global.copy", "Copy");
@@ -890,6 +891,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         String[] allKeybindingIds = {
             "instructions.submit",
+            "instructions.toggleMode",
             "global.undo",
             "global.redo",
             "global.copy",
@@ -928,6 +930,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private static String getKeybindingDisplayName(String id) {
         return switch (id) {
             case "instructions.submit" -> "Submit (Lutz)";
+            case "instructions.toggleMode" -> "Toggle Code/Ask/Lutz";
             case "global.undo" -> "Undo";
             case "global.redo" -> "Redo";
             case "global.copy" -> "Copy";
@@ -2212,6 +2215,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L);
     }
 
+    private static KeyStroke defaultToggleMode() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+    }
+
     private static KeyStroke defaultSwitchToProjectFiles() {
         int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
                 ? KeyEvent.META_DOWN_MASK
@@ -2289,6 +2296,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private static KeyStroke defaultFor(String id) {
         return switch (id) {
             case "instructions.submit" -> KeyboardShortcutUtil.defaultInstructionsSubmit();
+            case "instructions.toggleMode" -> defaultToggleMode();
             case "global.undo" -> defaultUndo();
             case "global.redo" -> defaultRedo();
             case "global.copy" -> defaultCopy();
