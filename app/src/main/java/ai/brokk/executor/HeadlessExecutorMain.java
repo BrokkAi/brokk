@@ -827,6 +827,31 @@ public final class HeadlessExecutorMain {
     }
 
     /**
+     * GET /v1/sessions/{sessionId}/tasks - Get the task list for a session.
+     */
+    void handleGetSessionTasks(HttpExchange exchange, UUID sessionId) throws IOException {
+        if (!exchange.getRequestMethod().equals("GET")) {
+            sendMethodNotAllowed(exchange);
+            return;
+        }
+
+        try {
+            // Check if we need to switch sessions to the requested one
+            if (!sessionId.equals(contextManager.getCurrentSessionId())) {
+                // For headless, we usually stay in one session, but if requested we switch
+                contextManager.switchSessionAsync(sessionId).join();
+            }
+
+            var taskListData = contextManager.getTaskList();
+            SimpleHttpServer.sendJsonResponse(exchange, taskListData);
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/sessions/{}/tasks", sessionId, e);
+            var error = ErrorPayload.internalError("Failed to retrieve task list", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
      * GET /v1/sessions/{sessionId} - Download a session zip.
      */
     void handleGetSessionZip(HttpExchange exchange, UUID sessionId) throws IOException {
