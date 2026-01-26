@@ -622,6 +622,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         boolean advanced = GlobalUiSettings.isAdvancedMode();
         branchSelectorPanel.setVisible(chrome.getProject().hasGit());
         historyOutputPanel.setAdvancedMode(advanced);
+        instructionsPanel.applyAdvancedModeForInstructions(advanced);
 
         int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
         if (!advanced) {
