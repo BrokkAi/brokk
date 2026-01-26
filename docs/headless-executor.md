@@ -210,6 +210,52 @@ JSON
 - `plannerModel` remains required by the API and is used for validating the job request; SEARCH will use `scanModel` (if present) as the actual scanning model.
 - `codeModel` is ignored in SEARCH mode; no code generation is performed.
 
+## PLAN Mode: Planning-Only Task Generation
+
+PLAN mode is a planning-only mode intended to produce a structured, persistent task list for later execution. It uses the SearchAgent/LutzAgent planning capabilities to analyze the repository and generate a minimal, incremental task list that a Code or Architect agent could later execute. PLAN is explicitly read-only with respect to code changes: it does not perform any code edits, commits, or PR creation.
+
+Key characteristics:
+- Planning-only: PLAN generates and persists a task list to the current session Workspace but does not execute tasks or make code changes.
+- Uses a scan model: When creating a PLAN job you may optionally supply `scanModel`. If provided, that model will be used for repository scanning during planning. If omitted or blank, the executor falls back to the project's default scan model (Service.getScanModel()).
+- `plannerModel` is required and is used to reason about the objective and to generate the task list.
+- `codeModel` is ignored for PLAN (since no code generation occurs).
+- Output: PLAN persists the generated task list into the session's Workspace (TaskList) and emits events describing the plan. Callers can later fetch events or the TaskList from the session to drive execution.
+
+Behavior vs LUTZ:
+- LUTZ: two-phase workflow — phase 1 generates tasks (planning) and phase 2 executes each generated task (implementation using ArchitectAgent).
+- PLAN: only performs phase 1 (planning) and stops; no execution phase is performed. Use PLAN when you want to generate and review a plan without any automated edits.
+
+### Model selection semantics for PLAN
+- If `scanModel` is provided in the job payload (non-blank), PLAN will prefer that model for scanning.
+- If `scanModel` is omitted or blank, PLAN will use the project's default scan model (Service.getScanModel()).
+- `plannerModel` must be provided and is used to generate the task list.
+
+### Example: PLAN with explicit scan model
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: plan-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Decompose the logging and error-handling improvements for the authentication module into actionable tasks.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "scanModel": "gpt-5-mini",
+  "tags": {
+    "mode": "PLAN"
+  }
+}
+JSON
+```
+
+### Notes for callers
+- PLAN is useful when you want to review and possibly edit a generated task list before committing to automated execution.
+- Because PLAN does not run tasks, you can safely use it in contexts that must remain non-invasive (codebase audits, design reviews, or manual approval workflows).
+
 ## LUTZ Mode: Two-Phase Planning & Execution
 
 LUTZ mode enables **intelligent task decomposition followed by sequential execution**. It's ideal for complex objectives that benefit from structured planning before implementation.
@@ -565,6 +611,7 @@ Once running, the executor exposes the following endpoints:
   - Returns: `{ "jobId": "<uuid>", "state": "running", ... }`
   - **SEARCH mode**: Set `"tags": { "mode": "SEARCH" }` to run a read-only repository scan. Optionally include `"scanModel": "<model>"` to override the default scan model used for repository scanning. `plannerModel` is still required by the API for validation.
   - **ASK mode**: Set `"tags": { "mode": "ASK" }` for ad-hoc read-only searches (uses service default scan model unless otherwise configured).
+  - **PLAN mode**: Set `"tags": { "mode": "PLAN" }` to run planning-only task generation. Optionally include `"scanModel": "<model>"` to override the default scan model used during planning. `plannerModel` is required; `codeModel` is ignored. PLAN generates and persists a task list but does not perform code edits or commits.
   - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
