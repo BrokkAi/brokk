@@ -517,6 +517,20 @@ public final class JobRunner {
                                         // Planning-only: generate a task list and persist it to the Workspace, but do not execute tasks.
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
+
+                                            // Resolve scan model for PLAN mode: prefer explicit spec.scanModel() if provided;
+                                            // otherwise use project default via defaultScanModel(spec).
+                                            String rawScanModel = spec.scanModel();
+                                            String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
+
+                                            final StreamingChatModel scanModelToUse = (trimmedScanModel != null
+                                                            && !trimmedScanModel.isEmpty())
+                                                    ? resolveModelOrThrow(
+                                                            trimmedScanModel, spec.reasoningLevel(), spec.temperature())
+                                                    : defaultScanModel(spec);
+
+                                            var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
+
                                             var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
@@ -524,7 +538,9 @@ public final class JobRunner {
                                                             architectPlannerModel,
                                                             "plannerModel required for PLAN jobs"),
                                                     SearchPrompts.Objective.TASKS_ONLY,
-                                                    scope);
+                                                    scope,
+                                                    cm.getIo(),
+                                                    scanConfig);
                                             var taskListResult = searchAgent.execute();
                                             scope.append(taskListResult);
                                         }
@@ -1866,6 +1882,26 @@ public final class JobRunner {
         var service = cm.getService();
         var baseConfig = Service.ModelConfig.from(service.getScanModel(), service);
         return resolveModelOrThrow(baseConfig, spec.reasoningLevel(), spec.temperature());
+    }
+
+    /**
+     * Package-private helper used by unit tests to verify which scan model name would be selected
+     * for PLAN mode. If the JobSpec explicitly provides scanModel (non-blank) that value (trimmed)
+     * is returned; otherwise the supplier is invoked to obtain the project-default scan model name.
+     *
+     * This helper is intentionally simple and returns the chosen model name rather than resolving
+     * a StreamingChatModel so tests can assert model-selection semantics without requiring a full
+     * Service/ContextManager environment.
+     */
+    static String chooseScanModelNameForPlan(JobSpec spec, java.util.function.Supplier<String> projectDefaultSupplier) {
+        String raw = spec.scanModel();
+        if (raw != null) {
+            String trimmed = raw.trim();
+            if (!trimmed.isEmpty()) {
+                return trimmed;
+            }
+        }
+        return projectDefaultSupplier.get();
     }
 
     /**
