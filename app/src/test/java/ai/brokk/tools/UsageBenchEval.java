@@ -72,6 +72,7 @@ public class UsageBenchEval implements Callable<Integer> {
         List<ProjectResult> projectResults = new ArrayList<>();
         List<CodeUnitDetail> allTPDetails = new ArrayList<>();
         List<CodeUnitDetail> allFPDetails = new ArrayList<>();
+        List<CodeUnitDetail> allFNDetails = new ArrayList<>();
 
         for (ProjectEntry entry : projectEntries) {
             String projectName = entry.projectDir().getFileName().toString();
@@ -83,6 +84,7 @@ public class UsageBenchEval implements Callable<Integer> {
                 projectResults.add(evalData.projectResult());
                 allTPDetails.addAll(evalData.tpDetails());
                 allFPDetails.addAll(evalData.fpDetails());
+                allFNDetails.addAll(evalData.fnDetails());
 
                 ProjectResult result = evalData.projectResult();
                 System.out.printf(
@@ -110,6 +112,8 @@ public class UsageBenchEval implements Callable<Integer> {
                 output.resolve("true-positives.json"), writer.writeValueAsString(new DetailedResults(allTPDetails)));
         Files.writeString(
                 output.resolve("false-positives.json"), writer.writeValueAsString(new DetailedResults(allFPDetails)));
+        Files.writeString(
+                output.resolve("false-negatives.json"), writer.writeValueAsString(new DetailedResults(allFNDetails)));
 
         printSummary(aggregate);
         return 0;
@@ -156,6 +160,7 @@ public class UsageBenchEval implements Callable<Integer> {
         System.out.println("  - summary.json");
         System.out.println("  - true-positives.json");
         System.out.println("  - false-positives.json");
+        System.out.println("  - false-negatives.json");
     }
 
     private List<ProjectEntry> discoverProjects() throws IOException {
@@ -228,6 +233,7 @@ public class UsageBenchEval implements Callable<Integer> {
         String projectPath = project.getRoot().toAbsolutePath().toString();
         List<CodeUnitDetail> projectTPs = new ArrayList<>();
         List<CodeUnitDetail> projectFPs = new ArrayList<>();
+        List<CodeUnitDetail> projectFNs = new ArrayList<>();
 
         int totalTP = 0;
         int totalFP = 0;
@@ -311,6 +317,18 @@ public class UsageBenchEval implements Callable<Integer> {
                         language.internalName(),
                         fpDetails));
             }
+            if (!fn.isEmpty()) {
+                List<UsageDetail> fnDetails = fn.stream()
+                        .map(fqn -> new UsageDetail(fqn, "", ""))
+                        .toList();
+                projectFNs.add(new CodeUnitDetail(
+                        unit.fullyQualifiedName(),
+                        searchedFilePath,
+                        projectName,
+                        projectPath,
+                        language.internalName(),
+                        fnDetails));
+            }
 
             totalTP += tp.size();
             totalFP += fp.size();
@@ -324,7 +342,7 @@ public class UsageBenchEval implements Callable<Integer> {
         ProjectResult result = new ProjectResult(
                 projectName, language.internalName(), totalTP, totalFP, totalFN, precision, recall, f1);
 
-        return new EvaluationData(result, projectTPs, projectFPs);
+        return new EvaluationData(result, projectTPs, projectFPs, projectFNs);
     }
 
     private double calculatePrecision(int tp, int fp) {
@@ -419,5 +437,8 @@ public class UsageBenchEval implements Callable<Integer> {
     public record DetailedResults(List<CodeUnitDetail> codeUnits) {}
 
     private record EvaluationData(
-            ProjectResult projectResult, List<CodeUnitDetail> tpDetails, List<CodeUnitDetail> fpDetails) {}
+            ProjectResult projectResult,
+            List<CodeUnitDetail> tpDetails,
+            List<CodeUnitDetail> fpDetails,
+            List<CodeUnitDetail> fnDetails) {}
 }

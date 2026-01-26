@@ -145,6 +145,8 @@ The tool writes three JSON files to the output directory:
 
 3. **`false-positives.json`** - Incorrectly detected usages (same format as true-positives)
 
+4. **`false-negatives.json`** - Expected usages that were not detected (same format as true-positives, with empty snippets and file paths)
+
 ### Metrics
 
 - **True Positive (TP)**: A usage detected by FuzzyUsageFinder that matches an expected usage (by enclosing FQN)
@@ -184,6 +186,7 @@ Evaluating project: guava (JAVA)...
   - summary.json
   - true-positives.json
   - false-positives.json
+  - false-negatives.json
 ```
 
 ---

@@ -34,9 +34,11 @@ public class UsageResultsExplorer extends BaseThemedDialog {
     private final EvalResults summary;
     private final DetailedResults truePositives;
     private final DetailedResults falsePositives;
+    private final DetailedResults falseNegatives;
 
     private final JTable tpTable;
     private final JTable fpTable;
+    private final JTable fnTable;
     private final RSyntaxTextArea previewArea;
 
     public UsageResultsExplorer(Path resultsDir) throws Exception {
@@ -47,9 +49,11 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         this.summary = mapper.readValue(resultsDir.resolve("summary.json").toFile(), EvalResults.class);
         this.truePositives = mapper.readValue(resultsDir.resolve("true-positives.json").toFile(), DetailedResults.class);
         this.falsePositives = mapper.readValue(resultsDir.resolve("false-positives.json").toFile(), DetailedResults.class);
+        this.falseNegatives = mapper.readValue(resultsDir.resolve("false-negatives.json").toFile(), DetailedResults.class);
 
         this.tpTable = createTable(truePositives);
         this.fpTable = createTable(falsePositives);
+        this.fnTable = createTable(falseNegatives);
         this.previewArea = new RSyntaxTextArea();
         this.previewArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
         this.previewArea.setEditable(false);
@@ -78,6 +82,7 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("True Positives", createTabComponent(tpTable));
         tabs.addTab("False Positives", createTabComponent(fpTable));
+        tabs.addTab("False Negatives", createTabComponent(fnTable));
         root.add(tabs, BorderLayout.CENTER);
 
         // SOUTH: Close
@@ -128,6 +133,9 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         });
         fpTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) updatePreview(falsePositives, fpTable.getSelectedRow());
+        });
+        fnTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) updatePreview(falseNegatives, fnTable.getSelectedRow());
         });
     }
 
