@@ -77,8 +77,7 @@ function setupBrokkInterface(): any[] {
         hideTransientMessage: () => transientStore.hide(),
 
         setShowEmptyState: (show: boolean) => {
-            // Placeholder for empty state store toggle if implemented;
-            // for now no-op to satisfy the bridge guard.
+            envStore.update(s => ({ ...s, showEmptyState: show }));
         },
 
         // Search API
