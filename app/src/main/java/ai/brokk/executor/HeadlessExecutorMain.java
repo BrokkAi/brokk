@@ -590,7 +590,9 @@ public final class HeadlessExecutorMain {
                     var taskId = parts.get(5);
                     handlePostTaskExecute(exchange, sessionId, taskId);
                     return;
-                } catch (IllegalArgumentException ignore) {}
+                } catch (IllegalArgumentException e) {
+                    // Not a valid UUID session ID in the path; fall through to other session routes
+                }
             }
         }
 
