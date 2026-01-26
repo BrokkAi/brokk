@@ -14,6 +14,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Panel;
@@ -700,5 +701,29 @@ class HeadlessHttpConsoleTest {
 
         assertDoesNotThrow(cancelCallback::run);
         assertTrue(cancelRequested.get());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testOnTaskListChanged_MapsToTaskListUpdateEvent() throws Exception {
+        var task = new TaskList.TaskItem("id-1", "Task Title", "Task Text", false);
+        var data = new TaskList.TaskListData(List.of(task));
+
+        console.onTaskListChanged(data);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("TASK_LIST_UPDATE", event.type());
+
+        var eventData = (Map<String, Object>) event.data();
+        var tasks = (List<Map<String, Object>>) eventData.get("tasks");
+        assertEquals(1, tasks.size());
+        assertEquals("Task Title", tasks.get(0).get("title"));
+        assertEquals("Task Text", tasks.get(0).get("text"));
+        assertEquals(false, tasks.get(0).get("done"));
+
+        cleanup();
     }
 }

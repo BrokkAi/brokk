@@ -114,10 +114,11 @@ public final class JobRunner {
 
         activeJobId = jobId;
         cancelled.set(false);
-        console = new HeadlessHttpConsole(store, jobId);
+        final var currentConsole = new HeadlessHttpConsole(store, jobId);
+        this.console = currentConsole;
         final var previousIo = cm.getIo();
-        console = new HeadlessHttpConsole(store, jobId);
-        cm.setIo(console);
+        cm.setIo(currentConsole);
+        cm.addContextListener(currentConsole);
         logger.info("Job {} attaching streaming console", jobId);
 
         // Transition status to RUNNING
@@ -313,6 +314,9 @@ public final class JobRunner {
                 // Restore original console. HeadlessHttpConsole is installed only for the job duration so that
                 // all ContextManager/agents IConsoleIO callbacks flow to the JobStore; then the previous console is
                 // restored.
+                if (console != null) {
+                    cm.removeContextListener(console);
+                }
                 cm.setIo(previousIo);
                 activeJobId = null;
                 logger.info("Job {} execution ended", jobId);

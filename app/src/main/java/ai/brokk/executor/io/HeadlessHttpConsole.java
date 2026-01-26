@@ -1,5 +1,6 @@
 package ai.brokk.executor.io;
 
+import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
@@ -7,6 +8,7 @@ import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
 import java.io.IOException;
@@ -23,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>Writes are performed synchronously to the JobStore so the persisted sequence is always authoritative.
  */
-public class HeadlessHttpConsole extends MemoryConsole {
+public class HeadlessHttpConsole extends MemoryConsole implements IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(HeadlessHttpConsole.class);
 
     private final JobStore jobStore;
@@ -246,6 +248,16 @@ public class HeadlessHttpConsole extends MemoryConsole {
     public void updateContextHistoryTable(Context context) {
         var data = Map.of("name", "contextHistoryUpdated", "value", true, "count", 1);
         appendEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public void contextChanged(Context newCtx) {
+        // No-op: we handle specific signals like task lists separately via onTaskListChanged
+    }
+
+    @Override
+    public void onTaskListChanged(TaskList.TaskListData data) {
+        appendEvent("TASK_LIST_UPDATE", data);
     }
 
     /**
