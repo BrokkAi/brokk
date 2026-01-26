@@ -234,6 +234,14 @@ public class UsageBenchEval implements Callable<Integer> {
         int totalFN = 0;
 
         for (CodeUnitUsages unit : groundTruth.codeUnits()) {
+            // Get the declaration file path for the searched symbol
+            var definitions = analyzer.getDefinitions(unit.fullyQualifiedName());
+            String searchedFilePath = "";
+            if (!definitions.isEmpty()) {
+                var def = definitions.iterator().next();
+                searchedFilePath = def.source().absPath().toString();
+            }
+
             var result = finder.findUsages(unit.fullyQualifiedName());
             var either = result.toEither();
 
@@ -278,7 +286,12 @@ public class UsageBenchEval implements Callable<Integer> {
                         })
                         .toList();
                 projectTPs.add(new CodeUnitDetail(
-                        unit.fullyQualifiedName(), projectName, projectPath, language.internalName(), tpDetails));
+                        unit.fullyQualifiedName(),
+                        searchedFilePath,
+                        projectName,
+                        projectPath,
+                        language.internalName(),
+                        tpDetails));
             }
             if (!fp.isEmpty()) {
                 List<UsageDetail> fpDetails = fp.stream()
@@ -291,7 +304,12 @@ public class UsageBenchEval implements Callable<Integer> {
                         })
                         .toList();
                 projectFPs.add(new CodeUnitDetail(
-                        unit.fullyQualifiedName(), projectName, projectPath, language.internalName(), fpDetails));
+                        unit.fullyQualifiedName(),
+                        searchedFilePath,
+                        projectName,
+                        projectPath,
+                        language.internalName(),
+                        fpDetails));
             }
 
             totalTP += tp.size();
@@ -391,7 +409,12 @@ public class UsageBenchEval implements Callable<Integer> {
     public record UsageDetail(String fqName, String snippet, String filePath) {}
 
     public record CodeUnitDetail(
-            String searchedFqn, String project, String projectPath, String language, List<UsageDetail> usages) {}
+            String searchedFqn,
+            String searchedFilePath,
+            String project,
+            String projectPath,
+            String language,
+            List<UsageDetail> usages) {}
 
     public record DetailedResults(List<CodeUnitDetail> codeUnits) {}
 
