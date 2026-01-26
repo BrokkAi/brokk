@@ -101,7 +101,7 @@ Run via Gradle:
 
 ### Output
 
-The tool writes three JSON files to the output directory:
+The tool writes four JSON files to the output directory:
 
 1. **`summary.json`** - Aggregate metrics and per-project results:
    ```json
@@ -129,23 +129,32 @@ The tool writes three JSON files to the output directory:
    }
    ```
 
-2. **`true-positives.json`** - Correctly detected usages grouped by searched code unit:
-   ```json
-   {
-     "codeUnits": [
-       {
-         "searchedFqn": "com.example.MyClass.myMethod",
-         "project": "commons-lang",
-         "language": "JAVA",
-         "fqNames": ["com.example.Caller.call", "com.example.Other.use"]
-       }
-     ]
-   }
-   ```
+2. **`true-positives.json`** - Correctly detected usages grouped by searched code unit.
+3. **`false-positives.json`** - Incorrectly detected usages.
+4. **`false-negatives.json`** - Expected usages that were not detected.
 
-3. **`false-positives.json`** - Incorrectly detected usages (same format as true-positives)
-
-4. **`false-negatives.json`** - Expected usages that were not detected (same format as true-positives, with empty snippets and file paths)
+Files 2-4 share a common structure:
+```json
+{
+  "codeUnits": [
+    {
+      "searchedFqn": "com.example.MyClass.myMethod",
+      "searchedFilePath": "/abs/path/to/MyClass.java",
+      "project": "commons-lang",
+      "projectPath": "/abs/path/to/commons-lang",
+      "language": "JAVA",
+      "usages": [
+        {
+          "fqName": "com.example.Caller.call",
+          "snippet": "public void call() { myMethod(); }",
+          "filePath": "/abs/path/to/Caller.java"
+        }
+      ]
+    }
+  ]
+}
+```
+*Note: For `false-negatives.json`, the `snippet` and `filePath` in `usages` will be empty as these usages were not detected in the source.*
 
 ### Metrics
 
@@ -241,31 +250,33 @@ The explorer expects a directory containing the three JSON files produced by `Us
 | Aggregate Metrics                                                 |
 | TP: 350  FP: 27  FN: 18  Precision: 0.928  Recall: 0.951  F1: 0.939 |
 +------------------------------------------------------------------+
-| [True Positives] [False Positives]                                |
+| [True Positives] [False Positives] [False Negatives]              |
 +------------------------------------------------------------------+
-| Searched FQN          | Project    | # Usages |                   |
-|-----------------------|------------|----------|                   |
-| com.example.MyClass   | commons    | 5        |  // Searched FQN: |
-| com.example.Other     | guava      | 3        |  // Project: ...  |
-| ...                   | ...        | ...      |                   |
-|                       |            |          |  // Usage in: ... |
-|                       |            |          |  // File: ...     |
-|                       |            |          |  <code snippet>   |
+| v Project: commons-lang (5 units)     |                           |
+|   - com.example.A (2 usages)          |  // Searched FQN: ...     |
+|   - com.example.B (3 usages)          |  // Project: ...          |
+| > Project: guava (10 units)           |                           |
+|                                       |  // Usage in: ...         |
+|                                       |  // File: ...             |
+|                                       |  <code snippet>           |
+|                                       |                           |
 +------------------------------------------------------------------+
 |                                                        [Close]    |
 +------------------------------------------------------------------+
 ```
 
-- **Top panel**: Shows aggregate metrics from the evaluation run
-- **Tabbed pane**: Switch between True Positives and False Positives
-- **Left table**: Lists code units with their project and usage count
-- **Right panel**: Displays syntax-highlighted snippets for the selected code unit
-- **Bottom**: Close button to dismiss the dialog
+- **Top panel**: Shows aggregate metrics (TP, FP, FN, P, R, F1) from the evaluation run.
+- **Tabbed pane**: Switch between three categories: True Positives, False Positives, and False Negatives.
+- **Left Tree**: A collapsible tree navigation grouped by project. Nodes show the number of units/usages.
+- **Right panel**: Displays syntax-highlighted snippets for the selected code unit.
+- **Bottom**: Close button to dismiss the dialog.
 
 ### Features
 
-- **Syntax highlighting**: Code snippets are displayed with Java syntax highlighting using RSyntaxTextArea
-- **Selection-based preview**: Click any row in the table to see all usage snippets for that code unit
-- **Metadata display**: Each snippet includes comments showing the usage location (FQN) and file path
-- **Standalone operation**: Can be run independently without the full Brokk application
+- **Project Grouping**: Results are organized in a tree structure by project for easier navigation in large datasets.
+- **Result Categories**: Three distinct tabs allow for isolating different types of detection outcomes.
+- **Syntax highlighting**: Code snippets are displayed with Java syntax highlighting using RSyntaxTextArea.
+- **Selection-based preview**: Selecting a code unit in the tree instantly loads all associated usage snippets.
+- **Metadata display**: Each snippet includes comments showing the usage location (FQN) and file path.
+- **Standalone operation**: Can be run independently without the full Brokk application.
 ```
