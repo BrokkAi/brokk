@@ -55,8 +55,9 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
         var currentStack = Thread.currentThread().getStackTrace();
         // 0 -> getStacktrace()
         // 1 -> handle()
-        // 2 -> start of caller
-        for (int i = 2; i < currentStack.length; i++) {
+        // [optional handle overload]
+        // 2 or 3 -> start of caller
+        for (int i = 3; i < currentStack.length; i++) {
             var element = currentStack[i];
             if (element.getClassName().equals(GlobalExceptionHandler.class.getName())
                     && element.getMethodName().equals("handle")) {
