@@ -39,6 +39,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -1480,7 +1481,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 return;
             }
 
-            if (value.equals(JOptionPane.OK_OPTION)) {
+            if (Objects.equals(value, JOptionPane.OK_OPTION)) {
                 String name = nameField.getText().trim();
                 String rawUrl = urlField.getText().trim();
                 boolean useToken = useTokenCheckbox.isSelected();
@@ -1827,7 +1828,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 return;
             }
 
-            if (value.equals(JOptionPane.OK_OPTION)) {
+            if (Objects.equals(value, JOptionPane.OK_OPTION)) {
                 String name = nameField.getText().trim();
                 String command = commandField.getText().trim();
                 if (name.isEmpty()) {
