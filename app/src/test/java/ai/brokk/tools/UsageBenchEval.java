@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
@@ -224,6 +225,7 @@ public class UsageBenchEval implements Callable<Integer> {
         FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, null, null);
 
         String projectName = project.getRoot().getFileName().toString();
+        String projectPath = project.getRoot().toAbsolutePath().toString();
         List<CodeUnitDetail> projectTPs = new ArrayList<>();
         List<CodeUnitDetail> projectFPs = new ArrayList<>();
 
@@ -239,9 +241,11 @@ public class UsageBenchEval implements Callable<Integer> {
                     .map(UsageLocation::fullyQualifiedName)
                     .collect(Collectors.toSet());
 
+            Set<UsageHit> detectedHits = new HashSet<>();
             Set<String> detectedFqns = new HashSet<>();
             if (either.hasUsages()) {
-                detectedFqns = either.getUsages().stream()
+                detectedHits = either.getUsages();
+                detectedFqns = detectedHits.stream()
                         .map(hit -> hit.enclosing().fqName())
                         .collect(Collectors.toSet());
             } else if (either.hasErrorMessage()) {
@@ -258,13 +262,36 @@ public class UsageBenchEval implements Callable<Integer> {
             Set<String> fn = new HashSet<>(expectedFqns);
             fn.removeAll(detectedFqns);
 
+            Map<String, UsageHit> fqnToHit = detectedHits.stream()
+                    .collect(Collectors.toMap(
+                            hit -> hit.enclosing().fqName(), hit -> hit, (a, b) -> a // keep first if duplicate
+                            ));
+
             if (!tp.isEmpty()) {
+                List<UsageDetail> tpDetails = tp.stream()
+                        .map(fqn -> {
+                            UsageHit hit = fqnToHit.get(fqn);
+                            return new UsageDetail(
+                                    fqn,
+                                    hit != null ? hit.snippet() : "",
+                                    hit != null ? hit.file().absPath().toString() : "");
+                        })
+                        .toList();
                 projectTPs.add(new CodeUnitDetail(
-                        unit.fullyQualifiedName(), projectName, language.internalName(), List.copyOf(tp)));
+                        unit.fullyQualifiedName(), projectName, projectPath, language.internalName(), tpDetails));
             }
             if (!fp.isEmpty()) {
+                List<UsageDetail> fpDetails = fp.stream()
+                        .map(fqn -> {
+                            UsageHit hit = fqnToHit.get(fqn);
+                            return new UsageDetail(
+                                    fqn,
+                                    hit != null ? hit.snippet() : "",
+                                    hit != null ? hit.file().absPath().toString() : "");
+                        })
+                        .toList();
                 projectFPs.add(new CodeUnitDetail(
-                        unit.fullyQualifiedName(), projectName, language.internalName(), List.copyOf(fp)));
+                        unit.fullyQualifiedName(), projectName, projectPath, language.internalName(), fpDetails));
             }
 
             totalTP += tp.size();
@@ -361,7 +388,10 @@ public class UsageBenchEval implements Callable<Integer> {
     public record AggregateMetrics(
             int totalTP, int totalFP, int totalFN, double precision, double recall, double f1) {}
 
-    public record CodeUnitDetail(String searchedFqn, String project, String language, List<String> fqNames) {}
+    public record UsageDetail(String fqName, String snippet, String filePath) {}
+
+    public record CodeUnitDetail(
+            String searchedFqn, String project, String projectPath, String language, List<UsageDetail> usages) {}
 
     public record DetailedResults(List<CodeUnitDetail> codeUnits) {}
 
