@@ -248,4 +248,167 @@ public class UsagePromptBuilderJavaTest {
         assertEquals(
                 singlePrompt.filterDescription(), listPrompt.filterDescription(), "Filter description should match");
     }
+
+    @Test
+    public void testAdjacentSnippetsMergeWithoutDuplicatingBoundary() {
+        ProjectFile file = fileInProject("A.java");
+        CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
+        CodeUnit target = CodeUnit.fn(file, "test", "method2");
+
+        // Hit at line 5: context covers lines [2, 8]
+        String snippet1 = "line2\nline3\nline4\nline5-hit\nline6\nline7\nline8";
+        UsageHit hit1 = new UsageHit(file, 5, 10, 20, enclosing, 1.0, snippet1);
+
+        // Hit at line 11: context covers lines [8, 14] - just touches at line 8
+        String snippet2 = "line8\nline9\nline10\nline11-hit\nline12\nline13\nline14";
+        UsageHit hit2 = new UsageHit(file, 11, 30, 40, enclosing, 1.0, snippet2);
+
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
+                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+
+        String text = prompt.promptText();
+
+        // Should contain both hits
+        assertTrue(text.contains("line5-hit"), "Should contain first hit");
+        assertTrue(text.contains("line11-hit"), "Should contain second hit");
+
+        // Should NOT have ellipsis since they're adjacent/touching
+        assertFalse(text.contains("..."), "Should not contain ellipsis for adjacent hits");
+
+        // Line 8 should appear exactly once (not duplicated)
+        int firstIndex = text.indexOf("line8");
+        int lastIndex = text.lastIndexOf("line8");
+        assertEquals(firstIndex, lastIndex, "Boundary line 8 should appear exactly once");
+    }
+
+    @Test
+    public void testOverlappingSnippetsMergeWithProperDeduplication() {
+        ProjectFile file = fileInProject("A.java");
+        CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
+        CodeUnit target = CodeUnit.fn(file, "test", "method2");
+
+        // Hit at line 5: context covers lines [2, 8]
+        String snippet1 = "line2\nline3\nline4\nline5-hit\nline6\nline7\nline8";
+        UsageHit hit1 = new UsageHit(file, 5, 10, 20, enclosing, 1.0, snippet1);
+
+        // Hit at line 9: context covers lines [6, 12] - overlaps lines 6,7,8
+        String snippet2 = "line6\nline7\nline8\nline9-hit\nline10\nline11\nline12";
+        UsageHit hit2 = new UsageHit(file, 9, 30, 40, enclosing, 1.0, snippet2);
+
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
+                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+
+        String text = prompt.promptText();
+
+        // Both hits should be present
+        assertTrue(text.contains("line5-hit"), "Should contain first hit");
+        assertTrue(text.contains("line9-hit"), "Should contain second hit");
+
+        // No ellipsis for overlapping
+        assertFalse(text.contains("..."), "Should not contain ellipsis for overlapping hits");
+
+        // Verify no duplicate lines in overlapping region
+        String candidateText = prompt.candidateText();
+        assertEquals(1, countOccurrences(candidateText, "line6"), "line6 should appear exactly once");
+        assertEquals(1, countOccurrences(candidateText, "line7"), "line7 should appear exactly once");
+    }
+
+    @Test
+    public void testNonOverlappingSnippetsStaySeparateWithEllipsis() {
+        ProjectFile file = fileInProject("A.java");
+        CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
+        CodeUnit target = CodeUnit.fn(file, "test", "method2");
+
+        // Hit at line 5: context covers lines [2, 8]
+        String snippet1 = "line2\nline3\nline4\nline5-hit\nline6\nline7\nline8";
+        UsageHit hit1 = new UsageHit(file, 5, 10, 20, enclosing, 1.0, snippet1);
+
+        // Hit at line 20: context covers lines [17, 23] - far from first hit
+        String snippet2 = "line17\nline18\nline19\nline20-hit\nline21\nline22\nline23";
+        UsageHit hit2 = new UsageHit(file, 20, 100, 110, enclosing, 1.0, snippet2);
+
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
+                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+
+        String text = prompt.promptText();
+
+        // Both hits present
+        assertTrue(text.contains("line5-hit"), "Should contain first hit");
+        assertTrue(text.contains("line20-hit"), "Should contain second hit");
+
+        // Should have ellipsis separator
+        assertTrue(text.contains("..."), "Should contain ellipsis for non-overlapping hits");
+
+        // Both full snippets should be present
+        assertTrue(text.contains("line2"), "Should contain start of first snippet");
+        assertTrue(text.contains("line8"), "Should contain end of first snippet");
+        assertTrue(text.contains("line17"), "Should contain start of second snippet");
+        assertTrue(text.contains("line23"), "Should contain end of second snippet");
+    }
+
+    @Test
+    public void testSimilarContentAtDifferentLocationsNotMerged() {
+        ProjectFile file = fileInProject("A.java");
+        CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
+        CodeUnit target = CodeUnit.fn(file, "test", "method2");
+
+        // Identical snippet content at two very different locations
+        String identicalSnippet = "commonLine1\ncommonLine2\ncommonLine3\ncommonHit\ncommonLine5\ncommonLine6\ncommonLine7";
+
+        // Hit at line 10: context covers lines [7, 13]
+        UsageHit hit1 = new UsageHit(file, 10, 100, 110, enclosing, 1.0, identicalSnippet);
+
+        // Hit at line 100: context covers lines [97, 103] - same text but very different location
+        UsageHit hit2 = new UsageHit(file, 100, 500, 510, enclosing, 1.0, identicalSnippet);
+
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
+                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+
+        String candidateText = prompt.candidateText();
+
+        // Should have ellipsis separator because they're at different locations
+        assertTrue(candidateText.contains("..."),
+                "Should contain ellipsis separator - identical content at different lines should NOT be merged");
+
+        // The identical content should appear TWICE (once for each location)
+        assertEquals(2, countOccurrences(candidateText, "commonHit"),
+                "Identical content at different locations should both be included");
+    }
+
+    @Test
+    public void testSingleHitReturnsUnchanged() {
+        ProjectFile file = fileInProject("A.java");
+        CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
+        CodeUnit target = CodeUnit.fn(file, "test", "method2");
+
+        String originalSnippet = "line1\nline2\nline3\nhit-line\nline5\nline6\nline7";
+        UsageHit hit = new UsageHit(file, 5, 10, 20, enclosing, 1.0, originalSnippet);
+
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
+                List.of(hit), target, List.of(), analyzer, "method2", 10_000);
+
+        // candidateText should be exactly the original snippet
+        assertEquals(originalSnippet, prompt.candidateText(),
+                "Single hit should return snippet unchanged");
+
+        // No ellipsis
+        assertFalse(prompt.candidateText().contains("..."),
+                "Single hit should not contain ellipsis");
+    }
+
+    private int countOccurrences(String text, String search) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(search, index)) != -1) {
+            // Make sure we're matching a whole line, not a substring
+            boolean isLineStart = index == 0 || text.charAt(index - 1) == '\n';
+            boolean isLineEnd = index + search.length() >= text.length()
+                    || text.charAt(index + search.length()) == '\n';
+            if (isLineStart && isLineEnd) {
+                count++;
+            }
+            index += search.length();
+        }
+        return count;
+    }
 }
