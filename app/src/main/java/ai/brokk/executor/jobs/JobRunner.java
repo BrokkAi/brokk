@@ -773,128 +773,7 @@ public final class JobRunner {
      * Package-private for tests to validate the policy text without invoking the LLM.
      */
     static String buildReviewPrompt(String diff, PrReviewService.Severity minSeverity, int maxComments) {
-        String fencedDiff = "```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```";
-
-        // Compose the policy lines using explicit phrasing that tests can rely on.
-        String severityLine = "ONLY emit comments with severity >= " + minSeverity.name() + ".";
-        String maxLine =
-                "MAX " + maxComments + " comments total. Merge similar issues into one comment instead of repeating.";
-
-        String prompt =
-                """
-                You are performing a Pull Request diff review. The diff to review is provided
-                *between the fenced code block marked DIFF_START and DIFF_END*.
-                Everything inside that block is code - do not ignore any part of it.
-
-                %s
-
-                IMPORTANT: Line Number Format
-                -----------------------------
-                Each diff line is annotated with explicit OLD/NEW line numbers for your reference:
-
-                - Added lines:   "[OLD:- NEW:N] +<content>" where N is the exact line number in the new file
-                - Removed lines: "[OLD:N NEW:-] -<content>" where N is the exact line number in the old file
-                - Context lines: "[OLD:N NEW:N]  <content>" where N/N are the exact line numbers in the old/new files
-
-                When writing your review, cite line numbers using just the number, choosing the appropriate number:
-                - For additions ("+"): use the NEW line number from the annotation
-                - For deletions ("-"): use the OLD line number from the annotation
-                - For context/unchanged lines (" "): use the NEW line number from the annotation
-
-                Your task:
-                Analyze the diff content above using the context of related methods and code files.
-
-                OUTPUT FORMAT
-                -------------
-                You MUST output a single JSON object with this exact structure:
-
-                {
-                  "summaryMarkdown": "## Brokk PR Review\\n\\n[1-3 sentences describing what changed and only the most important risks]",
-                  "comments": [
-                    {
-                      "path": "src/main/java/Example.java",
-                      "line": 42,
-                      "severity": "HIGH",
-                      "bodyMarkdown": "Describe the issue, why it matters, and a minimal actionable fix."
-                    }
-                  ]
-                }
-
-                REQUIRED FIELDS:
-                - "summaryMarkdown": MUST start with exactly "## Brokk PR Review" followed by a newline and 1-3 sentences.
-                - "comments": Array of inline comment objects (MUST be [] if nothing meets threshold).
-
-                Each comment object MUST have:
-                - "path": File path relative to repository root (e.g., "src/main/java/Foo.java")
-                - "line": Single integer line number from the diff annotation:
-                  * For "+" lines: use the NEW line number
-                  * For "-" lines: use the OLD line number
-                  * For " " lines: use the NEW line number
-                - "severity": One of "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"
-                - "bodyMarkdown": Markdown description of the issue with a minimal actionable fix
-
-                SEVERITY DEFINITIONS:
-                - CRITICAL: likely exploitable security issue, data loss/corruption, auth/permission bypass, remote crash, or severe production outage risk.
-                - HIGH: likely bug, race condition, broken error handling, incorrect logic, resource leak, significant performance regression, or high-impact maintainability risk.
-                - MEDIUM: could become a bug; edge-case correctness; non-trivial readability/maintenance concerns.
-                - LOW: style, nits, subjective preference, minor readability, minor refactors.
-
-                COMMENT POLICY (STRICT):
-                - %s
-                - %s
-                - Do NOT comment on missing import statements.
-                - Do NOT flag undefined symbols or assume the code will fail to compile.
-                - Do NOT attempt to act as a compiler or duplicate CI/build failure messages. Assume the compiler and CI will surface genuine compilation issues; prioritize human, context-aware review and actionable suggestions instead.
-                - NO style-only/nit suggestions. NO repetitive variants of the same point.
-                - SKIP correct code and skip minor improvements.
-                - If nothing meets the requested severity threshold, "comments" MUST be [].
-
-                OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
-                """
-                        .formatted(severityLine, maxLine, fencedDiff);
-
-        return prompt;
-    }
-
-    /**
-     * Backing implementation that sends the structured prompt to the LLM using a specified policy.
-     */
-    private TaskResult reviewDiffWithPolicy(
-            Context ctx, StreamingChatModel model, String diff, PrReviewService.Severity minSeverity, int maxComments) {
-        var svc = cm.getService();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
-
-        String prompt = buildReviewPrompt(diff, minSeverity, maxComments);
-
-        List<ChatMessage> messages = List.of(new UserMessage(prompt));
-
-        var llm = cm.getLlm(new Llm.Options(model, "Diff Review").withEcho());
-        llm.setOutput(cm.getIo());
-
-        TaskResult.StopDetails stop = null;
-        Llm.StreamingResult response = null;
-        try {
-            response = llm.sendRequest(messages);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-        }
-
-        if (response != null) {
-            stop = TaskResult.StopDetails.fromResponse(response);
-        }
-
-        Objects.requireNonNull(stop);
-        return new TaskResult(cm, "Diff Review", List.copyOf(cm.getIo().getLlmRawMessages()), ctx, stop, meta);
-    }
-
-    /**
-     * Legacy-friendly reviewDiff retained for REVIEW mode callers. REVIEW mode enforces the stricter
-     * policy: severity >= DEFAULT_REVIEW_SEVERITY_THRESHOLD and MAX DEFAULT_REVIEW_MAX_INLINE_COMMENTS.
-     */
-    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
-        return reviewDiffWithPolicy(
-                ctx, model, diff, DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+        return PrReviewPromptBuilder.buildReviewPrompt(diff, minSeverity, maxComments);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
@@ -1725,6 +1604,23 @@ public final class JobRunner {
                 });
     }
 
+    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
+        var svc = cm.getService();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
+        String prompt = PrReviewPromptBuilder.buildReviewPrompt(diff, DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+
+        var llm = cm.getLlm(new Llm.Options(model, "Diff Review").withEcho());
+        llm.setOutput(cm.getIo());
+
+        try {
+            var response = llm.sendRequest(List.of(new UserMessage(prompt)));
+            return new TaskResult(cm, "Diff Review", List.copyOf(cm.getIo().getLlmRawMessages()), ctx, TaskResult.StopDetails.fromResponse(response), meta);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
     // New per-mode delegating methods ---------------------------------------------------------
 
     private void runArchitectMode(JobExecutionContext ctx) throws Exception {
@@ -1765,234 +1661,7 @@ public final class JobRunner {
     }
 
     private void runReviewMode(JobExecutionContext ctx) throws Exception {
-        var jobId = ctx.jobId();
-        var spec = ctx.spec();
-        var cm = ctx.cm();
-        var store = ctx.store();
-        var console = ctx.io();
-        var cancelledSupplier = ctx.cancelled();
-        var plannerModel = ctx.plannerModel();
-        var codeModel = ctx.codeModel();
-        var scanModel = ctx.scanModel();
-
-        // 1. Extract and validate PR metadata
-        String githubToken = spec.getGithubToken();
-        String repoOwner = spec.getRepoOwner();
-        String repoName = spec.getRepoName();
-        Integer prNumber = spec.getPrNumber();
-
-        if (githubToken == null || githubToken.isBlank()) {
-            throw new IllegalArgumentException("REVIEW requires github_token in tags");
-        }
-        if (repoOwner == null || repoOwner.isBlank()) {
-            throw new IllegalArgumentException("REVIEW requires repo_owner in tags");
-        }
-        if (repoName == null || repoName.isBlank()) {
-            throw new IllegalArgumentException("REVIEW requires repo_name in tags");
-        }
-        if (prNumber == null) {
-            throw new IllegalArgumentException("REVIEW requires pr_number in tags");
-        }
-
-        try (var scope = cm.beginTaskUngrouped("PR Review #" + prNumber)) {
-            var context = cm.liveContext();
-
-            // 2. Create GitHubAuth and get PR
-            var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
-            var ghRepo = gitHubAuth.getGhRepository();
-            var pr = ghRepo.getPullRequest(prNumber);
-
-            // 3. Fetch PR details (base branch, head SHA)
-            var prDetails = PrReviewService.fetchPrDetails(ghRepo, prNumber);
-            String baseBranch = prDetails.baseBranch();
-            String headSha = prDetails.headSha();
-
-            // 3a. Fetch PR refs and base branch from a single resolved remote to
-            // ensure the refs we diff against exist locally.
-            var gitRepo =
-                    (GitRepo) cm.getProject().getRepo();
-
-            String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
-            if (remoteName == null) {
-                throw new IllegalStateException(
-                        "PR review requires a configured git remote (no remote found; expected 'origin' or a fallback remote)");
-            }
-
-            try {
-                store.appendEvent(
-                        jobId,
-                        JobEvent.of(
-                                "NOTIFICATION",
-                                "Fetching PR refs from remote '" + remoteName
-                                        + "'..."));
-            } catch (IOException ioe) {
-                logger.warn(
-                        "Failed to append fetch notification event for job {}: {}",
-                        jobId,
-                        ioe.getMessage(),
-                        ioe);
-            }
-
-            try {
-                gitRepo.remote().fetchPrRef(prNumber, remoteName, githubToken);
-            } catch (GitAPIException e) {
-                logger.warn(
-                        "Failed to fetch PR ref for PR #{} from remote '{}': {}",
-                        prNumber,
-                        remoteName,
-                        e.getMessage());
-                throw new IllegalStateException(
-                        "Failed to fetch PR ref for PR #" + prNumber + " from remote '"
-                                + remoteName + "': " + e.getMessage(),
-                        e);
-            }
-
-            try {
-                gitRepo.remote().fetchBranch(remoteName, baseBranch, githubToken);
-            } catch (GitAPIException e) {
-                logger.warn(
-                        "Failed to fetch base branch '{}' for PR #{} from remote '{}': {}",
-                        baseBranch,
-                        prNumber,
-                        remoteName,
-                        e.getMessage());
-                throw new IllegalStateException(
-                        "Failed to fetch base branch '" + baseBranch + "' for PR #"
-                                + prNumber + " from remote '" + remoteName + "': "
-                                + e.getMessage(),
-                        e);
-            }
-
-            String baseRef = remoteName + "/" + baseBranch;
-            String prRef = remoteName + "/pr/" + prNumber;
-
-            // 4. Compute PR diff using fetched refs
-            String diff = PrReviewService.computePrDiff(gitRepo, baseRef, prRef);
-
-            // 4a. Annotate diff with line numbers for LLM review
-            String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);
-
-            // Pre-scan to load related context from the diff
-            try {
-                store.appendEvent(
-                        jobId,
-                        JobEvent.of(
-                                "NOTIFICATION",
-                                "Brokk Context Engine: analyzing repository context for PR review..."));
-
-                var scanGoal =
-                        "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
-                                + annotatedDiff + "\n```";
-                var searchAgent = new LutzAgent(
-                        context,
-                        scanGoal,
-                        Objects.requireNonNull(
-                                scanModel,
-                                "scan model unavailable for REVIEW pre-scan"),
-                        SearchPrompts.Objective.ANSWER_ONLY,
-                        scope);
-
-                context = searchAgent.scanContext();
-
-                store.appendEvent(
-                        jobId,
-                        JobEvent.of(
-                                "NOTIFICATION",
-                                "Brokk Context Engine: complete — contextual insights added to Workspace."));
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                logger.warn(
-                        "Pre-scan interrupted for REVIEW job {}: {}",
-                        jobId,
-                        ie.getMessage());
-            } catch (Exception ex) {
-                logger.warn(
-                        "Pre-scan failed for REVIEW job {}: {}",
-                        jobId,
-                        ex.getMessage());
-            }
-
-            // 5. Call reviewDiff() to get LLM review with enriched context
-            var planner = Objects.requireNonNull(
-                    plannerModel, "planner model unavailable for REVIEW jobs");
-            TaskResult reviewResult = reviewDiff(context, planner, annotatedDiff);
-            scope.append(reviewResult);
-
-            // 6. Parse review output (JSON only)
-            String reviewText =
-                    reviewResult.output().text().join();
-
-            var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
-
-            if (reviewResponse == null) {
-                // JSON parsing failed - treat as hard error
-                String preview = reviewText.length() > 500
-                        ? reviewText.substring(0, 500) + "..."
-                        : reviewText;
-                logger.error(
-                        "PR review response was not valid JSON for job {}. Response preview: {}",
-                        jobId,
-                        preview);
-                throw new IllegalStateException(
-                        "PR review response was not valid JSON. Expected JSON object with 'summaryMarkdown' field. Response preview: "
-                                + preview);
-            }
-
-            // JSON parsing succeeded - use structured format
-            logger.debug("PR review parsed as JSON successfully");
-            String summary = reviewResponse.summaryMarkdown();
-
-            // 7. Post summary comment to PR
-            PrReviewService.postReviewComment(pr, summary);
-            logger.info("Posted PR review summary to PR #{}", prNumber);
-
-            // 8. Post inline comments from structured response (filtered)
-            int postedComments = 0;
-            int skippedComments = 0;
-
-            var filteredComments = PrReviewService.filterInlineComments(
-                    reviewResponse.comments(),
-                    DEFAULT_REVIEW_SEVERITY_THRESHOLD,
-                    DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
-
-            for (var comment : filteredComments) {
-                String path = comment.path();
-                int line = comment.line();
-                String bodyMarkdown = comment.bodyMarkdown();
-
-                try {
-                    if (!PrReviewService.hasExistingLineComment(pr, path, line)) {
-                        PrReviewService.postLineComment(
-                                pr, path, line, bodyMarkdown, headSha);
-                        postedComments++;
-                        logger.debug(
-                                "Posted line comment on {}:{} severity={}",
-                                path,
-                                line,
-                                comment.severity());
-                    } else {
-                        skippedComments++;
-                        logger.debug(
-                                "Skipped duplicate comment on {}:{} severity={}",
-                                path,
-                                line,
-                                comment.severity());
-                    }
-                } catch (Exception e) {
-                    logger.warn(
-                            "Failed to post line comment on {}:{}: {}",
-                            path,
-                            line,
-                            e.getMessage());
-                }
-            }
-
-            logger.info(
-                    "PR Review complete for PR #{}: posted {} line comments, skipped {} duplicates",
-                    prNumber,
-                    postedComments,
-                    skippedComments);
-        }
+        ReviewModeHandler.run(ctx);
     }
 
     private void runIssueMode(JobExecutionContext ctx) throws Exception {
