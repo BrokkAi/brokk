@@ -216,7 +216,7 @@ public class UsageBenchEval implements Callable<Integer> {
                         }
                     });
                 } catch (IOException e) {
-                    System.err.println("Error scanning language directory: " + langDir);
+                    System.err.println("Error scanning language directory " + langDir + ": " + e.getMessage());
                 }
             });
         }
