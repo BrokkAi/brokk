@@ -67,8 +67,6 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         this.previewArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
         this.previewArea.setEditable(false);
 
-        // Set text color explicitly for visibility
-        this.previewArea.setForeground(Color.BLACK);
 
         initializeUI();
         setupSelectionListeners();
@@ -90,11 +88,11 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         summaryPanel.add(new JLabel(String.format("F1: %.3f", agg.f1())));
         root.add(summaryPanel, BorderLayout.NORTH);
 
-        // CENTER: Tabs
+        // CENTER: Split pane with tabs on left and shared preview on right
         this.tabs = new JTabbedPane();
-        tabs.addTab("True Positives", createTabComponent(tpTree));
-        tabs.addTab("False Positives", createTabComponent(fpTree));
-        tabs.addTab("False Negatives", createTabComponent(fnTree));
+        tabs.addTab("True Positives", new JScrollPane(tpTree));
+        tabs.addTab("False Positives", new JScrollPane(fpTree));
+        tabs.addTab("False Negatives", new JScrollPane(fnTree));
 
         tabs.addChangeListener(e -> {
             previewArea.setText("");
@@ -105,7 +103,12 @@ public class UsageResultsExplorer extends BaseThemedDialog {
             if (selectedIndex != 2) fnTree.clearSelection();
         });
 
-        root.add(tabs, BorderLayout.CENTER);
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        mainSplit.setLeftComponent(tabs);
+        mainSplit.setRightComponent(new RTextScrollPane(previewArea));
+        mainSplit.setDividerLocation(400);
+
+        root.add(mainSplit, BorderLayout.CENTER);
 
         // SOUTH: Close
         JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -119,13 +122,6 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         setLocationRelativeTo(null);
     }
 
-    private JSplitPane createTabComponent(JTree tree) {
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        split.setLeftComponent(new JScrollPane(tree));
-        split.setRightComponent(new RTextScrollPane(previewArea));
-        split.setDividerLocation(400);
-        return split;
-    }
 
     private JTree createTree(DetailedResults results) {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("Results");
