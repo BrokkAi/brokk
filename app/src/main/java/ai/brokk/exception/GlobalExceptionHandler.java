@@ -42,6 +42,13 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
             return;
         }
 
+        // Suppress known JavaFX race condition (JDK-8334593): EmbeddedScene receives
+        // pixel scale factor updates after scene disposal
+        if (isJavaFxSceneStateNpe(th)) {
+            logger.trace("Suppressing JavaFX SceneState NPE on thread {}", thread.getName());
+            return;
+        }
+
         logger.error("Uncaught exception on thread %s".formatted(thread), th);
 
         // Prevent recursive handling: abort if this method is already on the call stack.
@@ -145,5 +152,25 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
         if (cls.isInstance(th)) return true;
         else if (th.getCause() == null) return false;
         else return isCausedBy(th.getCause(), cls);
+    }
+
+    /**
+     * Detects JDK-8334593: EmbeddedScene receives pixel scale factor updates after scene disposal.
+     */
+    private static boolean isJavaFxSceneStateNpe(Throwable th) {
+        if (!(th instanceof NullPointerException)) {
+            return false;
+        }
+        var message = th.getMessage();
+        if (message == null || !message.contains("sceneState")) {
+            return false;
+        }
+        for (var element : th.getStackTrace()) {
+            if ("com.sun.javafx.tk.quantum.GlassScene".equals(element.getClassName())
+                    && "updateSceneState".equals(element.getMethodName())) {
+                return true;
+            }
+        }
+        return false;
     }
 }
