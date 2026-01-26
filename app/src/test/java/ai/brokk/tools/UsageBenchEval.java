@@ -7,7 +7,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import ai.brokk.tools.UsageBenchTypes.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -411,46 +411,6 @@ public class UsageBenchEval implements Callable<Integer> {
         }
     }
 
-    // --- JSON Input Records (matching Scala domain) ---
-
-    public record ProgramUsages(@JsonProperty("codeUnits") List<CodeUnitUsages> codeUnits) {}
-
-    public record CodeUnitUsages(
-            @JsonProperty("fullyQualifiedName") String fullyQualifiedName,
-            @JsonProperty("type") String type,
-            @JsonProperty("usages") List<UsageLocation> usages) {}
-
-    public record UsageLocation(
-            @JsonProperty("fullyQualifiedName") String fullyQualifiedName,
-            @JsonProperty("lineNumber") int lineNumber) {}
-
-    // --- Result Records ---
-
-    public record EvalResults(List<ProjectResult> projects, AggregateMetrics aggregate) {}
-
-    public record ProjectResult(
-            String project,
-            String language,
-            int truePositives,
-            int falsePositives,
-            int falseNegatives,
-            double precision,
-            double recall,
-            double f1) {}
-
-    public record AggregateMetrics(int totalTP, int totalFP, int totalFN, double precision, double recall, double f1) {}
-
-    public record UsageDetail(String fqName, String snippet, String filePath) {}
-
-    public record CodeUnitDetail(
-            String searchedFqn,
-            String searchedFilePath,
-            String project,
-            String projectPath,
-            String language,
-            List<UsageDetail> usages) {}
-
-    public record DetailedResults(List<CodeUnitDetail> codeUnits) {}
 
     private record EvaluationData(
             ProjectResult projectResult,

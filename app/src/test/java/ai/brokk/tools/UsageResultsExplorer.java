@@ -3,7 +3,7 @@ package ai.brokk.tools;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import ai.brokk.tools.UsageBenchTypes.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -256,43 +256,4 @@ public class UsageResultsExplorer extends BaseThemedDialog {
     private record ProjectNode(String name, int count) {}
 
     private record FileNode(String path, int count) {}
-
-    // --- JSON Data Models ---
-
-    public record DetailedResults(@JsonProperty("codeUnits") List<CodeUnitDetail> codeUnits) {}
-
-    public record CodeUnitDetail(
-            @JsonProperty("searchedFqn") String searchedFqn,
-            @JsonProperty("searchedFilePath") String searchedFilePath,
-            @JsonProperty("project") String project,
-            @JsonProperty("projectPath") String projectPath,
-            @JsonProperty("language") String language,
-            @JsonProperty("usages") List<UsageDetail> usages) {}
-
-    public record UsageDetail(
-            @JsonProperty("fqName") String fqName,
-            @JsonProperty("snippet") String snippet,
-            @JsonProperty("filePath") String filePath) {}
-
-    public record EvalResults(
-            @JsonProperty("projects") List<ProjectResult> projects,
-            @JsonProperty("aggregate") AggregateMetrics aggregate) {}
-
-    public record ProjectResult(
-            @JsonProperty("project") String project,
-            @JsonProperty("language") String language,
-            @JsonProperty("truePositives") int truePositives,
-            @JsonProperty("falsePositives") int falsePositives,
-            @JsonProperty("falseNegatives") int falseNegatives,
-            @JsonProperty("precision") double precision,
-            @JsonProperty("recall") double recall,
-            @JsonProperty("f1") double f1) {}
-
-    public record AggregateMetrics(
-            @JsonProperty("totalTP") int totalTP,
-            @JsonProperty("totalFP") int totalFP,
-            @JsonProperty("totalFN") int totalFN,
-            @JsonProperty("precision") double precision,
-            @JsonProperty("recall") double recall,
-            @JsonProperty("f1") double f1) {}
 }
