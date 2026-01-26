@@ -86,26 +86,27 @@ public class UsagePromptJavaTest {
                 prompt.filterDescription().contains(target.toString()),
                 "filterDescription should include the target code unit");
         assertFalse(
-                prompt.filterDescription().contains("alternative code units"),
+                prompt.filterDescription()
+                        .contains("Symbols with the same name (that we do NOT want to match) are: other"),
                 "filterDescription should NOT mention alternatives when none provided");
-        assertEquals(snippet, prompt.candidateText(), "candidateText should equal the usage snippet");
 
         String text = prompt.promptText();
+        assertTrue(text.contains(prompt.candidateText()), "promptText should contain the candidateText XML block");
         AssertionHelperUtil.assertCodeEquals(
                 """
                 Short Name of Search: A.method2
                 Code Unit Target: FUNCTION[test.method2]
                 Other Possible Matches: (none)
-                File of Hit: A.java
-                ```java
-                import java.util.function.Function;
-
-                // snippet of method containing possible usage test.A
-                { // line1
-                	A.method2();//<T> & "quotes" and 'single'
-                } // line3
-                // rest of class
-                ```
+                <candidate filename="A.java">
+                  <imports>
+                    import java.util.function.Function;
+                  </imports>
+                  <snippet sourcemethod="A">
+                    { // line1
+                    	A.method2();//<T> & "quotes" and 'single'
+                    } // line3
+                  </snippet>
+                </candidate>
                 """,
                 text);
     }
@@ -122,7 +123,7 @@ public class UsagePromptJavaTest {
         UsagePrompt prompt = UsagePrompt.build(hit, target, List.of(alt1, alt2), analyzer, "method2", 10_000);
 
         assertTrue(
-                prompt.filterDescription().contains("alternative code units"),
+                prompt.filterDescription().contains("other.method2, another.method2"),
                 "filterDescription should mention alternatives");
 
         String text = prompt.promptText();
@@ -149,21 +150,19 @@ public class UsagePromptJavaTest {
         // 1. Verify truncation marker is present
         assertTrue(text.contains("truncated due to token limit"), "Expected truncation note in prompt");
 
-        // 2. Verify length is within reasonable budget (maxChars + safety for marker/fence)
-        // The builder uses maxChars as a target for the content before the marker.
+        // 2. Verify length is within reasonable budget (maxChars + safety for marker)
         assertTrue(
                 text.length() <= maxChars + 100,
                 "Prompt length " + text.length() + " exceeded budget of " + (maxChars + 100));
 
-        // 3. Verify it ends with closing fence (even if marker follows) or is well-formed
-        // Note: The builder appends the marker AFTER the closing fence logic.
+        // 3. Verify it is well-formed enough
         assertTrue(
-                text.strip().endsWith("```") || text.contains("```\n... [truncated"),
-                "Prompt should contain a closing code fence to remain well-formed Markdown");
+                text.contains("</candidate>") || text.contains("... [truncated"),
+                "Prompt should contain closing tags or truncation marker");
     }
 
     @Test
-    public void buildHasMarkdownStructure() {
+    public void buildHasXmlStructure() {
         ProjectFile file = fileInProject("A.java");
         CodeUnit enclosing = CodeUnit.cls(file, "", "A");
         CodeUnit target = CodeUnit.fn(file, "", "A.method2");
@@ -174,9 +173,9 @@ public class UsagePromptJavaTest {
         String text = prompt.promptText();
         assertTrue(text.contains("Short Name of Search: "), "Expected Short Name of Search: prefix");
         assertTrue(text.contains("Code Unit Target: "), "Expected Code Unit Target: prefix");
-        assertTrue(text.contains("File of Hit: "), "Expected File of Hit: prefix");
-        assertTrue(text.contains("```"), "Expected Markdown code fence");
-        assertTrue(text.contains(file.getRelPath().toString()), "Expected the correct file path in prompt");
+        assertTrue(text.contains("<candidate filename=\"A.java\">"), "Expected candidate tag with filename");
+        assertTrue(text.contains("<imports>"), "Expected imports tag");
+        assertTrue(text.contains("<snippet sourcemethod=\"A\">"), "Expected snippet tag with sourcemethod");
     }
 
     @Test
@@ -194,9 +193,9 @@ public class UsagePromptJavaTest {
         UsagePrompt prompt = UsagePrompt.build(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
-        assertTrue(text.contains(snippet1), "Prompt should contain the first snippet");
-        assertTrue(text.contains(snippet2), "Prompt should contain the second snippet");
-        assertTrue(text.contains("...\n"), "Prompt should contain an ellipsis separator for non-overlapping hits");
+        assertTrue(text.contains("foo();"), "Prompt should contain the first snippet code");
+        assertTrue(text.contains("bar();"), "Prompt should contain the second snippet code");
+        assertTrue(text.contains("..."), "Prompt should contain an ellipsis separator for non-overlapping hits");
     }
 
     @Test
@@ -382,8 +381,9 @@ public class UsagePromptJavaTest {
 
         UsagePrompt prompt = UsagePrompt.build(List.of(hit), target, List.of(), analyzer, "method2", 10_000);
 
-        // candidateText should be exactly the original snippet
-        assertEquals(originalSnippet, prompt.candidateText(), "Single hit should return snippet unchanged");
+        // candidateText should contain the original snippet
+        assertTrue(prompt.candidateText().contains("hit-line"), "Single hit should contain the snippet");
+        assertTrue(prompt.candidateText().startsWith("<candidate"), "Should start with candidate tag");
 
         // No ellipsis
         assertFalse(prompt.candidateText().contains("..."), "Single hit should not contain ellipsis");
@@ -392,11 +392,15 @@ public class UsagePromptJavaTest {
     private int countOccurrences(String text, String search) {
         int count = 0;
         int index = 0;
-        while ((index = text.indexOf(search, index)) != -1) {
+        // Strip leading whitespace from each line of text for matching because of XML indentation
+        String normalizedText =
+                Arrays.stream(text.split("\n")).map(String::stripLeading).collect(Collectors.joining("\n"));
+
+        while ((index = normalizedText.indexOf(search, index)) != -1) {
             // Make sure we're matching a whole line, not a substring
-            boolean isLineStart = index == 0 || text.charAt(index - 1) == '\n';
-            boolean isLineEnd =
-                    index + search.length() >= text.length() || text.charAt(index + search.length()) == '\n';
+            boolean isLineStart = index == 0 || normalizedText.charAt(index - 1) == '\n';
+            boolean isLineEnd = index + search.length() >= normalizedText.length()
+                    || normalizedText.charAt(index + search.length()) == '\n';
             if (isLineStart && isLineEnd) {
                 count++;
             }
