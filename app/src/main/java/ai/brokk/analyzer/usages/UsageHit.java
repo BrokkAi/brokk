@@ -2,6 +2,7 @@ package ai.brokk.analyzer.usages;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import java.util.Objects;
 
 /**
  * Immutable metadata describing a usage occurrence.
@@ -33,11 +34,14 @@ public record UsageHit(
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof UsageHit that)) return false;
-        return enclosing.equals(that.enclosing);
+        return startOffset == that.startOffset
+                && endOffset == that.endOffset
+                && file.equals(that.file)
+                && enclosing.equals(that.enclosing);
     }
 
     @Override
     public int hashCode() {
-        return enclosing.hashCode();
+        return Objects.hash(file, startOffset, endOffset, enclosing);
     }
 }

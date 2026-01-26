@@ -4,10 +4,9 @@ import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.analyzer.JavaAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.analyzer.*;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -356,11 +355,9 @@ public class FuzzyUsageFinderJavaTest {
         Path root = Path.of(".").toAbsolutePath().normalize();
         var file = new ProjectFile(root, Path.of("A.java"));
 
-        var enclosingIncluded =
-                new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.CLASS, "", "A1", null);
-        var enclosingExcluded =
-                new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.CLASS, "", "A2", null);
-        var enclosingHigh = new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.CLASS, "", "A3", null);
+        var enclosingIncluded = new CodeUnit(file, CodeUnitType.CLASS, "", "A1", null);
+        var enclosingExcluded = new CodeUnit(file, CodeUnitType.CLASS, "", "A2", null);
+        var enclosingHigh = new CodeUnit(file, CodeUnitType.CLASS, "", "A3", null);
 
         UsageHit hitIncluded = new UsageHit(file, 1, 0, 1, enclosingIncluded, 0.1, "");
         UsageHit hitExcluded = new UsageHit(file, 1, 10, 11, enclosingExcluded, 0.099, "");
@@ -374,5 +371,85 @@ public class FuzzyUsageFinderJavaTest {
         var filtered = FuzzyUsageFinder.filterByConfidence(allHits);
 
         assertEquals(Set.of(hitIncluded, hitHigh), filtered);
+    }
+
+    @Test
+    public void testMultipleHitsInSameMethodAreKeptSeparate() throws Exception {
+        String fooContent = "public class Foo { public void process() {} }";
+        String callerContent =
+                """
+                public class MultipleHitsInSameMethod {
+                    public void caller(Foo foo) {
+                        // Two calls to the SAME method in the same enclosing method
+                        foo.process();
+                        foo.process();
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(fooContent, "Foo.java")
+                .addFileContents(callerContent, "MultipleHitsInSameMethod.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            // Search for Foo.process - the test file has two calls to foo.process() in the same method
+            var symbol = "Foo.process";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            // Filter specifically for the hits in the test file within the 'caller' method
+            var fileHits = hits.stream()
+                    .filter(h -> h.file().getFileName().equals("MultipleHitsInSameMethod.java"))
+                    .filter(h -> h.enclosing().identifier().equals("caller")
+                            || h.enclosing().shortName().equals("caller"))
+                    .sorted(Comparator.comparingInt(UsageHit::startOffset))
+                    .toList();
+
+            // If the filter didn't find hits by method name, check what enclosing units we actually got
+            if (fileHits.isEmpty()) {
+                // Fall back to just filtering by file and checking we have multiple hits with different offsets
+                fileHits = hits.stream()
+                        .filter(h -> h.file().getFileName().equals("MultipleHitsInSameMethod.java"))
+                        .sorted(Comparator.comparingInt(UsageHit::startOffset))
+                        .toList();
+            }
+
+            // We expect 2 hits for the two foo.process() calls in the caller method
+            // These should NOT be collapsed even though they share the same enclosing CodeUnit
+            assertEquals(
+                    2,
+                    fileHits.size(),
+                    "Should have found 2 distinct hits for foo.process() calls in 'caller' method; found enclosing units: "
+                            + fileHits.stream()
+                                    .map(h -> h.enclosing().toString())
+                                    .toList());
+            assertTrue(
+                    fileHits.get(0).startOffset() < fileHits.get(1).startOffset(),
+                    "Hits should be at different offsets");
+        }
+    }
+
+    @Test
+    public void testUsageHitEqualityBasedOnPosition() {
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var file = new ProjectFile(root, Path.of("A.java"));
+        var enclosing = new CodeUnit(file, CodeUnitType.FUNCTION, "p", "m", null);
+
+        // Two hits in the same enclosing method but at different offsets
+        UsageHit hit1 = new UsageHit(file, 10, 100, 110, enclosing, 1.0, "snippet1");
+        UsageHit hit2 = new UsageHit(file, 12, 200, 210, enclosing, 1.0, "snippet2");
+
+        assertNotEquals(hit1, hit2, "Hits at different offsets should not be equal even if enclosing is same");
+        assertNotEquals(hit1.hashCode(), hit2.hashCode(), "Hash codes should differ for different offsets");
+
+        Set<UsageHit> hitSet = new HashSet<>();
+        hitSet.add(hit1);
+        hitSet.add(hit2);
+        assertEquals(2, hitSet.size(), "Set should preserve both hits within the same enclosing unit");
     }
 }
