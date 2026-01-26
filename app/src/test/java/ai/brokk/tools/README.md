@@ -153,6 +153,7 @@ The tool writes three JSON files to the output directory:
 - **Precision**: TP / (TP + FP) - What fraction of detected usages are correct
 - **Recall**: TP / (TP + FN) - What fraction of expected usages were found
 - **F1 Score**: Harmonic mean of precision and recall
+```
 
 ### Example Output
 
@@ -183,4 +184,80 @@ Evaluating project: guava (JAVA)...
   - summary.json
   - true-positives.json
   - false-positives.json
+```
+
+---
+
+## UsageResultsExplorer
+
+A Swing GUI dialog for visually browsing UsageBenchEval output results, allowing interactive exploration of true positives and false positives with syntax-highlighted code snippets.
+
+### Purpose
+
+After running `UsageBenchEval`, the explorer provides a visual interface to:
+
+1. View aggregate metrics (TP, FP, FN, precision, recall, F1) at a glance
+2. Browse true positives and false positives in separate tabs
+3. Select individual code units to see their usage snippets with Java syntax highlighting
+4. Navigate through results to understand where the fuzzy usage finder succeeded or failed
+
+### Usage
+
+Run directly from the command line:
+
+```bash
+# From the project root, compile and run
+java -cp <classpath> ai.brokk.gui.dialogs.UsageResultsExplorer /path/to/usage-results
+
+# Or use the compiled test classes
+java -cp app/build/classes/java/main:app/build/classes/java/test:... \
+    ai.brokk.gui.dialogs.UsageResultsExplorer ./usage-results
+```
+
+The argument is the path to the results directory created by `UsageBenchEval` (the `--output` directory).
+
+### Input
+
+The explorer expects a directory containing the three JSON files produced by `UsageBenchEval`:
+
+- `summary.json` - Aggregate and per-project metrics
+- `true-positives.json` - Correctly detected usages
+- `false-positives.json` - Incorrectly detected usages
+
+### UI Layout
+
+```
++------------------------------------------------------------------+
+| UsageBenchEval Results Explorer                                   |
++------------------------------------------------------------------+
+| Aggregate Metrics                                                 |
+| TP: 350  FP: 27  FN: 18  Precision: 0.928  Recall: 0.951  F1: 0.939 |
++------------------------------------------------------------------+
+| [True Positives] [False Positives]                                |
++------------------------------------------------------------------+
+| Searched FQN          | Project    | # Usages |                   |
+|-----------------------|------------|----------|                   |
+| com.example.MyClass   | commons    | 5        |  // Searched FQN: |
+| com.example.Other     | guava      | 3        |  // Project: ...  |
+| ...                   | ...        | ...      |                   |
+|                       |            |          |  // Usage in: ... |
+|                       |            |          |  // File: ...     |
+|                       |            |          |  <code snippet>   |
++------------------------------------------------------------------+
+|                                                        [Close]    |
++------------------------------------------------------------------+
+```
+
+- **Top panel**: Shows aggregate metrics from the evaluation run
+- **Tabbed pane**: Switch between True Positives and False Positives
+- **Left table**: Lists code units with their project and usage count
+- **Right panel**: Displays syntax-highlighted snippets for the selected code unit
+- **Bottom**: Close button to dismiss the dialog
+
+### Features
+
+- **Syntax highlighting**: Code snippets are displayed with Java syntax highlighting using RSyntaxTextArea
+- **Selection-based preview**: Click any row in the table to see all usage snippets for that code unit
+- **Metadata display**: Each snippet includes comments showing the usage location (FQN) and file path
+- **Standalone operation**: Can be run independently without the full Brokk application
 ```
