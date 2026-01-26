@@ -1,8 +1,11 @@
 package ai.brokk.tools;
 
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -59,14 +63,22 @@ public class UsageBenchEval implements Callable<Integer> {
         List<ProjectEntry> projectEntries = discoverProjects();
         System.out.printf("Discovered %d projects for evaluation.%n", projectEntries.size());
 
+        List<ProjectResult> results = new ArrayList<>();
         for (ProjectEntry entry : projectEntries) {
             System.out.printf("Processing %s [%s]...%n", entry.projectDir().getFileName(), entry.language().name());
-            try {
-                IProject project = loadProject(entry);
+            try (SimpleProject project = (SimpleProject) loadProject(entry)) {
                 ProgramUsages groundTruth = loadGroundTruth(entry.usagesJsonPath());
-                // TODO: Implement evaluation logic in next step
+                ProjectResult result = evaluateProject(project, groundTruth, entry.language());
+                results.add(result);
+                System.out.printf(
+                        "  Result: TP=%d, FP=%d, FN=%d, F1=%.2f%n",
+                        result.truePositives(),
+                        result.falsePositives(),
+                        result.falseNegatives(),
+                        result.f1());
             } catch (Exception e) {
                 System.err.printf("Failed to process %s: %s%n", entry.projectDir(), e.getMessage());
+                e.printStackTrace();
             }
         }
 
@@ -132,6 +144,76 @@ public class UsageBenchEval implements Callable<Integer> {
     private ProgramUsages loadGroundTruth(Path path) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
         return mapper.readValue(path.toFile(), ProgramUsages.class);
+    }
+
+    private ProjectResult evaluateProject(SimpleProject project, ProgramUsages groundTruth, Language language)
+            throws InterruptedException {
+        IAnalyzer analyzer = language.createAnalyzer(project);
+        FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, null, null);
+
+        int totalTP = 0;
+        int totalFP = 0;
+        int totalFN = 0;
+
+        for (CodeUnitUsages unit : groundTruth.codeUnits()) {
+            var result = finder.findUsages(unit.fullyQualifiedName());
+            var either = result.toEither();
+
+            Set<String> expectedFqns = unit.usages().stream()
+                    .map(UsageLocation::fullyQualifiedName)
+                    .collect(Collectors.toSet());
+
+            Set<String> detectedFqns = new HashSet<>();
+            if (either.hasUsages()) {
+                detectedFqns = either.getUsages().stream()
+                        .map(hit -> hit.enclosing().fqName())
+                        .collect(Collectors.toSet());
+            } else if (either.hasErrorMessage()) {
+                System.err.printf("  Warning: Finder failed for %s: %s%n", unit.fullyQualifiedName(), either.getErrorMessage());
+            }
+
+            Set<String> tp = new HashSet<>(detectedFqns);
+            tp.retainAll(expectedFqns);
+
+            Set<String> fp = new HashSet<>(detectedFqns);
+            fp.removeAll(expectedFqns);
+
+            Set<String> fn = new HashSet<>(expectedFqns);
+            fn.removeAll(detectedFqns);
+
+            totalTP += tp.size();
+            totalFP += fp.size();
+            totalFN += fn.size();
+        }
+
+        double precision = calculatePrecision(totalTP, totalFP);
+        double recall = calculateRecall(totalTP, totalFN);
+        double f1 = calculateF1(precision, recall);
+
+        return new ProjectResult(
+                project.getRoot().getFileName().toString(),
+                language.internalName(),
+                totalTP,
+                totalFP,
+                totalFN,
+                precision,
+                recall,
+                f1);
+    }
+
+    private double calculatePrecision(int tp, int fp) {
+        if (tp + fp == 0) return 1.0;
+        return (double) tp / (tp + fp);
+    }
+
+    private double calculateRecall(int tp, int fn) {
+        if (tp + fn == 0) return 1.0;
+        return (double) tp / (tp + fn);
+    }
+
+    private double calculateF1(double p, double r) {
+        if (p + r == 0) return 0.0;
+        return 2 * (p * r) / (p + r);
     }
 
     private record ProjectEntry(Path projectDir, Path usagesJsonPath, Language language) {}
