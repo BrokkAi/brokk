@@ -487,7 +487,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         refreshModeIndicator();
 
         // Apply initial Advanced Mode state to ensure ModelSelector visibility is correct
-        applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
+        applyAdvancedMode(GlobalUiSettings.isAdvancedMode());
 
         // Subscribe to service reload events to update button states
         contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
@@ -1506,7 +1506,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             GlobalUiSettings.saveAdvancedMode(newMode);
             chrome.applyAdvancedModeVisibility();
-            applyAdvancedModeForInstructions(newMode);
+            applyAdvancedMode(newMode);
         });
 
         modeTogglePanel.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -2672,7 +2672,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Also switches placeholder text if currently showing a placeholder (never overwrites user text).
      * Safe to call from any thread.
      */
-    public void applyAdvancedModeForInstructions(boolean advanced) {
+    public void applyAdvancedMode(boolean advanced) {
         SwingUtilities.invokeLater(() -> {
             modeBadge.setVisible(advanced);
             actionButton.setDropdownEnabled(advanced);
