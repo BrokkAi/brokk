@@ -225,7 +225,8 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
 
         for (UsageDetail usage : detail.usages()) {
-            if (syntaxStyle.equals(SyntaxConstants.SYNTAX_STYLE_NONE) && !usage.syntaxStyle().isEmpty()) {
+            if (syntaxStyle.equals(SyntaxConstants.SYNTAX_STYLE_NONE)
+                    && !usage.syntaxStyle().isEmpty()) {
                 syntaxStyle = usage.syntaxStyle();
             }
             sb.append("// ----------------------------------------------------------------\n");
@@ -233,7 +234,8 @@ public class UsageResultsExplorer extends BaseThemedDialog {
             sb.append("// File: ").append(usage.filePath()).append("\n");
             sb.append("// ----------------------------------------------------------------\n");
             String snippet = usage.snippet();
-            sb.append(snippet.isEmpty() ? "(No snippet - usage not detected)" : snippet).append("\n\n");
+            sb.append(snippet.isEmpty() ? "(No snippet - usage not detected)" : snippet)
+                    .append("\n\n");
         }
 
         previewArea.setSyntaxEditingStyle(syntaxStyle);

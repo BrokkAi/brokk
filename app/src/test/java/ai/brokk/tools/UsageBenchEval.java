@@ -413,7 +413,6 @@ public class UsageBenchEval implements Callable<Integer> {
         }
     }
 
-
     private record EvaluationData(
             ProjectResult projectResult,
             List<CodeUnitDetail> tpDetails,
