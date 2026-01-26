@@ -3,6 +3,7 @@ package ai.brokk.tools;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
+import ai.brokk.gui.theme.GuiTheme;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.BorderLayout;
@@ -65,6 +66,9 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         this.previewArea = new RSyntaxTextArea();
         this.previewArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
         this.previewArea.setEditable(false);
+
+        // Apply RSyntax theme to match the application theme
+        GuiTheme.loadRSyntaxTheme(GuiTheme.THEME_DARK).ifPresent(theme -> theme.apply(previewArea));
 
         initializeUI();
         setupSelectionListeners();
@@ -158,13 +162,12 @@ public class UsageResultsExplorer extends BaseThemedDialog {
                 super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
                 if (value instanceof DefaultMutableTreeNode node) {
                     Object userObj = node.getUserObject();
-                    if (userObj instanceof ProjectNode pn) {
-                        setText(String.format("%s (%d units)", pn.name, pn.count));
-                    } else if (userObj instanceof FileNode fn) {
-                        String displayName = fn.path();
+                    if (userObj instanceof ProjectNode(String name, int count)) {
+                        setText(String.format("%s (%d units)", name, count));
+                    } else if (userObj instanceof FileNode(String displayName, int count)) {
                         if (!displayName.equals("(unknown file)")) {
                             try {
-                                Path p = Paths.get(fn.path());
+                                Path p = Paths.get(displayName);
                                 Path fileName = p.getFileName();
                                 if (fileName != null) {
                                     displayName = fileName.toString();
@@ -172,7 +175,7 @@ public class UsageResultsExplorer extends BaseThemedDialog {
                             } catch (Exception ignored) {
                             }
                         }
-                        setText(String.format("%s (%d code units)", displayName, fn.count));
+                        setText(String.format("%s (%d code units)", displayName, count));
                     } else if (userObj instanceof CodeUnitDetail cud) {
                         setText(String.format("%s (%d usages)", cud.searchedFqn(), cud.usages().size()));
                     }
