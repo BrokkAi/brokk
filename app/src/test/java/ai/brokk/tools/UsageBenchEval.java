@@ -77,7 +77,9 @@ public class UsageBenchEval implements Callable<Integer> {
 
         for (ProjectEntry entry : projectEntries) {
             String projectName = entry.projectDir().getFileName().toString();
-            System.out.printf("Evaluating project: %s (%s)...%n", projectName, entry.language().internalName());
+            System.out.printf(
+                    "Evaluating project: %s (%s)...%n",
+                    projectName, entry.language().internalName());
             try (SimpleProject project = (SimpleProject) loadProject(entry)) {
                 ProgramUsages groundTruth = loadGroundTruth(entry.usagesJsonPath());
                 EvaluationData evalData = evaluateProject(project, groundTruth, entry.language());
@@ -225,8 +227,10 @@ public class UsageBenchEval implements Callable<Integer> {
         Set<String> extensions = entry.language().getExtensions();
         try (Stream<Path> walk = Files.walk(entry.projectDir())) {
             List<ProjectFile> projectFiles = walk.filter(Files::isRegularFile)
-                    .filter(p -> extensions.stream().anyMatch(ext -> p.toString().endsWith("." + ext)))
-                    .map(p -> new ProjectFile(entry.projectDir(), entry.projectDir().relativize(p)))
+                    .filter(p ->
+                            extensions.stream().anyMatch(ext -> p.toString().endsWith("." + ext)))
+                    .map(p -> new ProjectFile(
+                            entry.projectDir(), entry.projectDir().relativize(p)))
                     .toList();
 
             return new SimpleProject(entry.projectDir(), entry.language(), projectFiles);
@@ -332,9 +336,8 @@ public class UsageBenchEval implements Callable<Integer> {
                         fpDetails));
             }
             if (!fn.isEmpty()) {
-                List<UsageDetail> fnDetails = fn.stream()
-                        .map(fqn -> new UsageDetail(fqn, "", ""))
-                        .toList();
+                List<UsageDetail> fnDetails =
+                        fn.stream().map(fqn -> new UsageDetail(fqn, "", "")).toList();
                 projectFNs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
                         searchedFilePath,
@@ -435,8 +438,7 @@ public class UsageBenchEval implements Callable<Integer> {
             double recall,
             double f1) {}
 
-    public record AggregateMetrics(
-            int totalTP, int totalFP, int totalFN, double precision, double recall, double f1) {}
+    public record AggregateMetrics(int totalTP, int totalFP, int totalFN, double precision, double recall, double f1) {}
 
     public record UsageDetail(String fqName, String snippet, String filePath) {}
 

@@ -6,10 +6,9 @@ import ai.brokk.gui.dialogs.BaseThemedDialog;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.BorderLayout;
-import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Component;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -56,9 +55,12 @@ public class UsageResultsExplorer extends BaseThemedDialog {
 
         ObjectMapper mapper = new ObjectMapper();
         this.summary = mapper.readValue(resultsDir.resolve("summary.json").toFile(), EvalResults.class);
-        this.truePositives = mapper.readValue(resultsDir.resolve("true-positives.json").toFile(), DetailedResults.class);
-        this.falsePositives = mapper.readValue(resultsDir.resolve("false-positives.json").toFile(), DetailedResults.class);
-        this.falseNegatives = mapper.readValue(resultsDir.resolve("false-negatives.json").toFile(), DetailedResults.class);
+        this.truePositives =
+                mapper.readValue(resultsDir.resolve("true-positives.json").toFile(), DetailedResults.class);
+        this.falsePositives =
+                mapper.readValue(resultsDir.resolve("false-positives.json").toFile(), DetailedResults.class);
+        this.falseNegatives =
+                mapper.readValue(resultsDir.resolve("false-negatives.json").toFile(), DetailedResults.class);
 
         this.tpTree = createTree(truePositives);
         this.fpTree = createTree(falsePositives);
@@ -66,7 +68,6 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         this.previewArea = new RSyntaxTextArea();
         this.previewArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
         this.previewArea.setEditable(false);
-
 
         initializeUI();
         setupSelectionListeners();
@@ -122,24 +123,25 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         setLocationRelativeTo(null);
     }
 
-
     private JTree createTree(DetailedResults results) {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("Results");
         Map<String, Map<String, List<CodeUnitDetail>>> grouped = results.codeUnits().stream()
-                .collect(Collectors.groupingBy(
-                        CodeUnitDetail::project,
-                        Collectors.groupingBy(cud -> {
-                            String path = cud.searchedFilePath();
-                            return (path == null || path.isEmpty()) ? "(unknown file)" : path;
-                        })
-                ));
+                .collect(Collectors.groupingBy(CodeUnitDetail::project, Collectors.groupingBy(cud -> {
+                    String path = cud.searchedFilePath();
+                    return (path == null || path.isEmpty()) ? "(unknown file)" : path;
+                })));
 
         for (Map.Entry<String, Map<String, List<CodeUnitDetail>>> projectEntry : grouped.entrySet()) {
-            int projectUnitCount = projectEntry.getValue().values().stream().mapToInt(List::size).sum();
-            DefaultMutableTreeNode projectNode = new DefaultMutableTreeNode(new ProjectNode(projectEntry.getKey(), projectUnitCount));
+            int projectUnitCount = projectEntry.getValue().values().stream()
+                    .mapToInt(List::size)
+                    .sum();
+            DefaultMutableTreeNode projectNode =
+                    new DefaultMutableTreeNode(new ProjectNode(projectEntry.getKey(), projectUnitCount));
 
-            for (Map.Entry<String, List<CodeUnitDetail>> fileEntry : projectEntry.getValue().entrySet()) {
-                DefaultMutableTreeNode fileNode = new DefaultMutableTreeNode(new FileNode(fileEntry.getKey(), fileEntry.getValue().size()));
+            for (Map.Entry<String, List<CodeUnitDetail>> fileEntry :
+                    projectEntry.getValue().entrySet()) {
+                DefaultMutableTreeNode fileNode = new DefaultMutableTreeNode(
+                        new FileNode(fileEntry.getKey(), fileEntry.getValue().size()));
                 for (CodeUnitDetail detail : fileEntry.getValue()) {
                     fileNode.add(new DefaultMutableTreeNode(detail));
                 }
@@ -154,7 +156,8 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         tree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         tree.setCellRenderer(new DefaultTreeCellRenderer() {
             @Override
-            public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
+            public Component getTreeCellRendererComponent(
+                    JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
                 super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
                 if (value instanceof DefaultMutableTreeNode node) {
                     Object userObj = node.getUserObject();
@@ -173,7 +176,9 @@ public class UsageResultsExplorer extends BaseThemedDialog {
                         }
                         setText(String.format("%s (%d code units)", displayName, count));
                     } else if (userObj instanceof CodeUnitDetail cud) {
-                        setText(String.format("%s (%d usages)", cud.searchedFqn(), cud.usages().size()));
+                        setText(String.format(
+                                "%s (%d usages)",
+                                cud.searchedFqn(), cud.usages().size()));
                     }
                 }
                 return this;
