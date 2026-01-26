@@ -4,9 +4,7 @@ import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.analyzer.JavaAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.analyzer.*;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
@@ -357,11 +355,9 @@ public class FuzzyUsageFinderJavaTest {
         Path root = Path.of(".").toAbsolutePath().normalize();
         var file = new ProjectFile(root, Path.of("A.java"));
 
-        var enclosingIncluded =
-                new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.CLASS, "", "A1", null);
-        var enclosingExcluded =
-                new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.CLASS, "", "A2", null);
-        var enclosingHigh = new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.CLASS, "", "A3", null);
+        var enclosingIncluded = new CodeUnit(file, CodeUnitType.CLASS, "", "A1", null);
+        var enclosingExcluded = new CodeUnit(file, CodeUnitType.CLASS, "", "A2", null);
+        var enclosingHigh = new CodeUnit(file, CodeUnitType.CLASS, "", "A3", null);
 
         UsageHit hitIncluded = new UsageHit(file, 1, 0, 1, enclosingIncluded, 0.1, "");
         UsageHit hitExcluded = new UsageHit(file, 1, 10, 11, enclosingExcluded, 0.099, "");
@@ -442,7 +438,7 @@ public class FuzzyUsageFinderJavaTest {
     public void testUsageHitEqualityBasedOnPosition() {
         Path root = Path.of(".").toAbsolutePath().normalize();
         var file = new ProjectFile(root, Path.of("A.java"));
-        var enclosing = new ai.brokk.analyzer.CodeUnit(file, ai.brokk.analyzer.CodeUnitType.FUNCTION, "p", "m", null);
+        var enclosing = new CodeUnit(file, CodeUnitType.FUNCTION, "p", "m", null);
 
         // Two hits in the same enclosing method but at different offsets
         UsageHit hit1 = new UsageHit(file, 10, 100, 110, enclosing, 1.0, "snippet1");

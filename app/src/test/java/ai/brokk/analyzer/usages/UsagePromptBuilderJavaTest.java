@@ -263,8 +263,8 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "line8\nline9\nline10\nline11-hit\nline12\nline13\nline14";
         UsageHit hit2 = new UsageHit(file, 11, 30, 40, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt =
+                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
 
@@ -295,8 +295,8 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "line6\nline7\nline8\nline9-hit\nline10\nline11\nline12";
         UsageHit hit2 = new UsageHit(file, 9, 30, 40, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt =
+                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
 
@@ -327,8 +327,8 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "line17\nline18\nline19\nline20-hit\nline21\nline22\nline23";
         UsageHit hit2 = new UsageHit(file, 20, 100, 110, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt =
+                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
 
@@ -353,7 +353,8 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit target = CodeUnit.fn(file, "test", "method2");
 
         // Identical snippet content at two very different locations
-        String identicalSnippet = "commonLine1\ncommonLine2\ncommonLine3\ncommonHit\ncommonLine5\ncommonLine6\ncommonLine7";
+        String identicalSnippet =
+                "commonLine1\ncommonLine2\ncommonLine3\ncommonHit\ncommonLine5\ncommonLine6\ncommonLine7";
 
         // Hit at line 10: context covers lines [7, 13]
         UsageHit hit1 = new UsageHit(file, 10, 100, 110, enclosing, 1.0, identicalSnippet);
@@ -361,17 +362,20 @@ public class UsagePromptBuilderJavaTest {
         // Hit at line 100: context covers lines [97, 103] - same text but very different location
         UsageHit hit2 = new UsageHit(file, 100, 500, 510, enclosing, 1.0, identicalSnippet);
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt =
+                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String candidateText = prompt.candidateText();
 
         // Should have ellipsis separator because they're at different locations
-        assertTrue(candidateText.contains("..."),
+        assertTrue(
+                candidateText.contains("..."),
                 "Should contain ellipsis separator - identical content at different lines should NOT be merged");
 
         // The identical content should appear TWICE (once for each location)
-        assertEquals(2, countOccurrences(candidateText, "commonHit"),
+        assertEquals(
+                2,
+                countOccurrences(candidateText, "commonHit"),
                 "Identical content at different locations should both be included");
     }
 
@@ -384,16 +388,14 @@ public class UsagePromptBuilderJavaTest {
         String originalSnippet = "line1\nline2\nline3\nhit-line\nline5\nline6\nline7";
         UsageHit hit = new UsageHit(file, 5, 10, 20, enclosing, 1.0, originalSnippet);
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                List.of(hit), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt =
+                UsagePromptBuilder.buildPrompt(List.of(hit), target, List.of(), analyzer, "method2", 10_000);
 
         // candidateText should be exactly the original snippet
-        assertEquals(originalSnippet, prompt.candidateText(),
-                "Single hit should return snippet unchanged");
+        assertEquals(originalSnippet, prompt.candidateText(), "Single hit should return snippet unchanged");
 
         // No ellipsis
-        assertFalse(prompt.candidateText().contains("..."),
-                "Single hit should not contain ellipsis");
+        assertFalse(prompt.candidateText().contains("..."), "Single hit should not contain ellipsis");
     }
 
     private int countOccurrences(String text, String search) {
@@ -402,8 +404,8 @@ public class UsagePromptBuilderJavaTest {
         while ((index = text.indexOf(search, index)) != -1) {
             // Make sure we're matching a whole line, not a substring
             boolean isLineStart = index == 0 || text.charAt(index - 1) == '\n';
-            boolean isLineEnd = index + search.length() >= text.length()
-                    || text.charAt(index + search.length()) == '\n';
+            boolean isLineEnd =
+                    index + search.length() >= text.length() || text.charAt(index + search.length()) == '\n';
             if (isLineStart && isLineEnd) {
                 count++;
             }
