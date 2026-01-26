@@ -241,6 +241,7 @@ public final class JobRunner {
         SEARCH,
         REVIEW,
         LUTZ,
+        PLAN,
         ISSUE,
         ISSUE_WRITER
     }
@@ -332,7 +333,7 @@ public final class JobRunner {
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
                 final StreamingChatModel architectPlannerModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
+                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE || mode == Mode.PLAN)
                                 ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                                 : null;
                 final StreamingChatModel architectCodeModel =
@@ -378,7 +379,7 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE ->
+                            case ARCHITECT, LUTZ, PLAN, ISSUE ->
                                 service.nameOf(Objects.requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
@@ -392,6 +393,7 @@ public final class JobRunner {
                 String codeModelNameForLog =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                            case PLAN -> "(default, ignored for PLAN)";
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
@@ -401,7 +403,7 @@ public final class JobRunner {
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
-                            case ASK, SEARCH, REVIEW -> true;
+                            case ASK, SEARCH, REVIEW, PLAN -> true;
                             case CODE -> !hasCodeModelOverride;
                             case ISSUE_WRITER -> true;
                         };
@@ -510,6 +512,23 @@ public final class JobRunner {
 
                                             logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
                                         }
+                                    }
+                                    case PLAN -> {
+                                        // Planning-only: generate a task list and persist it to the Workspace, but do not execute tasks.
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
+                                            var context = cm.liveContext();
+                                            var searchAgent = new LutzAgent(
+                                                    context,
+                                                    spec.taskInput(),
+                                                    Objects.requireNonNull(
+                                                            architectPlannerModel,
+                                                            "plannerModel required for PLAN jobs"),
+                                                    SearchPrompts.Objective.TASKS_ONLY,
+                                                    scope);
+                                            var taskListResult = searchAgent.execute();
+                                            scope.append(taskListResult);
+                                        }
+                                        logger.debug("PLAN complete: task list generated (planning-only)");
                                     }
                                     case CODE -> {
                                         var agent = new CodeAgent(
