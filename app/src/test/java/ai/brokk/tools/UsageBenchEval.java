@@ -70,6 +70,7 @@ public class UsageBenchEval implements Callable<Integer> {
         List<ProjectEntry> projectEntries = discoverProjects();
         printStartupBanner(projectEntries.size());
 
+        boolean hadFailures = false;
         List<ProjectResult> projectResults = new ArrayList<>();
         List<CodeUnitDetail> allTPDetails = new ArrayList<>();
         List<CodeUnitDetail> allFPDetails = new ArrayList<>();
@@ -101,6 +102,7 @@ public class UsageBenchEval implements Callable<Integer> {
             } catch (Exception e) {
                 System.err.printf("Failed to process %s: %s%n", entry.projectDir(), e.getMessage());
                 e.printStackTrace();
+                hadFailures = true;
             }
         }
 
@@ -132,6 +134,13 @@ public class UsageBenchEval implements Callable<Integer> {
                 StandardOpenOption.TRUNCATE_EXISTING);
 
         printSummary(aggregate);
+
+        if (hadFailures || projectResults.isEmpty()) {
+            if (projectResults.isEmpty()) {
+                System.err.println("Error: No projects were successfully evaluated.");
+            }
+            return 1;
+        }
         return 0;
     }
 
