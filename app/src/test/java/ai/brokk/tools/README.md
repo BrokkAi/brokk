@@ -153,7 +153,7 @@ The tool writes three JSON files to the output directory:
 - **Precision**: TP / (TP + FP) - What fraction of detected usages are correct
 - **Recall**: TP / (TP + FN) - What fraction of expected usages were found
 - **F1 Score**: Harmonic mean of precision and recall
-```
+
 
 ### Example Output
 
@@ -203,15 +203,20 @@ After running `UsageBenchEval`, the explorer provides a visual interface to:
 
 ### Usage
 
-Run directly from the command line:
+Run via Gradle:
 
 ```bash
-# From the project root, compile and run
-java -cp <classpath> ai.brokk.gui.dialogs.UsageResultsExplorer /path/to/usage-results
+# Open the explorer for a results directory
+./gradlew :app:runUsageResultsExplorer -Pargs="./usage-results"
 
-# Or use the compiled test classes
-java -cp app/build/classes/java/main:app/build/classes/java/test:... \
-    ai.brokk.gui.dialogs.UsageResultsExplorer ./usage-results
+# Or with an absolute path
+./gradlew :app:runUsageResultsExplorer -Pargs="/path/to/usage-results"
+```
+
+Alternatively, run directly from the command line:
+
+```bash
+java -cp <classpath> ai.brokk.gui.dialogs.UsageResultsExplorer /path/to/usage-results
 ```
 
 The argument is the path to the results directory created by `UsageBenchEval` (the `--output` directory).
