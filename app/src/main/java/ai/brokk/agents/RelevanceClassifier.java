@@ -75,19 +75,17 @@ public final class RelevanceClassifier {
                            """
                         .formatted(RELEVANT_MARKER, IRRELEVANT_MARKER);
 
-        if (!candidateText.contains("</candidate>")) {
-            candidateText = "<candidate>\n" + candidateText + "\n</candidate>";
-        }
-
         var userPrompt =
                 """
                          <filter>
                          %s
                          </filter>
 
+                         <candidate>
                          %s
+                         </candidate>
 
-                         Is the candidate relevant, as determined by the filter?  Respond with exactly one
+                         Is the candidate text relevant, as determined by the filter?  Respond with exactly one
                          of the markers %s or %s.
                          """
                         .formatted(filterDescription, candidateText, RELEVANT_MARKER, IRRELEVANT_MARKER);
@@ -159,16 +157,15 @@ public final class RelevanceClassifier {
                            where 0.0 means not relevant and 1.0 means highly relevant.
                            """;
 
-        if (!candidateText.contains("</candidate>")) {
-            candidateText = "<candidate>\n" + candidateText + "\n</candidate>";
-        }
         var userPrompt =
                 """
                          <filter>
                          %s
                          </filter>
 
+                         <candidate>
                          %s
+                         </candidate>
 
                          Output only a single number in [0.0, 1.0].
                          """
