@@ -424,42 +424,76 @@ public final class JobRunner {
                         codeModelNameForLog);
 
                 // Execute within submitLlmAction to honor cancellation semantics
-                cm.submitLlmAction(() -> {
-                            if (cancelled.get()) {
-                                logger.info("Job {} execution cancelled by user", jobId);
-                                return;
-                            }
-                            try {
-                                switch (mode) {
-                                    case ARCHITECT -> runArchitectMode(jobId, spec, architectPlannerModel, architectCodeModel);
-                                    case LUTZ -> runLutzMode(jobId, spec, architectPlannerModel, architectCodeModel);
-                                    case PLAN -> runPlanMode(jobId, spec, architectPlannerModel);
-                                    case CODE -> runCodeMode(jobId, spec, codeModeModel);
-                                    case ASK -> runAskMode(jobId, spec, askPlannerModel);
-                                    case SEARCH -> runSearchMode(jobId, spec, searchPlannerModel);
-                                    case REVIEW -> runReviewMode(jobId, spec, reviewPlannerModel, reviewScanModel);
-                                    case ISSUE -> runIssueMode(jobId, spec, architectPlannerModel, architectCodeModel);
-                                    case ISSUE_WRITER -> runIssueWriterMode(jobId, spec);
-                                    default -> throw new IllegalStateException("Unhandled job mode: " + mode);
+                // Prepare a compact execution context per-mode and delegate to per-mode handlers.
+                {
+                    // Choose the planner/code/scan models that are relevant for the selected mode.
+                    final StreamingChatModel plannerForMode = switch (mode) {
+                        case ARCHITECT, LUTZ, PLAN, ISSUE -> architectPlannerModel;
+                        case ASK -> askPlannerModel;
+                        case SEARCH -> searchPlannerModel;
+                        case CODE -> codeModeModel;
+                        case REVIEW -> reviewPlannerModel;
+                        case ISSUE_WRITER -> null;
+                    };
+                    final StreamingChatModel codeForMode = switch (mode) {
+                        case ARCHITECT, LUTZ, ISSUE -> architectCodeModel;
+                        case CODE -> codeModeModel;
+                        default -> null;
+                    };
+                    final StreamingChatModel scanForMode = switch (mode) {
+                        case REVIEW -> reviewScanModel;
+                        case SEARCH -> searchPlannerModel;
+                        default -> null;
+                    };
+
+                    final JobExecutionContext execCtx = new JobExecutionContext(
+                            jobId,
+                            spec,
+                            cm,
+                            store,
+                            console != null ? console : cm.getIo(),
+                            cancelled::get,
+                            plannerForMode,
+                            codeForMode,
+                            scanForMode);
+
+                    cm.submitLlmAction(() -> {
+                                if (cancelled.get()) {
+                                    logger.info("Job {} execution cancelled by user", jobId);
+                                    return;
                                 }
-
-                                completed.incrementAndGet();
-
                                 try {
-                                    JobStatus s = store.loadStatus(jobId);
-                                    if (s != null) {
-                                        store.updateStatus(jobId, s);
+                                    switch (mode) {
+                                        case ARCHITECT -> runArchitectMode(execCtx);
+                                        case LUTZ -> runLutzMode(execCtx);
+                                        case PLAN -> runPlanMode(execCtx);
+                                        case CODE -> runCodeMode(execCtx);
+                                        case ASK -> runAskMode(execCtx);
+                                        case SEARCH -> runSearchMode(execCtx);
+                                        case REVIEW -> runReviewMode(execCtx);
+                                        case ISSUE -> runIssueMode(execCtx);
+                                        case ISSUE_WRITER -> runIssueWriterMode(execCtx);
+                                        default -> throw new IllegalStateException("Unhandled job mode: " + mode);
+                                    }
+
+                                    completed.incrementAndGet();
+
+                                    try {
+                                        JobStatus s = store.loadStatus(jobId);
+                                        if (s != null) {
+                                            store.updateStatus(jobId, s);
+                                        }
+                                    } catch (Exception e) {
+                                        logger.debug("Unable to update job {} for {}", jobId, e);
                                     }
                                 } catch (Exception e) {
-                                    logger.debug("Unable to update job {} for {}", jobId, e);
+                                    logger.warn("Task execution failed for job {}: {}", jobId, e.getMessage());
+                                    // Continue to next task or exit depending on requirements
+                                    throw e;
                                 }
-                            } catch (Exception e) {
-                                logger.warn("Task execution failed for job {}: {}", jobId, e.getMessage());
-                                // Continue to next task or exit depending on requirements
-                                throw e;
-                            }
-                        })
-                        .join();
+                            })
+                            .join();
+                }
 
                 // Optional compress after execution:
                 // - For ARCHITECT/LUTZ: per-task compression already honored via spec.autoCompress().
@@ -1697,14 +1731,34 @@ public final class JobRunner {
 
     // New per-mode delegating methods ---------------------------------------------------------
 
-    private void runArchitectMode(String jobId, JobSpec spec, StreamingChatModel plannerModel, StreamingChatModel codeModel) throws Exception {
+    private void runArchitectMode(JobExecutionContext ctx) throws Exception {
+        var jobId = ctx.jobId();
+        var spec = ctx.spec();
+        var cm = ctx.cm();
+        var store = ctx.store();
+        var console = ctx.io();
+        var cancelledSupplier = ctx.cancelled();
+        var plannerModel = ctx.plannerModel();
+        var codeModel = ctx.codeModel();
+        var scanModel = ctx.scanModel();
+
         cm.executeTask(
                 new TaskList.TaskItem("", spec.taskInput(), false),
                 Objects.requireNonNull(plannerModel, "plannerModel required for ARCHITECT jobs"),
                 Objects.requireNonNull(codeModel, "code model unavailable for ARCHITECT jobs"));
     }
 
-    private void runLutzMode(String jobId, JobSpec spec, StreamingChatModel plannerModel, StreamingChatModel codeModel) throws Exception {
+    private void runLutzMode(JobExecutionContext ctx) throws Exception {
+        var jobId = ctx.jobId();
+        var spec = ctx.spec();
+        var cm = ctx.cm();
+        var store = ctx.store();
+        var console = ctx.io();
+        var cancelledSupplier = ctx.cancelled();
+        var plannerModel = ctx.plannerModel();
+        var codeModel = ctx.codeModel();
+        var scanModel = ctx.scanModel();
+
         // Phase 1: Use SearchAgent to generate a task list from the initial task
         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
             var context = cm.liveContext();
@@ -1745,7 +1799,7 @@ public final class JobRunner {
                     "LUTZ will execute {} incomplete task(s)", incompleteTasks.size());
 
             for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                if (cancelled.get()) {
+                if (cancelledSupplier.getAsBoolean()) {
                     logger.info(
                             "LUTZ job {} execution cancelled during task iteration",
                             jobId);
@@ -1774,21 +1828,31 @@ public final class JobRunner {
         }
     }
 
-    private void runPlanMode(String jobId, JobSpec spec, StreamingChatModel plannerModel) throws Exception {
+    private void runPlanMode(JobExecutionContext ctx) throws Exception {
+        var jobId = ctx.jobId();
+        var spec = ctx.spec();
+        var cm = ctx.cm();
+        var store = ctx.store();
+        var console = ctx.io();
+        var cancelledSupplier = ctx.cancelled();
+        var plannerModel = ctx.plannerModel();
+        var codeModel = ctx.codeModel();
+        var scanModel = ctx.scanModel();
+
         // Planning-only: generate a task list and persist it to the Workspace, but do not execute tasks.
         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
             var context = cm.liveContext();
 
             // Resolve scan model for PLAN mode: prefer explicit spec.scanModel() if provided;
             // otherwise use project default via defaultScanModel(spec).
-            String rawScanModel = spec.scanModel();
-            String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
-
-            final StreamingChatModel scanModelToUse = (trimmedScanModel != null
-                            && !trimmedScanModel.isEmpty())
-                    ? resolveModelOrThrow(
-                            trimmedScanModel, spec.reasoningLevel(), spec.temperature())
-                    : defaultScanModel(spec);
+            StreamingChatModel scanModelToUse = scanModel;
+            if (scanModelToUse == null) {
+                String rawScanModel = spec.scanModel();
+                String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
+                scanModelToUse = (trimmedScanModel != null && !trimmedScanModel.isEmpty())
+                        ? resolveModelOrThrow(trimmedScanModel, spec.reasoningLevel(), spec.temperature())
+                        : defaultScanModel(spec);
+            }
 
             var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
 
@@ -1806,18 +1870,38 @@ public final class JobRunner {
         logger.debug("PLAN complete: task list generated (planning-only)");
     }
 
-    private void runCodeMode(String jobId, JobSpec spec, StreamingChatModel codeModeModel) throws Exception {
+    private void runCodeMode(JobExecutionContext ctx) throws Exception {
+        var jobId = ctx.jobId();
+        var spec = ctx.spec();
+        var cm = ctx.cm();
+        var store = ctx.store();
+        var console = ctx.io();
+        var cancelledSupplier = ctx.cancelled();
+        var plannerModel = ctx.plannerModel();
+        var codeModel = ctx.codeModel();
+        var scanModel = ctx.scanModel();
+
         var agent = new CodeAgent(
                 cm,
                 Objects.requireNonNull(
-                        codeModeModel, "code model unavailable for CODE jobs"));
+                        codeModel, "code model unavailable for CODE jobs"));
         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
             var result = agent.execute(spec.taskInput(), Set.of());
             scope.append(result);
         }
     }
 
-    private void runAskMode(String jobId, JobSpec spec, StreamingChatModel askPlannerModel) throws Exception {
+    private void runAskMode(JobExecutionContext ctx) throws Exception {
+        var jobId = ctx.jobId();
+        var spec = ctx.spec();
+        var cm = ctx.cm();
+        var store = ctx.store();
+        var console = ctx.io();
+        var cancelledSupplier = ctx.cancelled();
+        var plannerModel = ctx.plannerModel();
+        var codeModel = ctx.codeModel();
+        var scanModel = ctx.scanModel();
+
         // Read-only ASK execution: perform optional pre-scan (Context Agent)
         // then generate a single, final written answer using the plannerModel
         // and the current Workspace. Do NOT invoke SearchAgent.execute() or
@@ -1832,7 +1916,7 @@ public final class JobRunner {
                 var searchAgent = new LutzAgent(
                         context,
                         spec.taskInput(),
-                        Objects.requireNonNull(askPlannerModel, "plannerModel required for ASK jobs"),
+                        Objects.requireNonNull(plannerModel, "plannerModel required for ASK jobs"),
                         SearchPrompts.Objective.ANSWER_ONLY,
                         scope);
 
@@ -1855,26 +1939,28 @@ public final class JobRunner {
                             ioe);
                 }
 
-                StreamingChatModel scanModelToUse = null;
-                try {
-                    scanModelToUse = !trimmedScanModel.isEmpty()
-                            ? resolveModelOrThrow(
-                                    trimmedScanModel,
-                                    spec.reasoningLevel(),
-                                    spec.temperature())
-                            : defaultScanModel(spec);
-                } catch (IllegalArgumentException iae) {
-                    // resolveModelOrThrow may throw; log and continue without failing job.
-                    logger.warn(
-                            "Pre-scan model unavailable for job {}: {}",
-                            jobId,
-                            iae.getMessage());
-                } catch (Exception e) {
-                    logger.warn(
-                            "Unexpected error during pre-scan model resolution for job {}: {}",
-                            jobId,
-                            e.getMessage(),
-                            e);
+                StreamingChatModel scanModelToUse = scanModel;
+                if (scanModelToUse == null) {
+                    try {
+                        scanModelToUse = !trimmedScanModel.isEmpty()
+                                ? resolveModelOrThrow(
+                                        trimmedScanModel,
+                                        spec.reasoningLevel(),
+                                        spec.temperature())
+                                : defaultScanModel(spec);
+                    } catch (IllegalArgumentException iae) {
+                        // resolveModelOrThrow may throw; log and continue without failing job.
+                        logger.warn(
+                                "Pre-scan model unavailable for job {}: {}",
+                                jobId,
+                                iae.getMessage());
+                    } catch (Exception e) {
+                        logger.warn(
+                                "Unexpected error during pre-scan model resolution for job {}: {}",
+                                jobId,
+                                e.getMessage(),
+                                e);
+                    }
                 }
 
                 if (scanModelToUse == null) {
@@ -1936,7 +2022,7 @@ public final class JobRunner {
                 // planner model.
                 TaskResult askResult = askUsingPlannerModel(
                         context,
-                        Objects.requireNonNull(askPlannerModel),
+                        Objects.requireNonNull(plannerModel),
                         spec.taskInput());
                 scope.append(askResult);
             } catch (Throwable t) {
@@ -1996,7 +2082,17 @@ public final class JobRunner {
         }
     }
 
-    private void runSearchMode(String jobId, JobSpec spec, StreamingChatModel scanModelToUse) throws Exception {
+    private void runSearchMode(JobExecutionContext ctx) throws Exception {
+        var jobId = ctx.jobId();
+        var spec = ctx.spec();
+        var cm = ctx.cm();
+        var store = ctx.store();
+        var console = ctx.io();
+        var cancelledSupplier = ctx.cancelled();
+        var plannerModel = ctx.plannerModel();
+        var codeModel = ctx.codeModel();
+        var scanModel = ctx.scanModel();
+
         // Read-only repository search using a scan model (spec.scanModel preferred,
         // otherwise project default)
         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
@@ -2006,15 +2102,15 @@ public final class JobRunner {
             // otherwise use project default
             String rawScanModel = spec.scanModel();
             String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
-            final StreamingChatModel scanModel = scanModelToUse;
+            final StreamingChatModel scanModelToUse = scanModel;
 
             // SearchAgent now handles scanning internally via execute()
-            var scanConfig = SearchAgent.ScanConfig.withModel(scanModel);
+            var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
             var searchAgent = new LutzAgent(
                     context,
                     spec.taskInput(),
                     Objects.requireNonNull(
-                            scanModel, "scan model unavailable for SEARCH jobs"),
+                            scanModelToUse, "scan model unavailable for SEARCH jobs"),
                     SearchPrompts.Objective.ANSWER_ONLY,
                     scope,
                     cm.getIo(),
@@ -2024,7 +2120,17 @@ public final class JobRunner {
         }
     }
 
-    private void runReviewMode(String jobId, JobSpec spec, StreamingChatModel reviewPlannerModel, StreamingChatModel reviewScanModel) throws Exception {
+    private void runReviewMode(JobExecutionContext ctx) throws Exception {
+        var jobId = ctx.jobId();
+        var spec = ctx.spec();
+        var cm = ctx.cm();
+        var store = ctx.store();
+        var console = ctx.io();
+        var cancelledSupplier = ctx.cancelled();
+        var plannerModel = ctx.plannerModel();
+        var codeModel = ctx.codeModel();
+        var scanModel = ctx.scanModel();
+
         // 1. Extract and validate PR metadata
         String githubToken = spec.getGithubToken();
         String repoOwner = spec.getRepoOwner();
@@ -2137,7 +2243,7 @@ public final class JobRunner {
                         context,
                         scanGoal,
                         Objects.requireNonNull(
-                                reviewScanModel,
+                                scanModel,
                                 "scan model unavailable for REVIEW pre-scan"),
                         SearchPrompts.Objective.ANSWER_ONLY,
                         scope);
@@ -2163,9 +2269,9 @@ public final class JobRunner {
             }
 
             // 5. Call reviewDiff() to get LLM review with enriched context
-            var plannerModel = Objects.requireNonNull(
-                    reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-            TaskResult reviewResult = reviewDiff(context, plannerModel, annotatedDiff);
+            var planner = Objects.requireNonNull(
+                    plannerModel, "planner model unavailable for REVIEW jobs");
+            TaskResult reviewResult = reviewDiff(context, planner, annotatedDiff);
             scope.append(reviewResult);
 
             // 6. Parse review output (JSON only)
@@ -2245,11 +2351,21 @@ public final class JobRunner {
         }
     }
 
-    private void runIssueMode(String jobId, JobSpec spec, StreamingChatModel issuePlannerModel, StreamingChatModel issueCodeModel) throws Exception {
+    private void runIssueMode(JobExecutionContext ctx) throws Exception {
+        var jobId = ctx.jobId();
+        var spec = ctx.spec();
+        var cm = ctx.cm();
+        var store = ctx.store();
+        var console = ctx.io();
+        var cancelledSupplier = ctx.cancelled();
+        var plannerModel = ctx.plannerModel();
+        var codeModel = ctx.codeModel();
+        var scanModel = ctx.scanModel();
+
         StreamingChatModel planner = Objects.requireNonNull(
-                issuePlannerModel, "plannerModel required for ISSUE jobs");
-        StreamingChatModel codeModel = Objects.requireNonNull(
-                issueCodeModel, "code model required for ISSUE jobs");
+                plannerModel, "plannerModel required for ISSUE jobs");
+        StreamingChatModel codeModelLocal = Objects.requireNonNull(
+                codeModel, "code model required for ISSUE jobs");
 
         // 1. Extract and validate Issue metadata
         String githubToken = spec.getGithubToken();
@@ -2359,10 +2475,10 @@ public final class JobRunner {
                         .toList();
 
                 for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                    if (cancelled.get()) return;
+                    if (cancelledSupplier.getAsBoolean()) return;
 
                     // Execute task with ArchitectAgent
-                    cm.executeTask(generatedTask, planner, codeModel);
+                    cm.executeTask(generatedTask, planner, codeModelLocal);
 
                     // Per-task verification: enforce single-fix semantics via helper.
                     Supplier<String> verificationRunner = () -> {
@@ -2392,7 +2508,7 @@ public final class JobRunner {
                                 + "\n\nPlease make a single fix attempt to resolve this verification failure.";
                         var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
                         try {
-                            cm.executeTask(fixTask, planner, codeModel);
+                            cm.executeTask(fixTask, planner, codeModelLocal);
                         } catch (Exception e) {
                             logger.warn(
                                     "Fix attempt failed for job {} task {}: {}",
@@ -2510,7 +2626,7 @@ public final class JobRunner {
                         if (idx <= 0) {
                             return;
                         }
-                        if (cancelled.get()) {
+                        if (cancelledSupplier.getAsBoolean()) {
                             return;
                         }
 
@@ -2595,7 +2711,7 @@ public final class JobRunner {
                                 jobId,
                                 store,
                                 (console != null ? console : cm.getIo()),
-                                cancelled::get,
+                                cancelledSupplier,
                                 (attempt, message) -> {
                                     try {
                                         store.appendEvent(
@@ -2626,7 +2742,7 @@ public final class JobRunner {
                                         cm.executeTask(
                                                 TaskList.TaskItem.createFixTask(prompt),
                                                 planner,
-                                                codeModel);
+                                                codeModelLocal);
                                     } catch (Exception e) {
                                         logger.warn(
                                                 "Final fix attempt failed for job {}: {}",
@@ -2642,12 +2758,12 @@ public final class JobRunner {
                             jobId,
                             store,
                             (console != null ? console : cm.getIo()),
-                            cancelled::get,
+                            cancelledSupplier,
                             inlineComments,
                             reviewFixTaskRunner,
                             branchUpdateHook);
 
-                    if (cancelled.get()) {
+                    if (cancelledSupplier.getAsBoolean()) {
                         logger.info(
                                 "ISSUE job {} cancelled after review-fix; skipping final verification",
                                 jobId);
@@ -2657,7 +2773,7 @@ public final class JobRunner {
                     finalVerificationPass.run();
                 }
 
-                if (cancelled.get()) {
+                if (cancelledSupplier.getAsBoolean()) {
                     logger.info(
                             "ISSUE job {} cancelled after final verification; skipping PR creation",
                             jobId);
@@ -2768,7 +2884,17 @@ public final class JobRunner {
         }
     }
 
-    private void runIssueWriterMode(String jobId, JobSpec spec) throws Exception {
+    private void runIssueWriterMode(JobExecutionContext ctx) throws Exception {
+        var jobId = ctx.jobId();
+        var spec = ctx.spec();
+        var cm = ctx.cm();
+        var store = ctx.store();
+        var console = ctx.io();
+        var cancelledSupplier = ctx.cancelled();
+        var plannerModel = ctx.plannerModel();
+        var codeModel = ctx.codeModel();
+        var scanModel = ctx.scanModel();
+
         String githubToken = spec.getGithubToken();
         String repoOwner = spec.getRepoOwner();
         String repoName = spec.getRepoName();
