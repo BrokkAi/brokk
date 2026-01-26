@@ -374,12 +374,12 @@ public class UsageBenchEval implements Callable<Integer> {
     }
 
     private double calculatePrecision(int tp, int fp) {
-        if (tp + fp == 0) return 1.0;
+        if (tp + fp == 0) return 0.0;
         return (double) tp / (tp + fp);
     }
 
     private double calculateRecall(int tp, int fn) {
-        if (tp + fn == 0) return 1.0;
+        if (tp + fn == 0) return 0.0;
         return (double) tp / (tp + fn);
     }
 
