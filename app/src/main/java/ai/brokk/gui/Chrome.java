@@ -1625,6 +1625,7 @@ public class Chrome
         SwingUtilities.invokeLater(() -> {
             rightPanel.applyAdvancedModeVisibility();
             toolsPane.applyAdvancedModeVisibility();
+            rightPanel.getInstructionsPanel().applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
             contextManager.getProject().getRepo().getModifiedProjectFiles();
             assert SwingUtilities.isEventDispatchThread() : "updateGitTabBadge(int) must be called on EDT";
             refreshKeybindings();
