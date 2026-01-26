@@ -231,6 +231,7 @@ public final class JobRunner {
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private final JobModelResolver modelResolver;
 
     static final int ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD = 100;
 
@@ -271,6 +272,7 @@ public final class JobRunner {
             t.setDaemon(true);
             return t;
         });
+        this.modelResolver = new JobModelResolver(cm);
     }
 
     /**
@@ -334,36 +336,36 @@ public final class JobRunner {
 
                 final StreamingChatModel architectPlannerModel =
                         (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE || mode == Mode.PLAN)
-                                ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                                ? modelResolver.resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                                 : null;
                 final StreamingChatModel architectCodeModel =
                         (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
                                 ? (trimmedCodeModelName != null
-                                        ? resolveModelOrThrow(
+                                        ? modelResolver.resolveModelOrThrow(
                                                 trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
-                                        : defaultCodeModel(spec))
+                                        : modelResolver.defaultCodeModel(spec))
                                 : null;
                 final StreamingChatModel reviewPlannerModel = mode == Mode.REVIEW
-                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                        ? modelResolver.resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                         : null;
                 // Resolve scan model for REVIEW mode (prefer explicit spec.scanModel() if provided; otherwise project
                 // default)
                 final StreamingChatModel reviewScanModel = mode == Mode.REVIEW
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? resolveModelOrThrow(
+                                ? modelResolver.resolveModelOrThrow(
                                         spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
-                                : defaultScanModel(spec))
+                                : modelResolver.defaultScanModel(spec))
                         : null;
                 final StreamingChatModel askPlannerModel = mode == Mode.ASK || mode == Mode.ISSUE
-                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                        ? modelResolver.resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                         : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
-                                ? resolveModelOrThrow(
+                                ? modelResolver.resolveModelOrThrow(
                                         Objects.requireNonNull(trimmedCodeModelName),
                                         spec.reasoningLevelCode(),
                                         spec.temperatureCode())
-                                : defaultCodeModel(spec))
+                                : modelResolver.defaultCodeModel(spec))
                         : null;
 
                 var service = cm.getService();
@@ -372,9 +374,9 @@ public final class JobRunner {
                 // otherwise project default)
                 final StreamingChatModel searchPlannerModel = mode == Mode.SEARCH
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? resolveModelOrThrow(
+                                ? modelResolver.resolveModelOrThrow(
                                         spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
-                                : defaultScanModel(spec))
+                                : modelResolver.defaultScanModel(spec))
                         : null;
 
                 String plannerModelNameForLog =
@@ -717,14 +719,7 @@ public final class JobRunner {
      * Service/ContextManager environment.
      */
     static String chooseScanModelNameForPlan(JobSpec spec, java.util.function.Supplier<String> projectDefaultSupplier) {
-        String raw = spec.scanModel();
-        if (raw != null) {
-            String trimmed = raw.trim();
-            if (!trimmed.isEmpty()) {
-                return trimmed;
-            }
-        }
-        return projectDefaultSupplier.get();
+        return JobModelResolver.chooseScanModelNameForPlan(spec, projectDefaultSupplier);
     }
 
     /**
@@ -1850,8 +1845,8 @@ public final class JobRunner {
                 String rawScanModel = spec.scanModel();
                 String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
                 scanModelToUse = (trimmedScanModel != null && !trimmedScanModel.isEmpty())
-                        ? resolveModelOrThrow(trimmedScanModel, spec.reasoningLevel(), spec.temperature())
-                        : defaultScanModel(spec);
+                        ? modelResolver.resolveModelOrThrow(trimmedScanModel, spec.reasoningLevel(), spec.temperature())
+                        : modelResolver.defaultScanModel(spec);
             }
 
             var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
@@ -1943,11 +1938,11 @@ public final class JobRunner {
                 if (scanModelToUse == null) {
                     try {
                         scanModelToUse = !trimmedScanModel.isEmpty()
-                                ? resolveModelOrThrow(
+                                ? modelResolver.resolveModelOrThrow(
                                         trimmedScanModel,
                                         spec.reasoningLevel(),
                                         spec.temperature())
-                                : defaultScanModel(spec);
+                                : modelResolver.defaultScanModel(spec);
                     } catch (IllegalArgumentException iae) {
                         // resolveModelOrThrow may throw; log and continue without failing job.
                         logger.warn(
@@ -2944,7 +2939,7 @@ public final class JobRunner {
         try (var scope = cm.beginTaskUngrouped("Issue Writer")) {
             var context = cm.liveContext();
 
-            var model = resolveModelOrThrow(
+            var model = modelResolver.resolveModelOrThrow(
                     spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
 
             String goal =
