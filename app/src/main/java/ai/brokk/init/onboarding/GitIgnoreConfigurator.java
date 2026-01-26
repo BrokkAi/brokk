@@ -5,7 +5,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepo;
 import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -45,7 +44,6 @@ public class GitIgnoreConfigurator {
 
             // These files are always staged (created if missing)
             files.add(new ProjectFile(gitTopLevel, "AGENTS.md"));
-            files.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
             files.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
         } catch (Exception e) {
@@ -98,7 +96,6 @@ public class GitIgnoreConfigurator {
                 content += "/.brokk/history.zip\n";
                 content += "!AGENTS.md\n";
                 content += "!.brokk/style.md\n";
-                content += "!.brokk/review.md\n";
                 content += "!.brokk/project.properties\n";
 
                 AtomicWrites.save(gitignorePf.absPath(), content);
@@ -124,7 +121,6 @@ public class GitIgnoreConfigurator {
 
             // Define shared file paths
             var agentsMdPath = gitTopLevel.resolve("AGENTS.md");
-            var reviewMdPath = sharedBrokkDir.resolve("review.md");
             var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
             // NOTE: Legacy style.md → AGENTS.md migration is NOT performed here.
@@ -141,15 +137,6 @@ public class GitIgnoreConfigurator {
                 }
             }
 
-            if (!Files.exists(reviewMdPath)) {
-                try {
-                    AtomicWrites.save(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
-                    logger.debug("Created stub review.md");
-                } catch (IOException ex) {
-                    logger.error("Failed to create stub review.md: {}", ex.getMessage());
-                }
-            }
-
             if (!Files.exists(projectPropsPath)) {
                 try {
                     AtomicWrites.save(projectPropsPath, "# Brokk project configuration\n");
@@ -162,7 +149,6 @@ public class GitIgnoreConfigurator {
             // Stage shared files to git
             var filesToStage = List.of(
                     new ProjectFile(gitTopLevel, "AGENTS.md"),
-                    new ProjectFile(gitTopLevel, ".brokk/review.md"),
                     new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
             try {
@@ -172,7 +158,7 @@ public class GitIgnoreConfigurator {
                 if (consoleIO != null) {
                     consoleIO.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            "Added shared project files (AGENTS.md, review.md, project.properties) to git");
+                            "Added shared project files (AGENTS.md, project.properties) to git");
                 }
             } catch (Exception addEx) {
                 logger.warn("Error staging shared project files to git: {}", addEx.getMessage());

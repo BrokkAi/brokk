@@ -209,6 +209,16 @@ public class SearchPrompts {
                     fragments should always be done in conjunction with other tools, since you will gain
                     no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                External library discovery:
+                  - When the goal requires using an external library, search for its key classes/modules first
+                  - If NOT found in Code Intelligence, use `importDependency` to import it:
+                    * Java: `importDependency("com.fasterxml.jackson.core:jackson-databind")`
+                    * Python: `importDependency("requests")` or `importDependency("numpy 2.0.0")`
+                    * Rust: `importDependency("serde")` or `importDependency("tokio 1.0")`
+                    * Node.js: `importDependency("lodash")` or `importDependency("@types/node")`
+                  - Once imported, the library becomes searchable and can be added to the Workspace.
+                  - This helps Code Agent see actual API signatures and write more accurate code.
                 </instructions>
                 """
                         .formatted(
@@ -328,7 +338,7 @@ public class SearchPrompts {
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)
-        var related = context.buildRelatedIdentifiers(10);
+        var related = context.buildRelatedSymbols(10);
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             messages.add(new UserMessage(

@@ -791,7 +791,7 @@ public class SearchTools {
         StringBuilder fileSummaries = new StringBuilder();
         children.sort(ProjectFile::compareTo);
         for (var file : children) {
-            String identifiers = analyzer.buildRelatedIdentifiers(file);
+            String identifiers = analyzer.summarizeSymbols(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
             String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\">\n" + content + "\n</file>\n";
 

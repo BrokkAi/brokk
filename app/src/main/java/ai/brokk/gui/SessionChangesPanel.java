@@ -228,7 +228,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
 
-        this.resolveConflictsBtn = new MaterialButton("C") {
+        this.resolveConflictsBtn = new MaterialButton("") {
             @Override
             public Dimension getPreferredSize() {
                 return new Dimension(24, 24);
@@ -244,6 +244,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 return new Dimension(24, 24);
             }
         };
+        this.resolveConflictsBtn.setIcon(Icons.MERGE);
         this.resolveConflictsBtn.setToolTipText("Resolve merge conflicts with AI assistance");
         this.resolveConflictsBtn.setEnabled(false);
         this.resolveConflictsBtn.setMargin(new Insets(0, 0, 0, 0));
@@ -556,14 +557,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                     if (!computed.scope.changes().equals(lastCumulativeChanges)) {
                         lastCumulativeChanges = computed.scope.changes();
-
-                        SwingUtilities.invokeLater(() -> {
-                            if (thisGeneration != updateGeneration.get()) return;
-                            emitReviewTabStateFromResult(computed.scope.changes(), computed.state.baselineLabel());
-                        });
-
                         deferredUpdateHelper.requestUpdate();
                     }
+
+                    SwingUtilities.invokeLater(() -> {
+                        if (thisGeneration != updateGeneration.get()) return;
+                        emitReviewTabStateFromResult(computed.scope.changes(), computed.state.baselineLabel());
+                    });
                 })
                 .exceptionally(ex -> {
                     if (thisGeneration != updateGeneration.get()) return null;
@@ -1447,6 +1447,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     lastReviewState = new ReviewState(scope.metadata().fromRef(), now);
                     reviewTargetCommit = currentHash;
                     setMode(PanelMode.REVIEW);
+                    emitReviewTabStateFromCached();
                     codeReviewPanel.displayReview(result.review(), result.context());
                     codeReviewPanel.setBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);

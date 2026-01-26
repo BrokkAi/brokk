@@ -656,30 +656,6 @@ public class Chrome
             }
         });
 
-        // Cmd/Ctrl+M => toggle Code/Answer mode (configurable; only in Advanced Mode)
-        if (GlobalUiSettings.isAdvancedMode()) {
-            KeyStroke toggleModeKeyStroke = GlobalUiSettings.getKeybinding(
-                    "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-            bindKey(rootPane, toggleModeKeyStroke, "toggleCodeAnswer");
-            rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    // Defensive guard: protects against race conditions during live mode switching.
-                    // Even though this binding is only registered in Advanced Mode, refreshKeybindings()
-                    // might have a timing window where the old binding is still active after switching to EZ mode.
-                    if (!GlobalUiSettings.isAdvancedMode()) {
-                        return;
-                    }
-                    try {
-                        ip.toggleCodeAnswerMode();
-                        showNotification(NotificationRole.INFO, "Toggled Code/Ask mode");
-                    } catch (Exception ex) {
-                        logger.warn("Error toggling Code/Answer mode via shortcut", ex);
-                    }
-                }
-            });
-        }
-
         // Open Settings (configurable; default Cmd/Ctrl+,)
         // On macOS, Desktop.setPreferencesHandler() in MenuBar handles Cmd+, natively
         if (!SystemInfo.isMacOS) {
@@ -738,105 +714,37 @@ public class Chrome
             }
         });
 
-        // Alt/Cmd+3 for Log
-        if (toolsPane.getGitLogTab() != null) {
-            KeyStroke switchToLog = GlobalUiSettings.getKeybinding(
-                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-            bindKey(rootPane, switchToLog, "switchToLog");
-            rootPane.getActionMap().put("switchToLog", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getGitLogTab());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Alt/Cmd+4 for Worktrees
-        if (toolsPane.getGitWorktreeTab() != null) {
-            KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
-            bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
-            rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getGitWorktreeTab());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Alt/Cmd+5 for Pull Requests panel (if available)
-        if (toolsPane.getPullRequestsPanel() != null) {
-            KeyStroke switchToPR = GlobalUiSettings.getKeybinding(
-                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
-            bindKey(rootPane, switchToPR, "switchToPullRequests");
-            rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getPullRequestsPanel());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Alt/Cmd+6 for Issues panel (if available)
-        if (toolsPane.getIssuesPanel() != null) {
-            KeyStroke switchToIssues = GlobalUiSettings.getKeybinding(
-                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
-            bindKey(rootPane, switchToIssues, "switchToIssues");
-            rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getIssuesPanel());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Drawer navigation shortcuts
-        // Cmd/Ctrl+Shift+T => toggle terminal drawer
-        KeyStroke toggleTerminalDrawerKeyStroke = GlobalUiSettings.getKeybinding(
-                "drawer.toggleTerminal",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_T,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        bindKey(rootPane, toggleTerminalDrawerKeyStroke, "toggleTerminalDrawer");
-        rootPane.getActionMap().put("toggleTerminalDrawer", new AbstractAction() {
+        // Ctrl/Cmd+K => toggle Instructions/Tasks
+        KeyStroke toggleInstructionsTasks = GlobalUiSettings.getKeybinding(
+                "panel.toggleInstructionsTasks", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_K));
+        bindKey(rootPane, toggleInstructionsTasks, "toggleInstructionsTasks");
+        rootPane.getActionMap().put("toggleInstructionsTasks", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                // Terminal drawer removed; instead, switch to the Terminal tab if present.
-                SwingUtilities.invokeLater(rightPanel::selectTerminalTab);
+                rightPanel.toggleInstructionsTasksTab();
             }
         });
 
-        // Cmd/Ctrl+T => switch to terminal tab
-        KeyStroke switchToTerminalTabKeyStroke = GlobalUiSettings.getKeybinding(
-                "drawer.switchToTerminal",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        bindKey(rootPane, switchToTerminalTabKeyStroke, "switchToTerminalTab");
-        rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
+        // Ctrl/Cmd+F => cycle Build/Review/Preview forward (global scope)
+        KeyStroke cycleBuildReviewPreview = GlobalUiSettings.getKeybinding(
+                "panel.cycleBuildReviewPreview", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_F));
+        bindKey(rootPane, cycleBuildReviewPreview, "cycleBuildReviewPreview");
+        rootPane.getActionMap().put("cycleBuildReviewPreview", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(rightPanel::selectTerminalTab);
+                rightPanel.cycleBuildReviewPreview(true);
             }
         });
 
-        // Cmd/Ctrl+K => switch to tasks tab
-        KeyStroke switchToTasksTabKeyStroke = GlobalUiSettings.getKeybinding(
-                "drawer.switchToTasks",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_K, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        bindKey(rootPane, switchToTasksTabKeyStroke, "switchToTasksTab");
-        rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
+        // Ctrl/Cmd+Shift+F => cycle Build/Review/Preview backward (global scope)
+        KeyStroke cycleBuildReviewPreviewBackward = GlobalUiSettings.getKeybinding(
+                "panel.cycleBuildReviewPreviewBackward",
+                KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_F));
+        bindKey(rootPane, cycleBuildReviewPreviewBackward, "cycleBuildReviewPreviewBackward");
+        rootPane.getActionMap().put("cycleBuildReviewPreviewBackward", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(rightPanel::selectTasksTab);
+                rightPanel.cycleBuildReviewPreview(false);
             }
         });
 

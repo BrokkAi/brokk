@@ -105,13 +105,13 @@ public class Context {
         this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, Set.of(), Set.of());
     }
 
-    public Map<ProjectFile, String> buildRelatedIdentifiers(int k) throws InterruptedException {
+    public Map<ProjectFile, String> buildRelatedSymbols(int k) throws InterruptedException {
         var candidates = getMostRelevantFiles(k).stream().sorted().toList();
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
         // TODO: Get this off common FJP
         return candidates.parallelStream()
-                .map(pf -> Map.entry(pf, analyzer.buildRelatedIdentifiers(pf)))
+                .map(pf -> Map.entry(pf, analyzer.summarizeSymbols(pf)))
                 .filter(e -> !e.getValue().isBlank())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a));
     }

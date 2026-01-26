@@ -992,7 +992,8 @@ public final class JobRunner {
                                         // Capture original branch best-effort
                                         String originalBranch = gitRepo.getCurrentBranch();
 
-                                        String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
+                                        String issueBranchName =
+                                                IssueService.generateBranchNameWithRandomSuffix(issueNumber, gitRepo);
 
                                         // Run the ISSUE work inside a try/finally to guarantee cleanup, including
                                         // branch creation/check-out.

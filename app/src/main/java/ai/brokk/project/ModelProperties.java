@@ -80,7 +80,7 @@ public final class ModelProperties {
      */
     public enum ModelType {
         // directly selected in the UI
-        CODE("codeConfig", gpt5_2, gcf1),
+        CODE("codeConfig", flash3, gcf1),
         ARCHITECT("architectConfig", opus4_5, gcf1),
 
         // indirectly selectable via vendor preference

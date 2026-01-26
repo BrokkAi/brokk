@@ -4,8 +4,14 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
+import ai.brokk.MutedConsoleIO;
+import ai.brokk.agents.ContextAgent;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.gui.dialogs.TextAreaConsoleIO;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -39,8 +45,24 @@ public class WandAction {
 
         contextManager.submitLlmAction(() -> {
             try {
-                var wandIo = new WandConsoleIO(instructionsArea, chromeIO);
-                @Nullable String refined = refinePrompt(original, wandIo);
+                var wandIo = new TextAreaConsoleIO(instructionsArea, chromeIO, "Enriching Context");
+
+                var model = contextManager.getCodeModel();
+                ContextAgent agent = new ContextAgent(contextManager, model, original, new MutedConsoleIO(chromeIO));
+                Context context = contextManager.liveContext();
+                ContextAgent.RecommendationResult recommendation = agent.getRecommendations(context);
+
+                if (recommendation.success() && !recommendation.fragments().isEmpty()) {
+                    context = contextManager.pushContext(c -> c.addFragments(recommendation.fragments()));
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    instructionsArea.setText("");
+                    wandIo.llmOutput(
+                            "Generating New Prompt...\n", ChatMessageType.AI, new LlmOutputMeta(true, false, false));
+                });
+
+                @Nullable String refined = refinePrompt(original, context, wandIo);
 
                 if (refined == null) { // error case
                     SwingUtilities.invokeLater(() -> promptConsumer.accept(original));
@@ -59,9 +81,41 @@ public class WandAction {
         });
     }
 
-    public @Nullable String refinePrompt(String originalPrompt, IConsoleIO consoleIO) throws InterruptedException {
-        var model = contextManager.getCodeModel();
-        var ctx = contextManager.liveContext();
+    public @Nullable String refinePrompt(String originalPrompt, Context ctx, IConsoleIO consoleIO)
+            throws InterruptedException {
+        var model = contextManager.getService().getModel(ModelProperties.ModelType.SCAN);
+        var analyzer = contextManager.getAnalyzer();
+
+        var workspaceSummary = ctx.allFragments()
+                .map(f -> {
+                    String description = f.description().join();
+                    StringBuilder sb =
+                            new StringBuilder("# ").append(description).append("\n");
+
+                    switch (f) {
+                        case ContextFragments.ProjectPathFragment pf -> sb.append(analyzer.summarizeSymbols(pf.file()));
+                        case ContextFragments.SummaryFragment sf -> {
+                            if (sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS) {
+                                var file = contextManager.toFile(sf.getTargetIdentifier());
+                                sb.append(analyzer.summarizeSymbols(file));
+                            } else {
+                                var units = analyzer.getDefinitions(sf.getTargetIdentifier());
+                                if (!units.isEmpty()) {
+                                    sb.append(analyzer.summarizeSymbols(units, CodeUnitType.ALL, 0));
+                                }
+                            }
+                        }
+                        case ContextFragments.CodeFragment cf -> {
+                            var units = analyzer.getDefinitions(cf.getFullyQualifiedName());
+                            if (!units.isEmpty()) {
+                                sb.append(analyzer.summarizeSymbols(units, CodeUnitType.ALL, 0));
+                            }
+                        }
+                        default -> {}
+                    }
+                    return sb.toString().trim();
+                })
+                .collect(Collectors.joining("\n\n"));
 
         String instruction =
                 """
@@ -84,8 +138,7 @@ public class WandAction {
                 Output only the improved prompt in 2-4 paragraphs.
                 </goal>
                 """
-                        .formatted(
-                                ContextFragment.describe(ctx.allFragments()), buildHistorySummary(ctx), originalPrompt);
+                        .formatted(workspaceSummary, buildHistorySummary(ctx), originalPrompt);
 
         Llm llm = contextManager.getLlm(new Llm.Options(model, "Refine Prompt").withEcho());
         llm.setOutput(consoleIO);
@@ -137,56 +190,5 @@ public class WandAction {
             }
         }
         return refined;
-    }
-
-    public static class WandConsoleIO implements IConsoleIO {
-        private final JTextArea instructionsArea;
-        private final IConsoleIO errorReporter;
-        private boolean hasStartedContent = false;
-        private boolean lastWasReasoning = true;
-
-        public WandConsoleIO(JTextArea instructionsArea, IConsoleIO errorReporter) {
-            this.instructionsArea = instructionsArea;
-            this.errorReporter = errorReporter;
-            SwingUtilities.invokeLater(() -> {
-                instructionsArea.setEnabled(false);
-                instructionsArea.setText("Improving your prompt...\n\n");
-                instructionsArea.setCaretPosition(instructionsArea.getText().length());
-            });
-        }
-
-        @Override
-        public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
-            if (!meta.isReasoning() && lastWasReasoning && !hasStartedContent) {
-                // Transition from reasoning to content: clear the area first
-                SwingUtilities.invokeLater(() -> instructionsArea.setText(""));
-                hasStartedContent = true;
-            }
-
-            if (!token.isEmpty()) {
-                SwingUtilities.invokeLater(() -> {
-                    instructionsArea.append(token);
-                    instructionsArea.setCaretPosition(instructionsArea.getText().length());
-                });
-            }
-            lastWasReasoning = meta.isReasoning();
-        }
-
-        @Override
-        public void toolError(String message, String title) {
-            errorReporter.toolError(message, title);
-        }
-
-        @Override
-        public void showNotification(NotificationRole role, String message) {
-            // Delegate to errorReporter instead of writing to instructionsArea
-            // This prevents cost notifications from polluting the refined prompt
-            errorReporter.showNotification(role, message);
-        }
-
-        @Override
-        public List<ChatMessage> getLlmRawMessages() {
-            return List.of();
-        }
     }
 }

@@ -501,8 +501,7 @@ public class ContextAgent {
     private Map<ProjectFile, String> getCachedIdentifiers(Collection<ProjectFile> candidates) {
         return candidates.parallelStream()
                 .distinct()
-                .map(f ->
-                        Map.entry(f, identifiersByFile.computeIfAbsent(f, pf -> analyzer.buildRelatedIdentifiers(pf))))
+                .map(f -> Map.entry(f, identifiersByFile.computeIfAbsent(f, pf -> analyzer.summarizeSymbols(pf))))
                 .filter(entry -> !entry.getValue().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }

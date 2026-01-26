@@ -469,8 +469,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             // Project-specific settings (nullable if no project)
             @Nullable BuildAgent.BuildDetails buildDetails,
             @Nullable String styleGuide,
-            @Nullable String commitMessageFormat,
-            @Nullable String reviewGuide) {
+            @Nullable String commitMessageFormat) {
         private static final Logger logger = LogManager.getLogger(SettingsData.class);
 
         /**
@@ -505,21 +504,18 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             BuildAgent.BuildDetails buildDetails = null;
             String styleGuide = null;
             String commitFormat = null;
-            String reviewGuide = null;
 
             if (project != null) {
                 try {
                     buildDetails = project.loadBuildDetails();
                     styleGuide = project.getStyleGuide();
                     commitFormat = project.getCommitMessageFormat();
-                    reviewGuide = project.getReviewGuide();
                 } catch (Exception e) {
                     logger.warn("Failed to load project settings", e);
                 }
             }
 
-            return new SettingsData(
-                    jvmSettings, apiKey, balance, models, buildDetails, styleGuide, commitFormat, reviewGuide);
+            return new SettingsData(jvmSettings, apiKey, balance, models, buildDetails, styleGuide, commitFormat);
         }
 
         /**

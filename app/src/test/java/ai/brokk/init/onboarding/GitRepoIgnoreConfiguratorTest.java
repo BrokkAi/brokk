@@ -252,13 +252,11 @@ class GitRepoIgnoreConfiguratorTest {
 
         // Verify stub files exist
         assertTrue(Files.exists(projectRoot.resolve("AGENTS.md")), "AGENTS.md should be created");
-        assertTrue(Files.exists(projectRoot.resolve(".brokk/review.md")), "review.md should be created");
         assertTrue(
                 Files.exists(projectRoot.resolve(".brokk/project.properties")), "project.properties should be created");
 
         // Verify files have content
         assertTrue(Files.size(projectRoot.resolve("AGENTS.md")) > 0, "AGENTS.md should not be empty");
-        assertTrue(Files.size(projectRoot.resolve(".brokk/review.md")) > 0, "review.md should not be empty");
     }
 
     @Test
@@ -273,7 +271,6 @@ class GitRepoIgnoreConfiguratorTest {
                 result.stagedFiles().stream().map(ProjectFile::getRelPath).toList();
 
         assertTrue(stagedPaths.contains(Path.of("AGENTS.md")), "AGENTS.md should be staged");
-        assertTrue(stagedPaths.contains(Path.of(".brokk", "review.md")), "review.md should be staged");
         assertTrue(
                 stagedPaths.contains(Path.of(".brokk", "project.properties")), "project.properties should be staged");
     }
