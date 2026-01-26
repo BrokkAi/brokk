@@ -3,10 +3,10 @@ package ai.brokk.tools;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
-import ai.brokk.gui.theme.GuiTheme;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Component;
@@ -67,8 +67,8 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         this.previewArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
         this.previewArea.setEditable(false);
 
-        // Apply RSyntax theme to match the application theme
-        GuiTheme.loadRSyntaxTheme(GuiTheme.THEME_DARK).ifPresent(theme -> theme.apply(previewArea));
+        // Set text color explicitly for visibility
+        this.previewArea.setForeground(Color.BLACK);
 
         initializeUI();
         setupSelectionListeners();
