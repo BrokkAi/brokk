@@ -7,20 +7,25 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Component;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
-import javax.swing.Box;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
-import javax.swing.JTable;
-import javax.swing.ListSelectionModel;
+import javax.swing.JTree;
 import javax.swing.SwingUtilities;
-import javax.swing.table.DefaultTableModel;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeCellRenderer;
+import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreePath;
+import javax.swing.tree.TreeSelectionModel;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
@@ -36,9 +41,9 @@ public class UsageResultsExplorer extends BaseThemedDialog {
     private final DetailedResults falsePositives;
     private final DetailedResults falseNegatives;
 
-    private final JTable tpTable;
-    private final JTable fpTable;
-    private final JTable fnTable;
+    private final JTree tpTree;
+    private final JTree fpTree;
+    private final JTree fnTree;
     private final RSyntaxTextArea previewArea;
 
     public UsageResultsExplorer(Path resultsDir) throws Exception {
@@ -51,9 +56,9 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         this.falsePositives = mapper.readValue(resultsDir.resolve("false-positives.json").toFile(), DetailedResults.class);
         this.falseNegatives = mapper.readValue(resultsDir.resolve("false-negatives.json").toFile(), DetailedResults.class);
 
-        this.tpTable = createTable(truePositives);
-        this.fpTable = createTable(falsePositives);
-        this.fnTable = createTable(falseNegatives);
+        this.tpTree = createTree(truePositives);
+        this.fpTree = createTree(falsePositives);
+        this.fnTree = createTree(falseNegatives);
         this.previewArea = new RSyntaxTextArea();
         this.previewArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVA);
         this.previewArea.setEditable(false);
@@ -80,9 +85,9 @@ public class UsageResultsExplorer extends BaseThemedDialog {
 
         // CENTER: Tabs
         JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("True Positives", createTabComponent(tpTable));
-        tabs.addTab("False Positives", createTabComponent(fpTable));
-        tabs.addTab("False Negatives", createTabComponent(fnTable));
+        tabs.addTab("True Positives", createTabComponent(tpTree));
+        tabs.addTab("False Positives", createTabComponent(fpTree));
+        tabs.addTab("False Negatives", createTabComponent(fnTree));
         root.add(tabs, BorderLayout.CENTER);
 
         // SOUTH: Close
@@ -97,55 +102,69 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         setLocationRelativeTo(null);
     }
 
-    private JSplitPane createTabComponent(JTable table) {
+    private JSplitPane createTabComponent(JTree tree) {
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        split.setLeftComponent(new JScrollPane(table));
+        split.setLeftComponent(new JScrollPane(tree));
         split.setRightComponent(new RTextScrollPane(previewArea));
         split.setDividerLocation(400);
         return split;
     }
 
-    private JTable createTable(DetailedResults results) {
-        String[] columns = {"Searched FQN", "Project", "# Usages"};
-        DefaultTableModel model = new DefaultTableModel(columns, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
+    private JTree createTree(DetailedResults results) {
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode("Results");
+        Map<String, List<CodeUnitDetail>> grouped = results.codeUnits().stream()
+                .collect(Collectors.groupingBy(CodeUnitDetail::project));
 
-        for (CodeUnitDetail detail : results.codeUnits()) {
-            model.addRow(new Object[]{
-                detail.searchedFqn(),
-                detail.project(),
-                detail.usages().size()
-            });
+        for (Map.Entry<String, List<CodeUnitDetail>> entry : grouped.entrySet()) {
+            DefaultMutableTreeNode projectNode = new DefaultMutableTreeNode(new ProjectNode(entry.getKey(), entry.getValue().size()));
+            for (CodeUnitDetail detail : entry.getValue()) {
+                projectNode.add(new DefaultMutableTreeNode(detail));
+            }
+            root.add(projectNode);
         }
 
-        JTable table = new JTable(model);
-        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        return table;
+        JTree tree = new JTree(new DefaultTreeModel(root));
+        tree.setRootVisible(false);
+        tree.setShowsRootHandles(true);
+        tree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
+        tree.setCellRenderer(new DefaultTreeCellRenderer() {
+            @Override
+            public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
+                super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
+                if (value instanceof DefaultMutableTreeNode node) {
+                    Object userObj = node.getUserObject();
+                    if (userObj instanceof ProjectNode pn) {
+                        setText(String.format("%s (%d units)", pn.name, pn.count));
+                    } else if (userObj instanceof CodeUnitDetail cud) {
+                        setText(String.format("%s (%d usages)", cud.searchedFqn(), cud.usages().size()));
+                    }
+                }
+                return this;
+            }
+        });
+        return tree;
     }
 
     private void setupSelectionListeners() {
-        tpTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) updatePreview(truePositives, tpTable.getSelectedRow());
-        });
-        fpTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) updatePreview(falsePositives, fpTable.getSelectedRow());
-        });
-        fnTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) updatePreview(falseNegatives, fnTable.getSelectedRow());
-        });
+        tpTree.addTreeSelectionListener(e -> updatePreviewFromTree(e.getPath()));
+        fpTree.addTreeSelectionListener(e -> updatePreviewFromTree(e.getPath()));
+        fnTree.addTreeSelectionListener(e -> updatePreviewFromTree(e.getPath()));
     }
 
-    private void updatePreview(DetailedResults results, int rowIndex) {
-        if (rowIndex < 0 || rowIndex >= results.codeUnits().size()) {
+    private void updatePreviewFromTree(@Nullable TreePath path) {
+        if (path == null) {
             previewArea.setText("");
             return;
         }
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+        if (node.getUserObject() instanceof CodeUnitDetail detail) {
+            updatePreview(detail);
+        } else {
+            previewArea.setText("");
+        }
+    }
 
-        CodeUnitDetail detail = results.codeUnits().get(rowIndex);
+    private void updatePreview(CodeUnitDetail detail) {
         StringBuilder sb = new StringBuilder();
         sb.append("// Searched FQN: ").append(detail.searchedFqn()).append("\n");
         sb.append("// Project: ").append(detail.project()).append("\n\n");
@@ -178,6 +197,10 @@ public class UsageResultsExplorer extends BaseThemedDialog {
             }
         });
     }
+
+    // --- UI Helpers ---
+
+    private record ProjectNode(String name, int count) {}
 
     // --- JSON Data Models ---
 
