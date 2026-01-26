@@ -4,6 +4,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import java.util.Collection;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Builds a single-usage prompt record for LLM-based relevance scoring.
@@ -61,23 +62,21 @@ public record UsagePrompt(String filterDescription, String candidateText, String
         var sb = new StringBuilder(Math.min(maxChars, 32_000));
 
         // Filter description for RelevanceClassifier.relevanceScore
-        String filterDescription = buildFilterDescription(codeUnitTarget, !alternatives.isEmpty());
-
-        // Metadata headers
-        sb.append("Short Name of Search: ").append(shortName).append("\n");
-        sb.append("Code Unit Target: ").append(codeUnitTarget).append("\n");
-
-        sb.append("Other Possible Matches:");
-        if (alternatives.isEmpty()) {
-            sb.append(" (none)\n");
-        } else {
-            sb.append("\n");
-            for (CodeUnit alt : alternatives) {
-                sb.append(alt.fqName()).append("\n");
-            }
-        }
-
-        sb.append("File of Hit: ").append(first.file().getRelPath()).append("\n");
+        String filterDescription =
+                """
+                Determine if the candidate snippet represents a usage of the %s %s, and not another symbol with the same name.
+                Symbols with the same name (that we do NOT want to match) are: %s.
+                Return a real number in [0.0, 1.0] representing your confidence that this snippet is referring to
+                %s."""
+                        .formatted(
+                                codeUnitTarget.kind().name(),
+                                codeUnitTarget.fqName(),
+                                alternatives.isEmpty()
+                                        ? "(none)"
+                                        : alternatives.stream()
+                                                .map(CodeUnit::fqName)
+                                                .collect(Collectors.joining(", ")),
+                                codeUnitTarget.fqName());
 
         // Gather imports (best effort)
         List<String> imports;
@@ -87,26 +86,37 @@ public record UsagePrompt(String filterDescription, String candidateText, String
             imports = List.of(); // fail open
         }
 
-        String extension = first.file().extension();
-        sb.append("```").append(extension).append("\n");
+        sb.append("<candidate filename=\"").append(first.file().getRelPath()).append("\">\n");
 
+        sb.append("  <imports>\n");
         for (String imp : imports) {
-            sb.append(imp).append("\n");
+            sb.append("    ").append(imp).append("\n");
         }
-        if (!imports.isEmpty()) {
-            sb.append("\n");
-        }
-
-        sb.append("// snippet of method containing possible usage ")
-                .append(first.enclosing().fqName())
-                .append("\n");
+        sb.append("  </imports>\n");
 
         // Combine and deduplicate snippets
         String combinedSnippets = combineSnippets(hits);
-        sb.append(combinedSnippets).append("\n");
+        String snippetBlock =
+                """
+                  <snippet sourcemethod="%s">
+                %s  </snippet>
+                """
+                        .formatted(first.enclosing().shortName(), combinedSnippets.indent(4));
 
-        sb.append("// rest of class\n");
-        sb.append("```\n");
+        sb.append(snippetBlock);
+        sb.append("</candidate>\n");
+
+        String candidateText =
+                """
+                <candidate filename="%s">
+                  <imports>
+                %s  </imports>
+                %s</candidate>
+                """
+                        .formatted(
+                                first.file().getRelPath(),
+                                imports.stream().map(s -> "    " + s + "\n").collect(Collectors.joining()),
+                                snippetBlock);
 
         if (sb.length() > maxChars) {
             String marker = "\n... [truncated due to token limit]";
@@ -115,15 +125,11 @@ public record UsagePrompt(String filterDescription, String candidateText, String
 
             sb.setLength(safeLimit);
 
-            // Ensure we don't leave a markdown code block open
-            String current = sb.toString();
-            if (!current.trim().endsWith("```")) {
-                sb.append("\n```");
-            }
             sb.append(marker);
         }
 
-        return new UsagePrompt(filterDescription, combinedSnippets, sb.toString());
+        return new UsagePrompt(
+                filterDescription, candidateText.trim(), sb.toString().trim());
     }
 
     /**
@@ -186,16 +192,5 @@ public record UsagePrompt(String filterDescription, String candidateText, String
         }
 
         return result.toString();
-    }
-
-    private static String buildFilterDescription(CodeUnit target, boolean hasAlternatives) {
-        String base = "Determine if the snippet represents a usage of the %s %s"
-                .formatted(target.kind().name(), target.fqName());
-        if (hasAlternatives) {
-            base +=
-                    ". Consider the list of alternative code units and score how likely the usage matches ONLY the target (not any alternative)";
-        }
-
-        return base + ". Return a real number in [0.0, 1.0].";
     }
 }
