@@ -9,6 +9,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Component;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -147,7 +148,18 @@ public class UsageResultsExplorer extends BaseThemedDialog {
                     if (userObj instanceof ProjectNode pn) {
                         setText(String.format("%s (%d units)", pn.name, pn.count));
                     } else if (userObj instanceof CodeUnitDetail cud) {
-                        setText(String.format("%s (%d usages)", cud.searchedFqn(), cud.usages().size()));
+                        String fileName = "";
+                        if (cud.searchedFilePath() != null && !cud.searchedFilePath().isEmpty()) {
+                            try {
+                                Path p = Paths.get(cud.searchedFilePath());
+                                Path fn = p.getFileName();
+                                if (fn != null) {
+                                    fileName = " [" + fn + "]";
+                                }
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        setText(String.format("%s%s (%d usages)", cud.searchedFqn(), fileName, cud.usages().size()));
                     }
                 }
                 return this;
@@ -159,17 +171,17 @@ public class UsageResultsExplorer extends BaseThemedDialog {
     private void setupSelectionListeners() {
         tpTree.addTreeSelectionListener(e -> {
             if (tabs != null && tabs.getSelectedIndex() == 0) {
-                updatePreviewFromTree(e.getPath());
+                updatePreviewFromTree(e.getNewLeadSelectionPath());
             }
         });
         fpTree.addTreeSelectionListener(e -> {
             if (tabs != null && tabs.getSelectedIndex() == 1) {
-                updatePreviewFromTree(e.getPath());
+                updatePreviewFromTree(e.getNewLeadSelectionPath());
             }
         });
         fnTree.addTreeSelectionListener(e -> {
             if (tabs != null && tabs.getSelectedIndex() == 2) {
-                updatePreviewFromTree(e.getPath());
+                updatePreviewFromTree(e.getNewLeadSelectionPath());
             }
         });
     }
