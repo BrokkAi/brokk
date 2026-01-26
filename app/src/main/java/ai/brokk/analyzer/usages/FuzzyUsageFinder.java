@@ -172,7 +172,8 @@ public final class FuzzyUsageFinder {
 
             for (var entry : groupedHits.entrySet()) {
                 var hitsInGroup = entry.getValue();
-                var prompt = UsagePrompt.build(hitsInGroup, target, alternatives, analyzer, identifier, 8_000);
+                var prompt =
+                        UsagePromptBuilder.buildPrompt(hitsInGroup, target, alternatives, analyzer, identifier, 8_000);
 
                 var task = new RelevanceTask(prompt.filterDescription(), prompt.promptText());
                 tasks.add(task);
