@@ -132,10 +132,9 @@ public final class UsagePromptBuilder {
     /**
      * Merges snippets from multiple hits into a single block.
      *
-     * <p>This algorithm is best-effort: it attempts to deduplicate overlapping lines by looking for
-     * literal matches between the end of the previous snippet and the start of the current one. If
-     * snippets don't literally overlap (e.g. due to inconsistent context or whitespace), it may
-     * occasionally include duplicate lines.
+     * <p>This algorithm detects overlap based on line-number arithmetic, assuming each snippet
+     * provides approximately 3 lines of context above and below the usage line. When snippets
+     * overlap, lines already covered by the previous snippet are skipped to avoid duplication.
      */
     private static String combineSnippets(List<UsageHit> hits) {
         if (hits.size() == 1) {
@@ -148,58 +147,45 @@ public final class UsagePromptBuilder {
                 .toList();
 
         StringBuilder result = new StringBuilder();
-        String lastSnippet = null;
         int lastEndLine = -1;
 
         for (UsageHit hit : sortedHits) {
             String currentSnippet = hit.snippet();
             int currentLine = hit.line();
             // Snippets have ~3 lines above/below context.
-            int currentStartLine = Math.max(0, currentLine - 3);
+            int currentStartLine = Math.max(1, currentLine - 3);
+            int currentEndLine = currentLine + 3;
 
-            if (lastSnippet != null && currentStartLine <= lastEndLine + 1) {
-                // Overlap or adjacency: try to merge
-                String[] lastLines = lastSnippet.split("\n", -1);
+            if (lastEndLine != -1 && currentStartLine <= lastEndLine) {
+                // Overlap or contiguous: calculate lines to skip in the current snippet
                 String[] currentLines = currentSnippet.split("\n", -1);
+                int linesInSnippet = currentLines.length;
 
-                // Simple sliding-window overlap detection based on line content.
-                int overlapIndex = -1;
-                for (int i = 0; i < lastLines.length; i++) {
-                    // Check if the current line matches the start of the next snippet.
-                    // We trim to handle minor indentation/whitespace differences.
-                    if (lastLines[i].trim().equals(currentLines[0].trim())) {
-                        boolean match = true;
-                        for (int j = 0; j < Math.min(lastLines.length - i, currentLines.length); j++) {
-                            if (!lastLines[i + j].trim().equals(currentLines[j].trim())) {
-                                match = false;
-                                break;
-                            }
-                        }
-                        if (match) {
-                            overlapIndex = i;
-                            break;
-                        }
-                    }
-                }
+                // How many lines from the start of this snippet are already covered?
+                // The snippet represents lines [currentStartLine, currentStartLine + linesInSnippet - 1].
+                // Lines up to lastEndLine are already in the result.
+                int linesToSkip = lastEndLine - currentStartLine + 1;
 
-                if (overlapIndex != -1) {
-                    int remainingStart = lastLines.length - overlapIndex;
-                    for (int i = remainingStart; i < currentLines.length; i++) {
-                        result.append("\n").append(currentLines[i]);
-                    }
-                } else {
-                    // Fallback if content doesn't literally overlap despite line proximity
-                    result.append("\n").append(currentSnippet);
+                // Ensure we don't skip more lines than the snippet has, and always include
+                // at least the line containing the actual hit (which is near the middle of the snippet).
+                // The hit line is at index (currentLine - currentStartLine) in the snippet array.
+                int hitLineIndex = currentLine - currentStartLine;
+                // Ensure we include at least from the hit line onward
+                linesToSkip = Math.min(linesToSkip, hitLineIndex);
+                linesToSkip = Math.max(0, linesToSkip);
+
+                for (int i = linesToSkip; i < linesInSnippet; i++) {
+                    result.append("\n").append(currentLines[i]);
                 }
             } else {
-                if (lastSnippet != null) {
+                if (lastEndLine != -1) {
                     result.append("\n...\n");
                 }
                 result.append(currentSnippet);
             }
 
-            lastSnippet = currentSnippet;
-            lastEndLine = currentLine + 3; // Approximate based on snippet generation logic
+            // Update lastEndLine to the maximum line number now covered in result
+            lastEndLine = Math.max(lastEndLine, currentEndLine);
         }
 
         return result.toString();
