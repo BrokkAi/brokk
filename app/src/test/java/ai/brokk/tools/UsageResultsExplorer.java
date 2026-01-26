@@ -227,7 +227,8 @@ public class UsageResultsExplorer extends BaseThemedDialog {
             sb.append("// Usage in: ").append(usage.fqName()).append("\n");
             sb.append("// File: ").append(usage.filePath()).append("\n");
             sb.append("// ----------------------------------------------------------------\n");
-            sb.append(usage.snippet()).append("\n\n");
+            String snippet = usage.snippet();
+            sb.append(snippet.isEmpty() ? "(No snippet - usage not detected)" : snippet).append("\n\n");
         }
         previewArea.setText(sb.toString());
         previewArea.setCaretPosition(0);
