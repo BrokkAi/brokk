@@ -1384,7 +1384,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private void closeReview() {
         StalenessInfo staleness = computeStaleness();
-        if (staleness != null && (staleness.commitsBehind() > 0 || staleness.uncommittedChanges() > 0 || staleness.differentBranch())) {
+        if (staleness != null
+                && (staleness.commitsBehind() > 0
+                        || staleness.uncommittedChanges() > 0
+                        || staleness.differentBranch())) {
             lastCumulativeChanges = null;
         }
 

@@ -897,7 +897,7 @@ public class ReviewAgent {
 
                 However, strictly verify that the code actually implements what the comment claims.
                 When comments and code disagree, assume both are suspect and flag this as a Tactical Note.
-            
+
                 # Intent from the Workspace
                 If you have Patch Instructions available in the Workspace, call out important incomplete or unimplemented functionality that
                 was asked for but not delivered, but be aware that instructions may be neither complete nor authoritative;
