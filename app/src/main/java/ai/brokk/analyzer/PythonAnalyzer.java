@@ -1085,7 +1085,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         PythonModuleInfo targetModule = resolveModuleInfo(target);
         String targetFqn = targetModule.moduleQualifiedPackage();
 
@@ -1119,13 +1119,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
             // Handle relative imports
             if (modulePath.startsWith(".")) {
-                // Determine absolute path of the relative import
-                Optional<String> resolved = resolveRelativeImport(sourceFile, modulePath);
-                if (resolved.isPresent()) {
-                    modulePath = resolved.get();
-                } else {
-                    continue;
-                }
+                // Conservatively return true for relative imports as we can't resolve them without source context
+                return true;
             }
 
             // Check if modulePath is a prefix of targetFqn or vice versa.

@@ -438,7 +438,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
-    protected boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         if (imports.isEmpty()) {
             return false;
         }
