@@ -1856,8 +1856,10 @@ public final class JobRunner {
         return resolveModelOrThrow(baseConfig, spec.reasoningLevel(), spec.temperature());
     }
 
-    private static String sanitizeMetadata(String text) {
-        return text.replace("PR_METADATA_END", "PR_METADATA_END_ESC");
+    private static String sanitizeMetadata(@Nullable String text) {
+        if (text == null) return "";
+        String safe = text.replace("PR_METADATA_END", "PR_METADATA_END_ESC");
+        return safe.length() > 2000 ? safe.substring(0, 2000) + "..." : safe;
     }
 
     /**

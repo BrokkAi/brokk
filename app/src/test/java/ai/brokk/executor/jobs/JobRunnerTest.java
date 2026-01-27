@@ -158,4 +158,18 @@ class JobRunnerTest {
         }
         assertEquals(1, count, "Prompt should contain exactly one unescaped metadata end delimiter");
     }
+
+    @Test
+    void testReviewPromptSanitizesMetadataTruncationAndNulls() {
+        String diff = "dummy diff";
+        // Test null handling
+        String promptNull = JobRunner.buildReviewPrompt(diff, PrReviewService.Severity.HIGH, 3, null, null);
+        assertTrue(promptNull.contains("Title: \n"), "Null title should be empty string");
+
+        // Test truncation (length > 2000)
+        String longDescription = "a".repeat(2500);
+        String promptLong = JobRunner.buildReviewPrompt(diff, PrReviewService.Severity.HIGH, 3, "Short Title", longDescription);
+        assertTrue(promptLong.contains("a".repeat(2000) + "..."), "Long metadata should be truncated at 2000 chars");
+        assertTrue(!promptLong.contains("a".repeat(2001)), "Long metadata should not contain more than 2000 chars of original text");
+    }
 }
