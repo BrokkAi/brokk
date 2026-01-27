@@ -5,6 +5,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
@@ -103,6 +104,47 @@ public class Context {
             List<TaskEntry> taskHistory,
             @Nullable ContextFragments.TaskFragment parsedOutput) {
         this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, Set.of(), Set.of());
+    }
+
+    /**
+     * Produces a structural overview of the code currently in context by summarizing symbols
+     * (classes, methods, etc.) for relevant fragments.
+     */
+    @Blocking
+    public String overview() throws InterruptedException {
+        IAnalyzer analyzer = contextManager.getAnalyzer();
+
+        return allFragments()
+                .map(f -> {
+                    String description = f.description().join();
+                    StringBuilder sb =
+                            new StringBuilder("# ").append(description).append("\n");
+
+                    switch (f) {
+                        case ContextFragments.ProjectPathFragment pf -> sb.append(analyzer.summarizeSymbols(pf.file()));
+                        case ContextFragments.SummaryFragment sf -> {
+                            if (sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS) {
+                                var file = contextManager.toFile(sf.getTargetIdentifier());
+                                sb.append(analyzer.summarizeSymbols(file));
+                            } else {
+                                var units = analyzer.getDefinitions(sf.getTargetIdentifier());
+                                if (!units.isEmpty()) {
+                                    sb.append(analyzer.summarizeSymbols(units, CodeUnitType.ALL, 0));
+                                }
+                            }
+                        }
+                        case ContextFragments.CodeFragment cf -> {
+                            var units = analyzer.getDefinitions(cf.getFullyQualifiedName());
+                            if (!units.isEmpty()) {
+                                sb.append(analyzer.summarizeSymbols(units, CodeUnitType.ALL, 0));
+                            }
+                        }
+                        default -> {}
+                    }
+                    return sb.toString().trim();
+                })
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n\n"));
     }
 
     public Map<ProjectFile, String> buildRelatedSymbols(int k) throws InterruptedException {
