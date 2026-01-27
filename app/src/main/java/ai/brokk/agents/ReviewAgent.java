@@ -139,7 +139,7 @@ public class ReviewAgent {
             // Publish the context as it stands after setup but before Turn 1
             scope.publish(reviewContext);
 
-            var turn1ModelConfig = (!setupResult.isComplex()) ? options.scanModel() : options.reviewModel();
+            var turn1ModelConfig = !setupResult.isComplex() ? options.scanModel() : options.reviewModel();
             var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
             turn1Llm.setOutput(io);
