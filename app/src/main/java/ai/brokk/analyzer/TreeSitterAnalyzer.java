@@ -948,7 +948,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var filterReporter = new DebouncedProgressReporter(totalFiles, "filtering import candidates", 100);
         List<ProjectFile> candidates = allFiles.stream()
                 .filter(f -> {
-                    boolean matches = couldImportFile(fileProperties(f).importStatements(), file);
+                    boolean matches = couldImportFile(f, fileProperties(f).importStatements(), file);
                     filterReporter.increment();
                     return matches;
                 })
@@ -966,9 +966,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         resolveReporter.reportFinal();
 
-        return lazyImports.getReferencingFiles(file) != null
-                ? Objects.requireNonNull(lazyImports.getReferencingFiles(file))
-                : Collections.emptySet();
+        // The candidates list already includes files that could import the target (including same-package).
+        // Return the candidates directly since couldImportFile already did the filtering.
+        return Set.copyOf(candidates);
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {

@@ -851,21 +851,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     @Override
     public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         // Determine target package from its top-level declarations
-        List<CodeUnit> targetTopLevels = getTopLevelDeclarations(target);
-        String targetPackage = targetTopLevels.stream()
-                .filter(CodeUnit::isClass)
-                .map(CodeUnit::packageName)
+        String targetPackage = getTopLevelDeclarations(target).stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
                 .findFirst()
                 .orElse("");
-
-        // Case 0: Same package - files in the same package see each other without imports
-        ProjectFile sourceFile = null;
-        if (!targetTopLevels.isEmpty()) {
-            // This is a bit of a hack since we don't have the source file directly,
-            // but we can infer the source package if we are called in a context where we know it.
-            // However, the standard way in TreeSitterAnalyzer is to check if the source package matches.
-            // For now, we'll check the imports, but we need to know the source package to handle this correctly.
-        }
 
         // Check for explicit or wildcard imports
         String targetName = target.getFileName();
@@ -903,20 +893,26 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     /**
      * Overloaded version that takes the source file to check for same-package visibility.
      */
+    @Override
     public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        if (sourceFile.equals(target)) {
+            return false;
+        }
+
         String sourcePackage = getTopLevelDeclarations(sourceFile).stream()
-                .filter(CodeUnit::isClass)
-                .map(CodeUnit::packageName)
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
                 .findFirst()
                 .orElse("");
 
         String targetPackage = getTopLevelDeclarations(target).stream()
-                .filter(CodeUnit::isClass)
-                .map(CodeUnit::packageName)
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
                 .findFirst()
                 .orElse("");
 
-        if (!sourcePackage.isEmpty() && sourcePackage.equals(targetPackage)) {
+        // In Java, files in the same package (including the default package) see each other.
+        if (sourcePackage.equals(targetPackage)) {
             return true;
         }
 

@@ -928,4 +928,24 @@ public class JavaImportTest {
         }
     }
 
+    @Test
+    public void testReferencingFilesOfSamePackageNoImport() throws IOException {
+        // Two files in the same package - Bar references Foo without an import
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents(
+                        "package com.example; public class Bar { private Foo foo; }", "com/example/Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Bar").get();
+
+            // Bar.java references Foo without importing it (same package visibility)
+            var referencingFiles = analyzer.referencingFilesOf(fooFile);
+
+            assertTrue(
+                    referencingFiles.contains(barFile),
+                    "Bar.java should be a referencing file of Foo.java since they're in the same package");
+        }
+    }
 }
