@@ -77,8 +77,8 @@ public class TestProject implements IProject {
     }
 
     @Override
-    public BuildAgent.BuildDetails loadBuildDetails() {
-        return this.buildDetails;
+    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
+        return Optional.of(this.buildDetails);
     }
 
     @Override

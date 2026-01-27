@@ -239,10 +239,7 @@ public final class MainProject extends AbstractProject {
         }
 
         // Load build details
-        var bd = loadBuildDetails(); // Uses projectProps
-        if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
-            this.detailsFuture.complete(bd);
-        }
+        loadBuildDetails().ifPresent(this.detailsFuture::complete);
 
         // Initialize cache and trigger migration/defaulting if necessary
         this.issuesProviderCache = getIssuesProvider();
@@ -452,60 +449,62 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public BuildAgent.BuildDetails loadBuildDetails() {
+    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
         String json = projectProps.getProperty(BUILD_DETAILS_KEY);
-        if (json != null && !json.isEmpty()) {
-            try {
-                var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
-
-                // Canonicalize exclusion patterns that look like paths
-                var canonicalExclusions = new LinkedHashSet<String>();
-                for (String pattern : details.exclusionPatterns()) {
-                    // Only canonicalize patterns that look like directory paths (contain / or \)
-                    if (pattern.contains("/") || pattern.contains("\\")) {
-                        String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
-                        if (!c.isBlank()) {
-                            canonicalExclusions.add(c);
-                        }
-                    } else {
-                        canonicalExclusions.add(pattern);
-                    }
-                }
-
-                // Normalize environment variables and migrate JAVA_HOME to workspace properties
-                Map<String, String> envIn = details.environmentVariables();
-                Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
-
-                for (Map.Entry<String, String> e : envIn.entrySet()) {
-                    String k = e.getKey();
-                    String v = e.getValue();
-                    if (v == null) {
-                        continue;
-                    }
-                    if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                        // Migration: Move JAVA_HOME from project.properties to workspace.properties
-                        String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
-                        if (!canonicalPath.isBlank()) {
-                            setJdk(canonicalPath);
-                            logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
-                        }
-                    } else {
-                        canonicalEnv.put(k, v);
-                    }
-                }
-
-                // Return a re-wrapped BuildDetails with canonicalized content
-                return new BuildAgent.BuildDetails(
-                        details.buildLintCommand(),
-                        details.testAllCommand(),
-                        details.testSomeCommand(),
-                        canonicalExclusions,
-                        canonicalEnv);
-            } catch (JsonProcessingException e) {
-                logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
-            }
+        if (json == null || json.isBlank()) {
+            return Optional.empty();
         }
-        return BuildAgent.BuildDetails.EMPTY;
+
+        try {
+            var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+
+            // Canonicalize exclusion patterns that look like paths
+            var canonicalExclusions = new LinkedHashSet<String>();
+            for (String pattern : details.exclusionPatterns()) {
+                // Only canonicalize patterns that look like directory paths (contain / or \)
+                if (pattern.contains("/") || pattern.contains("\\")) {
+                    String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                    if (!c.isBlank()) {
+                        canonicalExclusions.add(c);
+                    }
+                } else {
+                    canonicalExclusions.add(pattern);
+                }
+            }
+
+            // Normalize environment variables and migrate JAVA_HOME to workspace properties
+            Map<String, String> envIn = details.environmentVariables();
+            Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+
+            for (Map.Entry<String, String> e : envIn.entrySet()) {
+                String k = e.getKey();
+                String v = e.getValue();
+                if (v == null) {
+                    continue;
+                }
+                if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                    // Migration: Move JAVA_HOME from project.properties to workspace.properties
+                    String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
+                    if (!canonicalPath.isBlank()) {
+                        setJdk(canonicalPath);
+                        logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
+                    }
+                } else {
+                    canonicalEnv.put(k, v);
+                }
+            }
+
+            // Return a re-wrapped BuildDetails with canonicalized content
+            return Optional.of(new BuildAgent.BuildDetails(
+                    details.buildLintCommand(),
+                    details.testAllCommand(),
+                    details.testSomeCommand(),
+                    canonicalExclusions,
+                    canonicalEnv));
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
+        }
+        return Optional.empty();
     }
 
     @Override

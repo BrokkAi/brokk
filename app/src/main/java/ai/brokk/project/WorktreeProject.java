@@ -11,6 +11,7 @@ import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.IStringDiskCache;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -44,7 +45,7 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public BuildAgent.BuildDetails loadBuildDetails() {
+    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
         return parent.loadBuildDetails();
     }
 

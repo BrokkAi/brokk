@@ -114,8 +114,8 @@ public interface IProject extends AutoCloseable {
      * This should only called directly by awaitBuildDetails and CM::createHeadless!
      * Everyone else should use awaitBuildDetails() instead.
      */
-    default BuildAgent.BuildDetails loadBuildDetails() {
-        return BuildAgent.BuildDetails.EMPTY;
+    default Optional<BuildAgent.BuildDetails> loadBuildDetails() {
+        return Optional.empty();
     }
 
     default MainProject.DataRetentionPolicy getDataRetentionPolicy() {
