@@ -506,13 +506,10 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             String commitFormat = null;
 
             if (project != null) {
-                try {
-                    buildDetails = project.loadBuildDetails().orElse(null);
-                    styleGuide = project.getStyleGuide();
-                    commitFormat = project.getCommitMessageFormat();
-                } catch (Exception e) {
-                    logger.warn("Failed to load project settings", e);
-                }
+                // TODO use awaitBuildDetails and notify the user that we're waiting
+                buildDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+                styleGuide = project.getStyleGuide();
+                commitFormat = project.getCommitMessageFormat();
             }
 
             return new SettingsData(jvmSettings, apiKey, balance, models, buildDetails, styleGuide, commitFormat);
