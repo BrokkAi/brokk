@@ -1798,9 +1798,7 @@ public class Llm {
      */
     public StreamingResult loop(List<ChatMessage> messages, ToolContext toolContext, int turnsWithTools)
             throws InterruptedException {
-        if (turnsWithTools <= 0) {
-            return sendRequest(messages, toolContext);
-        }
+        assert turnsWithTools > 0 : "use sendrequest instead of loop if no turnsWithTools are desired";
 
         var currentMessages = new ArrayList<>(messages);
         StreamingResult result = null;
@@ -1826,7 +1824,7 @@ public class Llm {
             var tr = toolContext.toolRegistry();
             for (var request : toolRequests) {
                 var toolResult = tr.executeTool(request);
-                if (toolResult.status() == ToolExecutionResult.Status.INTERNAL_ERROR) {
+                if (toolResult.status() != ToolExecutionResult.Status.SUCCESS) {
                     logger.warn("Tool call failure for {}: {}", request.name(), toolResult.resultText());
                 }
                 currentMessages.add(

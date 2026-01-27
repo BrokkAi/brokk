@@ -123,9 +123,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
 
-    @Nullable
-    private volatile List<Map.Entry<String, FileDiff>> lastPreparedPerFile = null;
-
     /** Monotonically increasing token to track the latest requestUpdate invocation. */
     private final AtomicLong updateGeneration = new AtomicLong(0);
 
@@ -678,7 +675,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         var prepared = DiffService.preparePerFileSummaries(result);
-        lastPreparedPerFile = prepared;
 
         StalenessInfo staleness = null;
         if (lastReviewState != null) {
@@ -820,8 +816,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void refreshUI(DiffService.CumulativeChanges res, List<Map.Entry<String, FileDiff>> prepared) {
-        lastPreparedPerFile = prepared;
-
         updateBaselineLabel();
 
         if (currentMode == PanelMode.EMPTY || currentMode == PanelMode.ERROR) {
@@ -1199,7 +1193,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         LoggingFuture.supplyAsync(() -> ReviewScope.fromBaseline(cm, fromRef, toRef))
                 .thenAccept(scope -> {
                     var prepared = DiffService.preparePerFileSummaries(scope.changes());
-                    lastPreparedPerFile = prepared;
                     var root = cm.getProject().getRoot();
 
                     SwingUtilities.invokeLater(() -> {
@@ -1390,6 +1383,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void closeReview() {
+        StalenessInfo staleness = computeStaleness();
+        if (staleness != null && (staleness.commitsBehind() > 0 || staleness.uncommittedChanges() > 0 || staleness.differentBranch())) {
+            lastCumulativeChanges = null;
+        }
+
         reviewBaselineRef = null;
         lastReviewState = null;
         reviewTargetCommit = null;
@@ -1398,8 +1396,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.getListPanel().setStalenessNotice(null);
         setMode(PanelMode.PREVIEW);
 
-        // Immediately refresh UI to restore the diff view for the current changes
-        performRefresh();
+        if (lastCumulativeChanges == null) {
+            requestUpdate();
+        } else {
+            // Immediately refresh UI to restore the diff view for the current changes
+            performRefresh();
+        }
     }
 
     /**
