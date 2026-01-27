@@ -454,7 +454,7 @@ public class SearchPrompts {
 
         String buildSetupTaskGuidance = "";
         boolean tasksObjective = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
-        if (tasksObjective && cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+        if (tasksObjective && cm.getProject().awaitBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
             buildSetupTaskGuidance =
                     """
                     <build-setup-task-guidance>

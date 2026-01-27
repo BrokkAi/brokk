@@ -507,7 +507,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
 
             if (project != null) {
                 try {
-                    buildDetails = project.loadBuildDetails();
+                    buildDetails = project.awaitBuildDetails();
                     styleGuide = project.getStyleGuide();
                     commitFormat = project.getCommitMessageFormat();
                 } catch (Exception e) {

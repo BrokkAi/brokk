@@ -432,7 +432,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                         final boolean isExcludedNow = directlyExcluded;
                         contextManager.submitContextTask(() -> {
                             try {
-                                var currentDetails = project.loadBuildDetails();
+                                var currentDetails = project.awaitBuildDetails();
                                 Set<String> patternsSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
                                 // Canonicalize existing entries to ensure remove/add works across separators
                                 patternsSet.addAll(PathNormalizer.canonicalizeAllForProject(

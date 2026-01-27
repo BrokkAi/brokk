@@ -721,7 +721,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     public void loadBuildPanelSettings() {
         BuildAgent.BuildDetails details;
         try {
-            details = project.loadBuildDetails();
+            details = project.awaitBuildDetails();
         } catch (Exception e) {
             logger.warn("Could not load build details for settings panel, using EMPTY. Error: {}", e.getMessage(), e);
             details = BuildAgent.BuildDetails.EMPTY; // Fallback to EMPTY
@@ -762,7 +762,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         // Persist build-related settings to project.
         // Use pendingBuildDetails for build commands if available (from recent BuildAgent run),
         // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
-        var diskDetails = project.loadBuildDetails();
+        var diskDetails = project.awaitBuildDetails();
         var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
@@ -785,7 +785,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
 
         // Compare against what's currently saved on disk
-        var currentDetails = project.loadBuildDetails();
+        var currentDetails = project.awaitBuildDetails();
         if (!newDetails.equals(currentDetails)) {
             project.saveBuildDetails(newDetails);
             logger.debug("Applied Build Details changes.");

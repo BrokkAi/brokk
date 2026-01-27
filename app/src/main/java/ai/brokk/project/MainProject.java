@@ -563,10 +563,13 @@ public final class MainProject extends AbstractProject {
         invalidateAllFiles();
     }
 
+    /**
+     * Used by BrokkCli to override build details; deliberately does not save
+     */
     @Override
     public void setBuildDetails(BuildAgent.BuildDetails details) {
         if (detailsFuture.isDone()) {
-            detailsFuture = new CompletableFuture<>();
+            detailsFuture = CompletableFuture.completedFuture(details);
         }
         detailsFuture.complete(details);
     }
