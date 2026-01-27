@@ -762,6 +762,8 @@ public final class JobRunner {
                                             var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
                                             var ghRepo = gitHubAuth.getGhRepository();
                                             var pr = ghRepo.getPullRequest(prNumber);
+                                            String prTitle = Objects.requireNonNullElse(pr.getTitle(), "");
+                                            String prBody = Objects.requireNonNullElse(pr.getBody(), "");
 
                                             // 3. Fetch PR details (base branch, head SHA)
                                             var prDetails = PrReviewService.fetchPrDetails(ghRepo, prNumber);
@@ -876,7 +878,8 @@ public final class JobRunner {
                                             // 5. Call reviewDiff() to get LLM review with enriched context
                                             var plannerModel = Objects.requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-                                            TaskResult reviewResult = reviewDiff(context, plannerModel, annotatedDiff);
+                                            TaskResult reviewResult =
+                                                    reviewDiff(context, plannerModel, annotatedDiff, prTitle, prBody);
                                             scope.append(reviewResult);
 
                                             // 6. Parse review output (JSON only)
@@ -1850,55 +1853,16 @@ public final class JobRunner {
     }
 
     /**
-     * Build a single-shot workspace-only prompt using the provided planner model and return
-     * a TaskResult representing the answer (or an error TaskResult on failure). This helper
-     * is read-only and does not mutate workspace state.
-     *
-     * @param model the model to use for the single-shot answer
-     * @param question the user's question / task text
-     * @return a TaskResult suitable for appending to a TaskScope
-     */
-    private TaskResult askUsingPlannerModel(Context ctx, StreamingChatModel model, String question) {
-        var svc = cm.getService();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
-
-        List<ChatMessage> messages;
-        messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
-        // Create an LLM instance for the planner model and route output to the ContextManager IO
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
-        llm.setOutput(cm.getIo());
-        // Build and send the request to the LLM
-        TaskResult.StopDetails stop = null;
-        Llm.StreamingResult response = null;
-        try {
-            response = llm.sendRequest(messages);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-        }
-
-        // Determine stop details based on the response
-        if (response != null) {
-            stop = TaskResult.StopDetails.fromResponse(response);
-        }
-
-        // construct TaskResult
-        Objects.requireNonNull(stop);
-        return new TaskResult(
-                cm,
-                "Ask: " + question,
-                List.copyOf(cm.getIo().getLlmRawMessages()),
-                ctx, // Ask never changes files; use current live context
-                stop,
-                meta);
-    }
-
-    /**
      * Build the review prompt text for a given diff and comment policy.
      *
      * Package-private for tests to validate the policy text without invoking the LLM.
      */
-    static String buildReviewPrompt(String diff, PrReviewService.Severity minSeverity, int maxComments) {
+    static String buildReviewPrompt(
+            String diff,
+            PrReviewService.Severity minSeverity,
+            int maxComments,
+            String prTitle,
+            String prBody) {
         String fencedDiff = "```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```";
 
         // Compose the policy lines using explicit phrasing that tests can rely on.
@@ -1906,13 +1870,27 @@ public final class JobRunner {
         String maxLine =
                 "MAX " + maxComments + " comments total. Merge similar issues into one comment instead of repeating.";
 
+        String prContext = "";
+        if (!prTitle.isBlank() || !prBody.isBlank()) {
+            prContext =
+                    """
+                    PR Metadata:
+                    - Title: %s
+                    - Description:
+                    %s
+
+                    ---
+                    """
+                            .formatted(prTitle, prBody.isBlank() ? "(no description)" : prBody);
+        }
+
         String prompt =
                 """
                 You are performing a Pull Request diff review. The diff to review is provided
                 *between the fenced code block marked DIFF_START and DIFF_END*.
                 Everything inside that block is code - do not ignore any part of it.
 
-                %s
+                %s%s
 
                 IMPORTANT: Line Number Format
                 -----------------------------
@@ -1984,7 +1962,7 @@ public final class JobRunner {
 
                 OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
                 """
-                        .formatted(severityLine, maxLine, fencedDiff);
+                        .formatted(prContext, severityLine, maxLine, fencedDiff);
 
         return prompt;
     }
@@ -1993,11 +1971,17 @@ public final class JobRunner {
      * Backing implementation that sends the structured prompt to the LLM using a specified policy.
      */
     private TaskResult reviewDiffWithPolicy(
-            Context ctx, StreamingChatModel model, String diff, PrReviewService.Severity minSeverity, int maxComments) {
+            Context ctx,
+            StreamingChatModel model,
+            String diff,
+            PrReviewService.Severity minSeverity,
+            int maxComments,
+            String prTitle,
+            String prBody) {
         var svc = cm.getService();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
-        String prompt = buildReviewPrompt(diff, minSeverity, maxComments);
+        String prompt = buildReviewPrompt(diff, minSeverity, maxComments, prTitle, prBody);
 
         List<ChatMessage> messages = List.of(new UserMessage(prompt));
 
@@ -2025,10 +2009,61 @@ public final class JobRunner {
      * Legacy-friendly reviewDiff retained for REVIEW mode callers. REVIEW mode enforces the stricter
      * policy: severity >= DEFAULT_REVIEW_SEVERITY_THRESHOLD and MAX DEFAULT_REVIEW_MAX_INLINE_COMMENTS.
      */
-    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
+    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff, String prTitle, String prBody) {
         return reviewDiffWithPolicy(
-                ctx, model, diff, DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+                ctx,
+                model,
+                diff,
+                DEFAULT_REVIEW_SEVERITY_THRESHOLD,
+                DEFAULT_REVIEW_MAX_INLINE_COMMENTS,
+                prTitle,
+                prBody);
     }
+
+    /**
+     * Build a single-shot workspace-only prompt using the provided planner model and return
+     * a TaskResult representing the answer (or an error TaskResult on failure). This helper
+     * is read-only and does not mutate workspace state.
+     *
+     * @param model the model to use for the single-shot answer
+     * @param question the user's question / task text
+     * @return a TaskResult suitable for appending to a TaskScope
+     */
+    private TaskResult askUsingPlannerModel(Context ctx, StreamingChatModel model, String question) {
+        var svc = cm.getService();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
+
+        List<ChatMessage> messages;
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
+        // Create an LLM instance for the planner model and route output to the ContextManager IO
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
+        llm.setOutput(cm.getIo());
+        // Build and send the request to the LLM
+        TaskResult.StopDetails stop = null;
+        Llm.StreamingResult response = null;
+        try {
+            response = llm.sendRequest(messages);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+        }
+
+        // Determine stop details based on the response
+        if (response != null) {
+            stop = TaskResult.StopDetails.fromResponse(response);
+        }
+
+        // construct TaskResult
+        Objects.requireNonNull(stop);
+        return new TaskResult(
+                cm,
+                "Ask: " + question,
+                List.copyOf(cm.getIo().getLlmRawMessages()),
+                ctx, // Ask never changes files; use current live context
+                stop,
+                meta);
+    }
+
 
     private static Throwable unwrapFailure(Throwable throwable) {
         var current = throwable;
@@ -2821,7 +2856,7 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult = reviewDiff(ctx, reviewModel, annotatedDiff);
+                    TaskResult reviewResult = reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
                     String reviewText = reviewResult.output().text().join();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
