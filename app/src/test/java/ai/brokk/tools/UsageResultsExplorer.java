@@ -56,19 +56,43 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         this.resultsDir = resultsDir;
 
         ObjectMapper mapper = new ObjectMapper();
-        this.summary = mapper.readValue(resultsDir.resolve("summary.json").toFile(), EvalResults.class);
-
+        List<ProjectResult> projects = new ArrayList<>();
         List<CodeUnitDetail> allTruePositives = new ArrayList<>();
         List<CodeUnitDetail> allFalsePositives = new ArrayList<>();
         List<CodeUnitDetail> allFalseNegatives = new ArrayList<>();
 
-        for (ProjectResult project : summary.projects()) {
-            Path projectDir = resultsDir.resolve(project.language()).resolve(project.project());
-            if (Files.isDirectory(projectDir)) {
-                mergeProjectResults(projectDir, mapper, allTruePositives, allFalsePositives, allFalseNegatives);
+        if (Files.exists(resultsDir) && Files.isDirectory(resultsDir)) {
+            try (var langDirs = Files.list(resultsDir)) {
+                langDirs.filter(Files::isDirectory).forEach(langDir -> {
+                    try (var projectDirs = Files.list(langDir)) {
+                        projectDirs
+                                .filter(Files::isDirectory)
+                                .filter(p -> Files.exists(p.resolve("summary.json")))
+                                .forEach(projectDir -> {
+                                    try {
+                                        ProjectResult pr = mapper.readValue(
+                                                projectDir.resolve("summary.json").toFile(), ProjectResult.class);
+                                        projects.add(pr);
+                                        mergeProjectResults(
+                                                projectDir,
+                                                mapper,
+                                                allTruePositives,
+                                                allFalsePositives,
+                                                allFalseNegatives);
+                                    } catch (Exception e) {
+                                        System.err.println("Warning: Failed to read project result at " + projectDir
+                                                + ": " + e.getMessage());
+                                    }
+                                });
+                    } catch (Exception e) {
+                        System.err.println("Warning: Failed to list projects in " + langDir + ": " + e.getMessage());
+                    }
+                });
             }
         }
 
+        AggregateMetrics aggregate = computeAggregate(projects);
+        this.summary = new EvalResults(projects, aggregate);
         this.truePositives = new DetailedResults(allTruePositives);
         this.falsePositives = new DetailedResults(allFalsePositives);
         this.falseNegatives = new DetailedResults(allFalseNegatives);
@@ -82,6 +106,18 @@ public class UsageResultsExplorer extends BaseThemedDialog {
 
         initializeUI();
         setupSelectionListeners();
+    }
+
+    private AggregateMetrics computeAggregate(List<ProjectResult> projects) {
+        int tp = projects.stream().mapToInt(ProjectResult::truePositives).sum();
+        int fp = projects.stream().mapToInt(ProjectResult::falsePositives).sum();
+        int fn = projects.stream().mapToInt(ProjectResult::falseNegatives).sum();
+
+        double precision = (tp + fp == 0) ? 0.0 : (double) tp / (tp + fp);
+        double recall = (tp + fn == 0) ? 0.0 : (double) tp / (tp + fn);
+        double f1 = (precision + recall == 0) ? 0.0 : 2 * (precision * recall) / (precision + recall);
+
+        return new AggregateMetrics(tp, fp, fn, precision, recall, f1);
     }
 
     private void mergeProjectResults(
