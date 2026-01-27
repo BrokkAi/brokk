@@ -1074,6 +1074,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             if (isReview || isGenerating) {
                 rightVerticalSplitPane.setTopComponent(codeReviewPanel.getDetailPanel());
                 rightVerticalSplitPane.setDividerSize(defaultSplitPaneDividerSize());
+                // Set divider location after layout completes (proportional method requires non-zero size)
+                SwingUtilities.invokeLater(() -> {
+                    int height = rightVerticalSplitPane.getHeight();
+                    if (height > 0) {
+                        rightVerticalSplitPane.setDividerLocation((int) (height * 0.4));
+                    } else {
+                        // Fallback: use a reasonable fixed height if layout hasn't happened yet
+                        rightVerticalSplitPane.setDividerLocation(200);
+                    }
+                });
             } else {
                 rightVerticalSplitPane.setTopComponent(null);
                 rightVerticalSplitPane.setDividerSize(0);
