@@ -8,6 +8,7 @@ import ai.brokk.project.MainProject;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -29,6 +30,7 @@ public class ModelSelector {
     private final AtomicBoolean updating = new AtomicBoolean(false);
     private volatile boolean dialogOpen = false;
     private @Nullable Service.FavoriteModel lastSelected;
+    private volatile List<Service.FavoriteModel> cachedFavorites = Collections.emptyList();
     private final List<Consumer<Service.ModelConfig>> selectionListeners = new ArrayList<>();
 
     public ModelSelector(Chrome chrome) {
@@ -39,6 +41,7 @@ public class ModelSelector {
         Supplier<JPopupMenu> menuSupplier = () -> {
             var menu = new JPopupMenu();
             var favorites = MainProject.loadFavoriteModels();
+            cachedFavorites = favorites;
 
             if (favorites.isEmpty()) {
                 JMenuItem noFavorites = new JMenuItem("(No favorite models)");
@@ -117,7 +120,7 @@ public class ModelSelector {
      */
     public void cycleModel(boolean forward) {
         if (dialogOpen) return;
-        var favorites = MainProject.loadFavoriteModels();
+        var favorites = cachedFavorites;
         if (favorites.isEmpty()) return;
         int n = favorites.size();
         int idx = lastSelected != null ? favorites.indexOf(lastSelected) : -1;
@@ -134,6 +137,7 @@ public class ModelSelector {
         refresh(); // make sure the button is up to date
 
         var favorites = MainProject.loadFavoriteModels();
+        cachedFavorites = favorites;
         for (var fm : favorites) {
             if (fm.config().equals(desired)) {
                 updating.set(true);
@@ -165,6 +169,7 @@ public class ModelSelector {
             updating.set(true);
             try {
                 var favorites = MainProject.loadFavoriteModels();
+                cachedFavorites = favorites;
                 if (lastSelected != null) {
                     // Try to re-select the last favorite if present
                     for (var fm : favorites) {
@@ -222,6 +227,7 @@ public class ModelSelector {
 
             // After the modal dialog closes, reload favorites and detect any new favorite
             var after = MainProject.loadFavoriteModels();
+            cachedFavorites = after;
             var maybeNew = after.stream()
                     .filter(a -> before.stream().noneMatch(b -> b.equals(a)))
                     .findFirst();

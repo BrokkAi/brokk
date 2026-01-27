@@ -1759,11 +1759,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 }
             }
 
-            // Remove the LAF focus-cell highlight border when selected+focused so its extra
-            // insets (1-2px) do not change the cell size on click and cause the tree to shift.
-            if (selected && hasFocus) {
-                setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-            }
+            // Override the LAF focus-cell border for all states: use empty so extra insets never
+            // change cell size on click (avoids tree shift) and so the reused renderer does not
+            // carry over a previously set border to other cells.
+            setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             return this;
         }
     }
