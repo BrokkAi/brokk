@@ -584,7 +584,10 @@ public final class HeadlessExecutorMain {
         // POST /v1/sessions/{sessionId}/tasks/{taskId}/execute
         if (method.equals("POST")) {
             var parts = Splitter.on('/').splitToList(normalizedPath);
-            if (parts.size() == 7 && "sessions".equals(parts.get(2)) && "tasks".equals(parts.get(4)) && "execute".equals(parts.get(6))) {
+            if (parts.size() == 7
+                    && "sessions".equals(parts.get(2))
+                    && "tasks".equals(parts.get(4))
+                    && "execute".equals(parts.get(6))) {
                 try {
                     var sessionId = UUID.fromString(parts.get(3));
                     var taskId = parts.get(5);
@@ -1330,10 +1333,7 @@ public final class HeadlessExecutorMain {
                     false, // preScan
                     tags,
                     new JobSpec.ModelOverrides(
-                            req.reasoningLevel(),
-                            req.reasoningLevelCode(),
-                            req.temperature(),
-                            req.temperatureCode()));
+                            req.reasoningLevel(), req.reasoningLevelCode(), req.temperature(), req.temperatureCode()));
 
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
             var jobId = createResult.jobId();

@@ -1,19 +1,16 @@
 package ai.brokk.executor.jobs.modes;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobExecutionContext;
 import ai.brokk.executor.jobs.JobModelResolver;
 import ai.brokk.prompts.SearchPrompts;
-import ai.brokk.agents.LutzAgent;
-
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.message.SystemMessage;
-
+import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
@@ -42,8 +39,7 @@ public final class AskModeHandler {
                     store.appendEvent(
                             ctx.jobId(),
                             ai.brokk.executor.jobs.JobEvent.of(
-                                    "NOTIFICATION",
-                                    "Brokk Context Engine: analyzing repository context..."));
+                                    "NOTIFICATION", "Brokk Context Engine: analyzing repository context..."));
                 } catch (IOException ioe) {
                     // best-effort
                 }
@@ -55,7 +51,8 @@ public final class AskModeHandler {
                         String rawScanModel = spec.scanModel();
                         String trimmedScanModel = rawScanModel == null ? "" : rawScanModel.trim();
                         scanModelToUse = !trimmedScanModel.isEmpty()
-                                ? resolver.resolveModelOrThrow(trimmedScanModel, spec.reasoningLevel(), spec.temperature())
+                                ? resolver.resolveModelOrThrow(
+                                        trimmedScanModel, spec.reasoningLevel(), spec.temperature())
                                 : resolver.defaultScanModel(spec);
                     }
                     scanConfig = ai.brokk.agents.SearchAgent.ScanConfig.withModel(scanModelToUse);
@@ -97,10 +94,8 @@ public final class AskModeHandler {
 
             try {
                 // Use helper that builds a workspace-only prompt and calls the planner model.
-                TaskResult askResult = new AskModeHelper(cm).askUsingPlannerModel(
-                        context,
-                        Objects.requireNonNull(plannerModel),
-                        spec.taskInput());
+                TaskResult askResult = new AskModeHelper(cm)
+                        .askUsingPlannerModel(context, Objects.requireNonNull(plannerModel), spec.taskInput());
                 scope.append(askResult);
             } catch (Throwable t) {
                 // Append a non-fatal TaskResult indicating the failure so the task has a record, but do not rethrow.
@@ -110,13 +105,8 @@ public final class AskModeHandler {
                 List<ChatMessage> ui = List.of(
                         new UserMessage(spec.taskInput()),
                         new SystemMessage("ASK direct-answer failed: " + stopDetails.explanation()));
-                var failureResult = new TaskResult(
-                        cm,
-                        "ASK: " + spec.taskInput() + " [LLM_ERROR]",
-                        ui,
-                        context,
-                        stopDetails,
-                        null);
+                var failureResult =
+                        new TaskResult(cm, "ASK: " + spec.taskInput() + " [LLM_ERROR]", ui, context, stopDetails, null);
                 try {
                     scope.append(failureResult);
                 } catch (Throwable e2) {
@@ -135,7 +125,8 @@ public final class AskModeHandler {
             this.cm = cm;
         }
 
-        TaskResult askUsingPlannerModel(Context ctx, dev.langchain4j.model.chat.StreamingChatModel model, String question) {
+        TaskResult askUsingPlannerModel(
+                Context ctx, dev.langchain4j.model.chat.StreamingChatModel model, String question) {
             var svc = cm.getService();
             var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, ai.brokk.Service.ModelConfig.from(model, svc));
 
@@ -159,13 +150,7 @@ public final class AskModeHandler {
             }
 
             Objects.requireNonNull(stop);
-            return new TaskResult(
-                    cm,
-                    "Ask: " + question,
-                    List.copyOf(cm.getIo().getLlmRawMessages()),
-                    ctx,
-                    stop,
-                    meta);
+            return new TaskResult(cm, "Ask: " + question, List.copyOf(cm.getIo().getLlmRawMessages()), ctx, stop, meta);
         }
     }
 }

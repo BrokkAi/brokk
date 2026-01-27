@@ -1,23 +1,14 @@
 package ai.brokk.executor.jobs;
 
-import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.executor.jobs.PrReviewService;
 import ai.brokk.git.GitRepo;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.util.TextUtil;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -25,6 +16,9 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Support utilities for ISSUE and ISSUE_WRITER modes.
@@ -99,12 +93,17 @@ public final class IssueModeSupport {
     }
 
     public static void emitCommandResult(
-            String jobId, @Nullable JobStore store, @Nullable IConsoleIO io, CommandResultEvent event, String summaryMessage) {
+            String jobId,
+            @Nullable JobStore store,
+            @Nullable IConsoleIO io,
+            CommandResultEvent event,
+            String summaryMessage) {
         if (store != null) {
             try {
                 store.appendEvent(jobId, JobEvent.of(COMMAND_RESULT_EVENT_TYPE, event.toJson()));
             } catch (IOException e) {
-                logger.warn("Failed to append {} event for job {}: {}", COMMAND_RESULT_EVENT_TYPE, jobId, e.getMessage());
+                logger.warn(
+                        "Failed to append {} event for job {}: {}", COMMAND_RESULT_EVENT_TYPE, jobId, e.getMessage());
             }
         }
 
@@ -205,7 +204,11 @@ public final class IssueModeSupport {
                 try {
                     gitRepo.checkout(originalBranch);
                 } catch (Exception checkoutEx) {
-                    logger.warn("ISSUE job {}: Initial checkout to '{}' failed: {}", jobId, originalBranch, checkoutEx.getMessage());
+                    logger.warn(
+                            "ISSUE job {}: Initial checkout to '{}' failed: {}",
+                            jobId,
+                            originalBranch,
+                            checkoutEx.getMessage());
                     try {
                         var modified = gitRepo.getModifiedFiles();
                         if (!modified.isEmpty()) {
@@ -218,7 +221,8 @@ public final class IssueModeSupport {
                 }
             }
         } catch (Exception e) {
-            logger.warn("ISSUE job {}: Unexpected error restoring branch '{}': {}", jobId, originalBranch, e.getMessage());
+            logger.warn(
+                    "ISSUE job {}: Unexpected error restoring branch '{}': {}", jobId, originalBranch, e.getMessage());
         }
 
         try {
@@ -249,16 +253,31 @@ public final class IssueModeSupport {
         try {
             firstOut = Objects.requireNonNullElse(verificationRunner.get(), "");
         } catch (RuntimeException re) {
-            emitCommandResult(jobId, store, io, commandResult("verification", commandLabel, 1, false, null, false, "", re), "Verification: ERROR");
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult("verification", commandLabel, 1, false, null, false, "", re),
+                    "Verification: ERROR");
             throw new IssueExecutionException("Verification runner failed: " + re.getMessage(), re);
         }
 
         boolean passedFirst = firstOut.isBlank();
-        emitCommandResult(jobId, store, io, commandResult("verification", commandLabel, 1, false, null, passedFirst, firstOut, null), "Verification: " + (passedFirst ? "PASS" : "FAIL"));
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult("verification", commandLabel, 1, false, null, passedFirst, firstOut, null),
+                "Verification: " + (passedFirst ? "PASS" : "FAIL"));
 
         if (passedFirst) return;
 
-        emitCommandResult(jobId, store, io, commandResult("fix_trigger", commandLabel, 1, false, null, false, firstOut, null), "Fix attempt: TRIGGERED");
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult("fix_trigger", commandLabel, 1, false, null, false, firstOut, null),
+                "Fix attempt: TRIGGERED");
 
         fixTaskRunner.accept("Verification failed. Output:\n" + firstOut + "\n\nPlease make a single fix attempt.");
 
@@ -266,12 +285,22 @@ public final class IssueModeSupport {
         try {
             secondOut = Objects.requireNonNullElse(verificationRunner.get(), "");
         } catch (RuntimeException re) {
-            emitCommandResult(jobId, store, io, commandResult("verification", commandLabel, 2, false, null, false, "", re), "Verification after fix: ERROR");
+            emitCommandResult(
+                    jobId,
+                    store,
+                    io,
+                    commandResult("verification", commandLabel, 2, false, null, false, "", re),
+                    "Verification after fix: ERROR");
             throw new IssueExecutionException("Verification runner failed after fix: " + re.getMessage(), re);
         }
 
         boolean passedSecond = secondOut.isBlank();
-        emitCommandResult(jobId, store, io, commandResult("verification", commandLabel, 2, false, null, passedSecond, secondOut, null), "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
+        emitCommandResult(
+                jobId,
+                store,
+                io,
+                commandResult("verification", commandLabel, 2, false, null, passedSecond, secondOut, null),
+                "Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
 
         if (!passedSecond) {
             throw new IssueExecutionException("Verification failed after single fix attempt:\n\n" + secondOut);
@@ -301,10 +330,17 @@ public final class IssueModeSupport {
 
         for (int i = 0; i < maxIterations; i++) {
             int attemptNumber = i + 1;
-            if (isCancelled.getAsBoolean()) throw new JobRunner.IssueCancelledException("Cancelled during verification");
+            if (isCancelled.getAsBoolean())
+                throw new JobRunner.IssueCancelledException("Cancelled during verification");
 
-            progressSink.accept(attemptNumber, "Final verification attempt %d/%d: tests=%s, lint=%s"
-                    .formatted(attemptNumber, maxIterations, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN"));
+            progressSink.accept(
+                    attemptNumber,
+                    "Final verification attempt %d/%d: tests=%s, lint=%s"
+                            .formatted(
+                                    attemptNumber,
+                                    maxIterations,
+                                    testsSkipped ? "SKIP" : "RUN",
+                                    lintSkipped ? "SKIP" : "RUN"));
 
             String testOut = "";
             if (testsSkipped) {
@@ -318,12 +354,16 @@ public final class IssueModeSupport {
                 lastFailCommand = testCmd;
                 lastFailOutput = testOut;
                 if (!lintSkipped) emitSkippedCommand(jobId, store, io, "lint", lintCmd, attemptNumber, "tests_failed");
-                progressSink.accept(attemptNumber, "Final verification attempt %d/%d results: tests=FAIL, lint=SKIP".formatted(attemptNumber, maxIterations));
+                progressSink.accept(
+                        attemptNumber,
+                        "Final verification attempt %d/%d results: tests=FAIL, lint=SKIP"
+                                .formatted(attemptNumber, maxIterations));
                 fixTaskRunner.accept(testOut);
                 continue;
             }
 
-            if (isCancelled.getAsBoolean()) throw new JobRunner.IssueCancelledException("Cancelled during verification");
+            if (isCancelled.getAsBoolean())
+                throw new JobRunner.IssueCancelledException("Cancelled during verification");
 
             String lintOut = "";
             if (lintSkipped) {
@@ -336,7 +376,10 @@ public final class IssueModeSupport {
                 lastFailStage = "lint";
                 lastFailCommand = lintCmd;
                 lastFailOutput = lintOut;
-                progressSink.accept(attemptNumber, "Final verification attempt %d/%d results: tests=PASS, lint=FAIL".formatted(attemptNumber, maxIterations));
+                progressSink.accept(
+                        attemptNumber,
+                        "Final verification attempt %d/%d results: tests=PASS, lint=FAIL"
+                                .formatted(attemptNumber, maxIterations));
                 fixTaskRunner.accept(lintOut);
                 continue;
             }
@@ -346,18 +389,15 @@ public final class IssueModeSupport {
 
         String base = "Tests/lint failed after " + maxIterations + " iteration(s)";
         if (lastFailStage != null) {
-            throw new IssueExecutionException(base + ". Last failure: stage=" + lastFailStage + ", command=" + lastFailCommand + "\nOutput:\n" + lastFailOutput);
+            throw new IssueExecutionException(base + ". Last failure: stage=" + lastFailStage + ", command="
+                    + lastFailCommand + "\nOutput:\n" + lastFailOutput);
         }
         throw new IssueExecutionException(base);
     }
 
     public static String buildInlineCommentFixPrompt(PrReviewService.InlineComment comment) {
         return "You are fixing a review inline comment.\n- path: %s\n- line: %d\n- severity: %s\n- body: %s\n\nImplement the fix on the current branch."
-                .formatted(
-                        comment.path(),
-                        comment.line(),
-                        comment.severity().name(),
-                        comment.bodyMarkdown());
+                .formatted(comment.path(), comment.line(), comment.severity().name(), comment.bodyMarkdown());
     }
 
     private static String formatReviewFixOutput(
@@ -367,7 +407,8 @@ public final class IssueModeSupport {
         String severity = comment.severity().name();
         String body = Objects.requireNonNullElse(comment.bodyMarkdown(), "");
 
-        String base = """
+        String base =
+                """
                 Finding:
                 - path: %s
                 - line: %d
@@ -377,8 +418,8 @@ public final class IssueModeSupport {
 
                 Outcome: %s
                 """
-                .formatted(path, comment.line(), severity, body, outcome)
-                .stripIndent();
+                        .formatted(path, comment.line(), severity, body, outcome)
+                        .stripIndent();
 
         if (details == null || details.isBlank()) {
             return base;
@@ -408,7 +449,8 @@ public final class IssueModeSupport {
                 for (int j = i; j < inlineComments.size(); j++) {
                     int skippedAttempt = j + 1;
                     var skippedComment = inlineComments.get(j);
-                    String skippedCommand = Objects.requireNonNullElse(skippedComment.path(), "") + ":" + skippedComment.line();
+                    String skippedCommand =
+                            Objects.requireNonNullElse(skippedComment.path(), "") + ":" + skippedComment.line();
 
                     emitCommandResult(
                             jobId,

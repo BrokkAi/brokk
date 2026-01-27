@@ -1,7 +1,5 @@
 package ai.brokk.executor.jobs;
 
-import ai.brokk.executor.jobs.PrReviewService;
-
 /**
  * Utility for constructing the PR review prompt used by the LLM.
  */
@@ -89,6 +87,6 @@ public final class PrReviewPromptBuilder {
 
                 OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
                 """
-                        .formatted(severityLine, maxLine, fencedDiff);
+                .formatted(severityLine, maxLine, fencedDiff);
     }
 }

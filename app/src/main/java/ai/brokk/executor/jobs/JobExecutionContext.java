@@ -2,12 +2,9 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.executor.jobs.JobSpec;
-import ai.brokk.executor.jobs.JobStore;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.function.BooleanSupplier;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Immutable bundle of values needed during a job execution.
@@ -24,5 +21,4 @@ public record JobExecutionContext(
         BooleanSupplier cancelled,
         @Nullable StreamingChatModel plannerModel,
         @Nullable StreamingChatModel codeModel,
-        @Nullable StreamingChatModel scanModel) {
-}
+        @Nullable StreamingChatModel scanModel) {}

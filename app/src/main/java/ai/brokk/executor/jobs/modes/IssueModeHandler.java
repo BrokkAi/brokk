@@ -16,16 +16,12 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Handler for ISSUE mode.
@@ -50,8 +46,15 @@ public final class IssueModeHandler {
         String repoName = spec.getRepoName();
         Integer issueNumber = spec.getIssueNumber();
 
-        if (githubToken == null || githubToken.isBlank() || repoOwner == null || repoOwner.isBlank() || repoName == null || repoName.isBlank() || issueNumber == null) {
-            throw new IssueExecutionException("ISSUE requires github_token, repo_owner, repo_name, and issue_number in tags");
+        if (githubToken == null
+                || githubToken.isBlank()
+                || repoOwner == null
+                || repoOwner.isBlank()
+                || repoName == null
+                || repoName.isBlank()
+                || issueNumber == null) {
+            throw new IssueExecutionException(
+                    "ISSUE requires github_token, repo_owner, repo_name, and issue_number in tags");
         }
 
         var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
@@ -64,36 +67,65 @@ public final class IssueModeHandler {
 
         try {
             gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
-            String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s".formatted(issueNumber, details.title(), details.body());
+            String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
+                    .formatted(issueNumber, details.title(), details.body());
 
             if (IssueModeSupport.shouldEnrichIssuePrompt(details.body())) {
                 try {
-                    store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Issue body is brief; performing prompt enrichment..."));
+                    store.appendEvent(
+                            jobId, JobEvent.of("NOTIFICATION", "Issue body is brief; performing prompt enrichment..."));
                     try (var scope = cm.beginTaskUngrouped("Prompt Enrichment")) {
-                        var enrichmentResult = new LutzAgent(cm.liveContext(), issueTaskPrompt, planner, SearchPrompts.Objective.PROMPT_ENRICHMENT, scope).execute();
+                        var enrichmentResult = new LutzAgent(
+                                        cm.liveContext(),
+                                        issueTaskPrompt,
+                                        planner,
+                                        SearchPrompts.Objective.PROMPT_ENRICHMENT,
+                                        scope)
+                                .execute();
                         if (enrichmentResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                            issueTaskPrompt += "\n\nEnriched Context:\n" + enrichmentResult.output().text().join();
+                            issueTaskPrompt += "\n\nEnriched Context:\n"
+                                    + enrichmentResult.output().text().join();
                         }
                     }
-                } catch (Exception e) { logger.warn("Enrichment failed", e); }
+                } catch (Exception e) {
+                    logger.warn("Enrichment failed", e);
+                }
             }
 
             try (var scope = cm.beginTask(issueTaskPrompt, true, "Issue #" + issueNumber + ": " + details.title())) {
-                var searchResult = new LutzAgent(cm.liveContext(), issueTaskPrompt, planner, SearchPrompts.Objective.TASKS_ONLY, scope).execute();
+                var searchResult = new LutzAgent(
+                                cm.liveContext(), issueTaskPrompt, planner, SearchPrompts.Objective.TASKS_ONLY, scope)
+                        .execute();
                 scope.append(searchResult);
 
-                for (TaskList.TaskItem task : cm.getTaskList().tasks().stream().filter(t -> !t.done()).toList()) {
+                for (TaskList.TaskItem task :
+                        cm.getTaskList().tasks().stream().filter(t -> !t.done()).toList()) {
                     if (cancelled.getAsBoolean()) return;
                     cm.executeTask(task, planner, codeModel);
 
-                    IssueModeSupport.runSingleFixVerificationGate(jobId, store, console,
+                    IssueModeSupport.runSingleFixVerificationGate(
+                            jobId,
+                            store,
+                            console,
                             BuildAgent.determineVerificationCommand(cm.liveContext(), buildDetailsOverride),
-                            () -> { try { return BuildAgent.runVerification(cm, buildDetailsOverride); } catch (InterruptedException e) { throw new RuntimeException(e); } },
+                            () -> {
+                                try {
+                                    return BuildAgent.runVerification(cm, buildDetailsOverride);
+                                } catch (InterruptedException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            },
                             prompt -> {
-                                try { cm.executeTask(TaskList.TaskItem.createFixTask("Verification failed for task: " + task.text() + "\n\n" + prompt), planner, codeModel); }
-                                catch (Exception e) { logger.warn("Fix failed", e); }
-                            }
-                    );
+                                try {
+                                    cm.executeTask(
+                                            TaskList.TaskItem.createFixTask(
+                                                    "Verification failed for task: " + task.text() + "\n\n" + prompt),
+                                            planner,
+                                            codeModel);
+                                } catch (Exception e) {
+                                    logger.warn("Fix failed", e);
+                                }
+                            });
                 }
 
                 String targetBranch = gitHubAuth.getDefaultBranch();
@@ -105,28 +137,48 @@ public final class IssueModeHandler {
                     var taskIndex = new AtomicInteger(0);
                     final var lastTask = new AtomicReference<String>("Review-fix");
 
-                    IssueModeSupport.runIssueReviewFixAttemptsWithCommandResultEvents(jobId, store, console, cancelled, inlineComments,
+                    IssueModeSupport.runIssueReviewFixAttemptsWithCommandResultEvents(
+                            jobId,
+                            store,
+                            console,
+                            cancelled,
+                            inlineComments,
                             comment -> {
                                 int idx = taskIndex.incrementAndGet();
-                                String desc = "Review-fix " + idx + "/" + inlineComments.size() + ": " + comment.path() + ":" + comment.line();
+                                String desc = "Review-fix " + idx + "/" + inlineComments.size() + ": " + comment.path()
+                                        + ":" + comment.line();
                                 lastTask.set(desc);
                                 try (var fixScope = cm.beginTaskUngrouped(desc)) {
-                                    new LutzAgent(cm.liveContext(), desc, planner, SearchPrompts.Objective.LUTZ, fixScope)
+                                    new LutzAgent(
+                                                    cm.liveContext(),
+                                                    desc,
+                                                    planner,
+                                                    SearchPrompts.Objective.LUTZ,
+                                                    fixScope)
                                             .callCodeAgent(IssueModeSupport.buildInlineCommentFixPrompt(comment));
-                                } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new RuntimeException(e); }
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                    throw new RuntimeException(e);
+                                }
                             },
                             () -> {
                                 try {
                                     var workflow = new GitWorkflow(cm);
-                                    workflow.performAutoCommit(Objects.requireNonNullElse(lastTask.get(), "Review-fix"));
+                                    workflow.performAutoCommit(
+                                            Objects.requireNonNullElse(lastTask.get(), "Review-fix"));
                                     workflow.push(issueBranchName, githubToken);
-                                } catch (Exception e) { logger.warn("Post-fix update failed", e); }
-                            }
-                    );
+                                } catch (Exception e) {
+                                    logger.warn("Post-fix update failed", e);
+                                }
+                            });
 
                     if (cancelled.getAsBoolean()) return;
 
-                    IssueModeSupport.runIssueModeTestLintRetryLoop(jobId, store, console, cancelled,
+                    IssueModeSupport.runIssueModeTestLintRetryLoop(
+                            jobId,
+                            store,
+                            console,
+                            cancelled,
                             (attempt, msg) -> {
                                 try {
                                     store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
@@ -135,9 +187,25 @@ public final class IssueModeHandler {
                                     logger.warn("Failed to emit retry loop notification", t);
                                 }
                             },
-                            cmd -> { try { return BuildAgent.runExplicitCommand(cm, cmd, buildDetailsOverride); } catch (InterruptedException e) { throw new RuntimeException(e); } },
-                            out -> { try { cm.executeTask(TaskList.TaskItem.createFixTask("fix build error:\n" + out), planner, codeModel); } catch (Exception e) { logger.warn("Final fix failed", e); } },
-                            buildDetailsOverride, spec.effectiveMaxIssueFixAttempts());
+                            cmd -> {
+                                try {
+                                    return BuildAgent.runExplicitCommand(cm, cmd, buildDetailsOverride);
+                                } catch (InterruptedException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            },
+                            out -> {
+                                try {
+                                    cm.executeTask(
+                                            TaskList.TaskItem.createFixTask("fix build error:\n" + out),
+                                            planner,
+                                            codeModel);
+                                } catch (Exception e) {
+                                    logger.warn("Final fix failed", e);
+                                }
+                            },
+                            buildDetailsOverride,
+                            spec.effectiveMaxIssueFixAttempts());
                 }
 
                 if (cancelled.getAsBoolean()) return;
@@ -146,18 +214,31 @@ public final class IssueModeHandler {
                     var workflow = new GitWorkflow(cm);
                     workflow.performAutoCommit("Resolves #" + issueNumber + ": " + details.title());
                     var suggestion = workflow.suggestPullRequestDetails(issueBranchName, targetBranch, console);
-                    var prUri = workflow.createPullRequest(issueBranchName, targetBranch, suggestion.title(), IssueService.buildPrDescription(suggestion.description(), issueNumber), githubToken);
+                    var prUri = workflow.createPullRequest(
+                            issueBranchName,
+                            targetBranch,
+                            suggestion.title(),
+                            IssueService.buildPrDescription(suggestion.description(), issueNumber),
+                            githubToken);
                     console.showNotification(IConsoleIO.NotificationRole.INFO, "Created PR: " + prUri);
                 }
             }
         } finally {
-            IssueModeSupport.cleanupIssueBranch(jobId, gitRepo, originalBranch, issueBranchName, "always".equalsIgnoreCase(spec.tags().get("issue_branch_cleanup")));
+            IssueModeSupport.cleanupIssueBranch(
+                    jobId,
+                    gitRepo,
+                    originalBranch,
+                    issueBranchName,
+                    "always".equalsIgnoreCase(spec.tags().get("issue_branch_cleanup")));
         }
     }
 
-    private static ai.brokk.agents.BuildAgent.BuildDetails resolveIssueBuildDetails(ai.brokk.executor.jobs.JobSpec spec, ai.brokk.project.IProject project) {
+    private static ai.brokk.agents.BuildAgent.BuildDetails resolveIssueBuildDetails(
+            ai.brokk.executor.jobs.JobSpec spec, ai.brokk.project.IProject project) {
         String settings = spec.getBuildSettingsJson();
-        return (settings != null && !settings.isBlank()) ? IssueService.parseBuildSettings(settings) : project.awaitBuildDetails();
+        return (settings != null && !settings.isBlank())
+                ? IssueService.parseBuildSettings(settings)
+                : project.awaitBuildDetails();
     }
 
     private static List<PrReviewService.InlineComment> fetchInlineComments(
@@ -180,19 +261,14 @@ public final class IssueModeHandler {
 
             String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);
             String prompt = ai.brokk.executor.jobs.PrReviewPromptBuilder.buildReviewPrompt(
-                    annotatedDiff,
-                    ai.brokk.executor.jobs.PrReviewService.Severity.HIGH,
-                    10);
+                    annotatedDiff, ai.brokk.executor.jobs.PrReviewService.Severity.HIGH, 10);
 
             try (var scope = cm.beginTaskUngrouped("Issue Review Discovery")) {
-                var searchAgent = new LutzAgent(
-                        cm.liveContext(),
-                        prompt,
-                        model,
-                        SearchPrompts.Objective.ANSWER_ONLY,
-                        scope);
+                var searchAgent =
+                        new LutzAgent(cm.liveContext(), prompt, model, SearchPrompts.Objective.ANSWER_ONLY, scope);
                 var result = searchAgent.execute();
-                var review = PrReviewService.parsePrReviewResponse(result.output().text().join());
+                var review = PrReviewService.parsePrReviewResponse(
+                        result.output().text().join());
                 return review != null ? review.comments() : List.of();
             }
         } catch (Exception e) {

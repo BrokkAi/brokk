@@ -1,7 +1,6 @@
 package ai.brokk.executor.jobs.modes;
 
 import ai.brokk.GitHubAuth;
-import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
@@ -12,16 +11,13 @@ import ai.brokk.executor.jobs.PrReviewPromptBuilder;
 import ai.brokk.executor.jobs.PrReviewService;
 import ai.brokk.git.GitRepo;
 import ai.brokk.prompts.SearchPrompts;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
-
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Handler for REVIEW mode: performs automated PR review with GitHub integration.
@@ -82,7 +78,8 @@ public final class ReviewModeHandler {
             }
 
             try {
-                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Fetching PR refs from remote '" + remoteName + "'..."));
+                store.appendEvent(
+                        jobId, JobEvent.of("NOTIFICATION", "Fetching PR refs from remote '" + remoteName + "'..."));
             } catch (IOException ioe) {
                 logger.warn("Failed to append fetch notification event for job {}: {}", jobId, ioe.getMessage());
             }
@@ -99,8 +96,12 @@ public final class ReviewModeHandler {
 
             // Pre-scan
             try {
-                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Brokk Context Engine: analyzing repository context for PR review..."));
-                var scanGoal = "Analyzing changes in this PR diff to identify related code context:\n```diff\n" + annotatedDiff + "\n```";
+                store.appendEvent(
+                        jobId,
+                        JobEvent.of(
+                                "NOTIFICATION", "Brokk Context Engine: analyzing repository context for PR review..."));
+                var scanGoal = "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
+                        + annotatedDiff + "\n```";
                 var searchAgent = new LutzAgent(
                         context,
                         scanGoal,
@@ -108,7 +109,11 @@ public final class ReviewModeHandler {
                         SearchPrompts.Objective.ANSWER_ONLY,
                         scope);
                 context = searchAgent.scanContext();
-                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Brokk Context Engine: complete — contextual insights added to Workspace."));
+                store.appendEvent(
+                        jobId,
+                        JobEvent.of(
+                                "NOTIFICATION",
+                                "Brokk Context Engine: complete — contextual insights added to Workspace."));
             } catch (Exception ex) {
                 logger.warn("Pre-scan failed for REVIEW job {}: {}", jobId, ex.getMessage());
             }
@@ -123,20 +128,20 @@ public final class ReviewModeHandler {
             var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
 
             if (reviewResponse == null) {
-                throw new IllegalStateException("PR review response was not valid JSON. Response preview: " + (reviewText.length() > 500 ? reviewText.substring(0, 500) : reviewText));
+                throw new IllegalStateException("PR review response was not valid JSON. Response preview: "
+                        + (reviewText.length() > 500 ? reviewText.substring(0, 500) : reviewText));
             }
 
             PrReviewService.postReviewComment(pr, reviewResponse.summaryMarkdown());
 
             var filteredComments = PrReviewService.filterInlineComments(
-                    reviewResponse.comments(),
-                    DEFAULT_REVIEW_SEVERITY_THRESHOLD,
-                    DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+                    reviewResponse.comments(), DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
 
             int posted = 0;
             for (var comment : filteredComments) {
                 if (!PrReviewService.hasExistingLineComment(pr, comment.path(), comment.line())) {
-                    PrReviewService.postLineComment(pr, comment.path(), comment.line(), comment.bodyMarkdown(), headSha);
+                    PrReviewService.postLineComment(
+                            pr, comment.path(), comment.line(), comment.bodyMarkdown(), headSha);
                     posted++;
                 }
             }
@@ -144,17 +149,25 @@ public final class ReviewModeHandler {
         }
     }
 
-    private static TaskResult reviewDiff(ai.brokk.ContextManager cm, ai.brokk.context.Context ctx, StreamingChatModel model, String diff) {
+    private static TaskResult reviewDiff(
+            ai.brokk.ContextManager cm, ai.brokk.context.Context ctx, StreamingChatModel model, String diff) {
         var svc = cm.getService();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
-        String prompt = PrReviewPromptBuilder.buildReviewPrompt(diff, DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+        String prompt = PrReviewPromptBuilder.buildReviewPrompt(
+                diff, DEFAULT_REVIEW_SEVERITY_THRESHOLD, DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
 
         var llm = cm.getLlm(new Llm.Options(model, "Diff Review").withEcho());
         llm.setOutput(cm.getIo());
 
         try {
             var response = llm.sendRequest(List.of(new UserMessage(prompt)));
-            return new TaskResult(cm, "Diff Review", List.copyOf(cm.getIo().getLlmRawMessages()), ctx, TaskResult.StopDetails.fromResponse(response), meta);
+            return new TaskResult(
+                    cm,
+                    "Diff Review",
+                    List.copyOf(cm.getIo().getLlmRawMessages()),
+                    ctx,
+                    TaskResult.StopDetails.fromResponse(response),
+                    meta);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);

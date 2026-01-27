@@ -1,14 +1,10 @@
 package ai.brokk.executor.jobs.modes;
 
-import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.TaskResult;
-import ai.brokk.context.Context;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.executor.jobs.JobExecutionContext;
 import ai.brokk.prompts.SearchPrompts;
-import ai.brokk.agents.LutzAgent;
 import ai.brokk.tasks.TaskList;
-
 import java.util.Objects;
 
 /**
@@ -53,9 +49,7 @@ public final class LutzModeHandler {
         }
 
         // Phase 3: Execute each generated incomplete task sequentially
-        var incompleteTasks = generatedTasks.stream()
-                .filter(t -> !t.done())
-                .toList();
+        var incompleteTasks = generatedTasks.stream().filter(t -> !t.done()).toList();
 
         for (TaskList.TaskItem generatedTask : incompleteTasks) {
             if (cancelledSupplier.getAsBoolean()) {

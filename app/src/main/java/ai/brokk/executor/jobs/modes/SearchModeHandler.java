@@ -1,11 +1,8 @@
 package ai.brokk.executor.jobs.modes;
 
-import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.executor.jobs.JobExecutionContext;
 import ai.brokk.prompts.SearchPrompts;
-import ai.brokk.agents.LutzAgent;
-
 import java.util.Objects;
 
 /**

@@ -706,7 +706,8 @@ class HeadlessExecutorMainIntegrationTest {
     void testPostTaskExecute_UnknownTaskId() throws Exception {
         uploadSession();
         var sessionId = executor.getContextManager().getCurrentSessionId();
-        var url = URI.create(baseUrl + "/v1/sessions/" + sessionId + "/tasks/non-existent/execute").toURL();
+        var url = URI.create(baseUrl + "/v1/sessions/" + sessionId + "/tasks/non-existent/execute")
+                .toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);

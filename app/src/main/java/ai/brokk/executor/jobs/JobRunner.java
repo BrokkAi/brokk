@@ -150,53 +150,52 @@ public final class JobRunner {
 
                 final JobModelResolver resolver = new JobModelResolver(cm);
 
-                var rawCodeModelName = spec.codeModel() != null ? spec.codeModel() : spec.tags().get("code_model");
+                var rawCodeModelName = spec.codeModel() != null
+                        ? spec.codeModel()
+                        : spec.tags().get("code_model");
                 var trimmedCodeModelName =
                         (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
 
                 // Resolve all potential models based on mode requirements
                 final StreamingChatModel plannerModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, PLAN, ISSUE, REVIEW, ASK, TASK -> resolver.resolveModelOrThrow(
-                                    spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
-                            case CODE -> trimmedCodeModelName != null
-                                    ? resolver.resolveModelOrThrow(
-                                            trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
-                                    : resolver.defaultCodeModel(spec);
+                            case ARCHITECT, LUTZ, PLAN, ISSUE, REVIEW, ASK, TASK ->
+                                resolver.resolveModelOrThrow(
+                                        spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
+                            case CODE ->
+                                trimmedCodeModelName != null
+                                        ? resolver.resolveModelOrThrow(
+                                                trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
+                                        : resolver.defaultCodeModel(spec);
                             case SEARCH, ISSUE_WRITER -> null;
                         };
 
                 final StreamingChatModel codeModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE, TASK -> trimmedCodeModelName != null
-                                    ? resolver.resolveModelOrThrow(
-                                            trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
-                                    : resolver.defaultCodeModel(spec);
+                            case ARCHITECT, LUTZ, ISSUE, TASK ->
+                                trimmedCodeModelName != null
+                                        ? resolver.resolveModelOrThrow(
+                                                trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
+                                        : resolver.defaultCodeModel(spec);
                             case CODE -> plannerModel; // plannerModel was already resolved as the code model above
                             default -> null;
                         };
 
                 final StreamingChatModel scanModel =
                         switch (mode) {
-                            case REVIEW, SEARCH, PLAN -> (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                    ? resolver.resolveModelOrThrow(
-                                            spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
-                                    : resolver.defaultScanModel(spec));
+                            case REVIEW, SEARCH, PLAN ->
+                                (spec.scanModel() != null
+                                                && !spec.scanModel().trim().isEmpty()
+                                        ? resolver.resolveModelOrThrow(
+                                                spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
+                                        : resolver.defaultScanModel(spec));
                             default -> null;
                         };
 
                 logger.info("Job {} mode={} resolved", jobId, mode);
 
                 final JobExecutionContext execCtx = new JobExecutionContext(
-                        jobId,
-                        spec,
-                        cm,
-                        store,
-                        currentConsole,
-                        cancelled::get,
-                        plannerModel,
-                        codeModel,
-                        scanModel);
+                        jobId, spec, cm, store, currentConsole, cancelled::get, plannerModel, codeModel, scanModel);
 
                 cm.submitLlmAction(() -> {
                             if (cancelled.get()) {
@@ -419,7 +418,8 @@ public final class JobRunner {
             @Nullable String verificationCommand,
             Supplier<String> verificationRunner,
             Consumer<String> fixTaskRunner) {
-        IssueModeSupport.runSingleFixVerificationGate(jobId, store, io, verificationCommand, verificationRunner, fixTaskRunner);
+        IssueModeSupport.runSingleFixVerificationGate(
+                jobId, store, io, verificationCommand, verificationRunner, fixTaskRunner);
     }
 
     static void runIssueModeTestLintRetryLoop(
@@ -429,7 +429,16 @@ public final class JobRunner {
             Consumer<String> fixTaskRunner,
             BuildAgent.BuildDetails buildDetailsOverride,
             int maxIterations) {
-        IssueModeSupport.runIssueModeTestLintRetryLoop("test-job", null, null, isCancelled, progressSink, commandRunner, fixTaskRunner, buildDetailsOverride, maxIterations);
+        IssueModeSupport.runIssueModeTestLintRetryLoop(
+                "test-job",
+                null,
+                null,
+                isCancelled,
+                progressSink,
+                commandRunner,
+                fixTaskRunner,
+                buildDetailsOverride,
+                maxIterations);
     }
 
     static void runIssueModeTestLintRetryLoop(
@@ -442,7 +451,16 @@ public final class JobRunner {
             Consumer<String> fixTaskRunner,
             BuildAgent.BuildDetails buildDetailsOverride,
             int maxIterations) {
-        IssueModeSupport.runIssueModeTestLintRetryLoop(jobId, store, io, isCancelled, progressSink, commandRunner, fixTaskRunner, buildDetailsOverride, maxIterations);
+        IssueModeSupport.runIssueModeTestLintRetryLoop(
+                jobId,
+                store,
+                io,
+                isCancelled,
+                progressSink,
+                commandRunner,
+                fixTaskRunner,
+                buildDetailsOverride,
+                maxIterations);
     }
 
     static String maybeAnnotateDiffBlocks(String bodyMarkdown) {
@@ -502,7 +520,8 @@ public final class JobRunner {
             List<PrReviewService.InlineComment> inlineComments,
             Consumer<PrReviewService.InlineComment> reviewFixTaskRunner,
             Runnable perTaskBranchUpdate) {
-        IssueModeSupport.runIssueReviewFixAttemptsWithCommandResultEvents(jobId, store, io, isCancelled, inlineComments, reviewFixTaskRunner, perTaskBranchUpdate);
+        IssueModeSupport.runIssueReviewFixAttemptsWithCommandResultEvents(
+                jobId, store, io, isCancelled, inlineComments, reviewFixTaskRunner, perTaskBranchUpdate);
     }
 
     static List<PrReviewService.InlineComment> issueModeComputeInlineCommentsOrEmpty(
@@ -518,10 +537,11 @@ public final class JobRunner {
 
     private void runArchitectMode(JobExecutionContext ctx) {
         try {
-            ctx.cm().executeTask(
-                    new TaskList.TaskItem("", ctx.spec().taskInput(), false),
-                    Objects.requireNonNull(ctx.plannerModel(), "plannerModel required for ARCHITECT jobs"),
-                    Objects.requireNonNull(ctx.codeModel(), "code model unavailable for ARCHITECT jobs"));
+            ctx.cm()
+                    .executeTask(
+                            new TaskList.TaskItem("", ctx.spec().taskInput(), false),
+                            Objects.requireNonNull(ctx.plannerModel(), "plannerModel required for ARCHITECT jobs"),
+                            Objects.requireNonNull(ctx.codeModel(), "code model unavailable for ARCHITECT jobs"));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -542,13 +562,13 @@ public final class JobRunner {
         }
 
         try {
-            ctx.cm().executeTask(
-                    taskOpt.get(),
-                    Objects.requireNonNull(ctx.plannerModel(), "plannerModel required for TASK jobs"),
-                    Objects.requireNonNull(ctx.codeModel(), "code model unavailable for TASK jobs"));
+            ctx.cm()
+                    .executeTask(
+                            taskOpt.get(),
+                            Objects.requireNonNull(ctx.plannerModel(), "plannerModel required for TASK jobs"),
+                            Objects.requireNonNull(ctx.codeModel(), "code model unavailable for TASK jobs"));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
-
 }

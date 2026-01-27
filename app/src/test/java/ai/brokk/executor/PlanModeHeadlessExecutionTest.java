@@ -162,7 +162,8 @@ class PlanModeHeadlessExecutionTest {
         }
 
         @Override
-        public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields) {
+        public JsonNode reportClientException(
+                String stacktrace, String clientVersion, Map<String, String> optionalFields) {
             return OBJECT_MAPPER.createObjectNode();
         }
     }

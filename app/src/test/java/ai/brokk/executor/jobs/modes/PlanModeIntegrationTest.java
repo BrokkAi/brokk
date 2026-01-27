@@ -13,19 +13,12 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestService;
 import ai.brokk.util.Json;
-import java.nio.file.Files;
-import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.request.ToolChoice;
-import dev.langchain4j.model.output.Response;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -74,7 +67,8 @@ public class PlanModeIntegrationTest {
         String task2 = "Add tests for X";
 
         // Mock the LLM response to invoke the createOrReplaceTaskList tool
-        String llmResponse = """
+        String llmResponse =
+                """
                 I have created a plan for your request.
                 <tool_code>
                 print(createOrReplaceTaskList(
@@ -82,12 +76,14 @@ public class PlanModeIntegrationTest {
                     tasks=["%s", "%s"]
                 ))
                 </tool_code>
-                """.formatted(task1, task2);
+                """
+                        .formatted(task1, task2);
 
-        // Use Proxy to mock StreamingChatModel to handle all generate overloads (including ChatRequest/ToolChoice variants)
+        // Use Proxy to mock StreamingChatModel to handle all generate overloads (including ChatRequest/ToolChoice
+        // variants)
         StreamingChatModel mockModel = (StreamingChatModel) java.lang.reflect.Proxy.newProxyInstance(
                 StreamingChatModel.class.getClassLoader(),
-                new Class<?>[]{StreamingChatModel.class},
+                new Class<?>[] {StreamingChatModel.class},
                 new java.lang.reflect.InvocationHandler() {
                     @Override
                     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
@@ -96,10 +92,9 @@ public class PlanModeIntegrationTest {
                             // Intercept the parameters call and return a proxy that provides token counts
                             if (returnType.isInterface()) {
                                 return java.lang.reflect.Proxy.newProxyInstance(
-                                        returnType.getClassLoader(),
-                                        new Class<?>[]{returnType},
-                                        (p, m, a) -> {
-                                            if ("maxCompletionTokens".equals(m.getName()) || "maxOutputTokens".equals(m.getName())) {
+                                        returnType.getClassLoader(), new Class<?>[] {returnType}, (p, m, a) -> {
+                                            if ("maxCompletionTokens".equals(m.getName())
+                                                    || "maxOutputTokens".equals(m.getName())) {
                                                 return 1024;
                                             }
                                             return null;
@@ -122,7 +117,8 @@ public class PlanModeIntegrationTest {
 
                             if (handler != null) {
                                 handler.onNext(llmResponse);
-                                handler.onComplete(dev.langchain4j.model.output.Response.from(dev.langchain4j.data.message.AiMessage.from(llmResponse)));
+                                handler.onComplete(dev.langchain4j.model.output.Response.from(
+                                        dev.langchain4j.data.message.AiMessage.from(llmResponse)));
                             }
                         }
                         return null;
@@ -138,7 +134,13 @@ public class PlanModeIntegrationTest {
                 null,
                 false,
                 Map.of("mode", "PLAN"),
-                null, null, null, null, null, null, 20);
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                20);
 
         var jobCtx = new JobExecutionContext(
                 "test-job-id",

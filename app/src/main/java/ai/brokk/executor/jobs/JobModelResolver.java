@@ -2,7 +2,6 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.Service;
-import ai.brokk.executor.jobs.JobSpec;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import org.apache.logging.log4j.LogManager;
@@ -22,8 +21,8 @@ public final class JobModelResolver {
         this.cm = cm;
     }
 
-    private record Applied(Service.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
-    }
+    private record Applied(
+            Service.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {}
 
     private Applied applyOverrides(
             Service.ModelConfig baseConfig,
@@ -60,7 +59,9 @@ public final class JobModelResolver {
     }
 
     public StreamingChatModel resolveModelOrThrow(
-            Service.ModelConfig baseConfig, @Nullable String reasoningLevelOverride, @Nullable Double temperatureOverride) {
+            Service.ModelConfig baseConfig,
+            @Nullable String reasoningLevelOverride,
+            @Nullable Double temperatureOverride) {
         var applied = applyOverrides(baseConfig, reasoningLevelOverride, temperatureOverride);
         var model = cm.getService().getModel(applied.config(), applied.parametersOverride());
         if (model == null) {
@@ -85,7 +86,8 @@ public final class JobModelResolver {
      * Plan-mode scan model selection helper. Mirrors previous behavior in JobRunner:
      * prefer explicit spec.scanModel (trimmed, non-empty) otherwise use provided project default supplier.
      */
-    public static String chooseScanModelNameForPlan(JobSpec spec, java.util.function.Supplier<String> projectDefaultSupplier) {
+    public static String chooseScanModelNameForPlan(
+            JobSpec spec, java.util.function.Supplier<String> projectDefaultSupplier) {
         String raw = spec.scanModel();
         if (raw != null) {
             String trimmed = raw.trim();
