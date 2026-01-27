@@ -25,6 +25,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecifications;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -205,15 +206,31 @@ public class ContextAgent {
     }
 
     /**
-     * Determines the best initial context based on project size and budgets, splitting analyzed vs un-analyzed into
-     * separate LLM context windows and processing them in parallel.
-     *
-     * @return A RecommendationResult containing success status, fragments, and reasoning.
+     * Overload for {@link #getRecommendations(Context, boolean)} with turbo disabled.
      */
     @Blocking
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
-        var workspaceRepresentation =
-                WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST));
+        return getRecommendations(context, false);
+    }
+
+    /**
+     * Determines the best initial context based on project size and budgets, splitting analyzed vs un-analyzed into
+     * separate LLM context windows and processing them in parallel.
+     *
+     * @param turbo if true, uses a symbolic workspace overview instead of full fragment contents
+     * @return A RecommendationResult containing success status, fragments, and reasoning.
+     */
+    @Blocking
+    public RecommendationResult getRecommendations(Context context, boolean turbo) throws InterruptedException {
+        List<ChatMessage> workspaceRepresentation;
+        if (turbo) {
+            workspaceRepresentation = List.of(
+                    UserMessage.from("<workspace_summary>\n" + context.overview() + "\n</workspace_summary>"),
+                    new AiMessage("Thank you for the workspace summary."));
+        } else {
+            workspaceRepresentation =
+                    WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST));
+        }
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);

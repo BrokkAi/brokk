@@ -395,41 +395,6 @@ public class Chrome
         switchThemeAndWrapMode(currentTheme, wrapMode);
     }
 
-    /**
-     * Lightweight method to preview a context without updating history Only updates the LLM text area and context panel
-     * display
-     */
-    public void setContext(Context ctx) {
-        final boolean updateOutput = (!activeContext.equals(ctx) && !contextManager.isTaskScopeInProgress());
-        activeContext = ctx;
-        SwingUtilities.invokeLater(() -> {
-            rightPanel.getTaskListPanel().contextChanged(ctx);
-            // Determine if the current context (ctx) is the latest one in the history
-            boolean isEditable;
-            Context latestContext = contextManager.getContextHistory().liveContext();
-            isEditable = latestContext.equals(ctx);
-            // Toggle read-only state for InstructionsPanel UI (chips + token bar)
-            rightPanel.getInstructionsPanel().setContextReadOnly(!isEditable);
-            // Also update instructions panel (token bar/chips) to reflect the selected context and read-only state
-            rightPanel.getInstructionsPanel().contextChanged(ctx);
-
-            // only update the MOP when no task is in progress
-            // otherwise the TaskScope.append() will take care of it
-            if (updateOutput) {
-                var taskHistory = ctx.getTaskHistory();
-                if (taskHistory.isEmpty()) {
-                    rightPanel.getHistoryOutputPanel().clearLlmOutput();
-                } else {
-                    var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
-                    var mainTask = taskHistory.getLast();
-                    rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(historyTasks, mainTask);
-                }
-            }
-
-            updateCaptureButtons();
-        });
-    }
-
     // Theme manager and constants
     private GuiTheme themeManager;
 
@@ -1026,6 +991,9 @@ public class Chrome
 
     @Override
     public void contextChanged(Context newCtx) {
+        final boolean updateOutput = (!activeContext.equals(newCtx) && !contextManager.isTaskScopeInProgress());
+        activeContext = newCtx;
+
         SwingUtilities.invokeLater(() -> {
             globalUndoAction.updateEnabledState();
             globalRedoAction.updateEnabledState();
@@ -1034,7 +1002,21 @@ public class Chrome
             globalToggleMicAction.updateEnabledState();
 
             rightPanel.getHistoryOutputPanel().updateUndoRedoButtonStates();
-            setContext(newCtx);
+
+            // only update the MOP when no task is in progress
+            // otherwise the TaskScope.append() will take care of it
+            if (updateOutput) {
+                var taskHistory = newCtx.getTaskHistory();
+                if (taskHistory.isEmpty()) {
+                    rightPanel.getHistoryOutputPanel().clearLlmOutput();
+                } else {
+                    var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
+                    var mainTask = taskHistory.getLast();
+                    rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(historyTasks, mainTask);
+                }
+            }
+
+            updateCaptureButtons();
             updateContextHistoryTable(newCtx);
         });
     }

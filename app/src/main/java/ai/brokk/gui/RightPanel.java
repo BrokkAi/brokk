@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
 import ai.brokk.context.Context;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.components.NoticeBanner;
 import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.DetachableTabFrame;
@@ -42,6 +43,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     private final HistoryOutputPanel historyOutputPanel;
     private final InstructionsPanel instructionsPanel;
     private final TaskListPanel taskListPanel;
+    private final NoticeBanner historicalNoticePanel;
     private final TerminalPanel terminalPanel;
 
     private final JPanel sessionHeaderPanel;
@@ -125,6 +127,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         sessionHeaderPanel = createSessionHeader();
         updateSessionComboBox();
 
+        historicalNoticePanel = new NoticeBanner();
         instructionsPanel = new InstructionsPanel(chrome);
         taskListPanel = new TaskListPanel(chrome);
         terminalPanel =
@@ -140,7 +143,12 @@ public class RightPanel extends JPanel implements ThemeAware {
         branchSelectorPanel = createBranchSelectorHeader();
 
         commandPanel = new JPanel(new BorderLayout());
-        commandPanel.add(branchSelectorPanel, BorderLayout.NORTH);
+        var commandHeaderStack = new JPanel();
+        commandHeaderStack.setLayout(new BoxLayout(commandHeaderStack, BoxLayout.Y_AXIS));
+        commandHeaderStack.add(branchSelectorPanel);
+        commandHeaderStack.add(historicalNoticePanel);
+
+        commandPanel.add(commandHeaderStack, BorderLayout.NORTH);
         commandPanel.add(commandPane, BorderLayout.CENTER);
         commandPanel.setMinimumSize(new Dimension(200, 325));
 
@@ -190,6 +198,20 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         tabDragUndockHandler = new TabDragUndockHandler();
         tabDragUndockHandler.register();
+
+        contextManager.addContextListener(new ai.brokk.IContextManager.ContextListener() {
+            @Override
+            public void contextChanged(Context newCtx) {
+                SwingUtilities.invokeLater(() -> {
+                    Context live = contextManager.liveContext();
+                    if (!newCtx.id().equals(live.id())) {
+                        historicalNoticePanel.setMessage("Viewing historical Context + Tasks");
+                    } else {
+                        historicalNoticePanel.setMessage(null);
+                    }
+                });
+            }
+        });
 
         add(sessionHeaderPanel, BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);

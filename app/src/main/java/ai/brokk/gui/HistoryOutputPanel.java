@@ -225,6 +225,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Respect current Advanced Mode on construction
         setAdvancedMode(GlobalUiSettings.isAdvancedMode());
+
+        // Default to showing the spinner while initial load/connection happens
+        showSessionSwitchSpinner();
     }
 
     private void buildSessionSwitchPanel() {
@@ -288,10 +291,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
 
-        historyTableComponent.addSelectionListener(ctx -> {
-            contextManager.setSelectedContext(ctx);
-            // setContext is for *previewing* a context without changing selection state in the manager
-            chrome.setContext(ctx);
+        historyTableComponent.addSelectionListener(contextFromHistory -> {
+            if (!contextFromHistory.equals(contextManager.selectedContext())) {
+                contextManager.setSelectedContext(contextFromHistory);
+            }
         });
 
         historyTableComponent.addDoubleClickListener(context -> {
@@ -1482,15 +1485,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             historyTableComponent.getModel().setRowCount(0);
             ComputedSubscription.disposeAll(historyTableComponent.getTable());
 
-            JPanel ssp = sessionSwitchPanel;
-            if (ssp == null) {
+            if (sessionSwitchPanel == null) {
                 buildSessionSwitchPanel();
-                ssp = requireNonNull(sessionSwitchPanel);
-                historyLayeredPane.add(ssp, JLayeredPane.PALETTE_LAYER);
+                historyLayeredPane.add(requireNonNull(sessionSwitchPanel), JLayeredPane.PALETTE_LAYER);
             }
-            ssp.setVisible(true);
-            ssp.revalidate();
-            ssp.repaint();
+
+            sessionSwitchPanel.setVisible(true);
+            sessionSwitchPanel.revalidate();
+            sessionSwitchPanel.repaint();
         });
     }
 

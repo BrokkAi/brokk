@@ -1,5 +1,6 @@
 package ai.brokk.gui;
 
+import ai.brokk.gui.components.NoticeBanner;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -10,7 +11,6 @@ import ai.brokk.util.ReviewParser.TacticalFeedback;
 import ai.brokk.util.ReviewParser.TestFeedback;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
@@ -37,8 +37,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
 
     private final JPanel headerContainer;
     private final JPanel contentPanel;
-    private final JPanel stalenessPanel;
-    private final JLabel stalenessLabel;
+    private final NoticeBanner stalenessNotice;
     private final Consumer<Object> onItemSelected;
 
     public ReviewListPanel(Runnable triggerCallback, Consumer<Object> onItemSelected) {
@@ -53,20 +52,13 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setBorder(new EmptyBorder(0, 0, 10, 0));
 
-        stalenessPanel = new JPanel(new BorderLayout(8, 0));
-        stalenessPanel.setBorder(new EmptyBorder(8, 12, 8, 12));
-        stalenessPanel.setVisible(false);
-
-        var warningIcon = new FlatSVGIcon("ai/brokk/gui/icons/warning.svg", 16, 16);
-        stalenessLabel = new JLabel();
-        stalenessLabel.setIcon(warningIcon);
-        stalenessLabel.setFont(stalenessLabel.getFont().deriveFont(Font.BOLD, 11f));
-        stalenessPanel.add(stalenessLabel, BorderLayout.CENTER);
+        stalenessNotice = new NoticeBanner();
+        stalenessNotice.setIcon(new FlatSVGIcon("ai/brokk/gui/icons/warning.svg", 16, 16));
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
 
-        headerContainer.add(stalenessPanel);
+        headerContainer.add(stalenessNotice);
 
         add(headerContainer, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
@@ -78,12 +70,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
     }
 
     public void setStalenessNotice(@Nullable String message) {
-        if (message == null || message.isBlank()) {
-            stalenessPanel.setVisible(false);
-        } else {
-            stalenessLabel.setText(message);
-            stalenessPanel.setVisible(true);
-        }
+        stalenessNotice.setMessage(message);
         revalidate();
         repaint();
     }
@@ -222,9 +209,6 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         setBackground(
                 guiTheme.isDarkTheme() ? ThemeColors.getPanelBackground() : UIManager.getColor("Panel.background"));
         contentPanel.setBackground(getBackground());
-
-        // Use a warning/staleness color scheme
-        stalenessPanel.setBackground(new Color(0xFFD700)); // Yellow/Gold
-        stalenessLabel.setForeground(Color.BLACK);
+        stalenessNotice.applyTheme(guiTheme);
     }
 }

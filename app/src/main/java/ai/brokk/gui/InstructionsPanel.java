@@ -490,8 +490,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Apply initial Advanced Mode state to ensure ModelSelector visibility is correct
         applyAdvancedMode(GlobalUiSettings.isAdvancedMode());
 
-        // Subscribe to service reload events to update button states
+        // Subscribe to events
         contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
+        contextManager.addContextListener(this);
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -2159,17 +2160,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         contextAreaContainer.setReadOnly(readOnly);
         // Update compact token/cost indicator on context change
         updateTokenCostIndicator();
-    }
-
-    /**
-     * Sets read-only UI state for the context widgets (chips + token bar). Safe to call from any thread.
-     */
-    public void setContextReadOnly(boolean readOnly) {
-        SwingUtilities.invokeLater(() -> {
-            workspaceItemsChipPanel.setReadOnly(readOnly);
-            tokenUsageBar.setReadOnly(readOnly);
-            contextAreaContainer.setReadOnly(readOnly);
-        });
     }
 
     void enableButtons() {
