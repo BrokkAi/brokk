@@ -38,7 +38,7 @@ public final class PrReviewService {
     }
 
     /** PR metadata extracted from GitHub API. */
-    public record PrDetails(String baseBranch, String headSha, String headRef) {}
+    public record PrDetails(String baseBranch, String headSha, String headRef, String title, String description) {}
 
     /** Structured PR review response from LLM. */
     public record PrReviewResponse(String summaryMarkdown, List<InlineComment> comments) {
@@ -144,7 +144,9 @@ public final class PrReviewService {
         String baseBranch = pr.getBase().getRef();
         String headSha = pr.getHead().getSha();
         String headRef = pr.getHead().getRef();
-        return new PrDetails(baseBranch, headSha, headRef);
+        String title = pr.getTitle();
+        String description = Objects.requireNonNullElse(pr.getBody(), "");
+        return new PrDetails(baseBranch, headSha, headRef, title, description);
     }
 
     /**
