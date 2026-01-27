@@ -7,6 +7,7 @@ import ai.brokk.AbstractService;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Language;
@@ -32,6 +33,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
@@ -253,6 +255,7 @@ public class ReviewAgent {
         var model = requireNonNull(cm.getService().getModel(options.scanModel()));
         var llm = cm.getLlm(new Llm.Options(model, "Review Context Selection").withEcho());
         llm.setOutput(io);
+        io.llmOutput("# Gathering Context", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
 
         Set<Language> analyzerLanguages = cm.getProject().getAnalyzerLanguages();
         boolean hasAnalyzedLanguage = !analyzerLanguages.equals(Set.of(Languages.NONE));
