@@ -1,5 +1,6 @@
 package ai.brokk.gui;
 
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AnalyzerWrapper;
@@ -36,9 +37,9 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -84,6 +85,9 @@ public class ContextActionsHandler {
         public List<Action> getActions(ContextActionsHandler actions) {
             var list = new ArrayList<Action>();
 
+            list.add(WorkspaceAction.RUN_TESTS.createAction(actions));
+            list.add(null); // Separator
+
             // Always add drop all action but enable/disable based on workspace state
             var dropAllAction = WorkspaceAction.DROP_ALL.createAction(actions);
             if (!actions.isWorkspaceEditable()) {
@@ -119,13 +123,6 @@ public class ContextActionsHandler {
                     list.add(WorkspaceAction.VIEW_HISTORY.createFileAction(actions, repoFile));
                 } else {
                     list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Git not available for this project."));
-                }
-                var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
-                if (ContextManager.isTestFile(repoFile, analyzer)) {
-                    list.add(WorkspaceAction.RUN_TESTS.createFileRefAction(actions, fileRef));
-                } else {
-                    var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("Not a test file");
-                    list.add(disabledAction);
                 }
 
                 list.add(null); // Separator
@@ -181,17 +178,6 @@ public class ContextActionsHandler {
             } else {
                 list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction(
                         "View History is available only for single project files."));
-            }
-
-            // Add Run Tests action if the fragment is associated with a test file
-            var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                    && fragment.files().renderNowOr(Set.of()).stream()
-                            .anyMatch(f -> ContextManager.isTestFile(f, analyzer))) {
-                list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, List.of(fragment)));
-            } else {
-                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
-                list.add(disabledAction);
             }
 
             list.add(null); // Separator
@@ -260,16 +246,6 @@ public class ContextActionsHandler {
             list.add(WorkspaceAction.SHOW_CONTENTS.createDisabledAction(
                     "Cannot view contents of multiple items at once."));
             list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
-            // Add Run Tests action if all selected fragment is associated with a test file
-            var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (fragments.stream()
-                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
-                    .allMatch(f -> ContextManager.isTestFile(f, analyzer))) {
-                list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, fragments));
-            } else {
-                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
-                list.add(disabledAction);
-            }
 
             list.add(null); // Separator
 
@@ -317,7 +293,16 @@ public class ContextActionsHandler {
         }
 
         public AbstractAction createAction(ContextActionsHandler actions) {
-            return new AbstractAction(label) {
+            String finalLabel = label;
+            Optional<Set<ProjectFile>> testFilesOpt = Optional.empty();
+
+            if (this == RUN_TESTS) {
+                testFilesOpt = actions.findTestFiles();
+                int count = testFilesOpt.map(Set::size).orElse(0);
+                finalLabel = "%s (%d)".formatted(label, count);
+            }
+
+            var action = new AbstractAction(finalLabel) {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     switch (WorkspaceAction.this) {
@@ -331,6 +316,18 @@ public class ContextActionsHandler {
                     }
                 }
             };
+
+            if (this == RUN_TESTS) {
+                if (testFilesOpt.isEmpty()) {
+                    action.setEnabled(false);
+                    action.putValue(Action.SHORT_DESCRIPTION, AnalyzerWrapper.ANALYZER_BUSY_MESSAGE);
+                } else if (testFilesOpt.get().isEmpty()) {
+                    action.setEnabled(false);
+                    action.putValue(Action.SHORT_DESCRIPTION, "No test files found in the current context");
+                }
+            }
+
+            return action;
         }
 
         public AbstractAction createDisabledAction(String tooltip) {
@@ -496,10 +493,13 @@ public class ContextActionsHandler {
                     case DROP -> doDropAction(selectedFragments);
                     case SUMMARIZE -> doSummarizeAction(selectedFragments);
                     case PASTE -> doPasteAction();
-                    case RUN_TESTS -> doRunTestsAction(selectedFragments);
+                    case RUN_TESTS -> doRunTestsAction();
                 }
-            } catch (CancellationException | InterruptedException cex) {
+            } catch (CancellationException cex) {
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, action + " canceled.");
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, action + " interrupted.");
             } finally {
                 SwingUtilities.invokeLater(chrome::focusInput);
             }
@@ -519,19 +519,7 @@ public class ContextActionsHandler {
 
         if (fragments == null) return;
 
-        contextManager.submitContextTask(() -> {
-            if (fragments.isEmpty()) {
-                return;
-            }
-
-            for (var fragment : fragments) {
-                if (fragment instanceof ContextFragments.PathFragment pathFrag) {
-                    contextManager.addFragmentAsync(pathFrag);
-                } else {
-                    contextManager.addFragments(fragment);
-                }
-            }
-        });
+        contextManager.submitContextTask(() -> contextManager.addFragments(fragments));
     }
 
     @Blocking
@@ -784,39 +772,36 @@ public class ContextActionsHandler {
     }
 
     @Blocking
-    private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) throws InterruptedException {
-        List<CompletableFuture<Set<ProjectFile>>> fileFutures =
-                selectedFragments.stream().map(f -> f.files().future()).toList();
-
-        Set<ProjectFile> testFiles = new HashSet<>();
-
-        if (!fileFutures.isEmpty()) {
-            CompletableFuture<Void> all = CompletableFuture.allOf(fileFutures.toArray(new CompletableFuture[0]));
-            try {
-                all.get();
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw ie;
-            } catch (Exception ex) {
-                logger.warn("Error awaiting fragment files for test execution", ex);
-            }
-
-            var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-            testFiles.addAll(fileFutures.stream()
-                    .flatMap(cf -> cf.getNow(Set.of()).stream())
-                    .filter(f -> ContextManager.isTestFile(f, analyzer))
-                    .collect(Collectors.toSet()));
+    private Optional<Set<ProjectFile>> findTestFiles() {
+        if (!contextManager.getAnalyzerWrapper().isReady()) {
+            return Optional.empty();
         }
 
-        if (testFiles.isEmpty() && !selectedFragments.isEmpty()) {
-            chrome.toolError("No test files found in the selection to run.");
+        var analyzer = requireNonNull(contextManager.getAnalyzerWrapper().getNonBlocking());
+        return Optional.of(contextManager
+                .liveContext()
+                .allFragments()
+                .filter(cf -> cf.getType().includeInProjectGuide())
+                .flatMap(cf -> cf.files().join().stream())
+                .filter(pf -> ContextManager.isTestFile(pf, analyzer))
+                .collect(Collectors.toSet()));
+    }
+
+    @Blocking
+    private void doRunTestsAction() throws InterruptedException {
+        var testFilesOpt = findTestFiles();
+
+        if (testFilesOpt.isEmpty()) {
+            chrome.showNotification(IConsoleIO.NotificationRole.ERROR, AnalyzerWrapper.ANALYZER_BUSY_MESSAGE);
             return;
         }
 
+        Set<ProjectFile> testFiles = testFilesOpt.get();
         if (testFiles.isEmpty()) {
-            chrome.toolError("No test files specified to run.");
+            chrome.showNotification(IConsoleIO.NotificationRole.ERROR, "No test files found in the current context");
             return;
         }
+
         chrome.runTests(testFiles);
     }
 

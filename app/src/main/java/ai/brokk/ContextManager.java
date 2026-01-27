@@ -429,7 +429,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
 
         // Ensure build details are loaded/generated asynchronously
-        // (style and review guides are handled by ensureGuidesAsync() called earlier)
+        // (style guide is handled by ensureGuidesAsync() called earlier)
         ensureBuildDetailsAsync();
         cleanupOldHistoryAsync();
 
@@ -636,6 +636,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Notify analyzer callbacks - they determine their own filtering
         for (var callback : analyzerCallbacks) {
             submitBackgroundTask("Update for FS changes", callback::onTrackedFileChange);
+        }
+    }
+
+    @Override
+    public void notifyLiveDependenciesChanged() {
+        for (var callback : analyzerCallbacks) {
+            submitBackgroundTask("Update for dependency changes", callback::onLiveDependenciesChanged);
         }
     }
 
@@ -1143,18 +1150,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         addFragments(fragment);
     }
 
-    /**
-     * Adds a specific ContextFragment (like GitHistoryFragment) to the live context.
-     *
-     * @param fragment The PathFragment to add.
-     * @return
-     */
-    public CompletableFuture<Void> addFragmentAsync(ContextFragment fragment) {
-        return submitContextTask(() -> {
-            pushContext(currentLiveCtx -> currentLiveCtx.addFragments(List.of(fragment)));
-        });
-    }
-
     /** Captures text from the LLM output area and adds it to the context. Called from Chrome's capture button. */
     public void captureTextFromContextAsync() {
         submitContextTask(() -> {
@@ -1282,37 +1277,41 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return false;
         }
 
-        boolean summariesAdded = false;
+        List<ContextFragments.SummaryFragment> marshalledSummaries = new ArrayList<>();
 
-        // Produce one SummaryFragment per file
+        // Marshall SummaryFragments for files
         if (!files.isEmpty()) {
             for (var pf : files) {
-                var fragment = new ContextFragments.SummaryFragment(
-                        this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
-                addFragments(fragment);
+                marshalledSummaries.add(new ContextFragments.SummaryFragment(
+                        this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
             }
-            String message = "Summarize " + joinFilesForOutput(files);
-            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-            summariesAdded = true;
         }
 
-        // Produce one SummaryFragment per class fqName
-        if (!classes.isEmpty()) {
-            var classFqns = classes.stream().map(CodeUnit::fqName).collect(Collectors.toList());
+        // Marshall SummaryFragments for classes
+        List<String> classFqns = classes.stream().map(CodeUnit::fqName).toList();
+        if (!classFqns.isEmpty()) {
             for (var fqn : classFqns) {
-                var fragment =
-                        new ContextFragments.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-                addFragments(fragment);
+                marshalledSummaries.add(
+                        new ContextFragments.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON));
             }
-            String message = "Summarize " + joinClassesForOutput(classFqns);
-            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-            summariesAdded = true;
         }
 
-        if (!summariesAdded) {
+        if (marshalledSummaries.isEmpty()) {
             io.toolError("No files or classes provided to summarize.");
             return false;
         }
+
+        // Atomic update to context
+        addFragments(marshalledSummaries);
+
+        // Notifications
+        if (!files.isEmpty()) {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinFilesForOutput(files));
+        }
+        if (!classFqns.isEmpty()) {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinClassesForOutput(classFqns));
+        }
+
         return true;
     }
 
@@ -1973,15 +1972,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Removed BuildCommand record
 
     /**
-     * Ensure both style and review guides exist, reading from disk off EDT.
-     * Style guide is generated via LLM if missing; review guide uses a default template.
+     * Ensures style guide exists, reading from disk off EDT.
+     * Style guide is generated via LLM if missing.
      * Returns a CompletableFuture for the style guide content.
      */
     public CompletableFuture<String> ensureGuidesAsync() {
         return submitBackgroundTask("Loading project guides", () -> {
-            // Handle review guide off EDT
-            ensureReviewGuide();
-
             // Handle style guide off EDT
             String existingStyleGuide = project.getStyleGuide();
             if (!existingStyleGuide.isEmpty()) {
@@ -2129,15 +2125,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public boolean wasStyleGenerationSkipped() {
         return styleGenerationSkipped;
-    }
-
-    /** Ensure review guide exists, creating default if needed. Safe to call from any thread. */
-    private void ensureReviewGuide() {
-        if (!project.getReviewGuide().isEmpty()) {
-            return;
-        }
-        project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "Review guide created at .brokk/review.md");
     }
 
     /**
@@ -2755,7 +2742,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         initializeCurrentSessionAndHistory(true);
 
-        ensureReviewGuide();
         cleanupOldHistoryAsync();
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
         // otherwise we leave them empty

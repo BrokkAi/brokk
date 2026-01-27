@@ -439,17 +439,28 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         jsonBody.put("stacktrace", stacktrace);
         jsonBody.put("client_version", clientVersion);
 
-        // Add optional fields
+        // Add optional fields and environment info
+        var fieldsNode = objectMapper.createObjectNode();
         if (!optionalFields.isEmpty()) {
-            var fieldsNode = objectMapper.createObjectNode();
             for (var entry : optionalFields.entrySet()) {
                 fieldsNode.put(entry.getKey(), entry.getValue());
             }
-            jsonBody.set("context", fieldsNode);
         }
+        // OS info and JVM info also live in fieldsNode for backwards compatibility
+        var osNode = objectMapper.createObjectNode();
+        osNode.put("name", System.getProperty("os.name"));
+        osNode.put("version", System.getProperty("os.version"));
+        osNode.put("arch", System.getProperty("os.arch"));
+        fieldsNode.set("os", osNode);
+        Runtime runtime = Runtime.getRuntime();
+        var jvmNode = objectMapper.createObjectNode();
+        jvmNode.put("availableProcessors", runtime.availableProcessors());
+        jvmNode.put("maxMemory", runtime.maxMemory());
+        jvmNode.put("freeMemory", runtime.freeMemory());
+        fieldsNode.set("jvm", jvmNode);
 
+        jsonBody.set("context", fieldsNode);
         RequestBody body = RequestBody.create(jsonBody.toString(), MediaType.parse("application/json"));
-
         Request request = new Request.Builder()
                 .url(MainProject.getServiceUrl() + "/api/client-exceptions/")
                 .header("Authorization", "Bearer " + brokkKey)

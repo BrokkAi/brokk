@@ -4,19 +4,15 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Decompiler;
-import ai.brokk.util.Environment;
+import ai.brokk.util.LocalCacheScanner;
 import java.io.IOException;
-import java.nio.file.FileVisitOption;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 import java.util.zip.ZipFile;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
@@ -92,91 +88,7 @@ public class JavaLanguage implements Language {
 
     @Override
     public List<Path> getDependencyCandidates(IProject project) {
-        long startTime = System.currentTimeMillis();
-
-        String userHome = System.getProperty("user.home");
-        if (userHome == null) {
-            logger.warn("Could not determine user home directory.");
-            return List.of();
-        }
-        Path homePath = Path.of(userHome);
-
-        List<Path> rootsToScan = new ArrayList<>();
-
-        /* ---------- default locations that exist on all OSes ---------- */
-        rootsToScan.add(homePath.resolve(".m2").resolve("repository"));
-        rootsToScan.add(homePath.resolve(".gradle")
-                .resolve("caches")
-                .resolve("modules-2")
-                .resolve("files-2.1"));
-        rootsToScan.add(homePath.resolve(".ivy2").resolve("cache"));
-        rootsToScan.add(
-                homePath.resolve(".cache").resolve("coursier").resolve("v1").resolve("https"));
-        rootsToScan.add(homePath.resolve(".sbt"));
-
-        /* ---------- honour user-supplied overrides ---------- */
-        Optional.ofNullable(System.getenv("MAVEN_REPO")).map(Path::of).ifPresent(rootsToScan::add);
-
-        Optional.ofNullable(System.getProperty("maven.repo.local"))
-                .map(Path::of)
-                .ifPresent(rootsToScan::add);
-
-        Optional.ofNullable(System.getenv("GRADLE_USER_HOME"))
-                .map(Path::of)
-                .map(p -> p.resolve("caches").resolve("modules-2").resolve("files-2.1"))
-                .ifPresent(rootsToScan::add);
-
-        /* ---------- Windows-specific cache roots ---------- */
-        if (Environment.isWindows()) {
-            Optional.ofNullable(System.getenv("LOCALAPPDATA")).ifPresent(localAppData -> {
-                Path lad = Path.of(localAppData);
-                rootsToScan.add(
-                        lad.resolve("Coursier").resolve("cache").resolve("v1").resolve("https"));
-                rootsToScan.add(lad.resolve("Gradle")
-                        .resolve("caches")
-                        .resolve("modules-2")
-                        .resolve("files-2.1"));
-            });
-        }
-
-        /* ---------- macOS-specific cache roots ---------- */
-        if (Environment.isMacOs()) {
-            // Coursier on macOS defaults to ~/Library/Caches/Coursier/v1/https
-            rootsToScan.add(homePath.resolve("Library")
-                    .resolve("Caches")
-                    .resolve("Coursier")
-                    .resolve("v1")
-                    .resolve("https"));
-        }
-
-        /* ---------- de-duplicate & scan ---------- */
-        List<Path> uniqueRoots = rootsToScan.stream().distinct().toList();
-
-        var jarFiles = uniqueRoots.parallelStream()
-                .filter(Files::isDirectory)
-                .peek(root -> logger.debug("Scanning for JARs under: {}", root))
-                .flatMap(root -> {
-                    try (Stream<Path> s = Files.walk(root, FileVisitOption.FOLLOW_LINKS)) {
-                        return s.filter(Files::isRegularFile).toList().stream();
-                    } catch (IOException e) {
-                        logger.warn("Error walking directory {}: {}", root, e.getMessage());
-                        return Stream.empty();
-                    } catch (SecurityException e) {
-                        logger.warn("Permission denied accessing directory {}: {}", root, e.getMessage());
-                        return Stream.empty();
-                    }
-                })
-                .filter(Files::isRegularFile)
-                .filter(path -> {
-                    String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-                    return name.endsWith(".jar") && !name.endsWith("-sources.jar") && !name.endsWith("-javadoc.jar");
-                })
-                .toList();
-
-        long duration = System.currentTimeMillis() - startTime;
-        logger.info("Found {} JAR files in common dependency locations in {} ms", jarFiles.size(), duration);
-
-        return jarFiles;
+        return LocalCacheScanner.listAllJars();
     }
 
     @Override

@@ -55,6 +55,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -1287,7 +1288,10 @@ public class ContextFragments {
                 String targetIdentifier, boolean includeTestFiles, IContextManager contextManager)
                 throws InterruptedException {
             var analyzer = contextManager.getAnalyzer();
-            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
+            Predicate<ProjectFile> fileFilter =
+                    includeTestFiles ? null : file -> !ContextManager.isTestFile(file, analyzer);
+            FuzzyResult usageResult =
+                    FuzzyUsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
             var either = usageResult.toEither();
 
             String text;
@@ -1299,11 +1303,6 @@ public class ContextFragments {
                 List<UsageHit> uses = either.getUsages().stream()
                         .sorted(Comparator.comparingDouble(UsageHit::confidence).reversed())
                         .toList();
-                if (!includeTestFiles) {
-                    uses = uses.stream()
-                            .filter(cu -> !ContextManager.isTestFile(cu.file(), analyzer))
-                            .toList();
-                }
                 List<AnalyzerUtil.CodeWithSource> parts = AnalyzerUtil.processUsages(
                         analyzer, uses.stream().map(UsageHit::enclosing).toList());
                 String formatted = AnalyzerUtil.CodeWithSource.text(parts);
@@ -1313,11 +1312,6 @@ public class ContextFragments {
             }
 
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-            if (!includeTestFiles) {
-                files = files.stream()
-                        .filter(f -> !ContextManager.isTestFile(f, analyzer))
-                        .collect(Collectors.toSet());
-            }
 
             // Validity based on whether definitions exist
             boolean valid = !analyzer.getDefinitions(targetIdentifier).isEmpty();

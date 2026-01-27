@@ -19,6 +19,7 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -46,6 +47,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -542,7 +544,15 @@ public class ArchitectAgent {
 
             // Create a local registry for this planning turn
             var wst = new WorkspaceTools(this.context);
-            var tr = cm.getToolRegistry().builder().register(this).register(wst).build();
+            // Unified dependency tools (supports Java, Python, Rust, Node.js)
+            // No longer AutoCloseable/long-lived fetcher, safe to instantiate in loop
+            var depTools = DependencyTools.isSupported(cm.getProject())
+                    ? Optional.of(new DependencyTools(cm))
+                    : Optional.<DependencyTools>empty();
+
+            var builder = cm.getToolRegistry().builder().register(this).register(wst);
+            depTools.ifPresent(builder::register);
+            var tr = builder.build();
 
             // Decide tool availability for this step
             var toolSpecs = new ArrayList<ToolSpecification>();
@@ -577,6 +587,11 @@ public class ArchitectAgent {
                 if (cm.getProject().loadBuildDetails().buildLintCommand().isBlank()) {
                     allowed.add("setBuildDetails");
                     allowed.add("verifyBuildCommand");
+                }
+
+                // Unified dependency import tool (supports Java, Python, Rust, Node.js)
+                if (depTools.isPresent()) {
+                    allowed.add("importDependency");
                 }
 
                 if (this.offerUndoToolNext) {
@@ -1030,7 +1045,7 @@ public class ArchitectAgent {
                 .toList());
 
         // Add related identifiers as a separate message/ack pair
-        var related = context.buildRelatedIdentifiers(10);
+        var related = context.buildRelatedSymbols(10);
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             var topFilesText =

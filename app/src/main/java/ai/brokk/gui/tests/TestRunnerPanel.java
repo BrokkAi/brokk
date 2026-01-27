@@ -439,7 +439,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
             runList.setSelectedIndex(0);
 
-            chrome.getPreviewManager().openFragmentPreview(fragment);
+            if (exitCode != 0) {
+                chrome.getPreviewManager().openFragmentPreview(fragment);
+            }
 
             triggerSave();
             updateClearButtonTooltip();

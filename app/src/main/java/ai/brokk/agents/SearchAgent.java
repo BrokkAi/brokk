@@ -617,48 +617,23 @@ public class SearchAgent {
 
     @Blocking
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
-        List<ContextFragment> selected = recommendationResult.fragments();
-        var groupedByType = selected.stream().collect(Collectors.groupingBy(ContextFragment::getType));
-
-        var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
-                .map(ContextFragments.ProjectPathFragment.class::cast)
-                .toList();
-        if (!pathFragments.isEmpty()) {
-            context = context.addFragments(pathFragments);
-        }
-
-        var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
-                .map(ContextFragments.SummaryFragment.class::cast)
-                .toList();
-        if (!skeletonFragments.isEmpty()) {
-            context = context.addFragments(skeletonFragments);
-        }
-
-        emitContextAddedExplanation(pathFragments, skeletonFragments);
+        context = context.addFragments(recommendationResult.fragments());
+        emitContextAddedExplanation(recommendationResult.fragments());
     }
 
-    private void emitContextAddedExplanation(
-            List<ContextFragments.ProjectPathFragment> pathFragments,
-            List<ContextFragments.SummaryFragment> skeletonFragments) {
+    private void emitContextAddedExplanation(List<ContextFragment> fragments) {
         var details = new LinkedHashMap<String, Object>();
-        details.put("fragmentCount", pathFragments.size() + skeletonFragments.size());
+        details.put("fragmentCount", fragments.size());
 
-        if (!pathFragments.isEmpty()) {
-            var paths = pathFragments.stream()
-                    .map(ppf -> ppf.file().toString())
-                    .sorted()
-                    .toList();
-            details.put("pathFragments", paths);
-        }
+        var descriptions = fragments.stream()
+                .map(ContextFragment::description)
+                .map(ComputedValue::renderNowOrNull)
+                .filter(Objects::nonNull)
+                .sorted()
+                .toList();
 
-        if (!skeletonFragments.isEmpty()) {
-            var skeletonNames = skeletonFragments.stream()
-                    .map(ContextFragment::description)
-                    .map(ComputedValue::renderNowOrNull)
-                    .filter(Objects::nonNull)
-                    .sorted()
-                    .toList();
-            details.put("skeletonFragments", skeletonNames);
+        if (!descriptions.isEmpty()) {
+            details.put("fragments", descriptions);
         }
 
         var explanation = ExplanationRenderer.renderExplanation("Adding context to workspace", details);

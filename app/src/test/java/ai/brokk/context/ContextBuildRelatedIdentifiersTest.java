@@ -42,7 +42,7 @@ public class ContextBuildRelatedIdentifiersTest {
             }
         };
 
-        String out = analyzer.buildRelatedIdentifiers(file);
+        String out = analyzer.summarizeSymbols(file);
 
         assertTrue(out.contains("- com.acme.Foo"), "should include top-level Foo");
         assertTrue(out.contains("  - bar"), "should include child bar");

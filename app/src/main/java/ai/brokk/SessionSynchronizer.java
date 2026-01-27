@@ -243,11 +243,7 @@ class SessionSynchronizer {
 
                     if (isUploadPayloadTooLarge(action, finalEx)) {
                         logger.warn("Session {} is too large to upload (413). Adding to oversized sessions list.", id);
-                        try {
-                            addOversizedSession(id);
-                        } catch (ExecutionException e) {
-                            logger.error("Failed to persist oversized session {}: {}", id, e.getMessage());
-                        }
+                        addOversizedSession(id);
                     }
                 }
             }
@@ -476,14 +472,7 @@ class SessionSynchronizer {
             }
 
             Map<UUID, IContextManager> openContextManagers = getOpenContextManagers();
-
-            SyncInfo syncInfo;
-            try {
-                syncInfo = readSyncInfo();
-            } catch (ExecutionException e) {
-                logger.warn("Failed to load sync info, proceeding with defaults: {}", e.getMessage());
-                syncInfo = new SyncInfo();
-            }
+            SyncInfo syncInfo = readSyncInfo();
 
             // Plan
             List<SyncAction> actions = planner.plan(localSessions, remoteSessions, tombstones, unreadableIds, syncInfo);
@@ -619,7 +608,7 @@ class SessionSynchronizer {
         }
     }
 
-    SyncInfo readSyncInfo() throws ExecutionException, InterruptedException {
+    SyncInfo readSyncInfo() {
         synchronized (SYNC_INFO_LOCK) {
             Path syncInfoPath = sessionsDir.resolve(SYNC_INFO_DIR).resolve(SYNC_INFO_FILE);
             if (!Files.exists(syncInfoPath)) {
@@ -634,7 +623,7 @@ class SessionSynchronizer {
         }
     }
 
-    void addOversizedSession(UUID id) throws ExecutionException, InterruptedException {
+    private void addOversizedSession(UUID id) {
         synchronized (SYNC_INFO_LOCK) {
             try {
                 Path syncDir = sessionsDir.resolve(SYNC_INFO_DIR);

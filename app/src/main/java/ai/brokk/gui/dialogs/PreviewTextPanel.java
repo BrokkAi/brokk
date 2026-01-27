@@ -171,7 +171,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             var finalCaptureButton = captureButton; // Final reference for lambda
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
-                cm.addFragmentAsync(ghf);
+                cm.addFragments(ghf);
                 finalCaptureButton.setEnabled(false); // Disable after capture
                 finalCaptureButton.setToolTipText("Revision captured");
             });
