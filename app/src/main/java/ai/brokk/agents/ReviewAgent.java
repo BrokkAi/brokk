@@ -884,14 +884,24 @@ public class ReviewAgent {
                 Every section except Overview is optional; omit them if there is nothing important to say.
                 </instructions>
                 <review_content>
+                # Assume it runs
                 Unless there is strong evidence to the contrary, you should assume that the code compiles and runs.
                 You should be especially cautious about drawing conclusions of compile errors from diffs alone.
+                If a refactoring was performed, you can assume that all the call sites are shown in the diff and
+                you do not need to remind the author to check for additional ones.
 
-                If you have Patch Instructions available, call out important incomplete or unimplemented functionality that
+                # Trust intent
+                When you encounter unusual patterns (e.g., empty methods, swallowed exceptions, hardcoded values), check for comments.
+                If the author has left a comment explaining the unusual choice, you should almost always accept it as a valid design decision.
+                Do not critique it unless it causes a critical failure (e.g. security vulnerability).
+
+                However, strictly verify that the code actually implements what the comment claims.
+                When comments and code disagree, assume both are suspect and flag this as a Tactical Note.
+            
+                # Intent from the Workspace
+                If you have Patch Instructions available in the Workspace, call out important incomplete or unimplemented functionality that
                 was asked for but not delivered, but be aware that instructions may be neither complete nor authoritative;
-                the instructions may include false starts, and the patch may include external changes.
-
-                You should NOT assume that more tests exist besides what you see.
+                the instructions may include false starts, and the patch may include external changes that are not covered by the instructions.
                 </review_content>
                 <excerpt_format>
                 When referencing code, use the following format with the file path and line number on a separate line before the code block:
