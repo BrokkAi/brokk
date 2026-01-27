@@ -77,6 +77,3 @@ test-projects
 # For swe-bench-live testing
 .venv
 swe_bench_repos/
-
-# Usages benchmark default result location
-app/usage-results

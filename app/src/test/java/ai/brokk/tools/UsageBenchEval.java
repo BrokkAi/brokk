@@ -1,5 +1,8 @@
 package ai.brokk.tools;
 
+import ai.brokk.AbstractService;
+import ai.brokk.OfflineService;
+import ai.brokk.Service;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -51,7 +54,7 @@ public class UsageBenchEval implements Callable<Integer> {
     @CommandLine.Option(
             names = {"--output"},
             defaultValue = "../build/reports/usage-results",
-            description = "Output directory for results (default: ../build/reports/usage-results)")
+            description = "Output directory for results (default: <project-root>/build/reports/usage-results)")
     private Path output = Path.of("../build/reports/usage-results");
 
     @CommandLine.Option(
@@ -271,7 +274,8 @@ public class UsageBenchEval implements Callable<Integer> {
     private EvaluationData evaluateProject(IProject project, ProgramUsages groundTruth, Language language)
             throws InterruptedException {
         IAnalyzer analyzer = language.createAnalyzer(project);
-        FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, null, null);
+        AbstractService service = new OfflineService(project);
+        FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, service, null);
 
         String projectName = project.getRoot().getFileName().toString();
         String projectPath = project.getRoot().toAbsolutePath().toString();
