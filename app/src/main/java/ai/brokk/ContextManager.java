@@ -1150,18 +1150,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         addFragments(fragment);
     }
 
-    /**
-     * Adds a specific ContextFragment (like GitHistoryFragment) to the live context.
-     *
-     * @param fragment The PathFragment to add.
-     * @return
-     */
-    public CompletableFuture<Void> addFragmentAsync(ContextFragment fragment) {
-        return submitContextTask(() -> {
-            pushContext(currentLiveCtx -> currentLiveCtx.addFragments(List.of(fragment)));
-        });
-    }
-
     /** Captures text from the LLM output area and adds it to the context. Called from Chrome's capture button. */
     public void captureTextFromContextAsync() {
         submitContextTask(() -> {
@@ -1289,37 +1277,41 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return false;
         }
 
-        boolean summariesAdded = false;
+        List<ContextFragments.SummaryFragment> marshalledSummaries = new ArrayList<>();
 
-        // Produce one SummaryFragment per file
+        // Marshall SummaryFragments for files
         if (!files.isEmpty()) {
             for (var pf : files) {
-                var fragment = new ContextFragments.SummaryFragment(
-                        this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
-                addFragments(fragment);
+                marshalledSummaries.add(new ContextFragments.SummaryFragment(
+                        this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
             }
-            String message = "Summarize " + joinFilesForOutput(files);
-            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-            summariesAdded = true;
         }
 
-        // Produce one SummaryFragment per class fqName
-        if (!classes.isEmpty()) {
-            var classFqns = classes.stream().map(CodeUnit::fqName).collect(Collectors.toList());
+        // Marshall SummaryFragments for classes
+        List<String> classFqns = classes.stream().map(CodeUnit::fqName).toList();
+        if (!classFqns.isEmpty()) {
             for (var fqn : classFqns) {
-                var fragment =
-                        new ContextFragments.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-                addFragments(fragment);
+                marshalledSummaries.add(
+                        new ContextFragments.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON));
             }
-            String message = "Summarize " + joinClassesForOutput(classFqns);
-            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-            summariesAdded = true;
         }
 
-        if (!summariesAdded) {
+        if (marshalledSummaries.isEmpty()) {
             io.toolError("No files or classes provided to summarize.");
             return false;
         }
+
+        // Atomic update to context
+        addFragments(marshalledSummaries);
+
+        // Notifications
+        if (!files.isEmpty()) {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinFilesForOutput(files));
+        }
+        if (!classFqns.isEmpty()) {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinClassesForOutput(classFqns));
+        }
+
         return true;
     }
 

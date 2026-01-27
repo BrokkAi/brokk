@@ -341,7 +341,6 @@ public class Chrome
         // Apply Advanced Mode visibility at startup so default (easy mode) hides advanced UI
         try {
             applyAdvancedModeVisibility();
-            rightPanel.getInstructionsPanel().applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
         } catch (Exception ex) {
             logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
         }
@@ -655,6 +654,30 @@ public class Chrome
                 });
             }
         });
+
+        // Cmd/Ctrl+M => toggle Code/Ask/Lutz mode (configurable; only in Advanced Mode)
+        if (GlobalUiSettings.isAdvancedMode()) {
+            KeyStroke toggleModeKeyStroke = GlobalUiSettings.getKeybinding(
+                    "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+            bindKey(rootPane, toggleModeKeyStroke, "toggleCodeAnswer");
+            rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    // Defensive guard: protects against race conditions during live mode switching.
+                    // Even though this binding is only registered in Advanced Mode, refreshKeybindings()
+                    // might have a timing window where the old binding is still active after switching to EZ mode.
+                    if (!GlobalUiSettings.isAdvancedMode()) {
+                        return;
+                    }
+                    try {
+                        ip.toggleCodeAnswerMode();
+                        showNotification(NotificationRole.INFO, "Toggled Code/Ask/Lutz mode");
+                    } catch (Exception ex) {
+                        logger.warn("Error toggling Code/Ask/Lutz mode via shortcut", ex);
+                    }
+                }
+            });
+        }
 
         // Open Settings (configurable; default Cmd/Ctrl+,)
         // On macOS, Desktop.setPreferencesHandler() in MenuBar handles Cmd+, natively

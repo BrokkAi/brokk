@@ -17,7 +17,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-public class UsagePromptBuilderJavaTest {
+public class UsagePromptJavaTest {
 
     private static IProject testProject;
     private static TreeSitterAnalyzer analyzer;
@@ -76,36 +76,36 @@ public class UsagePromptBuilderJavaTest {
         UsageHit hit = new UsageHit(file, 10, 0, snippet.length(), enclosing, 1.0, snippet);
 
         // When
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
+        UsagePrompt prompt = UsagePrompt.build(
                 hit, target, Collections.emptyList(), analyzer, "A.method2", 10_000 // generous token budget
                 );
 
         // Field-level assertions
         assertNotNull(prompt.filterDescription(), "filterDescription should not be null");
         assertTrue(
-                prompt.filterDescription().contains(target.toString()),
-                "filterDescription should include the target code unit");
-        assertFalse(
-                prompt.filterDescription().contains("alternative code units"),
-                "filterDescription should NOT mention alternatives when none provided");
-        assertEquals(snippet, prompt.candidateText(), "candidateText should equal the usage snippet");
+                prompt.filterDescription().contains(target.fqName()),
+                "filterDescription should include the target fqName");
+        assertTrue(
+                prompt.filterDescription().contains(target.kind().name()),
+                "filterDescription should include the target kind");
+        assertTrue(
+                prompt.filterDescription().contains("(none)"),
+                "filterDescription should mention (none) when no alternatives provided");
 
         String text = prompt.promptText();
+        assertTrue(text.contains(prompt.candidateText()), "promptText should contain the candidateText XML block");
         AssertionHelperUtil.assertCodeEquals(
                 """
-                Short Name of Search: A.method2
-                Code Unit Target: FUNCTION[test.method2]
-                Other Possible Matches: (none)
-                File of Hit: A.java
-                ```java
-                import java.util.function.Function;
-
-                // snippet of method containing possible usage test.A
-                { // line1
-                	A.method2();//<T> & "quotes" and 'single'
-                } // line3
-                // rest of class
-                ```
+                <candidate filename="A.java">
+                  <imports>
+                    import java.util.function.Function;
+                  </imports>
+                  <snippet sourcemethod="A">
+                    { // line1
+                    	A.method2();//<T> & "quotes" and 'single'
+                    } // line3
+                  </snippet>
+                </candidate>
                 """,
                 text);
     }
@@ -119,17 +119,14 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit alt2 = CodeUnit.fn(file, "another", "method2");
         UsageHit hit = new UsageHit(file, 10, 0, 10, enclosing, 1.0, "snippet");
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(hit, target, List.of(alt1, alt2), analyzer, "method2", 10_000);
+        UsagePrompt prompt = UsagePrompt.build(hit, target, List.of(alt1, alt2), analyzer, "method2", 10_000);
 
         assertTrue(
-                prompt.filterDescription().contains("alternative code units"),
+                prompt.filterDescription().contains("other.method2, another.method2"),
                 "filterDescription should mention alternatives");
 
         String text = prompt.promptText();
-        assertTrue(
-                text.contains("Other Possible Matches:\nother.method2\nanother.method2"),
-                "Prompt should list alternative fqNames");
+        assertFalse(text.contains("Other Possible Matches"), "Metadata headers should be removed from promptText");
     }
 
     @Test
@@ -143,41 +140,39 @@ public class UsagePromptBuilderJavaTest {
 
         int maxTokens = 200; // 800 chars, well above the 512 min floor in the builder
         int maxChars = maxTokens * 4;
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(hit, target, List.of(), analyzer, "A.method2", maxTokens);
+        UsagePrompt prompt = UsagePrompt.build(hit, target, List.of(), analyzer, "A.method2", maxTokens);
 
         String text = prompt.promptText();
 
         // 1. Verify truncation marker is present
         assertTrue(text.contains("truncated due to token limit"), "Expected truncation note in prompt");
 
-        // 2. Verify length is within reasonable budget (maxChars + safety for marker/fence)
-        // The builder uses maxChars as a target for the content before the marker.
+        // 2. Verify length is within reasonable budget (maxChars + safety for marker)
         assertTrue(
                 text.length() <= maxChars + 100,
                 "Prompt length " + text.length() + " exceeded budget of " + (maxChars + 100));
 
-        // 3. Verify it ends with closing fence (even if marker follows) or is well-formed
-        // Note: The builder appends the marker AFTER the closing fence logic.
+        // 3. Verify it is well-formed enough
         assertTrue(
-                text.strip().endsWith("```") || text.contains("```\n... [truncated"),
-                "Prompt should contain a closing code fence to remain well-formed Markdown");
+                text.contains("</candidate>") || text.contains("... [truncated"),
+                "Prompt should contain closing tags or truncation marker");
     }
 
     @Test
-    public void buildHasMarkdownStructure() {
+    public void buildHasXmlStructure() {
         ProjectFile file = fileInProject("A.java");
         CodeUnit enclosing = CodeUnit.cls(file, "", "A");
         CodeUnit target = CodeUnit.fn(file, "", "A.method2");
         UsageHit hit = new UsageHit(file, 5, 0, 3, enclosing, 1.0, "sa");
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(hit, target, List.of(), analyzer, "A.method2", 10_000);
+        UsagePrompt prompt = UsagePrompt.build(hit, target, List.of(), analyzer, "A.method2", 10_000);
 
         String text = prompt.promptText();
-        assertTrue(text.contains("Short Name of Search: "), "Expected Short Name of Search: prefix");
-        assertTrue(text.contains("Code Unit Target: "), "Expected Code Unit Target: prefix");
-        assertTrue(text.contains("File of Hit: "), "Expected File of Hit: prefix");
-        assertTrue(text.contains("```"), "Expected Markdown code fence");
-        assertTrue(text.contains(file.getRelPath().toString()), "Expected the correct file path in prompt");
+        assertFalse(text.contains("Short Name of Search: "), "Metadata headers should be removed");
+        assertTrue(text.contains("<candidate filename=\"A.java\">"), "Expected candidate tag with filename");
+        assertTrue(text.contains("<imports>"), "Expected imports tag");
+        assertTrue(text.contains("<snippet sourcemethod=\"A\">"), "Expected snippet tag with sourcemethod");
+        assertTrue(text.endsWith("</candidate>"), "Expected prompt to end with closing tag");
     }
 
     @Test
@@ -192,13 +187,12 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "// hit at line 20\nbar();";
         UsageHit hit2 = new UsageHit(file, 20, 500, 520, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt = UsagePrompt.build(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
-        assertTrue(text.contains(snippet1), "Prompt should contain the first snippet");
-        assertTrue(text.contains(snippet2), "Prompt should contain the second snippet");
-        assertTrue(text.contains("...\n"), "Prompt should contain an ellipsis separator for non-overlapping hits");
+        assertTrue(text.contains("foo();"), "Prompt should contain the first snippet code");
+        assertTrue(text.contains("bar();"), "Prompt should contain the second snippet code");
+        assertTrue(text.contains("..."), "Prompt should contain an ellipsis separator for non-overlapping hits");
     }
 
     @Test
@@ -216,8 +210,7 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "line4\nline5-hit\nline6\nline7-hit\nline8\nline9\nline10";
         UsageHit hit2 = new UsageHit(file, 7, 30, 40, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt = UsagePrompt.build(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
 
@@ -239,9 +232,8 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit target = CodeUnit.fn(file, "test", "method2");
         UsageHit hit = new UsageHit(file, 10, 100, 110, enclosing, 1.0, "snippet");
 
-        UsagePrompt singlePrompt = UsagePromptBuilder.buildPrompt(hit, target, List.of(), analyzer, "method2", 10_000);
-        UsagePrompt listPrompt =
-                UsagePromptBuilder.buildPrompt(List.of(hit), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt singlePrompt = UsagePrompt.build(hit, target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt listPrompt = UsagePrompt.build(List.of(hit), target, List.of(), analyzer, "method2", 10_000);
 
         assertEquals(singlePrompt.promptText(), listPrompt.promptText(), "Prompt text should match");
         assertEquals(singlePrompt.candidateText(), listPrompt.candidateText(), "Candidate text should match");
@@ -263,8 +255,7 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "line8\nline9\nline10\nline11-hit\nline12\nline13\nline14";
         UsageHit hit2 = new UsageHit(file, 11, 30, 40, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt = UsagePrompt.build(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
 
@@ -295,8 +286,7 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "line6\nline7\nline8\nline9-hit\nline10\nline11\nline12";
         UsageHit hit2 = new UsageHit(file, 9, 30, 40, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt = UsagePrompt.build(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
 
@@ -327,8 +317,7 @@ public class UsagePromptBuilderJavaTest {
         String snippet2 = "line17\nline18\nline19\nline20-hit\nline21\nline22\nline23";
         UsageHit hit2 = new UsageHit(file, 20, 100, 110, enclosing, 1.0, snippet2);
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt = UsagePrompt.build(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String text = prompt.promptText();
 
@@ -362,8 +351,7 @@ public class UsagePromptBuilderJavaTest {
         // Hit at line 100: context covers lines [97, 103] - same text but very different location
         UsageHit hit2 = new UsageHit(file, 100, 500, 510, enclosing, 1.0, identicalSnippet);
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt = UsagePrompt.build(List.of(hit1, hit2), target, List.of(), analyzer, "method2", 10_000);
 
         String candidateText = prompt.candidateText();
 
@@ -388,11 +376,11 @@ public class UsagePromptBuilderJavaTest {
         String originalSnippet = "line1\nline2\nline3\nhit-line\nline5\nline6\nline7";
         UsageHit hit = new UsageHit(file, 5, 10, 20, enclosing, 1.0, originalSnippet);
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(List.of(hit), target, List.of(), analyzer, "method2", 10_000);
+        UsagePrompt prompt = UsagePrompt.build(List.of(hit), target, List.of(), analyzer, "method2", 10_000);
 
-        // candidateText should be exactly the original snippet
-        assertEquals(originalSnippet, prompt.candidateText(), "Single hit should return snippet unchanged");
+        // candidateText should contain the original snippet
+        assertTrue(prompt.candidateText().contains("hit-line"), "Single hit should contain the snippet");
+        assertTrue(prompt.candidateText().startsWith("<candidate"), "Should start with candidate tag");
 
         // No ellipsis
         assertFalse(prompt.candidateText().contains("..."), "Single hit should not contain ellipsis");
@@ -401,11 +389,15 @@ public class UsagePromptBuilderJavaTest {
     private int countOccurrences(String text, String search) {
         int count = 0;
         int index = 0;
-        while ((index = text.indexOf(search, index)) != -1) {
+        // Strip leading whitespace from each line of text for matching because of XML indentation
+        String normalizedText =
+                Arrays.stream(text.split("\n")).map(String::stripLeading).collect(Collectors.joining("\n"));
+
+        while ((index = normalizedText.indexOf(search, index)) != -1) {
             // Make sure we're matching a whole line, not a substring
-            boolean isLineStart = index == 0 || text.charAt(index - 1) == '\n';
-            boolean isLineEnd =
-                    index + search.length() >= text.length() || text.charAt(index + search.length()) == '\n';
+            boolean isLineStart = index == 0 || normalizedText.charAt(index - 1) == '\n';
+            boolean isLineEnd = index + search.length() >= normalizedText.length()
+                    || normalizedText.charAt(index + search.length()) == '\n';
             if (isLineStart && isLineEnd) {
                 count++;
             }
