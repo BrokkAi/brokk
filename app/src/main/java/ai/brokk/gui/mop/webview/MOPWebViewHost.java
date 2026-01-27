@@ -33,7 +33,9 @@ import javafx.application.Platform;
 import javafx.concurrent.Worker;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
+import javafx.scene.layout.Region;
 import javafx.scene.web.WebView;
+import javafx.stage.Window;
 import javax.swing.*;
 import netscape.javascript.JSObject;
 import org.apache.logging.log4j.LogManager;
@@ -134,6 +136,33 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    /**
+     * Forces the WebView to re-layout and re-render at the current output scale. Used when the
+     * window's render scale changes (e.g. moving between monitors on macOS) because JavaFX WebView
+     * does not automatically update.
+     */
+    private void forceWebViewRefresh(WebView view) {
+        Platform.runLater(() -> {
+            double w = view.getWidth();
+            if (w >= 2) {
+                view.setMinWidth(w - 1);
+                view.setMinWidth(Region.USE_COMPUTED_SIZE);
+            }
+            try {
+                view.getEngine().executeScript("window.dispatchEvent(new Event('resize'))");
+            } catch (Exception e) {
+                logger.debug("Could not dispatch resize event in WebView: {}", e.getMessage());
+            }
+        });
+    }
+
+    private void addOutputScaleChangeHandler(Window window, WebView view) {
+        window.outputScaleXProperty().addListener((scaleObs, oldScale, newScale) -> {
+            logger.debug("Window render scale changed from {} to {}", oldScale, newScale);
+            forceWebViewRefresh(view);
+        });
+    }
+
     private void initializeFxPanel() {
         fxPanel = new JFXPanel() {
             // Solves a NPE on Linux:
@@ -201,6 +230,17 @@ public final class MOPWebViewHost extends JPanel {
             webViewRef.set(view); // Store reference for later theme updates
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);
+            // Refresh WebView when the window's output scale changes (e.g. moving between monitors
+            // on macOS). JavaFX WebView does not automatically re-render at the new scale.
+            scene.windowProperty().addListener((obs, oldWindow, newWindow) -> {
+                if (newWindow != null) {
+                    addOutputScaleChangeHandler(newWindow, view);
+                }
+            });
+            var existing = scene.getWindow();
+            if (existing != null) {
+                addOutputScaleChangeHandler(existing, view);
+            }
             var bridge = new MOPBridge(view.getEngine(), this.showEmptyState);
             if (contextManager != null) {
                 bridge.setContextManager(contextManager);
