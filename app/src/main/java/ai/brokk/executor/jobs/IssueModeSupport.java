@@ -119,8 +119,8 @@ public final class IssueModeSupport {
 
     public static String runAndEmitCommand(
             String jobId,
-            JobStore store,
-            IConsoleIO io,
+            @Nullable JobStore store,
+            @Nullable IConsoleIO io,
             String stage,
             String command,
             int attempt,
@@ -148,8 +148,8 @@ public final class IssueModeSupport {
 
     public static void emitSkippedCommand(
             String jobId,
-            JobStore store,
-            IConsoleIO io,
+            @Nullable JobStore store,
+            @Nullable IConsoleIO io,
             String stage,
             @Nullable String command,
             int attempt,

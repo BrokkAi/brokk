@@ -118,7 +118,7 @@ public final class IssueModeHandler {
                             () -> {
                                 try {
                                     var workflow = new GitWorkflow(cm);
-                                    workflow.performAutoCommit(lastTask.get());
+                                    workflow.performAutoCommit(Objects.requireNonNullElse(lastTask.get(), "Review-fix"));
                                     workflow.push(issueBranchName, githubToken);
                                 } catch (Exception e) { logger.warn("Post-fix update failed", e); }
                             }
