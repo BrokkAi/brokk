@@ -2438,6 +2438,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Cycles the model dropdown selection forward or backward in the favorites list.
+     * No-op in Core Focus (EZ) mode (dropdown is hidden), or if the manage dialog is open
+     * or there are no favorites.
+     */
+    public void cycleModel(boolean forward) {
+        if (!GlobalUiSettings.isAdvancedMode()) return;
+        modelSelector.cycleModel(forward);
+    }
+
+    /**
      * Accepts an externally provided status strip and places it immediately next to the ModelSelector
      * in the bottom toolbar. Safe to call from any thread.
      * <p>

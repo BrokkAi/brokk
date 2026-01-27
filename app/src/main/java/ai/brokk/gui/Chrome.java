@@ -738,6 +738,26 @@ public class Chrome
             }
         });
 
+        // Ctrl/Cmd+B => cycle model forward; Ctrl/Cmd+Shift+B => cycle model backward
+        KeyStroke cycleModel = GlobalUiSettings.getKeybinding(
+                "instructions.cycleModel", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_B));
+        bindKey(rootPane, cycleModel, "cycleModel");
+        rootPane.getActionMap().put("cycleModel", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                rightPanel.getInstructionsPanel().cycleModel(true);
+            }
+        });
+        KeyStroke cycleModelBackward = GlobalUiSettings.getKeybinding(
+                "instructions.cycleModelBackward", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_B));
+        bindKey(rootPane, cycleModelBackward, "cycleModelBackward");
+        rootPane.getActionMap().put("cycleModelBackward", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                rightPanel.getInstructionsPanel().cycleModel(false);
+            }
+        });
+
         // Workspace actions
         // Ctrl/Cmd+Shift+I => attach context (add content to workspace)
         KeyStroke attachContextKeyStroke = GlobalUiSettings.getKeybinding(

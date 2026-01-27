@@ -111,6 +111,21 @@ public class ModelSelector {
      * @param desired the configuration to select
      * @return true if the configuration was found and selected, false otherwise
      */
+    /**
+     * Cycles the selected model forward or backward in the favorites list.
+     * No-op if the manage dialog is open or there are no favorites.
+     */
+    public void cycleModel(boolean forward) {
+        if (dialogOpen) return;
+        var favorites = MainProject.loadFavoriteModels();
+        if (favorites.isEmpty()) return;
+        int n = favorites.size();
+        int idx = lastSelected != null ? favorites.indexOf(lastSelected) : -1;
+        if (idx < 0) idx = 0;
+        int nextIdx = forward ? (idx + 1) % n : (idx - 1 + n) % n;
+        selectFavorite(favorites.get(nextIdx));
+    }
+
     public boolean selectConfig(Service.ModelConfig desired) {
         if (dialogOpen) {
             return false; // don't interfere with an open dialog
