@@ -6,6 +6,8 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.project.IProject;
 import ai.brokk.tools.UsageBenchTypes.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
@@ -77,29 +80,43 @@ public class UsageBenchEval implements Callable<Integer> {
         List<ProjectEntry> projectEntries = discoverProjects();
         printStartupBanner(projectEntries.size());
 
-        boolean hadFailures = false;
         List<ProjectResult> projectResults = new ArrayList<>();
+        boolean hadFailures;
 
-        for (ProjectEntry entry : projectEntries) {
-            ProjectEvalResult evalResult = new ProjectEvalCallable(entry).call();
+        try (LoggingExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "usage-bench")) {
+            List<CompletableFuture<ProjectEvalResult>> futures = projectEntries.stream()
+                    .map(entry -> executor.submit(new ProjectEvalCallable(entry)))
+                    .toList();
 
-            if (!evalResult.success()) {
-                System.err.printf("Failed to process %s: %s%n", entry.projectDir(), evalResult.errorMessage());
-                hadFailures = true;
-                continue;
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            List<ProjectEvalResult> evalResultsList =
+                    futures.stream().map(CompletableFuture::join).toList();
+
+            hadFailures = evalResultsList.stream().anyMatch(r -> !r.success());
+
+            for (ProjectEvalResult evalResult : evalResultsList) {
+                if (!evalResult.success()) {
+                    System.err.printf(
+                            "Failed to process %s: %s%n",
+                            evalResult.entry().projectDir(), evalResult.errorMessage());
+                    continue;
+                }
+
+                ProjectResult result = evalResult.result();
+                projectResults.add(result);
+
+                System.out.printf(
+                        "[%s] TP=%d, FP=%d, FN=%d, P=%.3f, R=%.3f, F1=%.3f%n",
+                        result.project(),
+                        result.truePositives(),
+                        result.falsePositives(),
+                        result.falseNegatives(),
+                        result.precision(),
+                        result.recall(),
+                        result.f1());
             }
-
-            ProjectResult result = evalResult.result();
-            projectResults.add(result);
-
-            System.out.printf(
-                    "  TP=%d, FP=%d, FN=%d, P=%.3f, R=%.3f, F1=%.3f%n",
-                    result.truePositives(),
-                    result.falsePositives(),
-                    result.falseNegatives(),
-                    result.precision(),
-                    result.recall(),
-                    result.f1());
+            executor.shutdownAndAwait(60_000, "usage-bench");
         }
 
         Files.createDirectories(output);
