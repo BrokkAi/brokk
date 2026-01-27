@@ -3,11 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -147,7 +143,6 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     protected boolean shouldMergeSignaturesForSameFqn() {
         return true;
     }
-
 
     @Override
     protected String renderFunctionDeclaration(
@@ -499,7 +494,6 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             log.error("Failed to parse named imports in JS", e);
         }
     }
-
 
     /**
      * Extracts all identifiers (names and aliases) from an import statement string.

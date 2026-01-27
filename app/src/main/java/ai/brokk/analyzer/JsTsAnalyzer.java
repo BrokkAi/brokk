@@ -10,7 +10,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -159,17 +158,15 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         Path root = getProject().getRoot();
-        Set<Path> absolutePaths = getProject().getAllFiles().stream()
-                .map(ProjectFile::absPath)
-                .collect(Collectors.toSet());
+        Set<Path> absolutePaths =
+                getProject().getAllFiles().stream().map(ProjectFile::absPath).collect(Collectors.toSet());
 
         return importStatements.stream()
                 .map(JsTsAnalyzer::extractModulePathFromImport)
                 .flatMap(Optional::stream)
                 .map(path -> moduleResolutionCache.get(
                         new ModulePathKey(file, path),
-                        key -> Optional.ofNullable(
-                                resolveJavaScriptLikeModulePath(root, absolutePaths, file, path))))
+                        key -> Optional.ofNullable(resolveJavaScriptLikeModulePath(root, absolutePaths, file, path))))
                 .flatMap(Optional::stream)
                 .flatMap(resolvedFile -> getDeclarations(resolvedFile).stream())
                 .collect(Collectors.toSet());

@@ -31,8 +31,7 @@ import org.treesitter.TreeSitterPython;
 public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
-    private static final Pattern WILDCARD_IMPORT_PATTERN =
-            Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
+    private static final Pattern WILDCARD_IMPORT_PATTERN = Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {

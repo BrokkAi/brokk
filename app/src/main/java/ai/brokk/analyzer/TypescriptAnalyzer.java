@@ -3,8 +3,6 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -1054,7 +1052,6 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // Return null to avoid setting CodeUnit.signature field.
         return null;
     }
-
 
     @Override
     public Set<String> extractIdentifiersFromImport(String importStatement) {

@@ -778,7 +778,8 @@ public class JavaImportTest {
 
             assertTrue(relevant.contains("import java.util.List;"), "Should include explicit import for List");
             assertTrue(relevant.contains("import other.*;"), "Should include wildcard for UnknownType");
-            assertEquals(2, relevant.size(), "Should only have 2 imports (ArrayList should not trigger extra wildcards)");
+            assertEquals(
+                    2, relevant.size(), "Should only have 2 imports (ArrayList should not trigger extra wildcards)");
         }
     }
 
@@ -804,8 +805,7 @@ public class JavaImportTest {
 
             assertTrue(identifiers.contains("List"), "Should capture simple type_identifier 'List'");
             assertTrue(
-                    identifiers.contains("java.util.List"),
-                    "Should capture scoped_type_identifier 'java.util.List'");
+                    identifiers.contains("java.util.List"), "Should capture scoped_type_identifier 'java.util.List'");
         }
     }
 }

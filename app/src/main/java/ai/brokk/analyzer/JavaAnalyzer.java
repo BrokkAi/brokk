@@ -709,8 +709,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             }
 
             org.treesitter.TSQuery identifierQuery =
-                    new org.treesitter.TSQuery(
-                            getTSLanguage(), "[(type_identifier) (scoped_type_identifier)] @type");
+                    new org.treesitter.TSQuery(getTSLanguage(), "[(type_identifier) (scoped_type_identifier)] @type");
             TSQueryCursor cursor = new TSQueryCursor();
             cursor.exec(identifierQuery, root);
 
@@ -787,9 +786,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
         // Handle qualified types (e.g. java.util.List). If they don't match any import's package,
         // assume they are fully qualified and already resolved.
-        Set<String> qualifiedNames = unresolvedIdentifiers.stream()
-                .filter(id -> id.contains("."))
-                .collect(Collectors.toSet());
+        Set<String> qualifiedNames =
+                unresolvedIdentifiers.stream().filter(id -> id.contains(".")).collect(Collectors.toSet());
 
         Set<String> importPackages = allImports.stream()
                 .map(i -> extractPackageFromWildcard(i.rawSnippet()))
