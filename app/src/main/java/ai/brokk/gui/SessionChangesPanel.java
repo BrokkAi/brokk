@@ -36,9 +36,9 @@ import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.git.GitWorkflow;
+import ai.brokk.gui.components.ActionGroupPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialProgressButton;
-import ai.brokk.gui.components.MaterialToggleButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.ThemeColors;
@@ -174,7 +174,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton guidedReviewBtn;
 
-    private final MaterialToggleButton reviewModeToggle;
+    private final ActionGroupPanel reviewModeToggle;
 
     private final MaterialButton captureBtn;
 
@@ -258,11 +258,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.guidedReviewBtn = new MaterialButton("Guided Review");
         this.guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
 
-        this.reviewModeToggle = new MaterialToggleButton("Faster");
+        this.reviewModeToggle = new ActionGroupPanel(new JLabel("Faster"), new JLabel("Deeper"));
         this.reviewModeToggle.setToolTipText("Toggle between Faster and Deeper review modes");
-        this.reviewModeToggle.addActionListener(e -> {
-            reviewModeToggle.setText(reviewModeToggle.isSelected() ? "Deeper" : "Faster");
-        });
 
         this.captureBtn =
                 createIconButton(Icons.CONTENT_CAPTURE, "Capture these changes and add them to the workspace context");
@@ -2009,7 +2006,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.applyTheme(guiTheme);
         commitsTable.applyTheme(guiTheme);
         fileTreePanel.applyTheme(guiTheme);
-        reviewModeToggle.repaint();
         for (AbstractDiffPanel panel : diffCore.getCachedPanels()) {
             panel.applyTheme(guiTheme);
         }
