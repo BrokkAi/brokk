@@ -905,4 +905,26 @@ public class JavaImportTest {
             assertTrue(analyzer.couldImportFile(imports, outerFile));
         }
     }
+
+    @Test
+    public void testCouldImportFileSamePackageNoImport() throws IOException {
+        // Two files in the same package - no import statement needed in Java
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents("package com.example; public class Bar {}", "com/example/Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Bar").get();
+
+            // Bar.java has NO imports at all
+            var imports = analyzer.importInfoOf(barFile);
+            assertTrue(imports.isEmpty(), "Bar should have no imports");
+
+            // But couldImportFile should return true because they're in the same package
+            assertTrue(
+                    analyzer.couldImportFile(barFile, imports, fooFile),
+                    "Same-package files should be considered importable even without explicit imports");
+        }
+    }
 }

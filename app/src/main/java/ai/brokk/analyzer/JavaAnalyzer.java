@@ -858,6 +858,15 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 .findFirst()
                 .orElse("");
 
+        // Case 0: Same package - files in the same package see each other without imports
+        ProjectFile sourceFile = null;
+        if (!targetTopLevels.isEmpty()) {
+            // This is a bit of a hack since we don't have the source file directly,
+            // but we can infer the source package if we are called in a context where we know it.
+            // However, the standard way in TreeSitterAnalyzer is to check if the source package matches.
+            // For now, we'll check the imports, but we need to know the source package to handle this correctly.
+        }
+
         // Check for explicit or wildcard imports
         String targetName = target.getFileName();
         if (targetName.endsWith(".java")) {
@@ -889,6 +898,29 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         }
 
         return false;
+    }
+
+    /**
+     * Overloaded version that takes the source file to check for same-package visibility.
+     */
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        String sourcePackage = getTopLevelDeclarations(sourceFile).stream()
+                .filter(CodeUnit::isClass)
+                .map(CodeUnit::packageName)
+                .findFirst()
+                .orElse("");
+
+        String targetPackage = getTopLevelDeclarations(target).stream()
+                .filter(CodeUnit::isClass)
+                .map(CodeUnit::packageName)
+                .findFirst()
+                .orElse("");
+
+        if (!sourcePackage.isEmpty() && sourcePackage.equals(targetPackage)) {
+            return true;
+        }
+
+        return couldImportFile(imports, target);
     }
 
     @Override
