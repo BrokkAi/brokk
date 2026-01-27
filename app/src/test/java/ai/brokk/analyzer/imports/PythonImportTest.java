@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
@@ -634,6 +636,175 @@ public class PythonImportTest {
 
             assertTrue(importedNames.contains("ModuleClass"), "Should import ModuleClass from wildcard");
             assertTrue(importedNames.contains("module_function"), "Should import module_function from wildcard");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsForFunction() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class Foo:
+                            pass
+                        """,
+                        "pkg/foo.py")
+                .addFileContents(
+                        """
+                        from pkg.foo import Foo
+
+                        def use_foo():
+                            f = Foo()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var useFoo = analyzer.getDeclarations(consumerFile).stream()
+                    .filter(cu -> cu.identifier().equals("use_foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(useFoo))
+                    .orElse(Set.of());
+
+            assertTrue(relevantImports.contains("from pkg.foo import Foo"), "Should include Foo import");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsExcludesUnused() throws IOException {
+        var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
+                .addFileContents("class Bar: pass", "pkg/bar.py")
+                .addFileContents(
+                        """
+                        from pkg.foo import Foo
+                        from pkg.bar import Bar
+
+                        def use_only_foo():
+                            f = Foo()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var useOnlyFoo = analyzer.getDeclarations(consumerFile).stream()
+                    .filter(cu -> cu.identifier().equals("use_only_foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(useOnlyFoo))
+                    .orElse(Set.of());
+
+            assertTrue(relevantImports.contains("from pkg.foo import Foo"), "Should include Foo import");
+            assertFalse(relevantImports.contains("from pkg.bar import Bar"), "Should NOT include unused Bar import");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsWildcard() throws IOException {
+        var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
+                .addFileContents(
+                        """
+                        from pkg.foo import *
+
+                        def use_foo():
+                            f = Foo()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var useFoo = analyzer.getDeclarations(consumerFile).stream()
+                    .filter(cu -> cu.identifier().equals("use_foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(useFoo))
+                    .orElse(Set.of());
+
+            assertTrue(
+                    relevantImports.contains("from pkg.foo import *"), "Should include wildcard import providing Foo");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsForDirectFunctionImport() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        def my_function():
+                            pass
+                        def other_function():
+                            pass
+                        """,
+                        "pkg/utils.py")
+                .addFileContents(
+                        """
+                        from pkg.utils import my_function
+                        from pkg.utils import other_function
+
+                        def consumer():
+                            my_function()
+                        """,
+                        "main.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var mainFile = AnalyzerUtil.getFileFor(analyzer, "main").get();
+            var consumer = analyzer.getDeclarations(mainFile).stream()
+                    .filter(cu -> cu.identifier().equals("consumer"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(consumer))
+                    .orElse(Set.of());
+
+            assertTrue(
+                    relevantImports.contains("from pkg.utils import my_function"),
+                    "Should include used function import");
+            assertFalse(
+                    relevantImports.contains("from pkg.utils import other_function"),
+                    "Should exclude unused function import");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsForAliasedFunctionImport() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        def my_function():
+                            pass
+                        """,
+                        "pkg/utils.py")
+                .addFileContents(
+                        """
+                        from pkg.utils import my_function as mf
+
+                        def consumer():
+                            mf()
+                        """,
+                        "main.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var mainFile = AnalyzerUtil.getFileFor(analyzer, "main").get();
+            var consumer = analyzer.getDeclarations(mainFile).stream()
+                    .filter(cu -> cu.identifier().equals("consumer"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(consumer))
+                    .orElse(Set.of());
+
+            assertTrue(
+                    relevantImports.contains("from pkg.utils import my_function as mf"),
+                    "Should include used aliased function import");
         }
     }
 

@@ -5,8 +5,10 @@ import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.base.Splitter;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSParser;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
@@ -113,12 +116,21 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         cursor.exec(query, rootNode);
         TSQueryMatch match = new TSQueryMatch();
 
-        if (cursor.nextMatch(match)) {
+        while (cursor.nextMatch(match)) {
             for (TSQueryCapture capture : match.getCaptures()) {
                 if (CaptureNames.PACKAGE_DEFINITION.equals(query.getCaptureNameForId(capture.getIndex()))) {
-                    TSNode nameNode = capture.getNode();
-                    if (nameNode != null && !nameNode.isNull()) {
-                        return sourceContent.substringFrom(nameNode).trim();
+                    TSNode pkgNode = capture.getNode();
+                    if (pkgNode != null && !pkgNode.isNull()) {
+                        // In Go, the package identifier is often the node itself if it's a 'package_identifier'
+                        if (PACKAGE_IDENTIFIER.equals(pkgNode.getType())) {
+                            return sourceContent.substringFrom(pkgNode).trim();
+                        }
+                        // Fallback to 'name' field if the capture matched a parent node
+                        TSNode nameNode = pkgNode.getChildByFieldName("name");
+                        if (nameNode != null && !nameNode.isNull()) {
+                            return sourceContent.substringFrom(nameNode).trim();
+                        }
+                        return sourceContent.substringFrom(pkgNode).trim();
                     }
                 }
             }
@@ -423,6 +435,154 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> extractedIdentifiers = extractTypeIdentifiers(sourceOpt.get());
+        if (extractedIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        List<ImportInfo> imports = importInfoOf(cu.source());
+        if (imports.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> matchedImports = new LinkedHashSet<>();
+
+        for (ImportInfo info : imports) {
+            String identifier = info.identifier();
+            String alias = info.alias();
+
+            // Match by identifier (package name) or alias
+            if (identifier != null && extractedIdentifiers.contains(identifier)) {
+                matchedImports.add(info.rawSnippet());
+            } else if (alias != null && extractedIdentifiers.contains(alias)) {
+                matchedImports.add(info.rawSnippet());
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(GO_SYNTAX_PROFILE.importNodeType());
+        if (importNode == null || importNode.isNull()) {
+            return;
+        }
+
+        String fullSnippet = sourceContent.substringFrom(importNode).trim();
+        if (fullSnippet.isEmpty()) {
+            return;
+        }
+
+        // Go imports can be single: import "fmt"
+        // Or grouped: import ( "fmt"\n "os" )
+        // The import_declaration node in go.scm captures the whole block or single line.
+        // We need to create one ImportInfo per import path, each with its own line as rawSnippet.
+        String withoutComments = GO_COMMENT_PATTERN.matcher(fullSnippet).replaceAll("");
+
+        // Split into lines to handle grouped imports - each import path gets its own ImportInfo
+        for (String line : Splitter.on('\n').split(withoutComments)) {
+            String trimmedLine = line.trim();
+            if (trimmedLine.isEmpty()
+                    || trimmedLine.equals("import")
+                    || trimmedLine.equals("(")
+                    || trimmedLine.equals(")")) {
+                continue;
+            }
+
+            Matcher pathMatcher = IMPORT_PATH_PATTERN.matcher(trimmedLine);
+            if (!pathMatcher.find()) {
+                continue;
+            }
+
+            String path = pathMatcher.group(1) != null ? pathMatcher.group(1) : pathMatcher.group(2);
+            int pathStart = pathMatcher.start();
+
+            // Look for alias or blank import prefix in this line
+            String prefix = trimmedLine.substring(0, pathStart).trim();
+            if (prefix.startsWith("import")) {
+                prefix = prefix.substring("import".length()).trim();
+            }
+
+            String identifier;
+            String alias = null;
+
+            if ("_".equals(prefix)) {
+                identifier = "_"; // Blank import
+            } else if (".".equals(prefix)) {
+                identifier = "."; // Dot import
+            } else if (!prefix.isEmpty()) {
+                alias = prefix;
+                identifier = alias;
+            } else {
+                // Use simple heuristic during extractImports (last segment of path)
+                // Full resolution happens later in resolveImports when state is available
+                identifier = getPackageNameFromPath(path);
+            }
+
+            // Build a clean rawSnippet for this individual import.
+            // Even if it was part of a group, we return it as a standalone "import ..." statement
+            // so that relevantImportsFor can match it and fragments can prepend it.
+            String rawSnippet = "import " + (prefix.isEmpty() ? "" : prefix + " ") + "\"" + path + "\"";
+
+            localImportInfos.add(new ImportInfo(rawSnippet, false, identifier, alias));
+        }
+    }
+
+    /**
+     * Simple heuristic to get package name from import path.
+     * Returns the last segment of the path (after the last '/').
+     * This is used during extractImports when the analyzer state isn't ready yet.
+     */
+    private String getPackageNameFromPath(String importPath) {
+        int lastSlash = importPath.lastIndexOf('/');
+        if (lastSlash != -1 && lastSlash < importPath.length() - 1) {
+            return importPath.substring(lastSlash + 1);
+        }
+        return importPath;
+    }
+
+    /**
+     * Extracts type and package identifiers from Go source.
+     * <p>
+     * Trade-off: High Precision. We target {@code type_identifier} for internal types and
+     * {@code selector_expression} operands to identify imported package usage (e.g., 'fmt' in 'fmt.Println').
+     */
+    @Override
+    public Set<String> extractTypeIdentifiers(String source) {
+        TSParser parser = getTSParser();
+        TSTree tree = parser.parseString(null, source);
+        if (tree == null || tree.getRootNode().isNull()) {
+            return Collections.emptySet();
+        }
+
+        SourceContent sourceContent = SourceContent.of(source);
+        TSQuery query = new TSQuery(
+                getTSLanguage(), "[(type_identifier) @type (selector_expression operand: (identifier) @pkg)]");
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+
+        Set<String> identifiers = new HashSet<>();
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                TSNode node = capture.getNode();
+                if (node != null && !node.isNull()) {
+                    identifiers.add(sourceContent.substringFrom(node).trim());
+                }
+            }
+        }
+        return identifiers;
     }
 
     /**

@@ -3,36 +3,20 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSParser;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryException;
 import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJavascript;
 
-public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, JsLikeModuleResolver {
-
-    private final Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
-            Caffeine.newBuilder().maximumSize(10_000).build();
-
-    @Override
-    public Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
-        return moduleResolutionCache;
-    }
-
-    private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
-    private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
-    private static final Pattern CJS_REQUIRE_PATTERN = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
-
-    // JS_LANGUAGE field removed, createTSLanguage will provide new instances.
+public class JavascriptAnalyzer extends JsTsAnalyzer {
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
@@ -70,7 +54,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+    protected JavascriptAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
         return new JavascriptAnalyzer(getProject(), state, listener);
     }
 
@@ -158,17 +142,6 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     @Override
     protected boolean shouldMergeSignaturesForSameFqn() {
         return true;
-    }
-
-    @Override
-    protected SkeletonType getSkeletonTypeForCapture(String captureName) {
-        // The primaryCaptureName from the query is expected to be "class.definition"
-        // or "function.definition" for relevant skeleton-producing captures.
-        // The primaryCaptureName from the query is expected to be "class.definition"
-        // or "function.definition" for relevant skeleton-producing captures.
-        // This method is now implemented in the base class using captureConfiguration from LanguageSyntaxProfile.
-        // This override can be removed.
-        return super.getSkeletonTypeForCapture(captureName);
     }
 
     @Override
@@ -454,118 +427,157 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return JS_SYNTAX_PROFILE;
     }
 
-    public static void createModulesFromJavaScriptLikeImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
-        if (!localImportStatements.isEmpty()) {
-            // Use a consistent, unique short name for the module CU, based on filename.
-            // This ensures module CUs from different files have distinct fqNames.
-            String moduleShortName = file.getFileName();
-            CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
 
-            // Check if a module CU with this FQ name already exists
-            // or if this logic somehow runs twice for the same file.
-            if (!localCuByFqName.containsKey(moduleCU.fqName())) {
-                localTopLevelCUs.addFirst(moduleCU); // Add to the beginning for preferred order
-                localCuByFqName.put(moduleCU.fqName(), moduleCU);
-                // Join imports into a single multi-line signature string for the module CU
-                String importBlockSignature = String.join("\n", localImportStatements);
-                localSignatures
-                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(importBlockSignature);
-                // Add a general range for the module CU (e.g. entire file or first import to last)
-                // For simplicity, can use the range of the root node or skip detailed range for module CU.
-                // Here, we'll use the root node's range as a placeholder.
-                var moduleRange = new Range(
-                        rootNode.getStartByte(),
-                        rootNode.getEndByte(),
-                        rootNode.getStartPoint().getRow(),
-                        rootNode.getEndPoint().getRow(),
-                        rootNode.getStartByte()); // commentStartByte same as startByte for module
-                // Module CUs typically don't need comment expansion as they represent the whole file
-                localSourceRanges
-                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(moduleRange);
-                log.trace("Created MODULE CU for {} with {} import statements.", file, localImportStatements.size());
-            } else {
-                log.warn(
-                        "Module CU for {} with fqName {} already exists. Skipping duplicate module CU creation.",
-                        file,
-                        moduleCU.fqName());
+        // Enhance the last added ImportInfo with JS-specific identifier/alias extraction
+        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        if (importNode != null && !importNode.isNull() && !localImportInfos.isEmpty()) {
+            ImportInfo last = localImportInfos.getLast();
+            // Verify this is the info for the node we just processed via super
+            if (last.rawSnippet().equals(sourceContent.substringFrom(importNode))) {
+                List<String> identifiers = new ArrayList<>();
+                List<String> aliases = new ArrayList<>();
+                extractNamedImportIdentifiers(importNode, sourceContent, identifiers, aliases);
+
+                if (!identifiers.isEmpty() || !aliases.isEmpty()) {
+                    String firstId = identifiers.isEmpty() ? null : identifiers.getFirst();
+                    String firstAlias = aliases.isEmpty() ? null : aliases.getFirst();
+                    localImportInfos.set(
+                            localImportInfos.size() - 1,
+                            new ImportInfo(last.rawSnippet(), last.isWildcard(), firstId, firstAlias));
+                }
             }
         }
     }
 
-    @Override
-    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        return this.resolveImportsWithCache(this, file, importStatements);
-    }
+    /**
+     * Extracts identifiers and aliases from an import statement into the provided lists.
+     */
+    private void extractNamedImportIdentifiers(
+            TSNode importNode, SourceContent sourceContent, List<String> identifiers, List<String> aliases) {
+        // Query for:
+        // 1. Default imports: import Foo from ...
+        // 2. Named imports: import { Bar } from ...
+        // 3. Aliased imports: import { Baz as Quux } from ...
+        // 4. Namespace imports: import * as Telemetry from ...
+        String queryStr =
+                """
+            (import_clause (identifier) @import.id)
+            (import_specifier name: (identifier) @import.id)
+            (import_specifier alias: (identifier) @import.alias)
+            (namespace_import (identifier) @import.alias)
+            """;
 
-    public static Optional<String> extractModulePathFromImport(String importStatement) {
-        // Try ES6 pattern first (imports with 'from')
-        Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
-        if (es6Matcher.find()) {
-            return Optional.of(es6Matcher.group(1));
+        try {
+            TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(query, importNode);
+            TSQueryMatch match = new TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = query.getCaptureNameForId(capture.getIndex());
+                    TSNode node = capture.getNode();
+                    String text = sourceContent.substringFrom(node);
+
+                    if ("import.id".equals(captureName)) {
+                        identifiers.add(text);
+                    } else if ("import.alias".equals(captureName)) {
+                        aliases.add(text);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to parse named imports in JS", e);
         }
+    }
 
-        // Try ES6 side-effect imports (import './polyfill')
-        Matcher sideEffectMatcher = ES6_SIDE_EFFECT_IMPORT_PATTERN.matcher(importStatement);
-        if (sideEffectMatcher.find()) {
-            return Optional.of(sideEffectMatcher.group(1));
+    /**
+     * Extracts all identifiers (names and aliases) from an import statement string.
+     */
+    @Override
+    public Set<String> extractIdentifiersFromImport(String importStatement) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        try {
+            SourceContent sourceContent = SourceContent.of(importStatement);
+            TSTree tree = parser.parseString(null, importStatement);
+            TSNode rootNode = tree.getRootNode();
+
+            String queryStr =
+                    """
+                (import_clause (identifier) @import.id)
+                (import_specifier name: (identifier) @import.id)
+                (import_specifier alias: (identifier) @import.alias)
+                (namespace_import (identifier) @import.alias)
+                (variable_declarator name: (identifier) @import.id value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                (variable_declarator name: (object_pattern (shorthand_property_identifier_pattern) @import.id) value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                """;
+
+            TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(query, rootNode);
+            TSQueryMatch match = new TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = query.getCaptureNameForId(capture.getIndex());
+                    if (captureName.startsWith("import.")) {
+                        TSNode node = capture.getNode();
+                        identifiers.add(sourceContent.substringFrom(node));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse import statement: {}", importStatement, e);
         }
+        return identifiers;
+    }
 
-        // Try CommonJS pattern
-        Matcher cjsMatcher = CJS_REQUIRE_PATTERN.matcher(importStatement);
-        if (cjsMatcher.find()) {
-            return Optional.of(cjsMatcher.group(1));
+    /**
+     * Extracts identifiers and JSX tags from JavaScript source.
+     * <p>
+     * Trade-off: Precision. We capture standard identifiers and JSX-specific tags. While {@code identifier}
+     * can over-match local variables, it is necessary in JS to find the source of functions and constants
+     * imported via ES6 or CommonJS.
+     */
+    @Override
+    public Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        try {
+            SourceContent sourceContent = SourceContent.of(source);
+            TSTree tree = parser.parseString(null, source);
+            TSNode rootNode = tree.getRootNode();
+            TSLanguage jsLanguage = getTSLanguage();
+
+            // Query for standard identifiers and JSX tag names
+            String queryStr =
+                    """
+                (identifier) @id
+                (jsx_opening_element name: (identifier) @id)
+                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
+                (jsx_self_closing_element name: (identifier) @id)
+                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
+                """;
+
+            TSQuery query = new TSQuery(jsLanguage, queryStr);
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(query, rootNode);
+            TSQueryMatch match = new TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    identifiers.add(sourceContent.substringFrom(node));
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to extract type identifiers from JavaScript source", e);
         }
-
-        return Optional.empty();
-    }
-
-    @Override
-    protected void extractImports(
-            Map<String, TSNode> capturedNodesForMatch,
-            SourceContent sourceContent,
-            List<String> localImportStatements) {
-        super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
-        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
-    }
-
-    @Override
-    protected void createModulesFromImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
-        createModulesFromJavaScriptLikeImports(
-                file,
-                localImportStatements,
-                rootNode,
-                modulePackageName,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges);
-    }
-
-    @Override
-    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return performImportedCodeUnitsOf(file);
-    }
-
-    @Override
-    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return performReferencingFilesOf(file);
+        return identifiers;
     }
 }

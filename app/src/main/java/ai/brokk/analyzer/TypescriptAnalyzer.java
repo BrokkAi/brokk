@@ -3,12 +3,11 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -17,19 +16,11 @@ import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSParser;
 import org.treesitter.TreeSitterTypescript;
 
-public final class TypescriptAnalyzer extends TreeSitterAnalyzer
-        implements ImportAnalysisProvider, JsLikeModuleResolver {
+public final class TypescriptAnalyzer extends JsTsAnalyzer {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
-
-    private final Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
-            Caffeine.newBuilder().maximumSize(10_000).build();
-
-    @Override
-    public Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
-        return moduleResolutionCache;
-    }
 
     // Compiled regex patterns for memory efficiency
     private static final Pattern TRAILING_SEMICOLON = Pattern.compile(";\\s*$");
@@ -144,7 +135,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+    protected TypescriptAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
         return new TypescriptAnalyzer(getProject(), state, listener);
     }
 
@@ -1046,37 +1037,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
 
     @Override
     protected void extractImports(
-            Map<String, TSNode> capturedNodesForMatch,
-            SourceContent sourceContent,
-            List<String> localImportStatements) {
-        super.extractImports(capturedNodesForMatch, sourceContent, localImportStatements);
-        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportStatements);
-    }
-
-    @Override
-    protected void createModulesFromImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
-        JavascriptAnalyzer.createModulesFromJavaScriptLikeImports(
-                file,
-                localImportStatements,
-                rootNode,
-                modulePackageName,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges);
-    }
-
-    @Override
-    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        return this.resolveImportsWithCache(this, file, importStatements);
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        // Delegate to JsTsAnalyzer for ES6 and CommonJS require extraction
+        super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
     }
 
     @Override
@@ -1091,12 +1054,82 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
-    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return performImportedCodeUnitsOf(file);
+    public Set<String> extractIdentifiersFromImport(String importStatement) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        try {
+            SourceContent sourceContent = SourceContent.of(importStatement);
+            org.treesitter.TSTree tree = parser.parseString(null, importStatement);
+            TSNode rootNode = tree.getRootNode();
+
+            String queryStr =
+                    """
+                (import_clause (identifier) @import.id)
+                (import_specifier name: (identifier) @import.id)
+                (import_specifier alias: (identifier) @import.alias)
+                (namespace_import (identifier) @import.alias)
+                (variable_declarator name: (identifier) @import.id value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                (variable_declarator name: (object_pattern (shorthand_property_identifier_pattern) @import.id) value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                """;
+
+            org.treesitter.TSQuery query = new org.treesitter.TSQuery(getTSLanguage(), queryStr);
+            org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
+            cursor.exec(query, rootNode);
+            org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    identifiers.add(sourceContent.substringFrom(node));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse import statement: {}", importStatement, e);
+        }
+        return identifiers;
     }
 
+    /**
+     * Extracts type and value identifiers from TypeScript source.
+     * <p>
+     * Trade-off: High Precision for types. By specifically capturing {@code type_identifier} alongside
+     * standard identifiers and JSX tags, we ensure both type-only and value imports are correctly identified.
+     */
     @Override
-    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return performReferencingFilesOf(file);
+    public Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        try {
+            SourceContent sourceContent = SourceContent.of(source);
+            org.treesitter.TSTree tree = parser.parseString(null, source);
+            TSNode rootNode = tree.getRootNode();
+            TSLanguage tsLanguage = getTSLanguage();
+
+            // Query for standard identifiers and type identifiers
+            String queryStr =
+                    """
+                (identifier) @id
+                (type_identifier) @type
+                (jsx_opening_element name: (identifier) @id)
+                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
+                (jsx_self_closing_element name: (identifier) @id)
+                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
+                """;
+
+            org.treesitter.TSQuery query = new org.treesitter.TSQuery(tsLanguage, queryStr);
+            org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
+            cursor.exec(query, rootNode);
+            org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    identifiers.add(sourceContent.substringFrom(node));
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to extract type identifiers from TypeScript source", e);
+        }
+        return identifiers;
     }
 }

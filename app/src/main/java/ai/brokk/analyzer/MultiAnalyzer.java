@@ -109,6 +109,22 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
     }
 
     @Override
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
+        return delegateFor(file)
+                .flatMap(delegate -> delegate.as(ImportAnalysisProvider.class))
+                .map(provider -> provider.importInfoOf(file))
+                .orElse(List.of());
+    }
+
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        return delegateFor(cu)
+                .flatMap(delegate -> delegate.as(ImportAnalysisProvider.class))
+                .map(provider -> provider.relevantImportsFor(cu))
+                .orElse(Set.of());
+    }
+
+    @Override
     public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.enclosingCodeUnit(file, range).stream())

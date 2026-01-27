@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.GoAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -347,7 +349,6 @@ class GoImportTest {
 
     @Test
     void testGroupedImports() throws IOException {
-        // Tree-sitter Go grammar treats the entire import (...) block as one import_declaration
         String code =
                 """
                 package main
@@ -362,14 +363,9 @@ class GoImportTest {
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
         List<String> imports = analyzer.importStatementsOf(file);
-        assertEquals(1, imports.size());
-        assertEquals(
-                """
-                import (
-                    "fmt"
-                    "os"
-                )""",
-                imports.getFirst());
+        assertEquals(2, imports.size());
+        assertEquals("import \"fmt\"", imports.get(0));
+        assertEquals("import \"os\"", imports.get(1));
     }
 
     @Test
@@ -421,6 +417,121 @@ class GoImportTest {
     }
 
     @Test
+    void testRelevantImportsForFunction() throws IOException {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package fmt
+                func Println(a ...any) {}
+                """,
+                        "fmt/print.go")
+                .addFileContents(
+                        """
+                package main
+                import "fmt"
+                func main() { fmt.Println("hi") }
+                """,
+                        "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+        var mainFn = analyzer.getDeclarations(mainFile).stream()
+                .filter(cu -> cu.identifier().equals("main"))
+                .findFirst()
+                .orElseThrow();
+
+        Set<String> relevant = analyzer.as(ImportAnalysisProvider.class)
+                .map(p -> p.relevantImportsFor(mainFn))
+                .orElse(Set.of());
+
+        assertTrue(relevant.contains("import \"fmt\""), "Should include fmt import used in main");
+    }
+
+    @Test
+    void testRelevantImportsExcludesUnused() throws IOException {
+        IProject project = InlineTestProjectCreator.code("package fmt\nfunc Println() {}", "fmt/f.go")
+                .addFileContents("package os\nfunc Exit(i int) {}", "os/o.go")
+                .addFileContents(
+                        """
+                package main
+                import "fmt"
+                import "os"
+                func main() { fmt.Println() }
+                """,
+                        "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "main.go");
+        var mainFn = analyzer.getDeclarations(mainFile).stream()
+                .filter(cu -> cu.identifier().equals("main"))
+                .findFirst()
+                .orElseThrow();
+
+        Set<String> relevant = analyzer.as(ImportAnalysisProvider.class)
+                .map(p -> p.relevantImportsFor(mainFn))
+                .orElse(Set.of());
+
+        assertTrue(relevant.contains("import \"fmt\""), "Should include fmt import");
+        assertFalse(relevant.contains("import \"os\""), "Should NOT include unused os import");
+    }
+
+    @Test
+    void testBlankImportRawSnippetPreserved() throws IOException {
+        String code =
+                """
+                package main
+                import _ "image/png"
+                func main() {}
+                """;
+        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
+
+        List<ImportInfo> infos = analyzer.importInfoOf(file);
+        assertEquals(1, infos.size());
+        assertEquals("import _ \"image/png\"", infos.get(0).rawSnippet());
+        assertEquals("_", infos.get(0).identifier());
+    }
+
+    @Test
+    void testDotImportRawSnippetPreserved() throws IOException {
+        String code =
+                """
+                package main
+                import . "fmt"
+                func main() { Println("hello") }
+                """;
+        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
+
+        List<ImportInfo> infos = analyzer.importInfoOf(file);
+        assertEquals(1, infos.size());
+        assertEquals("import . \"fmt\"", infos.get(0).rawSnippet());
+        assertEquals(".", infos.get(0).identifier());
+    }
+
+    @Test
+    void testAliasedImportRawSnippetPreserved() throws IOException {
+        String code =
+                """
+                package main
+                import f "fmt"
+                func main() { f.Println("hello") }
+                """;
+        IProject project = InlineTestProjectCreator.code(code, "main.go").build();
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
+
+        List<ImportInfo> infos = analyzer.importInfoOf(file);
+        assertEquals(1, infos.size());
+        assertEquals("import f \"fmt\"", infos.get(0).rawSnippet());
+        assertEquals("f", infos.get(0).identifier());
+        assertEquals("f", infos.get(0).alias());
+    }
+
+    @Test
     void testMultipleImportDeclarations() throws IOException {
         String code =
                 """
@@ -437,12 +548,10 @@ class GoImportTest {
         ProjectFile file = new ProjectFile(project.getRoot(), "main.go");
 
         List<String> imports = analyzer.importStatementsOf(file);
+        // Expecting individual imports even from groups
         assertEquals(3, imports.size());
         assertEquals("import \"fmt\"", imports.get(0));
-        assertEquals("""
-                import (
-                    "os"
-                )""", imports.get(1));
+        assertEquals("import \"os\"", imports.get(1));
         assertEquals("import _ \"net/http\"", imports.get(2));
     }
 }

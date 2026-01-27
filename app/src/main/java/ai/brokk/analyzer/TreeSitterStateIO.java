@@ -215,6 +215,13 @@ public final class TreeSitterStateIO {
             @Nullable String signature) {}
 
     /**
+     * DTO for structured import information.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ImportInfoDto(
+            String rawSnippet, boolean isWildcard, @Nullable String identifier, @Nullable String alias) {}
+
+    /**
      * DTO for AnalyzerState with only serializable components.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -269,11 +276,11 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
-            List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, boolean containsTests) {
+            List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
         @JsonCreator
         public FilePropertiesDto(
                 @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
-                @JsonProperty("importStatements") List<String> importStatements,
+                @JsonProperty("importStatements") List<ImportInfoDto> importStatements,
                 @JsonProperty(value = "containsTests", required = true) boolean containsTests) {
             this.topLevelCodeUnits = topLevelCodeUnits;
             this.importStatements = importStatements;
@@ -430,7 +437,11 @@ public final class TreeSitterStateIO {
                     new ArrayList<CodeUnitDto>(fileProps.topLevelCodeUnits().size());
             for (var cu : fileProps.topLevelCodeUnits()) topLevelDtos.add(toDto(cu));
 
-            var fpDto = new FilePropertiesDto(topLevelDtos, fileProps.importStatements(), fileProps.containsTests());
+            var importDtos = fileProps.importStatements().stream()
+                    .map(TreeSitterStateIO::toDto)
+                    .toList();
+
+            var fpDto = new FilePropertiesDto(topLevelDtos, importDtos, fileProps.containsTests());
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
         }
 
@@ -545,10 +556,14 @@ public final class TreeSitterStateIO {
             var topLevel = new ArrayList<CodeUnit>(v.topLevelCodeUnits().size());
             for (var cuDto : v.topLevelCodeUnits()) topLevel.add(fromDto(cuDto));
 
+            var imports = v.importStatements().stream()
+                    .map(TreeSitterStateIO::fromDto)
+                    .toList();
+
             var fp = new TreeSitterAnalyzer.FileProperties(
                     topLevel,
                     null, // parsedTree intentionally omitted
-                    v.importStatements(),
+                    imports,
                     v.containsTests());
             fileStateMap.put(fromDto(entry.key()), fp);
         }
@@ -663,6 +678,14 @@ public final class TreeSitterStateIO {
             relStr = rel.toString();
         }
         return new ProjectFileDto(root.toString(), relStr);
+    }
+
+    private static ImportInfoDto toDto(ImportInfo info) {
+        return new ImportInfoDto(info.rawSnippet(), info.isWildcard(), info.identifier(), info.alias());
+    }
+
+    private static ImportInfo fromDto(ImportInfoDto dto) {
+        return new ImportInfo(dto.rawSnippet(), dto.isWildcard(), dto.identifier(), dto.alias());
     }
 
     private static ProjectFile fromDto(ProjectFileDto dto) {

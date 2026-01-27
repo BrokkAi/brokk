@@ -475,6 +475,53 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         return matcher.find();
     }
 
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        if (importNode != null && !importNode.isNull()) {
+            String importText = sourceContent.substringFrom(importNode).strip();
+            if (!importText.isEmpty()) {
+                localImportInfos.add(parseJavaImport(importText));
+            }
+        }
+    }
+
+    /**
+     * Parses a Java import statement into structured ImportInfo.
+     * Detects wildcard imports and extracts simple identifiers for non-wildcards.
+     */
+    private ImportInfo parseJavaImport(String rawSnippet) {
+        // Determine if it's a wildcard import
+        boolean isWildcard = rawSnippet.contains(".*");
+
+        // Extract identifier for non-wildcard imports
+        String identifier = null;
+        if (!isWildcard) {
+            // Remove "import " prefix and ";" suffix, handle static imports
+            String normalized = rawSnippet.strip();
+            if (normalized.startsWith("import ")) {
+                normalized = normalized.substring("import ".length());
+            }
+            if (normalized.startsWith("static ")) {
+                normalized = normalized.substring("static ".length());
+            }
+            if (normalized.endsWith(";")) {
+                normalized = normalized.substring(0, normalized.length() - 1).strip();
+            }
+            // Extract the simple name (last segment after the last dot)
+            int lastDot = normalized.lastIndexOf('.');
+            if (lastDot >= 0 && lastDot < normalized.length() - 1) {
+                identifier = normalized.substring(lastDot + 1);
+            } else {
+                identifier = normalized;
+            }
+        }
+
+        // Java doesn't have import aliases
+        return new ImportInfo(rawSnippet, isWildcard, identifier, null);
+    }
+
     /**
      * Resolves import statements into a set of {@link CodeUnit}s, respecting Java's import precedence rules.
      * Explicit imports (e.g., {@code import com.example.MyClass;}) take priority over wildcard imports
@@ -489,32 +536,42 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         Set<CodeUnit> explicitImports = new LinkedHashSet<>();
         List<String> wildcardImportPackages = new ArrayList<>();
 
-        // 1. First pass: parse all import statements, separating explicit from wildcard.
-        for (String importLine : importStatements) {
-            if (importLine.isBlank()) continue;
-
-            String normalized = importLine.strip();
-            if (!normalized.startsWith("import ") || normalized.startsWith("import static ")) {
+        // 1. First pass: use structured ImportInfo to separate explicit from wildcard.
+        // Static imports are excluded by checking the raw snippet or lack of identifier/wildcard status.
+        for (ImportInfo info : importInfoOf(file)) {
+            if (info.rawSnippet().startsWith("import static ")) {
                 continue;
             }
 
-            if (normalized.endsWith(";")) {
-                normalized = normalized.substring(0, normalized.length() - 1).trim();
-            }
-            normalized = normalized.substring("import ".length()).trim();
-
-            if (normalized.endsWith(".*")) {
-                String packageName =
-                        normalized.substring(0, normalized.length() - 2).trim();
+            if (info.isWildcard()) {
+                String snippet = info.rawSnippet().strip();
+                if (snippet.endsWith(";")) {
+                    snippet = snippet.substring(0, snippet.length() - 1).strip();
+                }
+                if (snippet.startsWith("import ")) {
+                    snippet = snippet.substring("import ".length()).strip();
+                }
+                String packageName = snippet.endsWith(".*") ? snippet.substring(0, snippet.length() - 2) : snippet;
                 if (!packageName.isEmpty()) {
                     wildcardImportPackages.add(packageName);
                 }
-            } else if (!normalized.isEmpty()) {
-                // Explicit import: find the exact class and add it.
-                getDefinitions(normalized).stream()
-                        .filter(CodeUnit::isClass)
-                        .findFirst()
-                        .ifPresent(explicitImports::add);
+            } else {
+                String identifier = info.identifier();
+                if (identifier != null) {
+                    // Extract the FQN from the raw snippet for definition lookup
+                    String snippet = info.rawSnippet().strip();
+                    if (snippet.endsWith(";")) {
+                        snippet = snippet.substring(0, snippet.length() - 1).strip();
+                    }
+                    if (snippet.startsWith("import ")) {
+                        snippet = snippet.substring("import ".length()).strip();
+                    }
+                    // Explicit import: find the exact class and add it.
+                    getDefinitions(snippet).stream()
+                            .filter(CodeUnit::isClass)
+                            .findFirst()
+                            .ifPresent(explicitImports::add);
+                }
             }
         }
 
@@ -634,6 +691,171 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         // Always record the module's children (even if empty) so callers can distinguish
         // "known module with no children" from "no relationship recorded".
         localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
+    }
+
+    /**
+     * Extracts type identifiers using Tree-Sitter.
+     * <p>
+     * Trade-off: High Precision. By targeting only {@code type_identifier} nodes, we minimize false positives
+     * from local variables or method names, ensuring that only relevant type-related imports are pulled in.
+     */
+    @Override
+    public Set<String> extractTypeIdentifiers(String source) {
+        try {
+            TSTree tree = getTSParser().parseString(null, source);
+            TSNode root = tree.getRootNode();
+            if (root.isNull()) {
+                return Set.of();
+            }
+
+            org.treesitter.TSQuery identifierQuery =
+                    new org.treesitter.TSQuery(getTSLanguage(), "[(type_identifier) (scoped_type_identifier)] @type");
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(identifierQuery, root);
+
+            SourceContent sourceContent = SourceContent.of(source);
+            Set<String> identifiers = new HashSet<>();
+            TSQueryMatch match = new TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    if (node != null && !node.isNull()) {
+                        String text = sourceContent.substringFrom(node);
+                        if (!text.isEmpty()) {
+                            identifiers.add(text);
+                        }
+                    }
+                }
+            }
+            return identifiers;
+        } catch (Exception e) {
+            log.warn("Failed to extract type identifiers using Tree-Sitter query", e);
+            return Set.of();
+        }
+    }
+
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        // Get the source text for this CodeUnit
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+        String source = sourceOpt.get();
+
+        // Get all imports for the file
+        List<ImportInfo> allImports = importInfoOf(cu.source());
+        if (allImports.isEmpty()) {
+            return Set.of();
+        }
+
+        // Extract type identifiers from source
+        Set<String> typeIdentifiers = extractTypeIdentifiers(source);
+        if (typeIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        // Separate explicit imports from wildcard imports
+        List<ImportInfo> explicitImports = allImports.stream()
+                .filter(imp -> !imp.isWildcard() && imp.identifier() != null)
+                .toList();
+        List<ImportInfo> wildcardImports =
+                allImports.stream().filter(ImportInfo::isWildcard).toList();
+
+        // Match type identifiers against explicit imports
+        Set<String> matchedImports = new HashSet<>();
+        Set<String> resolvedIdentifiers = new HashSet<>();
+
+        for (ImportInfo imp : explicitImports) {
+            String identifier = imp.identifier();
+            if (identifier != null && typeIdentifiers.contains(identifier)) {
+                matchedImports.add(imp.rawSnippet());
+                resolvedIdentifiers.add(identifier);
+            }
+        }
+
+        // Collect identifiers still unresolved after explicit import matching
+        Set<String> unresolvedIdentifiers = typeIdentifiers.stream()
+                .filter(id -> !resolvedIdentifiers.contains(id))
+                .collect(Collectors.toCollection(HashSet::new));
+
+        if (unresolvedIdentifiers.isEmpty()) {
+            return Collections.unmodifiableSet(matchedImports);
+        }
+
+        // Handle qualified types (e.g. java.util.List). If they don't match any import's package,
+        // assume they are fully qualified and already resolved.
+        Set<String> qualifiedNames =
+                unresolvedIdentifiers.stream().filter(id -> id.contains(".")).collect(Collectors.toSet());
+
+        Set<String> importPackages = allImports.stream()
+                .map(i -> extractPackageFromWildcard(i.rawSnippet()))
+                .filter(p -> !p.isEmpty())
+                .collect(Collectors.toSet());
+
+        for (String qn : qualifiedNames) {
+            boolean matchesImport = false;
+            for (String pkg : importPackages) {
+                if (qn.startsWith(pkg + ".")) {
+                    matchesImport = true;
+                    break;
+                }
+            }
+            // If it doesn't match any import prefix, treat as already resolved
+            if (!matchesImport) {
+                unresolvedIdentifiers.remove(qn);
+            }
+        }
+
+        if (unresolvedIdentifiers.isEmpty()) {
+            return Collections.unmodifiableSet(matchedImports);
+        }
+
+        Set<String> resolvedViaWildcard = new HashSet<>();
+
+        // Match unresolved identifiers against wildcard imports using known project symbols
+        for (String id : unresolvedIdentifiers) {
+            for (ImportInfo wildcardImp : wildcardImports) {
+                String pkg = extractPackageFromWildcard(wildcardImp.rawSnippet());
+
+                if (!pkg.isEmpty()) {
+                    String lookupName = pkg + "." + id;
+                    if (!getDefinitions(lookupName).isEmpty()) {
+                        matchedImports.add(wildcardImp.rawSnippet());
+                        resolvedViaWildcard.add(id);
+                    }
+                }
+            }
+        }
+
+        // After checking all wildcards, if any identifiers are still unresolved
+        // (not in explicit imports AND not resolved via wildcards to known types),
+        // include ALL remaining wildcards as a conservative fallback for external dependencies.
+        boolean stillUnresolved = unresolvedIdentifiers.stream()
+                .filter(id -> !resolvedViaWildcard.contains(id))
+                // Only simple names (no dots) trigger the conservative wildcard fallback
+                .anyMatch(id -> !id.contains("."));
+
+        if (stillUnresolved) {
+            for (ImportInfo wildcardImp : wildcardImports) {
+                matchedImports.add(wildcardImp.rawSnippet());
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    @Override
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        // e.g., "import internal.*;" -> "internal"
+        // e.g., "import static org.junit.Assert.*;" -> "org.junit.Assert"
+        return rawSnippet
+                .replaceFirst("^import\\s+", "")
+                .replaceFirst("^static\\s+", "")
+                .replaceFirst("\\.\\*;$", "")
+                .replaceFirst(";$", "")
+                .trim();
     }
 
     @Override

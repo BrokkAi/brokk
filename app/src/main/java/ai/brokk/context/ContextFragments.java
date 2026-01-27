@@ -11,6 +11,7 @@ import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
@@ -36,6 +37,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -1404,35 +1406,37 @@ public class ContextFragments {
 
         private static ContentSnapshot computeSnapshotFor(
                 String fqName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
-            CodeUnit unit = preResolvedUnit;
-            if (unit == null) {
+            CodeUnit unitOrNull = preResolvedUnit;
+            if (unitOrNull == null) {
                 var unitOpt = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
                         .findFirst();
                 if (unitOpt.isEmpty()) {
                     return new ContentSnapshot("", Set.of(), Set.of(), (byte[]) null, false);
                 }
-                unit = unitOpt.get();
+                unitOrNull = unitOpt.get();
             }
 
+            final CodeUnit unit = unitOrNull;
             String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
             boolean hasSourceCode = false;
-            if (unit.isFunction()) {
-                var codeOpt = analyzer.getSource(unit, true);
-                if (codeOpt.isPresent()) {
-                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                    hasSourceCode = true;
-                } else {
-                    text = "No source found for method: " + fqName;
+
+            var codeOpt = analyzer.getSource(unit, true);
+            if (codeOpt.isPresent()) {
+                text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                hasSourceCode = true;
+
+                Collection<String> imports = analyzer.as(ImportAnalysisProvider.class)
+                        .map(p -> (Collection<String>) p.relevantImportsFor(unit))
+                        .orElseGet(() -> analyzer.importStatementsOf(unit.source()));
+
+                if (!imports.isEmpty()) {
+                    List<String> orderedImports = new ArrayList<>(imports);
+                    Collections.sort(orderedImports);
+                    text = "<imports>\n" + String.join("\n", orderedImports) + "\n</imports>\n\n" + text;
                 }
             } else {
-                var codeOpt = analyzer.getSource(unit, true);
-                if (codeOpt.isPresent()) {
-                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                    hasSourceCode = true;
-                } else {
-                    text = "No source found for class: " + fqName;
-                }
+                text = "No source found for %s: %s".formatted(unit.isFunction() ? "method" : "class", fqName);
             }
 
             return new ContentSnapshot(text, Set.of(unit), Set.of(unit.source()), (List<Byte>) null, hasSourceCode);

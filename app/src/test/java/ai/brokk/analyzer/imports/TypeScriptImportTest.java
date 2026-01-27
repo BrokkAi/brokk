@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.TypescriptAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.HashSet;
@@ -393,6 +394,123 @@ public class TypeScriptImportTest {
 
             assertTrue(foundFromFile, "Should resolve from util-dir.ts");
             assertFalse(foundFromIndex, "Should NOT resolve from util-dir/index.ts when explicit file exists");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsForFunction() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import { Foo } from './foo';
+                import { Bar } from './bar';
+
+                export function useFoo(): Foo {
+                    return new Foo();
+                }
+                """,
+                        "main.ts")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var useFoo = analyzer.searchDefinitions("useFoo").iterator().next();
+
+            Set<String> relevant =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(useFoo);
+
+            assertTrue(relevant.contains("import { Foo } from './foo';"), "Should include Foo import");
+            assertFalse(relevant.contains("import { Bar } from './bar';"), "Should exclude unused Bar import");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsExcludesUnused() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import { Used } from './used';
+                import { Unused } from './unused';
+
+                export function doWork(): void {
+                    Used.process();
+                }
+                """,
+                        "work.ts")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var doWork = analyzer.searchDefinitions("doWork").iterator().next();
+
+            Set<String> relevant =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().relevantImportsFor(doWork);
+
+            assertEquals(1, relevant.size());
+            assertTrue(relevant.contains("import { Used } from './used';"));
+        }
+    }
+
+    @Test
+    public void testExtractTypeIdentifiers() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import { Foo } from './models';
+                function process(input: Foo): void {
+                    console.log(input);
+                }
+                """,
+                        "test.ts")
+                .build()) {
+            var analyzer = (TypescriptAnalyzer) createTreeSitterAnalyzer(testProject);
+            String source =
+                    """
+                function process(input: Foo): void {
+                    console.log(input);
+                }
+                """;
+            Set<String> identifiers = analyzer.extractTypeIdentifiers(source);
+
+            assertTrue(identifiers.contains("Foo"), "Should contain Foo from type annotation");
+            assertTrue(identifiers.contains("input"), "Should contain parameter name input");
+            assertTrue(identifiers.contains("process"), "Should contain function name process");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsForRequire() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                const fs = require('fs');
+                const { readFile } = require('fs');
+                const path = require('path');
+
+                export function readConfig(): void {
+                    fs.readFileSync('config.json');
+                    readFile('other.json', () => {});
+                }
+
+                export function unusedFunction(): number {
+                    return 1;
+                }
+                """,
+                        "app.ts")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var provider = analyzer.as(ImportAnalysisProvider.class).orElseThrow();
+
+            // Test 1: Function using fs and readFile
+            var readConfig = analyzer.searchDefinitions("readConfig").iterator().next();
+            Set<String> relevantRead = provider.relevantImportsFor(readConfig);
+            assertTrue(
+                    relevantRead.stream().anyMatch(s -> s.contains("const fs = require('fs')")),
+                    "Should include fs require");
+            assertTrue(
+                    relevantRead.stream().anyMatch(s -> s.contains("const { readFile } = require('fs')")),
+                    "Should include readFile require");
+            assertFalse(
+                    relevantRead.stream().anyMatch(s -> s.contains("const path = require('path')")),
+                    "Should exclude unused path require");
+
+            // Test 2: Function NOT using fs
+            var unusedFn =
+                    analyzer.searchDefinitions("unusedFunction").iterator().next();
+            Set<String> relevantUnused = provider.relevantImportsFor(unusedFn);
+            assertTrue(relevantUnused.isEmpty(), "Should exclude all requires for unused function");
         }
     }
 }
