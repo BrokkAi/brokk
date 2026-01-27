@@ -9,8 +9,10 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -55,12 +57,21 @@ public class UsageResultsExplorer extends BaseThemedDialog {
 
         ObjectMapper mapper = new ObjectMapper();
         this.summary = mapper.readValue(resultsDir.resolve("summary.json").toFile(), EvalResults.class);
-        this.truePositives =
-                mapper.readValue(resultsDir.resolve("true-positives.json").toFile(), DetailedResults.class);
-        this.falsePositives =
-                mapper.readValue(resultsDir.resolve("false-positives.json").toFile(), DetailedResults.class);
-        this.falseNegatives =
-                mapper.readValue(resultsDir.resolve("false-negatives.json").toFile(), DetailedResults.class);
+
+        List<CodeUnitDetail> allTruePositives = new ArrayList<>();
+        List<CodeUnitDetail> allFalsePositives = new ArrayList<>();
+        List<CodeUnitDetail> allFalseNegatives = new ArrayList<>();
+
+        for (ProjectResult project : summary.projects()) {
+            Path projectDir = resultsDir.resolve(project.language()).resolve(project.project());
+            if (Files.isDirectory(projectDir)) {
+                mergeProjectResults(projectDir, mapper, allTruePositives, allFalsePositives, allFalseNegatives);
+            }
+        }
+
+        this.truePositives = new DetailedResults(allTruePositives);
+        this.falsePositives = new DetailedResults(allFalsePositives);
+        this.falseNegatives = new DetailedResults(allFalseNegatives);
 
         this.tpTree = createTree(truePositives);
         this.fpTree = createTree(falsePositives);
@@ -71,6 +82,30 @@ public class UsageResultsExplorer extends BaseThemedDialog {
 
         initializeUI();
         setupSelectionListeners();
+    }
+
+    private void mergeProjectResults(
+            Path projectDir,
+            ObjectMapper mapper,
+            List<CodeUnitDetail> allTP,
+            List<CodeUnitDetail> allFP,
+            List<CodeUnitDetail> allFN) {
+        try {
+            Path tpFile = projectDir.resolve("true-positives.json");
+            if (Files.exists(tpFile)) {
+                allTP.addAll(mapper.readValue(tpFile.toFile(), DetailedResults.class).codeUnits());
+            }
+            Path fpFile = projectDir.resolve("false-positives.json");
+            if (Files.exists(fpFile)) {
+                allFP.addAll(mapper.readValue(fpFile.toFile(), DetailedResults.class).codeUnits());
+            }
+            Path fnFile = projectDir.resolve("false-negatives.json");
+            if (Files.exists(fnFile)) {
+                allFN.addAll(mapper.readValue(fnFile.toFile(), DetailedResults.class).codeUnits());
+            }
+        } catch (Exception e) {
+            System.err.println("Warning: Failed to read results from " + projectDir + ": " + e.getMessage());
+        }
     }
 
     private void initializeUI() {
