@@ -2747,7 +2747,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
         // otherwise we leave them empty
         var mp = project.getMainProject();
-        if (mp.loadBuildDetails().equals(BuildDetails.EMPTY)) {
+        if (mp.loadBuildDetails().isEmpty()) {
             mp.setBuildDetails(buildDetails);
         }
 

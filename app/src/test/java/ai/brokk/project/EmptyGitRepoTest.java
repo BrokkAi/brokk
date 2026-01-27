@@ -2,6 +2,7 @@ package ai.brokk.project;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import java.nio.file.Files;
@@ -42,6 +43,7 @@ class EmptyGitRepoTest {
         Files.writeString(tempDir.resolve("app.py"), "print('hello')");
 
         project = new MainProject(tempDir);
+        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
         Set<ProjectFile> allFiles = project.getAllFiles();
 
         // Verify we have at least the expected files (allows for filtering variations)
@@ -68,6 +70,7 @@ class EmptyGitRepoTest {
         }
 
         project = new MainProject(tempDir);
+        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
         Set<ProjectFile> allFiles = project.getAllFiles();
 
         // Verify presence rather than exact count (Git tracking = staged/committed files)
@@ -96,6 +99,7 @@ class EmptyGitRepoTest {
         }
 
         project = new MainProject(tempDir);
+        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
         Set<ProjectFile> allFiles = project.getAllFiles();
 
         // Verify presence rather than exact count (Git tracking includes committed files)
@@ -122,6 +126,7 @@ class EmptyGitRepoTest {
         }
 
         project = new MainProject(tempDir);
+        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
 
         // First call should use filesystem fallback
         Set<ProjectFile> filesBeforeStaging = project.getAllFiles();
@@ -160,6 +165,7 @@ class EmptyGitRepoTest {
         }
 
         project = new MainProject(tempDir);
+        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
         Set<ProjectFile> allFiles = project.getAllFiles();
 
         assertEquals(0, allFiles.size(), "Empty Git repo with no files should return empty set");
@@ -180,6 +186,7 @@ class EmptyGitRepoTest {
         }
 
         project = new MainProject(tempDir);
+        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
         Set<ProjectFile> allFiles = project.getAllFiles();
 
         // .gitignore filtering should apply to fallback files too
@@ -194,6 +201,7 @@ class EmptyGitRepoTest {
         Files.writeString(tempDir.resolve("Main.java"), "public class Main {}");
 
         project = new MainProject(tempDir);
+        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
         Set<ProjectFile> allFiles = project.getAllFiles();
 
         assertTrue(allFiles.size() >= 1, "Should find at least Main.java");
