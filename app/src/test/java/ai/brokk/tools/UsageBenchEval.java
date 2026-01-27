@@ -1,8 +1,6 @@
 package ai.brokk.tools;
 
-import ai.brokk.AbstractService;
-import ai.brokk.OfflineService;
-import ai.brokk.Service;
+import ai.brokk.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -12,6 +10,7 @@ import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.project.IProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.UsageBenchTypes.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -281,7 +280,12 @@ public class UsageBenchEval implements Callable<Integer> {
             throws InterruptedException {
         IAnalyzer analyzer = language.createAnalyzer(project);
         AbstractService service = online ? new Service(project) : new OfflineService(project);
-        FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, service, null);
+        var cm = new ContextManager(project);
+        var model = service.getModel(ModelProperties.ModelType.USAGES);
+        var llm = online
+                ? new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false)
+                : null;
+        FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, service, llm);
 
         String projectName = project.getRoot().getFileName().toString();
         String projectPath = project.getRoot().toAbsolutePath().toString();
