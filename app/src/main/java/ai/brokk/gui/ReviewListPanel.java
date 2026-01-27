@@ -35,6 +35,7 @@ import org.jspecify.annotations.NullMarked;
 public class ReviewListPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(ReviewListPanel.class);
 
+    private final JPanel headerContainer;
     private final JPanel contentPanel;
     private final JPanel stalenessPanel;
     private final JLabel stalenessLabel;
@@ -43,6 +44,10 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
     public ReviewListPanel(Runnable triggerCallback, Consumer<Object> onItemSelected) {
         this.onItemSelected = onItemSelected;
         setLayout(new BorderLayout());
+
+        headerContainer = new JPanel();
+        headerContainer.setLayout(new BoxLayout(headerContainer, BoxLayout.Y_AXIS));
+        headerContainer.setOpaque(false);
 
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
@@ -61,8 +66,15 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
 
-        add(stalenessPanel, BorderLayout.NORTH);
+        headerContainer.add(stalenessPanel);
+
+        add(headerContainer, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
+    }
+
+    public void addHeaderControl(Component component) {
+        headerContainer.add(component, 0); // Add at the very top
+        headerContainer.revalidate();
     }
 
     public void setStalenessNotice(@Nullable String message) {

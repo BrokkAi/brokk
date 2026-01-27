@@ -285,22 +285,25 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         diffWithToolbar.add(diffToolbar, BorderLayout.NORTH);
         diffWithToolbar.add(diffContainer, BorderLayout.CENTER);
 
-        this.codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
-        this.fileTreePanel =
-                new FileTreePanel(List.of(), contextManager.getProject().getRoot());
-
         var reviewActionPanel = new JPanel(new BorderLayout(5, 0));
         reviewActionPanel.setOpaque(false);
+        reviewActionPanel.setBorder(new EmptyBorder(0, 0, 5, 0));
         reviewActionPanel.add(guidedReviewBtn, BorderLayout.CENTER);
         reviewActionPanel.add(reviewModeToggle, BorderLayout.EAST);
 
-        var leftContentPanel = new JPanel(new BorderLayout(0, 5));
-        leftContentPanel.setOpaque(false);
-        leftContentPanel.add(reviewActionPanel, BorderLayout.NORTH);
-        leftContentPanel.add(fileTreePanel, BorderLayout.CENTER);
+        this.codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
+        this.codeReviewPanel.addHeaderControl(reviewActionPanel);
 
-        // leftSplitPane starts with commitsTable in PREVIEW mode
-        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitsTable, leftContentPanel);
+        this.fileTreePanel =
+                new FileTreePanel(List.of(), contextManager.getProject().getRoot());
+
+        var leftHeaderPanel = new JPanel(new BorderLayout());
+        leftHeaderPanel.setOpaque(false);
+        leftHeaderPanel.add(reviewActionPanel, BorderLayout.NORTH);
+        leftHeaderPanel.add(commitsTable, BorderLayout.CENTER);
+
+        // leftSplitPane starts with leftHeaderPanel in PREVIEW mode
+        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftHeaderPanel, fileTreePanel);
         this.leftSplitPane.setResizeWeight(0.4);
 
         // Right side: ReviewDetailPanel above diff view (only shown in REVIEW mode)
@@ -1060,9 +1063,17 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         SwingUtil.runOnEdt(() -> {
             boolean isReview = (mode == PanelMode.REVIEW);
 
-            // Left: commits table in PREVIEW, review list in REVIEW
-            Component leftTopComponent = isReview ? codeReviewPanel.getListPanel() : commitsTable;
-            leftSplitPane.setTopComponent(leftTopComponent);
+            // Left: commits table in PREVIEW, review list in REVIEW. 
+            // Both are now wrapped in their respective containers that hold the Guided Review action panel.
+            if (isReview) {
+                leftSplitPane.setTopComponent(codeReviewPanel.getListPanel());
+            } else {
+                // Find the container that holds the commitsTable
+                Component top = leftSplitPane.getTopComponent();
+                if (top instanceof JPanel p && p.getLayout() instanceof BorderLayout) {
+                    p.add(commitsTable, BorderLayout.CENTER);
+                }
+            }
             leftSplitPane.setDividerSize(defaultSplitPaneDividerSize());
             leftSplitPane.setResizeWeight(0.4);
 
