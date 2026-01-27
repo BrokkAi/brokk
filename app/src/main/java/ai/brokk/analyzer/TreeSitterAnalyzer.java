@@ -168,7 +168,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         private final ConcurrentHashMap<ProjectFile, Set<CodeUnit>> forwardCache = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<ProjectFile, Set<ProjectFile>> reverseCache = new ConcurrentHashMap<>();
         private final ThreadLocal<Set<ProjectFile>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
-        private volatile boolean isReversePopulated = false;
 
         @Nullable
         Set<CodeUnit> getImportedCodeUnits(ProjectFile file) {
@@ -941,19 +940,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return persisted;
         }
 
-        // 3. If not cached, we need to ensure all forward imports are resolved to populate the reverse cache
-        if (!lazyImports.isReversePopulated) {
-            synchronized (lazyImports) {
-                if (!lazyImports.isReversePopulated) {
-                    for (ProjectFile f : this.state.fileState().keySet()) {
-                        // Calling importedCodeUnitsOf ensures forward imports are computed and cached,
-                        // which also populates lazyImports.reverseCache.
-                        performImportedCodeUnitsOf(f);
-                    }
-                    lazyImports.isReversePopulated = true;
-                }
-            }
+        // 3. Phase 1: Filter candidates using cheap text-based matching
+        List<ProjectFile> allFiles = List.copyOf(this.state.fileState().keySet());
+        int totalFiles = allFiles.size();
+        notifyProgressListener(0, totalFiles, "filtering import candidates");
+
+        var filterReporter = new DebouncedProgressReporter(totalFiles, "filtering import candidates", 100);
+        List<ProjectFile> candidates = allFiles.stream()
+                .filter(f -> {
+                    boolean matches = couldImportFile(f, fileProperties(f).importStatements(), file);
+                    filterReporter.increment();
+                    return matches;
+                })
+                .toList();
+        filterReporter.reportFinal();
+
+        // 4. Phase 2: Resolve imports for candidates to populate reverse cache
+        int totalCandidates = candidates.size();
+        var resolveReporter = new DebouncedProgressReporter(totalCandidates, "resolving candidate imports", 100);
+        for (ProjectFile f : candidates) {
+            // Calling performImportedCodeUnitsOf ensures forward imports are computed and cached,
+            // which also populates lazyImports.reverseCache.
+            performImportedCodeUnitsOf(f);
+            resolveReporter.increment();
         }
+        resolveReporter.reportFinal();
 
         return lazyImports.getReferencingFiles(file) != null
                 ? Objects.requireNonNull(lazyImports.getReferencingFiles(file))
