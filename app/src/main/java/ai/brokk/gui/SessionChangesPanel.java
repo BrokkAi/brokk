@@ -1235,6 +1235,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         if (choice == 0) {
+            commitsTable.clearSelection();
             startReviewAllChanges();
         } else {
             handleCommitRangeReview();
