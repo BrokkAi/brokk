@@ -173,7 +173,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     @Override
-    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         for (ImportInfo imp : imports) {
             Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
             if (modulePathOpt.isEmpty()) {

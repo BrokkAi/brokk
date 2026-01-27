@@ -1085,7 +1085,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         PythonModuleInfo targetModule = resolveModuleInfo(target);
         String targetFqn = targetModule.moduleQualifiedPackage();
 

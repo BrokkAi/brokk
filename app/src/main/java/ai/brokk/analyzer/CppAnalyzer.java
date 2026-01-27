@@ -443,7 +443,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     @Override
-    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         if (imports.isEmpty()) {
             return false;
         }

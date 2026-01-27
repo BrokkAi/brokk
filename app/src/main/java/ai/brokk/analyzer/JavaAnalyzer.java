@@ -847,7 +847,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         // Determine target package from its top-level declarations
         List<CodeUnit> targetTopLevels = getTopLevelDeclarations(target);
         String targetPackage = targetTopLevels.stream()
@@ -855,22 +855,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 .map(CodeUnit::packageName)
                 .findFirst()
                 .orElse("");
-
-        // Same-package detection: find the source file by matching imports, then check packages.
-        // In Java, files in the same package can reference each other without explicit imports.
-        for (ProjectFile sourceFile : getProject().getAnalyzableFiles(Languages.JAVA)) {
-            if (importInfoOf(sourceFile).equals(imports)) {
-                String sourcePackage = getTopLevelDeclarations(sourceFile).stream()
-                        .filter(CodeUnit::isClass)
-                        .map(CodeUnit::packageName)
-                        .findFirst()
-                        .orElse("");
-                if (!targetPackage.isEmpty() && targetPackage.equals(sourcePackage)) {
-                    return true;
-                }
-                break;
-            }
-        }
 
         // Check for explicit or wildcard imports
         String targetName = target.getFileName();
