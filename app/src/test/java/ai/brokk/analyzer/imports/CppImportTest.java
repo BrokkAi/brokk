@@ -283,12 +283,13 @@ class CppImportTest {
     }
 
     @Test
-    void testCouldImportFile_angleBracketReturnsFalse() throws Exception {
-        // Test: #include <vector> should return false for any project file
+    void testCouldImportFile_angleBracketSystemIncludes() throws Exception {
+        // Test: Angle bracket includes (<vector>) are system includes and should never match 
+        // project files because they reference external headers.
         String headerContent = "void myFunction();";
         String sourceContent = """
+                #include <myheader.h>
                 #include <vector>
-                #include <iostream>
 
                 int main() { return 0; }
                 """;
@@ -306,7 +307,7 @@ class CppImportTest {
 
             boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
 
-            assertFalse(result, "#include <vector> should not match any project file");
+            assertFalse(result, "System includes (angle brackets) should not match project files");
         }
     }
 
@@ -340,11 +341,11 @@ class CppImportTest {
     /**
      * Helper method to invoke the protected couldImportFile via reflection.
      */
-    private boolean invokeCouldImportFile(TreeSitterAnalyzer analyzer, ProjectFile sourceFile,
-            List<ImportInfo> imports, ProjectFile target) throws Exception {
-        var method = TreeSitterAnalyzer.class.getDeclaredMethod(
-                "couldImportFile", ProjectFile.class, List.class, ProjectFile.class);
+    private boolean invokeCouldImportFile(
+            TreeSitterAnalyzer analyzer, ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target)
+            throws Exception {
+        var method = TreeSitterAnalyzer.class.getDeclaredMethod("couldImportFile", List.class, ProjectFile.class);
         method.setAccessible(true);
-        return (boolean) method.invoke(analyzer, sourceFile, imports, target);
+        return (boolean) method.invoke(analyzer, imports, target);
     }
 }
