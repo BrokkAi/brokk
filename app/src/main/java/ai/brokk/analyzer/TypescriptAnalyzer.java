@@ -1110,6 +1110,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try {
+            SourceContent sourceContent = SourceContent.of(importStatement);
             org.treesitter.TSTree tree = parser.parseString(null, importStatement);
             TSNode rootNode = tree.getRootNode();
 
@@ -1131,10 +1132,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
             while (cursor.nextMatch(match)) {
                 for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
                     TSNode node = capture.getNode();
-                    String text = importStatement.substring(
-                            byteOffsetToCharPosition(importStatement, node.getStartByte()),
-                            byteOffsetToCharPosition(importStatement, node.getEndByte()));
-                    identifiers.add(text);
+                    identifiers.add(sourceContent.substringFrom(node));
                 }
             }
         } catch (Exception e) {
@@ -1154,6 +1152,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try {
+            SourceContent sourceContent = SourceContent.of(source);
             org.treesitter.TSTree tree = parser.parseString(null, source);
             TSNode rootNode = tree.getRootNode();
             TSLanguage tsLanguage = getTSLanguage();
@@ -1177,19 +1176,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
             while (cursor.nextMatch(match)) {
                 for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
                     TSNode node = capture.getNode();
-                    String id = source.substring(
-                            byteOffsetToCharPosition(source, node.getStartByte()),
-                            byteOffsetToCharPosition(source, node.getEndByte()));
-                    identifiers.add(id);
+                    identifiers.add(sourceContent.substringFrom(node));
                 }
             }
         } catch (Exception e) {
             log.error("Failed to extract type identifiers from TypeScript source", e);
         }
         return identifiers;
-    }
-
-    private int byteOffsetToCharPosition(String source, int byteOffset) {
-        return SourceContent.of(source).byteOffsetToCharPosition(byteOffset);
     }
 }

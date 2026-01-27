@@ -639,6 +639,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try {
+            SourceContent sourceContent = SourceContent.of(importStatement);
             TSTree tree = parser.parseString(null, importStatement);
             TSNode rootNode = tree.getRootNode();
 
@@ -662,10 +663,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                     String captureName = query.getCaptureNameForId(capture.getIndex());
                     if (captureName.startsWith("import.")) {
                         TSNode node = capture.getNode();
-                        String text = importStatement.substring(
-                                byteOffsetToCharPosition(importStatement, node.getStartByte()),
-                                byteOffsetToCharPosition(importStatement, node.getEndByte()));
-                        identifiers.add(text);
+                        identifiers.add(sourceContent.substringFrom(node));
                     }
                 }
             }
@@ -687,6 +685,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try {
+            SourceContent sourceContent = SourceContent.of(source);
             TSTree tree = parser.parseString(null, source);
             TSNode rootNode = tree.getRootNode();
             TSLanguage jsLanguage = getTSLanguage();
@@ -709,21 +708,12 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             while (cursor.nextMatch(match)) {
                 for (TSQueryCapture capture : match.getCaptures()) {
                     TSNode node = capture.getNode();
-                    String id = source.substring(
-                            byteOffsetToCharPosition(source, node.getStartByte()),
-                            byteOffsetToCharPosition(source, node.getEndByte()));
-                    identifiers.add(id);
+                    identifiers.add(sourceContent.substringFrom(node));
                 }
             }
         } catch (Exception e) {
             log.error("Failed to extract type identifiers from JavaScript source", e);
         }
         return identifiers;
-    }
-
-    private int byteOffsetToCharPosition(String source, int byteOffset) {
-        // Simple byte-to-char conversion for ASCII-heavy source; SourceContent usually handles this
-        // but we are working with a raw String here.
-        return SourceContent.of(source).byteOffsetToCharPosition(byteOffset);
     }
 }
