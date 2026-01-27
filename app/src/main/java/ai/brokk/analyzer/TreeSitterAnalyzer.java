@@ -966,7 +966,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         resolveReporter.reportFinal();
 
-        // 5. Return the resolved reverse cache result, plus candidates that implicitly reference 
+        // 5. Return the resolved reverse cache result, plus candidates that implicitly reference
         // the file (e.g. same package in Java) even without an explicit import.
         Set<ProjectFile> resolved = lazyImports.getReferencingFiles(file);
         Set<ProjectFile> result = new HashSet<>();
