@@ -1121,7 +1121,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             if (modulePath.startsWith(".")) {
                 Optional<String> absolutePath = resolveRelativeImport(sourceFile, modulePath);
                 if (absolutePath.isEmpty()) {
-                    continue;
+                    // Conservative: if we can't resolve the relative path, assume it might match.
+                    return true;
                 }
                 resolvedPath = absolutePath.get();
             }
