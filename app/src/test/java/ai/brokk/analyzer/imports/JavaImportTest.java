@@ -927,4 +927,5 @@ public class JavaImportTest {
                     "Same-package files should be considered importable even without explicit imports");
         }
     }
+
 }
