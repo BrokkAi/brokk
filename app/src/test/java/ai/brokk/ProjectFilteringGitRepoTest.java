@@ -2146,7 +2146,7 @@ class ProjectFilteringGitRepoTest {
         project.saveBuildDetails(buildDetails);
 
         // Reload and verify patterns are preserved
-        var loaded = project.loadBuildDetails();
+        var loaded = project.loadBuildDetails().orElseThrow();
         assertTrue(loaded.exclusionPatterns().contains("yarn.lock"));
         assertTrue(loaded.exclusionPatterns().contains("*.svg"));
 

@@ -239,7 +239,10 @@ public final class MainProject extends AbstractProject {
         }
 
         // Load build details
-        loadBuildDetails().ifPresent(this.detailsFuture::complete);
+        var bdOpt = loadBuildDetails();
+        if (bdOpt.isPresent()) {
+            this.detailsFuture.complete(bdOpt.get());
+        }
 
         // Initialize cache and trigger migration/defaulting if necessary
         this.issuesProviderCache = getIssuesProvider();
@@ -544,16 +547,14 @@ public final class MainProject extends AbstractProject {
                 canonicalExclusions,
                 canonicalEnv);
 
-        if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
-            try {
-                String json = objectMapper.writeValueAsString(canonicalDetails);
-                projectProps.setProperty(BUILD_DETAILS_KEY, json);
-                logger.debug("Saving build details to project properties.");
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
-            saveProjectProperties();
+        try {
+            String json = objectMapper.writeValueAsString(canonicalDetails);
+            projectProps.setProperty(BUILD_DETAILS_KEY, json);
+            logger.debug("Saving build details to project properties.");
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
         }
+        saveProjectProperties();
         setBuildDetails(canonicalDetails);
         invalidateAllFiles();
     }

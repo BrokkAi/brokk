@@ -132,7 +132,7 @@ public class BuildDetailsPathNormalizationTest {
 
         // Act: construct project and load canonicalized details
         var project = new MainProject(root);
-        var loaded = project.loadBuildDetails();
+        var loaded = project.loadBuildDetails().orElseThrow();
 
         // Assert: canonicalization occurred on load
         // Expected: "build", "/nbdist" remains absolute (outside project), "foo", "out"
@@ -218,7 +218,7 @@ public class BuildDetailsPathNormalizationTest {
 
         // 2. Act: Load details via MainProject
         MainProject project = new MainProject(root);
-        BuildAgent.BuildDetails loadedDetails = project.loadBuildDetails();
+        BuildAgent.BuildDetails loadedDetails = project.loadBuildDetails().orElseThrow();
 
         // 3. Assert: .brokk/workspace.properties now contains jdk.home
         Path workspacePropsFile = root.resolve(".brokk/workspace.properties");
