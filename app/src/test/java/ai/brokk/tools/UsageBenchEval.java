@@ -105,8 +105,7 @@ public class UsageBenchEval implements Callable<Integer> {
             for (ProjectEvalResult evalResult : evalResultsList) {
                 if (!evalResult.success()) {
                     System.err.printf(
-                            "Failed to process %s: %s%n",
-                            evalResult.entry().projectDir(), evalResult.errorMessage());
+                            "Failed to process %s: %s%n", evalResult.entry().projectDir(), evalResult.errorMessage());
                     continue;
                 }
 
@@ -133,9 +132,7 @@ public class UsageBenchEval implements Callable<Integer> {
         // Collect failed projects
         List<FailedProject> failedProjects = evalResultsList.stream()
                 .filter(r -> !r.success())
-                .map(r -> new FailedProject(
-                        r.entry().projectDir().getFileName().toString(),
-                        r.errorMessage()))
+                .map(r -> new FailedProject(r.entry().projectDir().getFileName().toString(), r.errorMessage()))
                 .toList();
 
         AggregateSummary aggregateSummary = new AggregateSummary(online, aggregate, projectResults, failedProjects);
@@ -282,9 +279,7 @@ public class UsageBenchEval implements Callable<Integer> {
         AbstractService service = online ? new Service(project) : new OfflineService(project);
         var cm = new ContextManager(project);
         var model = service.getModel(ModelProperties.ModelType.USAGES);
-        var llm = online
-                ? new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false)
-                : null;
+        var llm = online ? new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false) : null;
         FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, service, llm);
 
         String projectName = project.getRoot().getFileName().toString();
@@ -494,8 +489,8 @@ public class UsageBenchEval implements Callable<Integer> {
                 ProgramUsages groundTruth = loadGroundTruth(entry.usagesJsonPath());
                 EvaluationData evalData = evaluateProject(project, groundTruth, entry.language(), online);
 
-                Path projectOutputDir = output.resolve(entry.language().internalName())
-                        .resolve(projectName);
+                Path projectOutputDir =
+                        output.resolve(entry.language().internalName()).resolve(projectName);
 
                 writeProjectResults(
                         projectOutputDir,

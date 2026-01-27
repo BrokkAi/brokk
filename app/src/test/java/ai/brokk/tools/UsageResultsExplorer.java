@@ -72,7 +72,10 @@ public class UsageResultsExplorer extends BaseThemedDialog {
                                 .forEach(projectDir -> {
                                     try {
                                         ProjectResult pr = mapper.readValue(
-                                                projectDir.resolve("summary.json").toFile(), ProjectResult.class);
+                                                projectDir
+                                                        .resolve("summary.json")
+                                                        .toFile(),
+                                                ProjectResult.class);
                                         projects.add(pr);
                                         mergeProjectResults(
                                                 projectDir,
@@ -141,15 +144,18 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         try {
             Path tpFile = projectDir.resolve("true-positives.json");
             if (Files.exists(tpFile)) {
-                allTP.addAll(mapper.readValue(tpFile.toFile(), DetailedResults.class).codeUnits());
+                allTP.addAll(
+                        mapper.readValue(tpFile.toFile(), DetailedResults.class).codeUnits());
             }
             Path fpFile = projectDir.resolve("false-positives.json");
             if (Files.exists(fpFile)) {
-                allFP.addAll(mapper.readValue(fpFile.toFile(), DetailedResults.class).codeUnits());
+                allFP.addAll(
+                        mapper.readValue(fpFile.toFile(), DetailedResults.class).codeUnits());
             }
             Path fnFile = projectDir.resolve("false-negatives.json");
             if (Files.exists(fnFile)) {
-                allFN.addAll(mapper.readValue(fnFile.toFile(), DetailedResults.class).codeUnits());
+                allFN.addAll(
+                        mapper.readValue(fnFile.toFile(), DetailedResults.class).codeUnits());
             }
         } catch (Exception e) {
             System.err.println("Warning: Failed to read results from " + projectDir + ": " + e.getMessage());

@@ -64,8 +64,7 @@ public class UsageBenchTypes {
     public record DetailedResults(@JsonProperty("codeUnits") List<CodeUnitDetail> codeUnits) {}
 
     public record FailedProject(
-            @JsonProperty("project") String project,
-            @JsonProperty("errorMessage") String errorMessage) {}
+            @JsonProperty("project") String project, @JsonProperty("errorMessage") String errorMessage) {}
 
     public record AggregateSummary(
             @JsonProperty("online") boolean online,
