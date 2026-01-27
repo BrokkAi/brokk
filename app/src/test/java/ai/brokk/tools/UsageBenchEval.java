@@ -96,6 +96,15 @@ public class UsageBenchEval implements Callable<Integer> {
                 allFPDetails.addAll(evalData.fpDetails());
                 allFNDetails.addAll(evalData.fnDetails());
 
+                Path projectOutputDir = output.resolve(entry.language().internalName())
+                        .resolve(projectName);
+                writeProjectResults(
+                        projectOutputDir,
+                        evalData.projectResult(),
+                        evalData.tpDetails(),
+                        evalData.fpDetails(),
+                        evalData.fnDetails());
+
                 ProjectResult result = evalData.projectResult();
                 System.out.printf(
                         "  TP=%d, FP=%d, FN=%d, P=%.3f, R=%.3f, F1=%.3f%n",
@@ -121,21 +130,6 @@ public class UsageBenchEval implements Callable<Integer> {
         Files.writeString(
                 output.resolve("summary.json"),
                 writer.writeValueAsString(evalResults),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING);
-        Files.writeString(
-                output.resolve("true-positives.json"),
-                writer.writeValueAsString(new DetailedResults(allTPDetails)),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING);
-        Files.writeString(
-                output.resolve("false-positives.json"),
-                writer.writeValueAsString(new DetailedResults(allFPDetails)),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING);
-        Files.writeString(
-                output.resolve("false-negatives.json"),
-                writer.writeValueAsString(new DetailedResults(allFNDetails)),
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING);
 
@@ -393,6 +387,38 @@ public class UsageBenchEval implements Callable<Integer> {
     private double calculateF1(double p, double r) {
         if (p + r == 0) return 0.0;
         return 2 * (p * r) / (p + r);
+    }
+
+    private void writeProjectResults(
+            Path projectOutputDir,
+            ProjectResult result,
+            List<CodeUnitDetail> tpDetails,
+            List<CodeUnitDetail> fpDetails,
+            List<CodeUnitDetail> fnDetails)
+            throws IOException {
+        Files.createDirectories(projectOutputDir);
+        var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
+
+        Files.writeString(
+                projectOutputDir.resolve("summary.json"),
+                writer.writeValueAsString(result),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(
+                projectOutputDir.resolve("true-positives.json"),
+                writer.writeValueAsString(new DetailedResults(tpDetails)),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(
+                projectOutputDir.resolve("false-positives.json"),
+                writer.writeValueAsString(new DetailedResults(fpDetails)),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(
+                projectOutputDir.resolve("false-negatives.json"),
+                writer.writeValueAsString(new DetailedResults(fnDetails)),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
     }
 
     private record ProjectEntry(Path projectDir, Path usagesJsonPath, Language language) {}
