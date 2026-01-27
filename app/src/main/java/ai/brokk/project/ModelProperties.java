@@ -30,16 +30,19 @@ public final class ModelProperties {
     private static final String OPUS_4_5 = "claude-opus-4-5";
     private static final String HAIKU_4_5 = "claude-haiku-4-5";
     private static final String GPT_5_MINI = "gpt-5-mini";
+    private static final String GPT_5_1 = "gpt-5.1";
     private static final String GPT_5_2 = "gpt-5.2";
 
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
     private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.LOW);
     private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.DISABLE);
+    private static final ModelConfig gpt5_1_medium = new ModelConfig(GPT_5_1, ReasoningLevel.MEDIUM);
 
     private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
     private static final ModelConfig haiku4_5 = new ModelConfig(HAIKU_4_5);
     private static final ModelConfig opus4_5 = new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE);
+    private static final ModelConfig opus4_5_medium = new ModelConfig(OPUS_4_5, ReasoningLevel.MEDIUM);
 
     private static final ModelConfig flash2Lite = new ModelConfig(FLASH_2_0_LITE);
     private static final ModelConfig flash2 = new ModelConfig(FLASH_2_0);
