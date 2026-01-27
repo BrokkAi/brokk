@@ -195,15 +195,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     /**
-     * Public API for checking if imports could reference a target file.
-     * JS/TS module resolution doesn't require sourceFile for text-based matching,
-     * so this delegates to the 2-parameter version.
-     */
-    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
-        return couldImportFile(imports, target);
-    }
-
-    /**
      * Checks if a relative module path could resolve to the given target file.
      * This is a conservative text-based check that may have false positives but no false negatives.
      *
