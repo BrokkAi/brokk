@@ -1143,17 +1143,24 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             guidedReviewBtn.setToolTipText("Cancel current review generation");
             guidedReviewBtn.setEnabled(true);
             reviewModeToggle.setEnabled(false);
+            // Use the stop button style from InstructionsPanel
+            guidedReviewBtn.setBackground(UIManager.getColor("Brokk.action_button_bg_stop"));
+            guidedReviewBtn.setForeground(Color.WHITE);
         } else if (currentMode == PanelMode.REVIEW || currentMode == PanelMode.GENERATING) {
             guidedReviewBtn.setText("Close Review");
             guidedReviewBtn.setToolTipText("Exit review mode and return to change preview");
             guidedReviewBtn.setEnabled(true);
             reviewModeToggle.setEnabled(false);
+            // Primary style for Close Review
+            SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
         } else {
             guidedReviewBtn.setText("Guided Review");
             guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
             guidedReviewBtn.setEnabled(
                     commitsTable.getSelectedCommitIds().isEmpty() || commitsTable.isSelectionContiguous());
             reviewModeToggle.setEnabled(true);
+            // Primary style for Guided Review
+            SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
         }
     }
 
