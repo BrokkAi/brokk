@@ -552,14 +552,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                                 : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
         params = params.maxCompletionTokens(getMaxOutputTokens(location));
 
-        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
-            builder = builder.apiKey("dummy-key");
-            params = params.user("e99a7c42-faf6-4139-9537-874c76928da4");
-        } else {
-            var kp = parseKey(MainProject.getBrokkKey());
-            builder = builder.apiKey(kp.token()).customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
-            params = params.user(kp.userId().toString());
-        }
+        var kp = parseKey(MainProject.getBrokkKey());
+        builder = builder.apiKey(kp.token()).customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
+        params = params.user(kp.userId().toString());
 
         params = params.modelName(location);
 

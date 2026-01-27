@@ -19,6 +19,7 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.gui.components.ActionGroupPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
@@ -97,7 +98,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_PLAN = "Plan";
 
     private static final String PLACEHOLDER_PREFIX = "Type your prompt here. ";
-    private static final String PLACEHOLDER_NEWLINE_HINT = "Shift+Enter = newline.";
 
     private boolean placeholderActive = false;
     private String currentPlaceholderText = "";
@@ -136,6 +136,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
+    private final ActionGroupPanel modeTogglePanel;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -453,6 +454,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
 
+        this.modeTogglePanel = createModeTogglePanel();
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -486,10 +488,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         refreshModeIndicator();
 
         // Apply initial Advanced Mode state to ensure ModelSelector visibility is correct
-        applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
+        applyAdvancedMode(GlobalUiSettings.isAdvancedMode());
 
-        // Subscribe to service reload events to update button states
+        // Subscribe to events
         contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
+        contextManager.addContextListener(this);
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -652,6 +655,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.addFocusListener(new FocusAdapter() {
             @Override
             public void focusLost(FocusEvent e) {
+                if (e.isTemporary()) return;
                 // Restore placeholder state if text is empty
                 SwingUtilities.invokeLater(() -> deactivateCommandInput());
             }
@@ -724,7 +728,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Add Shift+Enter shortcut to insert a newline
-        var shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+        var shiftEnter = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
         area.getInputMap().put(shiftEnter, "insertNewline");
         area.getActionMap().put("insertNewline", new AbstractAction() {
             @Override
@@ -1322,30 +1326,64 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private String buildPlaceholderTextFromCurrentKeybindings() {
-        KeyStroke submitKs =
-                GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
-        String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-        String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
+        String placeholder;
+        try {
+            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
+                    "instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
+            String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
+            String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
 
-        String base = PLACEHOLDER_PREFIX + PLACEHOLDER_NEWLINE_HINT;
-        if (submitHint.isBlank()) {
-            return (base + "\n").stripIndent();
+            KeyStroke newlineKs = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
+            String newlineStr = KeyboardShortcutUtil.formatKeyStroke(newlineKs);
+            String newlineHint = newlineStr.isBlank() ? "" : newlineStr + " = newline.";
+
+            String base = PLACEHOLDER_PREFIX + newlineHint;
+            if (submitHint.isBlank()) {
+                placeholder = (base + "\n").stripIndent();
+            } else {
+                placeholder = (base + " " + submitHint + "\n").stripIndent();
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to build placeholder text from keybindings, falling back to default prefix.", e);
+            placeholder = PLACEHOLDER_PREFIX;
         }
-        return (base + " " + submitHint + "\n").stripIndent();
+
+        if (placeholder == null || placeholder.trim().isEmpty()) {
+            logger.warn(
+                    "Computed placeholder text was blank; falling back to default prefix. Raw placeholder='{}'",
+                    placeholder);
+            placeholder = PLACEHOLDER_PREFIX;
+        }
+
+        return placeholder;
     }
 
     private void showPlaceholder(JTextArea area) {
         assert SwingUtilities.isEventDispatchThread();
-        currentPlaceholderText = buildPlaceholderTextFromCurrentKeybindings();
+        String computed = buildPlaceholderTextFromCurrentKeybindings();
+        if (computed == null || computed.trim().isEmpty()) {
+            logger.warn(
+                    "showPlaceholder received blank placeholder text; using default prefix instead. Text='{}'",
+                    computed);
+            computed = PLACEHOLDER_PREFIX;
+        }
+        currentPlaceholderText = computed;
         placeholderActive = true;
         area.setText(currentPlaceholderText);
     }
 
-    private boolean isPlaceholderText(String text) {
-        if (!placeholderActive) {
+    static boolean isPlaceholderMatch(@Nullable String text, @Nullable String placeholder) {
+        if (text == null || placeholder == null) {
             return false;
         }
-        return Objects.equals(text, currentPlaceholderText);
+        String normalizedText = text.replace("\r\n", "\n");
+        String normalizedPlaceholder = placeholder.replace("\r\n", "\n");
+        return normalizedText.equals(normalizedPlaceholder);
+    }
+
+    private boolean isPlaceholderText(String text) {
+        if (!placeholderActive) return false;
+        return isPlaceholderMatch(text, currentPlaceholderText);
     }
 
     /**
@@ -1376,11 +1414,46 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.refreshBranchUi(branchName);
     }
 
+    private ActionGroupPanel createModeTogglePanel() {
+        var coreFocusLabel = new JLabel("Core Focus");
+        var fullPowerLabel = new JLabel("Full Power");
+
+        var modeTogglePanel = new ActionGroupPanel(coreFocusLabel, fullPowerLabel);
+        boolean initialAdvancedMode = GlobalUiSettings.isAdvancedMode();
+        modeTogglePanel.setSelected(initialAdvancedMode);
+
+        final boolean[] programmaticToggleChange = {false};
+        modeTogglePanel.addItemListener(e -> {
+            assert SwingUtilities.isEventDispatchThread();
+
+            if (programmaticToggleChange[0]) {
+                programmaticToggleChange[0] = false;
+                return;
+            }
+
+            boolean newMode = modeTogglePanel.isSelected();
+            boolean currentMode = GlobalUiSettings.isAdvancedMode();
+            if (newMode == currentMode) {
+                return;
+            }
+
+            GlobalUiSettings.saveAdvancedMode(newMode);
+            chrome.applyAdvancedModeVisibility();
+            applyAdvancedMode(newMode);
+        });
+
+        modeTogglePanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        return modeTogglePanel;
+    }
+
     private JPanel buildBottomPanel() {
         JPanel bottomPanel = new JPanel();
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         this.bottomToolbarPanel = bottomPanel;
+
+        // Mode toggle (Core Focus / Full Power) - left aligned
+        bottomPanel.add(modeTogglePanel);
 
         // Flexible space before right-side controls (model selector + optional status strip + action button)
         bottomPanel.add(Box.createHorizontalGlue());
@@ -1704,7 +1777,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         List<ChatMessage> messages;
         Context ctx = cm.liveContext();
-        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
 
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
         return executeAskCommand(llm, messages, cm, question, meta);
@@ -2089,17 +2162,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         updateTokenCostIndicator();
     }
 
-    /**
-     * Sets read-only UI state for the context widgets (chips + token bar). Safe to call from any thread.
-     */
-    public void setContextReadOnly(boolean readOnly) {
-        SwingUtilities.invokeLater(() -> {
-            workspaceItemsChipPanel.setReadOnly(readOnly);
-            tokenUsageBar.setReadOnly(readOnly);
-            contextAreaContainer.setReadOnly(readOnly);
-        });
-    }
-
     void enableButtons() {
         // Called when an action completes. Reset buttons based on current CM/project state.
         updateButtonStates();
@@ -2445,6 +2507,43 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Returns the mode toggle panel component so it can be moved between panels
+     * (Instructions <-> Tasks) as a single shared component.
+     */
+    public ActionGroupPanel getModeToggleComponent() {
+        return modeTogglePanel;
+    }
+
+    /**
+     * Ensures the mode toggle component is attached to the Instructions bottom bar,
+     * at the left side of the toolbar. Safe to call from any thread.
+     */
+    public void restoreModeToggleToBottom() {
+        Runnable r = () -> {
+            try {
+                // Detach from any previous parent
+                Container currentParent = modeTogglePanel.getParent();
+                if (currentParent != null) {
+                    currentParent.remove(modeTogglePanel);
+                    currentParent.revalidate();
+                    currentParent.repaint();
+                }
+
+                if (bottomToolbarPanel != null) {
+                    // Insert at the beginning (left side)
+                    bottomToolbarPanel.add(modeTogglePanel, 0);
+                    bottomToolbarPanel.revalidate();
+                    bottomToolbarPanel.repaint();
+                }
+            } catch (Exception ex) {
+                logger.debug("restoreModeToggleToBottom: non-fatal error repositioning mode toggle", ex);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeLater(r);
+    }
+
+    /**
      * Ensures the ModelSelector component is attached to the Instructions bottom bar (inside the selectorStripPanel),
      * immediately adjacent to the status strip (if any), and revalidates the layout. Safe to call from any thread.
      */
@@ -2542,7 +2641,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Also switches placeholder text if currently showing a placeholder (never overwrites user text).
      * Safe to call from any thread.
      */
-    public void applyAdvancedModeForInstructions(boolean advanced) {
+    public void applyAdvancedMode(boolean advanced) {
         SwingUtilities.invokeLater(() -> {
             modeBadge.setVisible(advanced);
             actionButton.setDropdownEnabled(advanced);

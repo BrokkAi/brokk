@@ -32,7 +32,7 @@ public record JobSpec(
         @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
         @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts) {
 
-    public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 5;
+    public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 20;
 
     public record ModelOverrides(
             @Nullable String reasoningLevel,
@@ -159,7 +159,7 @@ public record JobSpec(
             String owner,
             String repo,
             int issueNumber,
-            String buildSettingsJson) {
+            @Nullable String buildSettingsJson) {
         return ofIssue(
                 plannerModel,
                 codeModel,
@@ -178,8 +178,26 @@ public record JobSpec(
             String owner,
             String repo,
             int issueNumber,
-            String buildSettingsJson,
+            @Nullable String buildSettingsJson,
             int maxIssueFixAttempts) {
+        // Only include build_settings tag when JSON is non-blank; absent means "use repo-level fallback"
+        Map<String, String> tags;
+        if (buildSettingsJson != null && !buildSettingsJson.isBlank()) {
+            tags = Map.of(
+                    "mode", "ISSUE",
+                    "github_token", githubToken,
+                    "repo_owner", owner,
+                    "repo_name", repo,
+                    "issue_number", String.valueOf(issueNumber),
+                    "build_settings", buildSettingsJson);
+        } else {
+            tags = Map.of(
+                    "mode", "ISSUE",
+                    "github_token", githubToken,
+                    "repo_owner", owner,
+                    "repo_name", repo,
+                    "issue_number", String.valueOf(issueNumber));
+        }
         return new JobSpec(
                 "",
                 false,
@@ -188,13 +206,7 @@ public record JobSpec(
                 null,
                 codeModel,
                 false,
-                Map.of(
-                        "mode", "ISSUE",
-                        "github_token", githubToken,
-                        "repo_owner", owner,
-                        "repo_name", repo,
-                        "issue_number", String.valueOf(issueNumber),
-                        "build_settings", buildSettingsJson),
+                tags,
                 null,
                 null,
                 null,

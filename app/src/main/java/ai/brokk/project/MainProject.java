@@ -22,15 +22,21 @@ import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
+import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.PathNormalizer;
 import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.annotations.VisibleForTesting;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -58,7 +64,6 @@ import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
 public final class MainProject extends AbstractProject {
     private static final Logger logger =
@@ -68,13 +73,18 @@ public final class MainProject extends AbstractProject {
     private final Properties projectProps;
     private final Path styleGuidePath;
     private final Path legacyStyleGuidePath;
-    private final Path reviewGuidePath;
     private final SessionManager sessionManager;
     private final SessionRegistry sessionRegistry = new SessionRegistry();
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
     private volatile StringDiskCache diskCache = null;
+
+    @Nullable
+    private FileLock cacheFileLock = null;
+
+    @Nullable
+    private FileChannel cacheLockChannel = null;
 
     private final DependencyUpdateScheduler dependencyUpdateScheduler;
 
@@ -112,6 +122,7 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
+    private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
@@ -136,13 +147,45 @@ public final class MainProject extends AbstractProject {
     private static volatile LlmProxySetting headlessProxySettingOverride = null;
 
     @Nullable
-    @VisibleForTesting
-    public static Properties globalPropertiesCache = null; // protected by synchronized
+    private static volatile Path cachedGlobalConfigDir = null;
 
-    private static final Path BROKK_CONFIG_DIR = BrokkConfigPaths.getGlobalConfigDir();
-    private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
-    private static final Path GLOBAL_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("brokk.properties");
-    private static final Path OUT_OF_MEMORY_EXCEPTION_FLAG = BROKK_CONFIG_DIR.resolve("oom.flag");
+    @Nullable
+    @VisibleForTesting
+    static Properties globalPropertiesCache = null; // protected by synchronized
+
+    private static Path getCachedGlobalConfigDir() {
+        Path result = cachedGlobalConfigDir;
+        if (result == null) {
+            synchronized (MainProject.class) {
+                result = cachedGlobalConfigDir;
+                if (result == null) {
+                    result = BrokkConfigPaths.getGlobalConfigDir();
+                    cachedGlobalConfigDir = result;
+                }
+            }
+        }
+        return result;
+    }
+
+    @VisibleForTesting
+    static void resetGlobalConfigCachesForTests() {
+        synchronized (MainProject.class) {
+            cachedGlobalConfigDir = null;
+            globalPropertiesCache = null;
+        }
+    }
+
+    private static Path getGlobalPropertiesPath() {
+        return getCachedGlobalConfigDir().resolve("brokk.properties");
+    }
+
+    private static Path getProjectsPropertiesPath() {
+        return getCachedGlobalConfigDir().resolve("projects.properties");
+    }
+
+    private static Path getOomFlagPath() {
+        return getCachedGlobalConfigDir().resolve("oom.flag");
+    }
 
     public enum LlmProxySetting {
         BROKK,
@@ -164,17 +207,6 @@ public final class MainProject extends AbstractProject {
 
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
 
-    public static final String DEFAULT_REVIEW_GUIDE =
-            """
-            When reviewing the pull request, please address the following points:
-            - Explain your understanding of what this PR is intended to do.
-            - Does it accomplish its goals in the simplest way possible?
-            - What parts are the trickiest and how could they be simplified?
-            - What additional tests, if any, would add the most value?
-
-            Conclude with a summary of serious functional or design issues ONLY.
-            """;
-
     public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {}
 
@@ -190,7 +222,6 @@ public final class MainProject extends AbstractProject {
         this.styleGuidePath = this.masterRootPathForConfig.resolve(STYLE_GUIDE_FILE);
         this.legacyStyleGuidePath =
                 this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
-        this.reviewGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(REVIEW_GUIDE_FILE);
         var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
         this.sessionManager = new SessionManager(sessionsDir);
 
@@ -231,20 +262,79 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public synchronized StringDiskCache getDiskCache() {
+    public synchronized IStringDiskCache getDiskCache() {
         if (diskCache != null) {
             return diskCache;
         }
-        var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
+
+        // 1. Try primary cache location
+        Path primaryCacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve(CACHE_DIR);
+        if (tryOpenCache(primaryCacheDir)) {
+            return Objects.requireNonNull(diskCache);
+        }
+
+        // 2. Fallback to unique temporary directory
+        try {
+            Path tempCacheDir = Files.createTempDirectory("brokk-cache-");
+            logger.info("Primary cache locked or inaccessible; falling back to temporary cache at {}", tempCacheDir);
+            if (tryOpenCache(tempCacheDir)) {
+                return Objects.requireNonNull(diskCache);
+            }
+        } catch (IOException e) {
+            logger.error("Failed to create temporary cache directory: {}", e.getMessage());
+        }
+
+        // 3. Absolute fallback to Noop
+        return new IStringDiskCache.NoopCache();
+    }
+
+    private boolean tryOpenCache(Path cacheDir) {
+        Path lockFile = cacheDir.resolve("cache.lock");
+        FileChannel channel = null;
+        FileLock lock = null;
         try {
             Files.createDirectories(cacheDir);
+
+            channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            lock = channel.tryLock();
+
+            if (lock == null) {
+                logger.debug("Unable to acquire lock on {}", lockFile);
+                channel.close();
+                return false;
+            }
+
             DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
-            diskCache = new StringDiskCache(dlc);
+            this.diskCache = new StringDiskCache(dlc);
+            this.cacheLockChannel = channel;
+            this.cacheFileLock = lock;
+
             logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
-            return diskCache;
+            return true;
         } catch (IOException e) {
-            logger.error("Unable to open disk cache at {}: {}", cacheDir, e.getMessage());
-            throw new RuntimeException("Unable to open disk cache", e);
+            logger.warn("Failed to initialize cache at {}: {}", cacheDir, e.getMessage());
+            try {
+                if (lock != null) lock.release();
+                if (channel != null) channel.close();
+            } catch (IOException cleanupEx) {
+                // Ignore cleanup errors
+            }
+            return false;
+        }
+    }
+
+    private void closeCacheLock() {
+        try {
+            if (cacheFileLock != null) {
+                cacheFileLock.release();
+                cacheFileLock = null;
+            }
+            if (cacheLockChannel != null) {
+                cacheLockChannel.close();
+                cacheLockChannel = null;
+            }
+        } catch (IOException e) {
+            logger.warn("Error releasing cache lock: {}", e.getMessage());
         }
     }
 
@@ -255,8 +345,9 @@ public final class MainProject extends AbstractProject {
 
         var props = new Properties();
         boolean needsSave = false;
-        if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
-            try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
+        Path globalPath = getGlobalPropertiesPath();
+        if (Files.exists(globalPath)) {
+            try (var reader = Files.newBufferedReader(globalPath)) {
                 props.load(reader);
             } catch (IOException e) {
                 logger.warn("Unable to read global properties file: {}", e.getMessage());
@@ -304,8 +395,9 @@ public final class MainProject extends AbstractProject {
         try {
             // Load directly from disk to avoid re-triggering migration in loadGlobalProperties
             var existingProps = new Properties();
-            if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
-                try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
+            Path globalPath = getGlobalPropertiesPath();
+            if (Files.exists(globalPath)) {
+                try (var reader = Files.newBufferedReader(globalPath)) {
                     existingProps.load(reader);
                 } catch (IOException e) {
                     // Proceed with save even if we can't read existing props
@@ -345,7 +437,8 @@ public final class MainProject extends AbstractProject {
                 }
             }
 
-            AtomicWrites.save(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
+            Files.createDirectories(globalPath.getParent());
+            AtomicWrites.save(globalPath, props, "Brokk global configuration");
             globalPropertiesCache = (Properties) props.clone();
         } catch (IOException e) {
             logger.error("Error saving global properties: {}", e.getMessage());
@@ -581,7 +674,6 @@ public final class MainProject extends AbstractProject {
         notifyAutoUpdateGitDependenciesChanged();
     }
 
-    @Override
     public long getRunCommandTimeoutSeconds() {
         String valueStr = projectProps.getProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
         if (valueStr == null) {
@@ -886,28 +978,6 @@ public final class MainProject extends AbstractProject {
             logger.debug("Saved style guide to {}", targetPath);
         } catch (IOException e) {
             logger.error("Error saving style guide to {}: {}", targetPath, e.getMessage());
-        }
-    }
-
-    @Override
-    public String getReviewGuide() {
-        try {
-            if (Files.exists(reviewGuidePath)) {
-                return Files.readString(reviewGuidePath);
-            }
-        } catch (IOException e) {
-            logger.error("Error reading review guide: {}", e.getMessage());
-        }
-        return ""; // Return empty string if not found or error
-    }
-
-    @Override
-    public void saveReviewGuide(String reviewGuide) {
-        try {
-            Files.createDirectories(reviewGuidePath.getParent());
-            AtomicWrites.save(reviewGuidePath, reviewGuide);
-        } catch (IOException e) {
-            logger.error("Error saving review guide: {}", e.getMessage());
         }
     }
 
@@ -1737,8 +1807,9 @@ public final class MainProject extends AbstractProject {
 
     private static Properties loadProjectsProperties() {
         var props = new Properties();
-        if (Files.exists(PROJECTS_PROPERTIES_PATH)) {
-            try (var reader = Files.newBufferedReader(PROJECTS_PROPERTIES_PATH)) {
+        Path projectsPath = getProjectsPropertiesPath();
+        if (Files.exists(projectsPath)) {
+            try (var reader = Files.newBufferedReader(projectsPath)) {
                 props.load(reader);
             } catch (IOException e) {
                 logger.warn("Unable to read projects properties file: {}", e.getMessage());
@@ -1749,8 +1820,9 @@ public final class MainProject extends AbstractProject {
 
     private static void saveProjectsProperties(Properties props) {
         try {
-            Files.createDirectories(PROJECTS_PROPERTIES_PATH.getParent());
-            AtomicWrites.save(PROJECTS_PROPERTIES_PATH, props, "Brokk projects: recently opened and currently open");
+            Path projectsPath = getProjectsPropertiesPath();
+            Files.createDirectories(projectsPath.getParent());
+            AtomicWrites.save(projectsPath, props, "Brokk projects: recently opened and currently open");
         } catch (IOException e) {
             logger.error("Error saving projects properties: {}", e.getMessage());
         }
@@ -2032,7 +2104,7 @@ public final class MainProject extends AbstractProject {
      */
     public static void setOomFlag() {
         try {
-            Files.createFile(OUT_OF_MEMORY_EXCEPTION_FLAG);
+            Files.createFile(getOomFlagPath());
         } catch (IOException e) {
             logger.error("Unable to persist OutOfMemoryError flag.");
         }
@@ -2040,8 +2112,9 @@ public final class MainProject extends AbstractProject {
 
     public static boolean initializeOomFlag() {
         try {
-            if (Files.exists(OUT_OF_MEMORY_EXCEPTION_FLAG)) {
-                Files.delete(OUT_OF_MEMORY_EXCEPTION_FLAG);
+            Path oomPath = getOomFlagPath();
+            if (Files.exists(oomPath)) {
+                Files.delete(oomPath);
                 return true;
             } else {
                 return false;
@@ -2076,6 +2149,8 @@ public final class MainProject extends AbstractProject {
             }
         } catch (Exception e) {
             logger.warn("Error closing disk cache for {}: {}", root.getFileName(), e.getMessage());
+        } finally {
+            closeCacheLock();
         }
 
         // Close session manager and other resources

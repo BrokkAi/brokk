@@ -106,9 +106,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton notificationsButton = new MaterialButton();
     private final List<NotificationEntry> notifications = new CopyOnWriteArrayList<>();
-    private final Queue<NotificationEntry> notificationQueue = new ConcurrentLinkedQueue<>();
+    private final Queue<TransientNotification> notificationQueue = new ConcurrentLinkedQueue<>();
     private final Path notificationsFile;
     private boolean isDisplayingNotification = false;
+
+    private int rolledUpCostCount = 0;
+
+    @Nullable
+    private TransientNotification currentlyDisplayedNotification;
+
+    @Nullable
+    private JPanel currentlyDisplayedNotificationCard;
+
+    @Nullable
+    private JLabel currentlyDisplayedNotificationLabel;
 
     @Nullable
     private JFrame notificationsDialog;
@@ -214,6 +225,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Respect current Advanced Mode on construction
         setAdvancedMode(GlobalUiSettings.isAdvancedMode());
+
+        // Default to showing the spinner while initial load/connection happens
+        showSessionSwitchSpinner();
     }
 
     private void buildSessionSwitchPanel() {
@@ -283,10 +297,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
 
-        historyTableComponent.addSelectionListener(ctx -> {
-            contextManager.setSelectedContext(ctx);
-            // setContext is for *previewing* a context without changing selection state in the manager
-            chrome.setContext(ctx);
+        historyTableComponent.addSelectionListener(contextFromHistory -> {
+            if (!contextFromHistory.equals(contextManager.selectedContext())) {
+                contextManager.setSelectedContext(contextFromHistory);
+            }
         });
 
         historyTableComponent.addDoubleClickListener(context -> {
@@ -614,9 +628,42 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Notification API
     public void showNotification(IConsoleIO.NotificationRole role, String message) {
         Runnable r = () -> {
-            var entry = new NotificationEntry(role, message, System.currentTimeMillis());
+            assert SwingUtilities.isEventDispatchThread() : "showNotification mutations must be called on EDT";
+
+            long now = System.currentTimeMillis();
+
+            var entry = new NotificationEntry(role, message, now);
             notifications.add(entry);
-            notificationQueue.offer(entry);
+
+            if (role != IConsoleIO.NotificationRole.COST) {
+                notificationQueue.offer(new TransientNotification(role, message, 0, entry));
+            } else {
+                if (isDisplayingNotification
+                        && currentlyDisplayedNotification != null
+                        && currentlyDisplayedNotification.role == IConsoleIO.NotificationRole.COST
+                        && notificationQueue.isEmpty()
+                        && currentlyDisplayedNotificationCard != null
+                        && currentlyDisplayedNotificationLabel != null) {
+                    rolledUpCostCount++;
+                    currentlyDisplayedNotification.message = message;
+                    currentlyDisplayedNotification.rolledUpCostCount = rolledUpCostCount;
+                    currentlyDisplayedNotification.persistedEntry = entry;
+
+                    currentlyDisplayedNotificationLabel.setText(
+                            toNotificationLabelHtml(IConsoleIO.NotificationRole.COST, message, rolledUpCostCount));
+                    restartNotificationCardAnimation(requireNonNull(currentlyDisplayedNotificationCard));
+                } else {
+                    var lastQueued = getLastQueuedNotification();
+                    if (lastQueued != null && lastQueued.role == IConsoleIO.NotificationRole.COST) {
+                        lastQueued.rolledUpCostCount++;
+                        lastQueued.message = message;
+                        lastQueued.persistedEntry = entry;
+                    } else {
+                        notificationQueue.offer(new TransientNotification(role, message, 0, entry));
+                    }
+                }
+            }
+
             persistNotificationsAsync();
             refreshLatestNotificationCard();
             refreshNotificationsDialog();
@@ -673,6 +720,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return p;
     }
 
+    private @Nullable TransientNotification getLastQueuedNotification() {
+        TransientNotification last = null;
+        for (var n : notificationQueue) {
+            last = n;
+        }
+        return last;
+    }
+
     // Show the next notification from the queue
     private void refreshLatestNotificationCard() {
         if (isDisplayingNotification || notificationQueue.isEmpty()) {
@@ -680,10 +735,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var nextToShow = notificationQueue.poll();
+        if (nextToShow == null) {
+            return;
+        }
 
         notificationAreaPanel.removeAll();
         isDisplayingNotification = true;
+        currentlyDisplayedNotification = nextToShow;
+        rolledUpCostCount = nextToShow.role == IConsoleIO.NotificationRole.COST ? nextToShow.rolledUpCostCount : 0;
+
         JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
+        currentlyDisplayedNotificationCard = card;
         notificationAreaPanel.add(card);
         animateNotificationCard(card);
         notificationAreaPanel.revalidate();
@@ -707,14 +769,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             float currentOpacity = (Float) card.getClientProperty("notificationOpacity");
 
             if (phase[0] == 0) {
-                // Hold
                 frameCounter[0]++;
                 if (frameCounter[0] >= (holdDuration / (1000 / fps))) {
                     phase[0] = 1;
                     frameCounter[0] = 0;
                 }
             } else if (phase[0] == 1) {
-                // Fade out
                 currentOpacity = Math.max(0.0f, currentOpacity - fadeOutStep);
                 card.putClientProperty("notificationOpacity", currentOpacity);
                 card.repaint();
@@ -731,12 +791,26 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         timer.start();
     }
 
+    private void restartNotificationCardAnimation(JPanel card) {
+        var existing = (Timer) card.getClientProperty("notificationTimer");
+        if (existing != null) {
+            existing.stop();
+        }
+        card.putClientProperty("notificationOpacity", 1.0f);
+        card.repaint();
+        animateNotificationCard(card);
+    }
+
     private void dismissCurrentNotification() {
         isDisplayingNotification = false;
+        currentlyDisplayedNotification = null;
+        currentlyDisplayedNotificationCard = null;
+        currentlyDisplayedNotificationLabel = null;
+        rolledUpCostCount = 0;
+
         notificationAreaPanel.removeAll();
         notificationAreaPanel.revalidate();
         notificationAreaPanel.repaint();
-        // Show the next notification (if any)
         refreshLatestNotificationCard();
     }
 
@@ -756,14 +830,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         card.setBorder(new EmptyBorder(2, 8, 2, 8));
 
         // Center: show full message (including full cost details for COST)
-        String display = compactMessageForToolbar(role, message);
-        var msg = new JLabel(
-                "<html><div style='width:100%; text-align: left; word-wrap: break-word; white-space: normal;'>"
-                        + escapeHtml(display) + "</div></html>");
+        int costCount = role == IConsoleIO.NotificationRole.COST ? rolledUpCostCount : 0;
+        var msg = new JLabel(toNotificationLabelHtml(role, message, costCount));
         msg.setForeground(fg);
         msg.setVerticalAlignment(JLabel.CENTER);
         msg.setHorizontalAlignment(JLabel.LEFT);
         card.add(msg, BorderLayout.CENTER);
+
+        currentlyDisplayedNotificationLabel = msg;
 
         // Right: actions
         var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
@@ -811,8 +885,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return card;
     }
 
+    private static String toNotificationLabelHtml(IConsoleIO.NotificationRole role, String message, int rolledUpCount) {
+        String display = compactMessageForToolbar(role, message);
+        if (rolledUpCount > 0) {
+            display = display + " [+" + rolledUpCount + " more]";
+        }
+        return "<html><div style='width:100%; text-align: left; word-wrap: break-word; white-space: normal;'>"
+                + escapeHtml(display) + "</div></html>";
+    }
+
     private static String compactMessageForToolbar(IConsoleIO.NotificationRole role, String message) {
-        // Show full details for COST; compact other long messages to keep the toolbar tidy
         if (role == IConsoleIO.NotificationRole.COST) {
             return message;
         }
@@ -1118,7 +1200,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 });
                 closeBtn.addActionListener(e -> {
                     notifications.remove(n);
-                    notificationQueue.removeIf(entry -> entry == n);
+                    notificationQueue.removeIf(entry -> entry.persistedEntry == n);
                     persistNotificationsAsync();
                     rebuildNotificationsList(dialog, listPanel);
                 });
@@ -1197,6 +1279,26 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int x = (getWidth() - 1) / 2;
             g.setColor(UIManager.getColor("Label.foreground"));
             g.drawLine(x, 0, x, getHeight());
+        }
+    }
+
+    private static final class TransientNotification {
+        final IConsoleIO.NotificationRole role;
+        String message;
+        int rolledUpCostCount;
+
+        @Nullable
+        NotificationEntry persistedEntry;
+
+        TransientNotification(
+                IConsoleIO.NotificationRole role,
+                String message,
+                int rolledUpCostCount,
+                @Nullable NotificationEntry persistedEntry) {
+            this.role = role;
+            this.message = message;
+            this.rolledUpCostCount = rolledUpCostCount;
+            this.persistedEntry = persistedEntry;
         }
     }
 
@@ -1369,15 +1471,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             historyTableComponent.getModel().setRowCount(0);
             ComputedSubscription.disposeAll(historyTableComponent.getTable());
 
-            JPanel ssp = sessionSwitchPanel;
-            if (ssp == null) {
+            if (sessionSwitchPanel == null) {
                 buildSessionSwitchPanel();
-                ssp = requireNonNull(sessionSwitchPanel);
-                historyLayeredPane.add(ssp, JLayeredPane.PALETTE_LAYER);
+                historyLayeredPane.add(requireNonNull(sessionSwitchPanel), JLayeredPane.PALETTE_LAYER);
             }
-            ssp.setVisible(true);
-            ssp.revalidate();
-            ssp.repaint();
+
+            sessionSwitchPanel.setVisible(true);
+            sessionSwitchPanel.revalidate();
+            sessionSwitchPanel.repaint();
         });
     }
 

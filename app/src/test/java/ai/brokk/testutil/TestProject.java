@@ -101,10 +101,6 @@ public class TestProject implements IProject {
         return styleGuide;
     }
 
-    public void setStyleGuide(String styleGuide) {
-        this.styleGuide = styleGuide;
-    }
-
     public void setExclusionPatterns(Set<String> patterns) {
         this.exclusionPatterns = patterns;
     }
@@ -167,15 +163,6 @@ public class TestProject implements IProject {
     @Override
     public Language getBuildLanguage() {
         return language;
-    }
-
-    @Override
-    public long getRunCommandTimeoutSeconds() {
-        return runCommandTimeoutSeconds;
-    }
-
-    public void setRunCommandTimeoutSeconds(long seconds) {
-        this.runCommandTimeoutSeconds = seconds;
     }
 
     @Override

@@ -44,6 +44,7 @@ public class HeadlessExecCli {
     private static final int READY_POLL_TIMEOUT_MS = 30000;
     private static final int READY_POLL_INTERVAL_MS = 500;
     private static final int JOB_POLL_INTERVAL_MS = 1000;
+    private static final long JOB_STREAM_TIMEOUT_MS = 3 * 60 * 60 * 1000L; // 3 hours
 
     private String mode = "ARCHITECT";
     private String plannerModel = "claude-opus-4-5";
@@ -397,7 +398,7 @@ public class HeadlessExecCli {
      */
     private int streamJobEvents(String baseUrl, String jobId) {
         long afterSeq = -1;
-        long pollDeadline = System.currentTimeMillis() + 3600000; // 1 hour
+        long pollDeadline = System.currentTimeMillis() + JOB_STREAM_TIMEOUT_MS;
 
         while (System.currentTimeMillis() < pollDeadline) {
             try {
@@ -627,7 +628,8 @@ public class HeadlessExecCli {
         System.out.println("  --pr-number NUMBER       GitHub PR number (required for REVIEW mode)");
         System.out.println();
         System.out.println("ISSUE Mode Options (optional):");
-        System.out.println("  --max-issue-fix-attempts NUMBER  Maximum fix attempts (default: 5)");
+        System.out.println(
+                "  --max-issue-fix-attempts NUMBER  Max final verification attempts (tests/lint loop) (default: 20)");
         System.out.println("  --build-settings JSON    Build settings as JSON object");
         System.out.println("  --issue-delivery MODE    Delivery mode ('none' to skip PR creation)");
         System.out.println();

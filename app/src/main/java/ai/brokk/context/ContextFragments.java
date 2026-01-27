@@ -11,6 +11,7 @@ import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
@@ -36,6 +37,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -53,6 +55,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -1282,9 +1285,13 @@ public class ContextFragments {
         }
 
         private static ContentSnapshot computeSnapshotFor(
-                String targetIdentifier, boolean includeTestFiles, IContextManager contextManager) {
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
+                String targetIdentifier, boolean includeTestFiles, IContextManager contextManager)
+                throws InterruptedException {
+            var analyzer = contextManager.getAnalyzer();
+            Predicate<ProjectFile> fileFilter =
+                    includeTestFiles ? null : file -> !ContextManager.isTestFile(file, analyzer);
+            FuzzyResult usageResult =
+                    FuzzyUsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
             var either = usageResult.toEither();
 
             String text;
@@ -1296,11 +1303,6 @@ public class ContextFragments {
                 List<UsageHit> uses = either.getUsages().stream()
                         .sorted(Comparator.comparingDouble(UsageHit::confidence).reversed())
                         .toList();
-                if (!includeTestFiles) {
-                    uses = uses.stream()
-                            .filter(cu -> !ContextManager.isTestFile(cu.file(), analyzer))
-                            .toList();
-                }
                 List<AnalyzerUtil.CodeWithSource> parts = AnalyzerUtil.processUsages(
                         analyzer, uses.stream().map(UsageHit::enclosing).toList());
                 String formatted = AnalyzerUtil.CodeWithSource.text(parts);
@@ -1310,11 +1312,6 @@ public class ContextFragments {
             }
 
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-            if (!includeTestFiles) {
-                files = files.stream()
-                        .filter(f -> !ContextManager.isTestFile(f, analyzer))
-                        .collect(Collectors.toSet());
-            }
 
             // Validity based on whether definitions exist
             boolean valid = !analyzer.getDefinitions(targetIdentifier).isEmpty();
@@ -1409,33 +1406,37 @@ public class ContextFragments {
 
         private static ContentSnapshot computeSnapshotFor(
                 String fqName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
-            CodeUnit unit = preResolvedUnit;
-            if (unit == null) {
-                unit = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
-                        .findFirst()
-                        .orElseThrow(
-                                () -> new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
+            CodeUnit unitOrNull = preResolvedUnit;
+            if (unitOrNull == null) {
+                var unitOpt = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
+                        .findFirst();
+                if (unitOpt.isEmpty()) {
+                    return new ContentSnapshot("", Set.of(), Set.of(), (byte[]) null, false);
+                }
+                unitOrNull = unitOpt.get();
             }
 
+            final CodeUnit unit = unitOrNull;
             String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
             boolean hasSourceCode = false;
-            if (unit.isFunction()) {
-                var codeOpt = analyzer.getSource(unit, true);
-                if (codeOpt.isPresent()) {
-                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                    hasSourceCode = true;
-                } else {
-                    text = "No source found for method: " + fqName;
+
+            var codeOpt = analyzer.getSource(unit, true);
+            if (codeOpt.isPresent()) {
+                text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                hasSourceCode = true;
+
+                Collection<String> imports = analyzer.as(ImportAnalysisProvider.class)
+                        .map(p -> (Collection<String>) p.relevantImportsFor(unit))
+                        .orElseGet(() -> analyzer.importStatementsOf(unit.source()));
+
+                if (!imports.isEmpty()) {
+                    List<String> orderedImports = new ArrayList<>(imports);
+                    Collections.sort(orderedImports);
+                    text = "<imports>\n" + String.join("\n", orderedImports) + "\n</imports>\n\n" + text;
                 }
             } else {
-                var codeOpt = analyzer.getSource(unit, true);
-                if (codeOpt.isPresent()) {
-                    text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                    hasSourceCode = true;
-                } else {
-                    text = "No source found for class: " + fqName;
-                }
+                text = "No source found for %s: %s".formatted(unit.isFunction() ? "method" : "class", fqName);
             }
 
             return new ContentSnapshot(text, Set.of(unit), Set.of(unit.source()), (List<Byte>) null, hasSourceCode);

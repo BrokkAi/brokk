@@ -677,7 +677,7 @@ public final class JavascriptAnalyzerTest {
 
     @Test
     void testBuildRelatedIdentifiers() {
-        var related = jsAnalyzer.buildRelatedIdentifiers(helloJsFile);
+        var related = jsAnalyzer.summarizeSymbols(helloJsFile);
         var expected = """
 - Hello
   - greet
@@ -687,7 +687,7 @@ public final class JavascriptAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(jsTestProject, jsAnalyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();

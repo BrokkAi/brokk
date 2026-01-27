@@ -1,12 +1,14 @@
 package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.SessionSynchronizer.ActionType;
 import ai.brokk.SessionSynchronizer.SyncAction;
+import ai.brokk.SessionSynchronizer.SyncInfo;
 import ai.brokk.SessionSynchronizer.SyncPlanner;
 import java.time.Instant;
 import java.util.List;
@@ -49,7 +51,8 @@ class SessionSyncPlannerTest {
     @Test
     void planUploadsLocalOnly() {
         SessionInfo local = createLocal(sessionId, 1000);
-        List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(), Set.of(), Set.of());
+        List<SyncAction> actions =
+                planner.plan(Map.of(sessionId, local), List.of(), Set.of(), Set.of(), new SyncInfo());
 
         assertEquals(1, actions.size());
         SyncAction action = actions.getFirst();
@@ -61,7 +64,7 @@ class SessionSyncPlannerTest {
     @Test
     void plansDownloadRemoteOnly() {
         RemoteSessionMeta remote = createRemote(sessionId, 2000);
-        List<SyncAction> actions = planner.plan(Map.of(), List.of(remote), Set.of(), Set.of());
+        List<SyncAction> actions = planner.plan(Map.of(), List.of(remote), Set.of(), Set.of(), new SyncInfo());
 
         assertEquals(1, actions.size());
         SyncAction action = actions.getFirst();
@@ -77,7 +80,8 @@ class SessionSyncPlannerTest {
         RemoteSessionMeta remote =
                 createRemote(sessionId, 2000, Instant.ofEpochMilli(2000).toString());
 
-        List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of());
+        List<SyncAction> actions =
+                planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of(), new SyncInfo());
 
         assertEquals(1, actions.size());
         assertEquals(ActionType.DELETE_LOCAL, actions.getFirst().type());
@@ -90,7 +94,8 @@ class SessionSyncPlannerTest {
         RemoteSessionMeta remote =
                 createRemote(sessionId, 500, Instant.ofEpochMilli(1000).toString());
 
-        List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of());
+        List<SyncAction> actions =
+                planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of(), new SyncInfo());
 
         assertEquals(1, actions.size());
         assertEquals(ActionType.UPLOAD, actions.getFirst().type());
@@ -100,7 +105,7 @@ class SessionSyncPlannerTest {
     @Test
     void plansDeleteRemoteIfTombstone() {
         RemoteSessionMeta remote = createRemote(sessionId, 2000);
-        List<SyncAction> actions = planner.plan(Map.of(), List.of(remote), Set.of(sessionId), Set.of());
+        List<SyncAction> actions = planner.plan(Map.of(), List.of(remote), Set.of(sessionId), Set.of(), new SyncInfo());
 
         assertEquals(1, actions.size());
         assertEquals(ActionType.DELETE_REMOTE, actions.getFirst().type());
@@ -112,7 +117,8 @@ class SessionSyncPlannerTest {
         {
             SessionInfo local = createLocal(sessionId, 1000);
             RemoteSessionMeta remote = createRemote(sessionId, 2000);
-            List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of());
+            List<SyncAction> actions =
+                    planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of(), new SyncInfo());
             assertEquals(1, actions.size());
             assertEquals(ActionType.DOWNLOAD, actions.getFirst().type());
         }
@@ -121,7 +127,8 @@ class SessionSyncPlannerTest {
         {
             SessionInfo local = createLocal(sessionId, 3000);
             RemoteSessionMeta remote = createRemote(sessionId, 2000);
-            List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of());
+            List<SyncAction> actions =
+                    planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of(), new SyncInfo());
             assertEquals(1, actions.size());
             assertEquals(ActionType.UPLOAD, actions.getFirst().type());
         }
@@ -130,7 +137,8 @@ class SessionSyncPlannerTest {
         {
             SessionInfo local = createLocal(sessionId, 2000);
             RemoteSessionMeta remote = createRemote(sessionId, 2000);
-            List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of());
+            List<SyncAction> actions =
+                    planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of(), new SyncInfo());
             assertTrue(actions.isEmpty());
         }
     }
@@ -138,9 +146,60 @@ class SessionSyncPlannerTest {
     @Test
     void ignoresUnreadableSessions() {
         RemoteSessionMeta remote = createRemote(sessionId, 2000);
-        List<SyncAction> actions = planner.plan(Map.of(), List.of(remote), Set.of(), Set.of(sessionId));
+        List<SyncAction> actions = planner.plan(Map.of(), List.of(remote), Set.of(), Set.of(sessionId), new SyncInfo());
 
         assertTrue(actions.isEmpty());
+    }
+
+    @Test
+    void skipsOversizedSessionsForUpload() {
+        UUID oversizedId = UUID.randomUUID();
+        UUID normalId = UUID.randomUUID();
+        UUID downloadId = UUID.randomUUID();
+
+        // Local-only session that is oversized - should NOT generate UPLOAD
+        SessionInfo oversizedLocal = createLocal(oversizedId, 1000);
+
+        // Local-only session that is normal - should generate UPLOAD
+        SessionInfo normalLocal = createLocal(normalId, 1000);
+
+        // Remote-only session - should generate DOWNLOAD (unaffected by oversized set)
+        RemoteSessionMeta downloadRemote = createRemote(downloadId, 2000);
+
+        // Local newer than remote but oversized - should NOT generate UPLOAD
+        UUID conflictOversizedId = UUID.randomUUID();
+        SessionInfo conflictLocal = createLocal(conflictOversizedId, 3000);
+        RemoteSessionMeta conflictRemote = createRemote(conflictOversizedId, 2000);
+
+        SyncInfo syncInfo = new SyncInfo(Set.of(oversizedId, conflictOversizedId));
+
+        List<SyncAction> actions = planner.plan(
+                Map.of(oversizedId, oversizedLocal, normalId, normalLocal, conflictOversizedId, conflictLocal),
+                List.of(downloadRemote, conflictRemote),
+                Set.of(),
+                Set.of(),
+                syncInfo);
+
+        // Should have: 1 DOWNLOAD (downloadId), 1 UPLOAD (normalId)
+        // Should NOT have: UPLOAD for oversizedId or conflictOversizedId
+        assertEquals(2, actions.size());
+
+        List<UUID> uploadIds = actions.stream()
+                .filter(a -> a.type() == ActionType.UPLOAD)
+                .map(SyncAction::sessionId)
+                .toList();
+        List<UUID> downloadIds = actions.stream()
+                .filter(a -> a.type() == ActionType.DOWNLOAD)
+                .map(SyncAction::sessionId)
+                .toList();
+
+        assertEquals(1, uploadIds.size());
+        assertTrue(uploadIds.contains(normalId));
+        assertFalse(uploadIds.contains(oversizedId));
+        assertFalse(uploadIds.contains(conflictOversizedId));
+
+        assertEquals(1, downloadIds.size());
+        assertTrue(downloadIds.contains(downloadId));
     }
 
     @Test
@@ -170,7 +229,8 @@ class SessionSyncPlannerTest {
                 Map.of(idDownloadNew, localNew, idDownloadOld, localOld, idUpload, localUpload),
                 List.of(remoteDelete, remoteNew, remoteOld),
                 Set.of(idDeleteRemote),
-                Set.of());
+                Set.of(),
+                new SyncInfo());
 
         assertEquals(4, actions.size());
 

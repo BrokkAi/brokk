@@ -8,12 +8,9 @@ import ai.brokk.TaskResult;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingFuture;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import ai.brokk.util.StringDiskCache;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -166,12 +163,12 @@ public record ContextDelta(
         }
 
         var executor = ExecutorsUtil.newVirtualThreadExecutor("delta-desc-", 1);
-        return new ComputedValue<>(LoggingFuture.supplyAsync(() -> descriptionInternal(icm), executor)
+        return new ComputedValue<>(LoggingFuture.supplyCallableAsync(() -> descriptionInternal(icm), executor)
                 .whenComplete((r, e) -> executor.shutdown()));
     }
 
     @Blocking
-    private String descriptionInternal(IContextManager icm) {
+    private String descriptionInternal(IContextManager icm) throws InterruptedException {
         // Prioritize task history (user/AI turn)
         if (!addedTasks.isEmpty()) {
             // If it's just a single CONTEXT task, we ignore it and build description normally.
@@ -223,26 +220,19 @@ public record ContextDelta(
     }
 
     @Blocking
-    private String buildTaskDescription(TaskEntry entry, IContextManager icm) {
+    private String buildTaskDescription(TaskEntry entry, IContextManager icm) throws InterruptedException {
         String prefix = (entry.meta() == null) ? "" : entry.meta().type().displayName() + ": ";
 
         String taskText =
                 entry.isCompressed() ? requireNonNull(entry.summary()) : requireNonNull(entry.log()).shortDescription;
 
-        String cacheKey;
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-1").digest(taskText.getBytes(StandardCharsets.UTF_8));
-            cacheKey = "action_" + HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
-
+        String cacheKey = "action_" + StringDiskCache.sha1Hex(taskText);
         var actionText = taskText.split("\\s+").length <= 7
                 ? taskText
-                : icm.getProject().getDiskCache().computeIfAbsent(cacheKey, () -> {
+                : icm.getProject().getDiskCache().computeIfAbsentInterruptibly(cacheKey, () -> {
                     try {
                         return icm.summarizeTaskForConversation(taskText).get();
-                    } catch (InterruptedException | ExecutionException e) {
+                    } catch (ExecutionException e) {
                         throw new RuntimeException(e);
                     }
                 });

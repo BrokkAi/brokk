@@ -519,6 +519,8 @@ public class MenuBar {
 
         // Terminal (create a fresh terminal panel with proper cleanup)
         var terminalItem = new JMenuItem("Terminal");
+        terminalItem.setAccelerator(GlobalUiSettings.getKeybinding(
+                "tools.openTerminal", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_T)));
         terminalItem.addActionListener(e -> {
             var terminalPanel = new TerminalPanel(
                     chrome, () -> {}, true, chrome.getProject().getRoot());
@@ -531,6 +533,8 @@ public class MenuBar {
 
         // Pull Requests
         var prsItem = new JMenuItem("Pull Requests");
+        prsItem.setAccelerator(GlobalUiSettings.getKeybinding(
+                "tools.gitPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5)));
         prsItem.addActionListener(e -> {
             var existing = chrome.getPullRequestsPanel();
             if (existing != null) {
@@ -545,6 +549,8 @@ public class MenuBar {
 
         // Log (Git Log)
         var logItem = new JMenuItem("Log");
+        logItem.setAccelerator(
+                GlobalUiSettings.getKeybinding("tools.gitLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3)));
         logItem.addActionListener(e -> {
             var gitLogTab = new GitLogTab(chrome, chrome.getContextManager());
             gitLogTab.setPreferredSize(new Dimension(1000, 700));
@@ -554,6 +560,8 @@ public class MenuBar {
 
         // Worktrees
         var worktreesItem = new JMenuItem("Worktrees");
+        worktreesItem.setAccelerator(GlobalUiSettings.getKeybinding(
+                "tools.gitWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4)));
         worktreesItem.addActionListener(e -> {
             var content = new GitWorktreeTab(chrome, chrome.getContextManager());
             showDialog(chrome, "Worktrees", content, null);

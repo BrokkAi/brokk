@@ -99,6 +99,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         updateGuidedReviewButton();
 
+        if (newMode == PanelMode.REVIEW) {
+            codeReviewPanel.clearSelection();
+            fileTreePanel.clearSelection();
+            diffContainer.removeAll();
+            diffActive = false;
+            updateDiffToolbarVisibility();
+            diffContainer.revalidate();
+            diffContainer.repaint();
+        }
+
         if (newMode == PanelMode.EMPTY || newMode == PanelMode.ERROR) {
             diffCore.updateFileComparisons(List.of());
             emptyLabel.setText(getEmptyStateMessage());
@@ -182,6 +192,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private ReviewParser.CodeExcerpt activeExcerpt = null;
 
+    private boolean diffActive = false;
+
     private List<FileComparisonInfo> fileComparisons = List.of();
 
     public record ReviewTabState(String title, String tooltip, int uncommittedCount) {}
@@ -216,7 +228,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
 
-        this.resolveConflictsBtn = new MaterialButton("C") {
+        this.resolveConflictsBtn = new MaterialButton("") {
             @Override
             public Dimension getPreferredSize() {
                 return new Dimension(24, 24);
@@ -232,6 +244,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 return new Dimension(24, 24);
             }
         };
+        this.resolveConflictsBtn.setIcon(Icons.MERGE);
         this.resolveConflictsBtn.setToolTipText("Resolve merge conflicts with AI assistance");
         this.resolveConflictsBtn.setEnabled(false);
         this.resolveConflictsBtn.setMargin(new Insets(0, 0, 0, 0));
@@ -359,6 +372,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } else {
                 fileTreePanel.clearSelection();
                 diffContainer.removeAll();
+                diffActive = false;
+                updateDiffToolbarVisibility();
                 diffContainer.revalidate();
                 diffContainer.repaint();
                 activeExcerpt = null;
@@ -469,6 +484,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
                 diffContainer.removeAll();
                 diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+                diffActive = true;
+                updateDiffToolbarVisibility();
 
                 // Apply saved font size to the panel
                 applyFontSizeToPanel(panel);
@@ -538,14 +555,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         return;
                     }
 
-                    lastCumulativeChanges = computed.ctx.changes();
+                    if (!computed.scope.changes().equals(lastCumulativeChanges)) {
+                        lastCumulativeChanges = computed.scope.changes();
+                        deferredUpdateHelper.requestUpdate();
+                    }
 
                     SwingUtilities.invokeLater(() -> {
                         if (thisGeneration != updateGeneration.get()) return;
-                        emitReviewTabStateFromResult(computed.ctx.changes(), computed.state.baselineLabel());
+                        emitReviewTabStateFromResult(computed.scope.changes(), computed.state.baselineLabel());
                     });
-
-                    deferredUpdateHelper.requestUpdate();
                 })
                 .exceptionally(ex -> {
                     if (thisGeneration != updateGeneration.get()) return null;
@@ -559,7 +577,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 });
     }
 
-    private record ComputedUpdate(BaselineState state, ReviewScope ctx) {}
+    private record ComputedUpdate(BaselineState state, ReviewScope scope) {}
 
     /**
      * Result of baseline resolution.
@@ -909,6 +927,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } else {
             diffContainer.removeAll();
             diffContainer.add(new JLabel("No file changes to display", SwingConstants.CENTER), BorderLayout.CENTER);
+            diffActive = false;
+            updateDiffToolbarVisibility();
         }
         applyTheme(chrome.getTheme());
     }
@@ -1036,8 +1056,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
             mainSplitPane.setDividerLocation(300);
 
-            // Hide navigation buttons in guided review mode (navigation via review items)
-            diffToolbar.setNavigationVisible(!isReview);
+            // Ensure navigation buttons are visible
+            diffToolbar.setNavigationVisible(true);
+            updateDiffToolbarVisibility();
 
             revalidate();
             repaint();
@@ -1307,9 +1328,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 .thenAccept(scope -> SwingUtilities.invokeLater(() -> {
                     var diffFragment = SpecialTextType.REVIEW_DIFF.create(
                             cm, scope.changes().toDiff());
-                    cm.addFragmentAsync(diffFragment)
-                            .thenAccept(unused -> chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO, "Selected diff captured."));
+                    cm.addFragments(diffFragment);
                 }))
                 .exceptionally(ex -> {
                     logger.error("Failed to capture selected diff", ex);
@@ -1426,6 +1445,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     lastReviewState = new ReviewState(scope.metadata().fromRef(), now);
                     reviewTargetCommit = currentHash;
                     setMode(PanelMode.REVIEW);
+                    emitReviewTabStateFromCached();
                     codeReviewPanel.displayReview(result.review(), result.context());
                     codeReviewPanel.setBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
@@ -1519,14 +1539,27 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, changes.toDiff());
-        cm.addFragmentAsync(diffFragment)
-                .thenAccept(unused -> chrome.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Diff captured and added to workspace context."))
-                .exceptionally(ex -> {
-                    logger.error("Failed to capture diff", ex);
-                    chrome.toolError("Failed to capture diff: " + ex.getMessage());
-                    return null;
-                });
+        cm.addFragments(diffFragment);
+    }
+
+    private void updateDiffToolbarVisibility() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (currentMode == PanelMode.PREVIEW) {
+            diffToolbar.setVisible(true);
+            if (!diffActive) {
+                diffToolbar.disableAllControlButtons();
+            }
+        } else if (currentMode == PanelMode.REVIEW) {
+            diffToolbar.setVisible(diffActive);
+            if (!diffActive) {
+                diffToolbar.disableAllControlButtons();
+            }
+        } else {
+            // EMPTY or ERROR
+            diffToolbar.setVisible(false);
+            diffToolbar.disableAllControlButtons();
+        }
     }
 
     private @Nullable String formatStalenessMessage(StalenessInfo staleness) {
@@ -1595,8 +1628,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     nextFile();
                 } else {
                     contentPanel.doDown();
-                    panel.diffToolbar.updateButtonStates();
                 }
+                panel.diffToolbar.updateButtonStates();
             }
         }
 
@@ -1613,8 +1646,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     }
                 } else {
                     contentPanel.doUp();
-                    panel.diffToolbar.updateButtonStates();
                 }
+                panel.diffToolbar.updateButtonStates();
             }
         }
 
@@ -1894,6 +1927,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         String sessionName = "Merge %s and %s"
                 .formatted(repo.shortHash(conflict.ourCommitId()), repo.shortHash(conflict.otherCommitId()));
         cm.createSessionAsync(sessionName).whenComplete((ignored, err) -> {
+            SwingUtilities.invokeLater(() -> chrome.getRightPanel().selectBuildTab());
             if (err != null) {
                 logger.error("Failed to create merge session '{}'", sessionName, err);
                 SwingUtilities.invokeLater(() -> chrome.toolError(

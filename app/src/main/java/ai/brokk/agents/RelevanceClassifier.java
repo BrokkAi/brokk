@@ -3,6 +3,8 @@ package ai.brokk.agents;
 import ai.brokk.AbstractService;
 import ai.brokk.Llm;
 import ai.brokk.concurrent.AdaptiveExecutor;
+import ai.brokk.util.IStringDiskCache;
+import ai.brokk.util.StringDiskCache;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -73,17 +75,19 @@ public final class RelevanceClassifier {
                            """
                         .formatted(RELEVANT_MARKER, IRRELEVANT_MARKER);
 
+        if (!candidateText.contains("</candidate>")) {
+            candidateText = "<candidate>\n" + candidateText + "\n</candidate>";
+        }
+
         var userPrompt =
                 """
                          <filter>
                          %s
                          </filter>
 
-                         <candidate>
                          %s
-                         </candidate>
 
-                         Is the candidate text relevant, as determined by the filter?  Respond with exactly one
+                         Is the candidate relevant, as determined by the filter?  Respond with exactly one
                          of the markers %s or %s.
                          """
                         .formatted(filterDescription, candidateText, RELEVANT_MARKER, IRRELEVANT_MARKER);
@@ -95,7 +99,17 @@ public final class RelevanceClassifier {
      * Low-level API: ask the model to score the relevance of the candidate text to the filter as a real number between
      * 0.0 and 1.0 (inclusive). Retries on ambiguous responses.
      */
-    public static double scoreRelevance(Llm llm, String systemPrompt, String userPrompt) throws InterruptedException {
+    public static double scoreRelevance(Llm llm, IStringDiskCache diskCache, String systemPrompt, String userPrompt)
+            throws InterruptedException {
+        var cacheKey = relevanceScoreCacheKey(llm, systemPrompt, userPrompt);
+
+        var cached = diskCache.computeIfAbsentInterruptibly(
+                cacheKey, () -> Double.toString(scoreRelevanceUncached(llm, systemPrompt, userPrompt)));
+        return Double.parseDouble(cached);
+    }
+
+    private static double scoreRelevanceUncached(Llm llm, String systemPrompt, String userPrompt)
+            throws InterruptedException {
         List<ChatMessage> messages = new ArrayList<>(2);
         messages.add(new SystemMessage(systemPrompt));
         messages.add(new UserMessage(userPrompt));
@@ -134,7 +148,8 @@ public final class RelevanceClassifier {
      * Convenience wrapper for scoring relevance. The {@code filterDescription} describes what we are looking for and
      * {@code candidateText} is the text to score.
      */
-    public static double relevanceScore(Llm llm, String filterDescription, String candidateText)
+    public static double relevanceScore(
+            Llm llm, IStringDiskCache diskCache, String filterDescription, String candidateText)
             throws InterruptedException {
         var systemPrompt =
                 """
@@ -144,40 +159,42 @@ public final class RelevanceClassifier {
                            where 0.0 means not relevant and 1.0 means highly relevant.
                            """;
 
+        if (!candidateText.contains("</candidate>")) {
+            candidateText = "<candidate>\n" + candidateText + "\n</candidate>";
+        }
         var userPrompt =
                 """
                          <filter>
                          %s
                          </filter>
 
-                         <candidate>
                          %s
-                         </candidate>
 
                          Output only a single number in [0.0, 1.0].
                          """
                         .formatted(filterDescription, candidateText);
 
-        return scoreRelevance(llm, systemPrompt, userPrompt);
+        return scoreRelevance(llm, diskCache, systemPrompt, userPrompt);
     }
 
     /**
      * Sequentially scores a batch of relevance tasks. Reuses the same prompts and retry/parse logic as
      * scoreRelevance(). Preserves insertion order in the returned map.
      *
-     * @param llm the model to use for scoring
+     * @param llm     the model to use for scoring
      * @param service the LLM service.
-     * @param tasks list of tasks to score
+     * @param tasks   list of tasks to score
      * @return a map from task to relevance score in [0.0, 1.0]
      */
     public static Map<RelevanceTask, Double> relevanceScoreBatch(
-            Llm llm, AbstractService service, List<RelevanceTask> tasks) throws InterruptedException {
+            IStringDiskCache diskCache, Llm llm, AbstractService service, List<RelevanceTask> tasks)
+            throws InterruptedException {
         if (tasks.isEmpty()) return Collections.emptyMap();
 
         var results = new HashMap<RelevanceTask, Double>();
 
         try (var executor = AdaptiveExecutor.create(service, llm.getModel(), tasks.size())) {
-            var recommendationTasks = getRecommendationTasks(llm, tasks);
+            var recommendationTasks = getRecommendationTasks(llm, diskCache, tasks);
             var futures = executor.invokeAll(recommendationTasks);
 
             for (var future : futures) {
@@ -193,13 +210,14 @@ public final class RelevanceClassifier {
         return Map.copyOf(results);
     }
 
-    private static List<Callable<RelevanceResult>> getRecommendationTasks(Llm llm, List<RelevanceTask> tasks) {
+    private static List<Callable<RelevanceResult>> getRecommendationTasks(
+            Llm llm, IStringDiskCache diskCache, List<RelevanceTask> tasks) {
         var recommendationTasks = new ArrayList<Callable<RelevanceResult>>();
         for (var task : tasks) {
             recommendationTasks.add(() -> {
                 try {
                     return new RelevanceResult(
-                            task, relevanceScore(llm, task.filterDescription(), task.candidateText()));
+                            task, relevanceScore(llm, diskCache, task.filterDescription(), task.candidateText()));
                 } catch (InterruptedException e) {
                     logger.error("Interrupted while determining score for {}. Defaulting to 1.0.", task, e);
                     return new RelevanceResult(task, 1d);
@@ -207,54 +225,6 @@ public final class RelevanceClassifier {
             });
         }
         return recommendationTasks;
-    }
-
-    /**
-     * Batch boolean relevance classification. Preserves insertion order in the returned map.
-     *
-     * @param llm the model to use
-     * @param service the LLM service
-     * @param tasks tasks to classify
-     * @return a map from task to boolean relevance
-     */
-    public static Map<RelevanceTask, Boolean> relevanceBooleanBatch(
-            Llm llm, AbstractService service, List<RelevanceTask> tasks) throws InterruptedException {
-        if (tasks.isEmpty()) return Collections.emptyMap();
-
-        var results = new HashMap<RelevanceTask, Boolean>();
-
-        try (var executor = AdaptiveExecutor.create(service, llm.getModel(), tasks.size())) {
-            var booleanTasks = getBooleanTasks(llm, tasks);
-            var futures = executor.invokeAll(booleanTasks);
-
-            for (var future : futures) {
-                try {
-                    var result = future.get();
-                    results.put(result.task(), result.relevant());
-                } catch (ExecutionException e) {
-                    logger.error("Execution of a boolean task failed while waiting for result", e);
-                }
-            }
-        }
-
-        return Map.copyOf(results);
-    }
-
-    private static List<Callable<BoolRelevanceResult>> getBooleanTasks(Llm llm, List<RelevanceTask> tasks) {
-        var booleanTasks = new ArrayList<Callable<BoolRelevanceResult>>();
-        for (var task : tasks) {
-            booleanTasks.add(() -> {
-                try {
-                    return new BoolRelevanceResult(
-                            task, isRelevant(llm, task.filterDescription(), task.candidateText()));
-                } catch (InterruptedException e) {
-                    logger.error(
-                            "Interrupted while determining boolean relevance for {}. Defaulting to true.", task, e);
-                    return new BoolRelevanceResult(task, true);
-                }
-            });
-        }
-        return booleanTasks;
     }
 
     private static double extractScore(String response) {
@@ -292,5 +262,10 @@ public final class RelevanceClassifier {
         if (v < 0.0) return 0.0;
         if (v > 1.0) return 1.0;
         return v;
+    }
+
+    private static String relevanceScoreCacheKey(Llm llm, String systemPrompt, String userPrompt) {
+        var payload = llm + "\n" + systemPrompt + "\n---\n" + userPrompt;
+        return "relevance_" + StringDiskCache.sha1Hex(payload);
     }
 }

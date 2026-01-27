@@ -33,9 +33,13 @@ class BrokkConfigPathsTest {
         // Restore original system properties
         if (originalOsName != null) {
             System.setProperty("os.name", originalOsName);
+        } else {
+            System.clearProperty("os.name");
         }
         if (originalUserHome != null) {
             System.setProperty("user.home", originalUserHome);
+        } else {
+            System.clearProperty("user.home");
         }
     }
 
@@ -44,9 +48,8 @@ class BrokkConfigPathsTest {
         System.setProperty("os.name", "Windows 10");
         System.setProperty("user.home", "C:\\Users\\TestUser");
 
-        // Mock APPDATA environment variable is not possible without native code,
-        // so we test the fallback path
-        Path result = BrokkConfigPaths.getGlobalConfigDir();
+        // We bypass the global sandbox usually set in build.gradle.kts
+        Path result = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
 
         // Should fall back to ~/AppData/Roaming/Brokk if APPDATA is not set
         assertTrue(
@@ -60,7 +63,8 @@ class BrokkConfigPathsTest {
         System.setProperty("os.name", "Mac OS X");
         System.setProperty("user.home", "/Users/testuser");
 
-        Path result = BrokkConfigPaths.getGlobalConfigDir();
+        // We bypass the global sandbox
+        Path result = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
 
         assertEquals(
                 Path.of("/Users/testuser/Library/Application Support/Brokk"), result, "Expected macOS config path");
@@ -70,9 +74,10 @@ class BrokkConfigPathsTest {
     @EnabledOnOs(OS.LINUX)
     void testLinuxConfigPath() {
         // On actual Linux systems, verify the path structure is correct
-        // We use the actual user.home to avoid CI environment issues
-        Path result = BrokkConfigPaths.getGlobalConfigDir();
         var actualUserHome = System.getProperty("user.home");
+
+        // We bypass the global sandbox
+        Path result = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
 
         // Without XDG_CONFIG_HOME, should be ~/.config/Brokk
         assertEquals(
@@ -91,7 +96,7 @@ class BrokkConfigPathsTest {
             System.setProperty("os.name", osName);
             System.setProperty("user.home", "/test/home");
 
-            Path result = BrokkConfigPaths.getGlobalConfigDir();
+            Path result = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
 
             assertTrue(
                     result.toString().endsWith("Brokk"),
@@ -119,12 +124,125 @@ class BrokkConfigPathsTest {
         // We use the actual user.home to avoid CI environment issues
         var actualUserHome = System.getProperty("user.home");
 
-        Path global = BrokkConfigPaths.getGlobalConfigDir();
+        Path global = BrokkConfigPaths.getGlobalConfigDirIgnoringTestMode(Optional.empty());
         Path legacy = BrokkConfigPaths.getLegacyConfigDir();
 
         assertNotEquals(global, legacy, "Global and legacy config dirs should differ on case-sensitive filesystems");
         assertEquals(Path.of(actualUserHome, ".config", "Brokk"), global, "Expected global dir with capital 'Brokk'");
         assertEquals(Path.of(actualUserHome, ".config", "brokk"), legacy, "Expected legacy dir with lowercase 'brokk'");
+    }
+
+    @Test
+    void testTestModeSandboxingWithExplicitRoot(@TempDir Path tempDir) {
+        String sandboxRoot = tempDir.toString();
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", sandboxRoot);
+
+        try {
+            Path result = BrokkConfigPaths.getGlobalConfigDir();
+            // Sandbox root + PID subdir + Brokk
+            long pid = ProcessHandle.current().pid();
+            assertEquals(tempDir.resolve("brokk-test-" + pid).resolve("Brokk"), result);
+        } finally {
+            System.clearProperty("brokk.test.mode");
+            System.clearProperty("brokk.test.sandbox.root");
+        }
+    }
+
+    @Test
+    void testTestModeRequiresBothProperties() {
+        // Test mode should NOT activate when only brokk.test.mode is set without sandbox root
+        System.setProperty("brokk.test.mode", "true");
+        System.clearProperty("brokk.test.sandbox.root");
+        System.setProperty("os.name", "Linux");
+        System.setProperty("user.home", "/home/testuser");
+
+        try {
+            Path result = BrokkConfigPaths.getGlobalConfigDir();
+            // Should return platform-specific path, not test sandbox
+            assertFalse(
+                    result.toString().contains("brokk-test-"), "Test mode should NOT activate without sandbox root");
+            assertTrue(result.toString().endsWith("Brokk"), "Should use standard config path");
+        } finally {
+            System.clearProperty("brokk.test.mode");
+        }
+    }
+
+    @Test
+    void testTestModePrecedenceOverOverride(@TempDir Path tempDir) {
+        String sandboxRoot = tempDir.toString();
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", sandboxRoot);
+
+        try {
+            // Even with an explicit override, test mode should win
+            Path result = BrokkConfigPaths.getGlobalConfigDir(Optional.of("/other/override"));
+            long pid = ProcessHandle.current().pid();
+            assertEquals(tempDir.resolve("brokk-test-" + pid).resolve("Brokk"), result);
+        } finally {
+            System.clearProperty("brokk.test.mode");
+            System.clearProperty("brokk.test.sandbox.root");
+        }
+    }
+
+    @Test
+    void testMigrationIsNoOpInTestMode(@TempDir Path tempDir) throws IOException {
+        String originalTestMode = System.getProperty("brokk.test.mode");
+        String originalSandboxRoot = System.getProperty("brokk.test.sandbox.root");
+        String originalHome = System.getProperty("user.home");
+        // Both properties required to activate test mode
+        System.setProperty("brokk.test.mode", "true");
+        System.setProperty("brokk.test.sandbox.root", tempDir.resolve("sandbox").toString());
+        System.setProperty("user.home", tempDir.toString());
+        try {
+            // Setup a fake legacy directory under tempDir
+            // BrokkConfigPaths.getLegacyConfigDir() resolves to user.home + .config/brokk
+            Path legacyDir = tempDir.resolve(".config").resolve("brokk");
+            Files.createDirectories(legacyDir);
+            Files.writeString(legacyDir.resolve("brokk.properties"), "key=value");
+
+            // Setup a fake target directory that would normally receive migration
+            Path targetDir = tempDir.resolve("BrokkTarget");
+
+            // When: attempt migration in test mode
+            boolean migrated = BrokkConfigPaths.attemptMigration(Optional.of(targetDir.toString()));
+
+            // Then: migration is skipped
+            assertFalse(migrated, "Migration should be no-op in test mode");
+            assertFalse(Files.exists(targetDir), "No files or directories should have been created in target");
+            assertTrue(Files.exists(legacyDir.resolve("brokk.properties")), "Legacy file should remain untouched");
+            assertFalse(
+                    Files.exists(legacyDir.resolve("brokk.properties.bak")), "No backup file should have been created");
+        } finally {
+            if (originalTestMode != null) {
+                System.setProperty("brokk.test.mode", originalTestMode);
+            } else {
+                System.clearProperty("brokk.test.mode");
+            }
+            if (originalSandboxRoot != null) {
+                System.setProperty("brokk.test.sandbox.root", originalSandboxRoot);
+            } else {
+                System.clearProperty("brokk.test.sandbox.root");
+            }
+            if (originalHome != null) {
+                System.setProperty("user.home", originalHome);
+            } else {
+                System.clearProperty("user.home");
+            }
+        }
+    }
+
+    @Test
+    void testGradleStartupPropertiesPresent() {
+        String testMode = System.getProperty("brokk.test.mode");
+        if (testMode != null) {
+            // We are likely running under Gradle
+            assertEquals("true", testMode.toLowerCase(), "brokk.test.mode should be true when set");
+            String sandboxRoot = System.getProperty("brokk.test.sandbox.root");
+            assertNotNull(sandboxRoot, "brokk.test.sandbox.root must be set at startup in test mode");
+            assertFalse(sandboxRoot.isBlank(), "brokk.test.sandbox.root must not be blank");
+        }
+        // If null, we assume IDE run without these properties and skip the assertion
     }
 
     @Test

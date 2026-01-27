@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
 import ai.brokk.context.Context;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.components.NoticeBanner;
 import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.DetachableTabFrame;
@@ -22,7 +23,9 @@ import java.awt.event.MouseEvent;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,6 +43,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     private final HistoryOutputPanel historyOutputPanel;
     private final InstructionsPanel instructionsPanel;
     private final TaskListPanel taskListPanel;
+    private final NoticeBanner historicalNoticePanel;
     private final TerminalPanel terminalPanel;
 
     private final JPanel sessionHeaderPanel;
@@ -123,6 +127,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         sessionHeaderPanel = createSessionHeader();
         updateSessionComboBox();
 
+        historicalNoticePanel = new NoticeBanner();
         instructionsPanel = new InstructionsPanel(chrome);
         taskListPanel = new TaskListPanel(chrome);
         terminalPanel =
@@ -138,7 +143,12 @@ public class RightPanel extends JPanel implements ThemeAware {
         branchSelectorPanel = createBranchSelectorHeader();
 
         commandPanel = new JPanel(new BorderLayout());
-        commandPanel.add(branchSelectorPanel, BorderLayout.NORTH);
+        var commandHeaderStack = new JPanel();
+        commandHeaderStack.setLayout(new BoxLayout(commandHeaderStack, BoxLayout.Y_AXIS));
+        commandHeaderStack.add(branchSelectorPanel);
+        commandHeaderStack.add(historicalNoticePanel);
+
+        commandPanel.add(commandHeaderStack, BorderLayout.NORTH);
         commandPanel.add(commandPane, BorderLayout.CENTER);
         commandPanel.setMinimumSize(new Dimension(200, 325));
 
@@ -188,6 +198,20 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         tabDragUndockHandler = new TabDragUndockHandler();
         tabDragUndockHandler.register();
+
+        contextManager.addContextListener(new ai.brokk.IContextManager.ContextListener() {
+            @Override
+            public void contextChanged(Context newCtx) {
+                SwingUtilities.invokeLater(() -> {
+                    Context live = contextManager.liveContext();
+                    if (!newCtx.id().equals(live.id())) {
+                        historicalNoticePanel.setMessage("Viewing historical Context + Tasks");
+                    } else {
+                        historicalNoticePanel.setMessage(null);
+                    }
+                });
+            }
+        });
 
         add(sessionHeaderPanel, BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
@@ -424,9 +448,11 @@ public class RightPanel extends JPanel implements ThemeAware {
                 taskListPanel.restoreControls();
                 var center = instructionsPanel.getCenterPanel();
                 center.add(contextArea, Math.min(1, center.getComponentCount()));
+                instructionsPanel.restoreModeToggleToBottom();
                 instructionsPanel.restoreModelSelectorToBottom();
             } else if (selected == taskListPanel) {
                 taskListPanel.setSharedContextArea(contextArea);
+                taskListPanel.setSharedModeToggle(instructionsPanel.getModeToggleComponent());
                 taskListPanel.setSharedModelSelector(instructionsPanel.getModelSelectorComponent());
             }
         });
@@ -620,6 +646,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         boolean advanced = GlobalUiSettings.isAdvancedMode();
         branchSelectorPanel.setVisible(chrome.getProject().hasGit());
         historyOutputPanel.setAdvancedMode(advanced);
+        instructionsPanel.applyAdvancedMode(advanced);
 
         int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
         if (!advanced) {
@@ -889,14 +916,61 @@ public class RightPanel extends JPanel implements ThemeAware {
         });
     }
 
+    public void selectBuildTab() {
+        assert SwingUtilities.isEventDispatchThread();
+        int idx = buildReviewTabs.indexOfTab("Build");
+        if (idx != -1) {
+            buildReviewTabs.setSelectedIndex(idx);
+        }
+    }
+
+    public void selectReviewTab() {
+        assert SwingUtilities.isEventDispatchThread();
+        int idx = buildReviewTabs.indexOfTab("Review");
+        if (idx != -1) {
+            buildReviewTabs.setSelectedIndex(idx);
+        }
+    }
+
     public void selectPreviewTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Preview");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
         }
     }
 
+    public void cycleBuildReviewPreview(boolean forward) {
+        assert SwingUtilities.isEventDispatchThread();
+        List<Integer> indices = new ArrayList<>();
+        int buildIdx = buildReviewTabs.indexOfTab("Build");
+        if (buildIdx != -1) {
+            indices.add(buildIdx);
+        }
+        // Use component-based lookup for Review since its title changes dynamically
+        int reviewIdx = getReviewTabIndex();
+        if (reviewIdx != -1) {
+            indices.add(reviewIdx);
+        }
+        int previewIdx = buildReviewTabs.indexOfTab("Preview");
+        if (previewIdx != -1) {
+            indices.add(previewIdx);
+        }
+        if (indices.isEmpty()) {
+            return;
+        }
+        int current = buildReviewTabs.getSelectedIndex();
+        int pos = indices.indexOf(current);
+        if (pos == -1) {
+            buildReviewTabs.setSelectedIndex(indices.getFirst());
+            return;
+        }
+        int nextPos = forward ? (pos + 1) % indices.size() : (pos - 1 + indices.size()) % indices.size();
+        buildReviewTabs.setSelectedIndex(indices.get(nextPos));
+    }
+
     public void selectTerminalTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Terminal");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
@@ -904,6 +978,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void selectTasksTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int buildIdx = buildReviewTabs.indexOfTab("Build");
         if (buildIdx != -1) {
             buildReviewTabs.setSelectedIndex(buildIdx);
@@ -912,6 +987,31 @@ public class RightPanel extends JPanel implements ThemeAware {
         if (taskIdx != -1) {
             commandPane.setSelectedIndex(taskIdx);
         }
+        taskListPanel.getTaskInput().requestFocusInWindow();
+    }
+
+    public void selectInstructionsTab() {
+        assert SwingUtilities.isEventDispatchThread();
+        int buildIdx = buildReviewTabs.indexOfTab("Build");
+        if (buildIdx != -1) {
+            buildReviewTabs.setSelectedIndex(buildIdx);
+        }
+        int instructionsIdx = commandPane.indexOfTab("Instructions");
+        if (instructionsIdx != -1) {
+            commandPane.setSelectedIndex(instructionsIdx);
+        }
+        instructionsPanel.requestCommandInputFocus();
+    }
+
+    public void toggleInstructionsTasksTab() {
+        SwingUtilities.invokeLater(() -> {
+            var selected = commandPane.getSelectedComponent();
+            if (selected == instructionsPanel) {
+                selectTasksTab();
+            } else {
+                selectInstructionsTab();
+            }
+        });
     }
 
     public PreviewTabbedPane getPreviewTabbedPane() {

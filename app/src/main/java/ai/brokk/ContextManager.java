@@ -156,7 +156,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
             ExecutorsUtil.createNamedThreadFactory("BackgroundTask")));
 
-    private final ScheduledExecutorService periodicTasks = Executors.newSingleThreadScheduledExecutor();
+    private final LoggingExecutorService syncExecutor = createLoggingExecutorService(
+            Executors.newSingleThreadExecutor(ExecutorsUtil.createNamedThreadFactory("SessionSync")));
 
     private final Service.Provider serviceProvider;
 
@@ -330,27 +331,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         updateActiveSession(currentSessionId);
 
         finalizeSessionActivation(currentSessionId);
-        migrateToSessionsV3IfNeeded().thenRun(() -> {
-            if (sessionsSyncActive) {
-                startPeriodicSessionSync();
-            }
-        });
-    }
-
-    private void startPeriodicSessionSync() {
-        logger.debug("Starting periodic session sync every 5 minutes");
-        periodicTasks.scheduleWithFixedDelay(
-                () -> {
-                    try {
-                        new SessionSynchronizer(this).synchronize();
-                        project.getMainProject().sessionsListChanged();
-                    } catch (Exception e) {
-                        logger.warn("Session sync failed: {}", e.getMessage());
-                    }
-                },
-                0,
-                5,
-                TimeUnit.MINUTES);
+        migrateToSessionsV3IfNeeded().thenRun(this::submitSessionSyncIfActive);
     }
 
     private CompletableFuture<Void> migrateToSessionsV3IfNeeded() {
@@ -438,18 +419,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var fileWatchListener = createFileWatchListener();
         watchService.addListener(fileWatchListener);
 
-        this.sessionsSyncActive = !project.getRepo().isWorktree()
-                && MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
+        this.sessionsSyncActive = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
                 && !MainProject.getBrokkKey().isBlank()
                 && !project.getRemoteProjectName().isBlank();
 
         // Load saved context history or create a new one
         CompletableFuture<Void> contextTask = submitBackgroundTask("Loading saved context", () -> {
-            initializeCurrentSessionAndHistory(false);
+            try {
+                initializeCurrentSessionAndHistory(false);
+            } finally {
+                io.hideSessionSwitchSpinner();
+            }
         });
 
         // Ensure build details are loaded/generated asynchronously
-        // (style and review guides are handled by ensureGuidesAsync() called earlier)
+        // (style guide is handled by ensureGuidesAsync() called earlier)
         ensureBuildDetailsAsync();
         cleanupOldHistoryAsync();
 
@@ -533,10 +517,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onProgress(int completed, int total, String description) {
-                // Update tooltip on "Rebuilding Code Intelligence" label with progress details
-                String progressMsg = String.format("%s (%d/%d)", description, completed, total);
+                // Update progress bar on "Rebuilding Code Intelligence" status strip
                 if (io instanceof Chrome chrome) {
-                    chrome.updateAnalyzerProgress(progressMsg);
+                    chrome.updateAnalyzerProgress(completed, total, description);
                 }
             }
         };
@@ -657,6 +640,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Notify analyzer callbacks - they determine their own filtering
         for (var callback : analyzerCallbacks) {
             submitBackgroundTask("Update for FS changes", callback::onTrackedFileChange);
+        }
+    }
+
+    @Override
+    public void notifyLiveDependenciesChanged() {
+        for (var callback : analyzerCallbacks) {
+            submitBackgroundTask("Update for dependency changes", callback::onLiveDependenciesChanged);
         }
     }
 
@@ -1164,18 +1154,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         addFragments(fragment);
     }
 
-    /**
-     * Adds a specific ContextFragment (like GitHistoryFragment) to the live context.
-     *
-     * @param fragment The PathFragment to add.
-     * @return
-     */
-    public CompletableFuture<Void> addFragmentAsync(ContextFragment fragment) {
-        return submitContextTask(() -> {
-            pushContext(currentLiveCtx -> currentLiveCtx.addFragments(List.of(fragment)));
-        });
-    }
-
     /** Captures text from the LLM output area and adds it to the context. Called from Chrome's capture button. */
     public void captureTextFromContextAsync() {
         submitContextTask(() -> {
@@ -1303,37 +1281,41 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return false;
         }
 
-        boolean summariesAdded = false;
+        List<ContextFragments.SummaryFragment> marshalledSummaries = new ArrayList<>();
 
-        // Produce one SummaryFragment per file
+        // Marshall SummaryFragments for files
         if (!files.isEmpty()) {
             for (var pf : files) {
-                var fragment = new ContextFragments.SummaryFragment(
-                        this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
-                addFragments(fragment);
+                marshalledSummaries.add(new ContextFragments.SummaryFragment(
+                        this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
             }
-            String message = "Summarize " + joinFilesForOutput(files);
-            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-            summariesAdded = true;
         }
 
-        // Produce one SummaryFragment per class fqName
-        if (!classes.isEmpty()) {
-            var classFqns = classes.stream().map(CodeUnit::fqName).collect(Collectors.toList());
+        // Marshall SummaryFragments for classes
+        List<String> classFqns = classes.stream().map(CodeUnit::fqName).toList();
+        if (!classFqns.isEmpty()) {
             for (var fqn : classFqns) {
-                var fragment =
-                        new ContextFragments.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-                addFragments(fragment);
+                marshalledSummaries.add(
+                        new ContextFragments.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON));
             }
-            String message = "Summarize " + joinClassesForOutput(classFqns);
-            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-            summariesAdded = true;
         }
 
-        if (!summariesAdded) {
+        if (marshalledSummaries.isEmpty()) {
             io.toolError("No files or classes provided to summarize.");
             return false;
         }
+
+        // Atomic update to context
+        addFragments(marshalledSummaries);
+
+        // Notifications
+        if (!files.isEmpty()) {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinFilesForOutput(files));
+        }
+        if (!classFqns.isEmpty()) {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinClassesForOutput(classFqns));
+        }
+
         return true;
     }
 
@@ -1410,41 +1392,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         lowMemoryWatcherManager.close();
 
-        var periodicTasksFuture =
-                new LoggingExecutorService(periodicTasks, th -> {}).shutdownAndAwait(awaitMillis, "periodicTasks");
+        submitSessionSyncIfActive(); // Queue a final sync before shutting down the sync executor
+
+        var syncExecutorFuture = syncExecutor.shutdownAndAwait(awaitMillis, "syncExecutor");
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
 
-        return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, periodicTasksFuture)
-                .whenComplete((v, t) -> {
-                    if (sessionsSyncActive) {
-                        syncSessionsAndWait(awaitMillis);
-                    }
-                    project.close();
-                });
+        return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, syncExecutorFuture)
+                .whenComplete((v, t) -> project.close());
     }
 
-    private void syncSessionsAndWait(long awaitMillis) {
-        var future = syncSessionsAsync();
-        try {
-            future.get(awaitMillis, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            future.cancel(true);
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException e) {
-            logger.warn("Session sync failed during shutdown", e);
-        } catch (TimeoutException e) {
-            logger.warn("Session sync timed out after {} ms, cancelling", awaitMillis);
-            future.cancel(true);
+    private CompletableFuture<Void> submitSessionSyncIfActive() {
+        if (sessionsSyncActive) {
+            return syncExecutor.submit(() -> {
+                new SessionSynchronizer(this).synchronize();
+                project.getMainProject().sessionsListChanged();
+                return null;
+            });
+        } else {
+            return CompletableFuture.completedFuture(null);
         }
     }
 
+    /**
+     * Queues a session sync operation and returns a future for tracking completion.
+     * Used by dialogs that need to wait for sync before proceeding.
+     */
     public CompletableFuture<Void> syncSessionsAsync() {
-        return LoggingFuture.supplyCallableVirtual(() -> {
-            new SessionSynchronizer(this).synchronize();
-            return null;
-        });
+        return submitSessionSyncIfActive();
     }
 
     public boolean isLlmTaskInProgress() {
@@ -1747,6 +1723,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public void setSelectedContext(Context contextFromHistory) {
         contextHistory.setSelectedContext(contextFromHistory);
+        notifyContextListeners(contextFromHistory);
     }
 
     /**
@@ -1756,11 +1733,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * or previously frozen. Listeners should use non-blocking access methods (ComputedValue.tryGet()
      * or ComputedValue.await()) to retrieve fragment values without blocking the EDT.
      */
-    private void notifyContextListeners(@Nullable Context ctx) {
-        if (ctx == null) {
-            logger.warn("notifyContextListeners called with null context");
-            return;
-        }
+    private void notifyContextListeners(Context ctx) {
         var taskList = ctx.getTaskListDataOrEmpty();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
@@ -2000,15 +1973,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Removed BuildCommand record
 
     /**
-     * Ensure both style and review guides exist, reading from disk off EDT.
-     * Style guide is generated via LLM if missing; review guide uses a default template.
+     * Ensures style guide exists, reading from disk off EDT.
+     * Style guide is generated via LLM if missing.
      * Returns a CompletableFuture for the style guide content.
      */
     public CompletableFuture<String> ensureGuidesAsync() {
         return submitBackgroundTask("Loading project guides", () -> {
-            // Handle review guide off EDT
-            ensureReviewGuide();
-
             // Handle style guide off EDT
             String existingStyleGuide = project.getStyleGuide();
             if (!existingStyleGuide.isEmpty()) {
@@ -2156,15 +2126,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public boolean wasStyleGenerationSkipped() {
         return styleGenerationSkipped;
-    }
-
-    /** Ensure review guide exists, creating default if needed. Safe to call from any thread. */
-    private void ensureReviewGuide() {
-        if (!project.getReviewGuide().isEmpty()) {
-            return;
-        }
-        project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "Review guide created at .brokk/review.md");
     }
 
     /**
@@ -2477,6 +2438,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             notifyContextListeners(liveContext());
             io.updateContextHistoryTable(liveContext());
         }
+        submitSessionSyncIfActive();
     }
 
     private Optional<SessionInfo> getEmptySessionToReuseInsteadOfCreatingNew(String name) {
@@ -2635,6 +2597,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Activate session: migrate legacy tasks then notify UI on EDT
             finalizeSessionActivation(sessionId);
         }
+
+        submitSessionSyncIfActive();
     }
 
     /**
@@ -2649,6 +2613,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 String newName = newNameFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 project.getSessionManager().renameSession(sessionId, newName);
+                submitSessionSyncIfActive();
                 logger.debug("Renamed session {} to {}", sessionId, newName);
             } catch (Exception e) {
                 logger.warn("Error renaming Session {}", sessionId, e);
@@ -2778,7 +2743,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         initializeCurrentSessionAndHistory(true);
 
-        ensureReviewGuide();
         cleanupOldHistoryAsync();
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
         // otherwise we leave them empty

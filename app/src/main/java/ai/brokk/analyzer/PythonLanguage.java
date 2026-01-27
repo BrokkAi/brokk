@@ -9,13 +9,15 @@ import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
@@ -184,11 +186,11 @@ public class PythonLanguage implements Language {
                 for (var p : stream.toList()) {
                     var name = p.getFileName().toString();
                     if (name.endsWith(".dist-info") || name.endsWith(".egg-info")) {
-                        var meta = readPyMetadata(p);
+                        var meta = DependencyCopyUtil.readPyMetadata(p);
                         if (meta == null) continue;
 
                         // Recompute file list to count like panel does
-                        var files = enumerateInstalledFiles(site, p, meta.name());
+                        var files = DependencyCopyUtil.enumerateInstalledFiles(site, p, meta.name());
                         String display = meta.name() + " " + meta.version();
                         var key = display.toLowerCase(Locale.ROOT);
                         if (!seen.add(key)) continue; // de-dup across venvs
@@ -238,10 +240,10 @@ public class PythonLanguage implements Language {
                 }
 
                 // Re-enumerate files at import time to be robust
-                var meta = readPyMetadata(distInfoDir);
-                var rels = enumerateInstalledFiles(
+                var meta = DependencyCopyUtil.readPyMetadata(distInfoDir);
+                var rels = DependencyCopyUtil.enumerateInstalledFiles(
                         requireNonNull(sitePackages), distInfoDir, meta != null ? meta.name() : pkg.displayName());
-                copyPythonFiles(requireNonNull(sitePackages), rels, targetRoot);
+                DependencyCopyUtil.copyPythonFiles(requireNonNull(sitePackages), rels, targetRoot);
 
                 SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
@@ -263,119 +265,6 @@ public class PythonLanguage implements Language {
             return null;
         });
         return true;
-    }
-
-    // ---- helpers moved from ImportPythonPanel ----
-
-    private record PyMeta(String name, String version) {}
-
-    private static final List<String> PY_DOC_PREFIXES = List.of("readme", "license", "copying");
-
-    private @Nullable PyMeta readPyMetadata(Path distInfoDir) throws IOException {
-        var meta = Files.exists(distInfoDir.resolve("METADATA"))
-                ? distInfoDir.resolve("METADATA")
-                : distInfoDir.resolve("PKG-INFO");
-        if (!Files.exists(meta)) return null;
-
-        String name = "";
-        String version = "";
-        try (var reader = Files.newBufferedReader(meta, StandardCharsets.UTF_8)) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.regionMatches(true, 0, "Name:", 0, 5)) {
-                    name = line.substring(5).trim();
-                } else if (line.regionMatches(true, 0, "Version:", 0, 8)) {
-                    version = line.substring(8).trim();
-                }
-                if (!name.isEmpty() && !version.isEmpty()) break;
-            }
-        }
-        if (name.isEmpty() || version.isEmpty()) return null;
-        return new PyMeta(name, version);
-    }
-
-    private static boolean pyIsAllowedFile(String fileNameLower) {
-        if (fileNameLower.endsWith(".py") || fileNameLower.endsWith(".pyi")) return true;
-        for (var prefix : PY_DOC_PREFIXES) {
-            if (fileNameLower.startsWith(prefix)) return true;
-        }
-        return false;
-    }
-
-    private List<Path> enumerateInstalledFiles(Path sitePackages, Path distInfoDir, String distName)
-            throws IOException {
-        var record = distInfoDir.resolve("RECORD");
-        if (Files.exists(record)) {
-            var rels = new ArrayList<Path>();
-            for (var line : Files.readAllLines(record, StandardCharsets.UTF_8)) {
-                if (line.isEmpty()) continue;
-                String pathStr = line.split(",", 2)[0];
-                var rel = Paths.get(pathStr);
-                var abs = rel.isAbsolute() ? rel : sitePackages.resolve(rel).normalize();
-                if (!abs.startsWith(sitePackages)) continue;
-                if (Files.isDirectory(abs)) continue;
-                var lower = abs.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (pyIsAllowedFile(lower)) rels.add(sitePackages.relativize(abs));
-            }
-            if (!rels.isEmpty()) return rels;
-        }
-
-        var installedFiles = distInfoDir.resolve("installed-files.txt");
-        if (Files.exists(installedFiles)) {
-            var rels = new ArrayList<Path>();
-            for (var line : Files.readAllLines(installedFiles, StandardCharsets.UTF_8)) {
-                if (line.isBlank()) continue;
-                var rel = Paths.get(line.trim());
-                var abs = rel.isAbsolute() ? rel : sitePackages.resolve(rel).normalize();
-                if (!abs.startsWith(sitePackages)) continue;
-                if (Files.isDirectory(abs)) continue;
-                var lower = abs.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (pyIsAllowedFile(lower)) rels.add(sitePackages.relativize(abs));
-            }
-            if (!rels.isEmpty()) return rels;
-        }
-
-        // Fallback heuristic
-        var normalized = distName.toLowerCase(Locale.ROOT).replace('-', '_');
-        var rels = new ArrayList<Path>();
-        var dirCandidate = sitePackages.resolve(normalized);
-        var fileCandidate = sitePackages.resolve(normalized + ".py");
-        if (Files.isDirectory(dirCandidate)) {
-            try (var walk = Files.walk(dirCandidate)) {
-                for (var abs : walk.filter(p -> !Files.isDirectory(p)).toList()) {
-                    var lower = abs.getFileName().toString().toLowerCase(Locale.ROOT);
-                    if (pyIsAllowedFile(lower)) rels.add(sitePackages.relativize(abs));
-                }
-            }
-        } else if (Files.exists(fileCandidate)) {
-            rels.add(sitePackages.relativize(fileCandidate));
-        }
-
-        var meta = distInfoDir.resolve("METADATA");
-        if (Files.exists(meta)) rels.add(sitePackages.relativize(meta));
-        try (var s = Files.list(distInfoDir)) {
-            for (var f : s.toList()) {
-                var lower = f.getFileName().toString().toLowerCase(Locale.ROOT);
-                for (var prefix : PY_DOC_PREFIXES) {
-                    if (lower.startsWith(prefix)) {
-                        rels.add(sitePackages.relativize(f));
-                        break;
-                    }
-                }
-            }
-        }
-        return rels;
-    }
-
-    private void copyPythonFiles(Path sitePackages, List<Path> rels, Path dest) throws IOException {
-        Files.createDirectories(dest);
-        for (var rel : rels) {
-            var src = sitePackages.resolve(rel);
-            if (!Files.exists(src) || Files.isDirectory(src)) continue;
-            var dst = dest.resolve(rel);
-            Files.createDirectories(requireNonNull(dst.getParent()));
-            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
-        }
     }
 
     @Override

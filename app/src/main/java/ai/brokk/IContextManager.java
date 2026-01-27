@@ -12,11 +12,9 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.util.Collection;
@@ -64,14 +62,13 @@ public interface IContextManager {
 
         /** Called when tracked files change in the working tree. */
         default void onTrackedFileChange() {}
+
+        /** Called when live dependencies are added or removed. */
+        default void onLiveDependenciesChanged() {}
     }
 
     default ExecutorService getBackgroundTasks() {
         throw new UnsupportedOperationException();
-    }
-
-    default Collection<ChatMessage> getHistoryMessages() {
-        return CodePrompts.instance.getHistoryMessages(liveContext());
     }
 
     /**
@@ -217,6 +214,9 @@ public interface IContextManager {
     }
 
     default void requestRebuild() {}
+
+    /** Notifies all registered analyzer callbacks that live dependencies have changed. */
+    default void notifyLiveDependenciesChanged() {}
 
     default IGitRepo getRepo() {
         return getProject().getRepo();

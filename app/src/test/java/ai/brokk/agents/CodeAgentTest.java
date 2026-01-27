@@ -799,7 +799,14 @@ class CodeAgentTest {
 
         var suppressed = EnumSet.of(SpecialTextType.TASK_LIST, SpecialTextType.BUILD_RESULTS);
         var messages = CodePrompts.instance.collectCodeMessages(
-                cm.getCodeModel(), ctx, prologue, taskMessages, nextRequest, suppressed, Messages.getText(nextRequest));
+                cm.getCodeModel(),
+                null,
+                ctx,
+                prologue,
+                taskMessages,
+                nextRequest,
+                suppressed,
+                Messages.getText(nextRequest));
 
         boolean found = messages.stream()
                 .map(Messages::getText)
@@ -1288,6 +1295,7 @@ class CodeAgentTest {
         // Collect messages with no changed files
         var msgsNoChanged = CodePrompts.instance.collectCodeMessages(
                 cm.getCodeModel(),
+                null,
                 ctx,
                 List.of(),
                 List.of(),
@@ -1314,6 +1322,7 @@ class CodeAgentTest {
         // Collect messages with the editable file listed as changed
         var msgsWithChanged = CodePrompts.instance.collectCodeMessages(
                 cm.getCodeModel(),
+                null,
                 ctx,
                 List.of(),
                 List.of(),
@@ -1393,7 +1402,14 @@ class CodeAgentTest {
         var request = new UserMessage("Request text");
         var goalText = "Special goal text";
         var messages = CodePrompts.instance.collectCodeMessages(
-                cm.getCodeModel(), ctx, List.of(), List.of(), request, EnumSet.of(SpecialTextType.TASK_LIST), goalText);
+                cm.getCodeModel(),
+                null,
+                ctx,
+                List.of(),
+                List.of(),
+                request,
+                EnumSet.of(SpecialTextType.TASK_LIST),
+                goalText);
 
         // First message must be SystemMessage
         assertInstanceOf(SystemMessage.class, messages.get(0));

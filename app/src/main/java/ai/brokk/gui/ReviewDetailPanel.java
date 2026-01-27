@@ -135,15 +135,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             case String text -> {
                 // This is the Overview
                 markdownChunks.add(text);
-
-                if (!isLast) {
-                    buttonPanel.removeAll();
-                    buttonPanel.setVisible(true);
-
-                    var nextBtn = new MaterialButton("Next");
-                    nextBtn.addActionListener(e -> onNext.run());
-                    buttonPanel.add(nextBtn);
-                }
+                addNavigationButtons(isLast);
             }
             case KeyChanges change -> {
                 markdownChunks.add("### " + change.title());
@@ -163,6 +155,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                     markdownChunks.add("**Recommendation:**\n" + design.recommendation());
                     String combinedText = design.description() + "\n\n" + design.recommendation();
                     addRecommendationButtons(design.title(), combinedText, isLast);
+                } else {
+                    addNavigationButtons(isLast);
                 }
             }
             case TacticalFeedback tactical -> {
@@ -175,6 +169,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                     markdownChunks.add("**Recommendation:**\n" + tactical.recommendation());
                     String combinedText = tactical.description() + "\n\n" + tactical.recommendation();
                     addRecommendationButtons(tactical.title(), combinedText, isLast);
+                } else {
+                    addNavigationButtons(isLast);
                 }
             }
             case TestFeedback feedback -> {
@@ -205,14 +201,17 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void addNavigationButtons(boolean isLast) {
-        if (isLast) return;
-
         buttonPanel.removeAll();
         buttonPanel.setVisible(true);
 
-        var nextBtn = new MaterialButton("Next");
-        nextBtn.addActionListener(e -> onNext.run());
-        buttonPanel.add(nextBtn);
+        buttonPanel.add(createCopyButton());
+
+        if (!isLast) {
+            var nextBtn = new MaterialButton("Next");
+            nextBtn.addActionListener(e -> onNext.run());
+            buttonPanel.add(Box.createHorizontalStrut(10));
+            buttonPanel.add(nextBtn);
+        }
     }
 
     private void flushContent() {
@@ -257,7 +256,18 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         });
 
         buttonPanel.add(splitBtn);
+        buttonPanel.add(Box.createHorizontalStrut(10));
+        buttonPanel.add(createCopyButton());
 
+        if (!isLast) {
+            var nextBtn = new MaterialButton("Next");
+            nextBtn.addActionListener(e -> onNext.run());
+            buttonPanel.add(Box.createHorizontalStrut(10));
+            buttonPanel.add(nextBtn);
+        }
+    }
+
+    private MaterialButton createCopyButton() {
         var copyBtn = new MaterialButton("Copy Markdown");
         copyBtn.addActionListener(e -> {
             String combined = String.join("\n\n", markdownChunks);
@@ -267,15 +277,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             timer.setRepeats(false);
             timer.start();
         });
-        buttonPanel.add(Box.createHorizontalStrut(10));
-        buttonPanel.add(copyBtn);
-
-        if (!isLast) {
-            var nextBtn = new MaterialButton("Next");
-            nextBtn.addActionListener(e -> onNext.run());
-            buttonPanel.add(Box.createHorizontalStrut(10));
-            buttonPanel.add(nextBtn);
-        }
+        return copyBtn;
     }
 
     private void enqueueTask(String title, String text) {

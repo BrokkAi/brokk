@@ -387,15 +387,15 @@ public interface IAnalyzer {
         }
     }
 
-    default String buildRelatedIdentifiers(ProjectFile file) {
-        return buildRelatedIdentifiers(file, CodeUnitType.ALL);
+    default String summarizeSymbols(ProjectFile file) {
+        return summarizeSymbols(file, CodeUnitType.ALL);
     }
 
-    default String buildRelatedIdentifiers(ProjectFile file, Set<CodeUnitType> types) {
-        return buildRelatedIdentifiers(getTopLevelDeclarations(file), types, 0);
+    default String summarizeSymbols(ProjectFile file, Set<CodeUnitType> types) {
+        return summarizeSymbols(getTopLevelDeclarations(file), types, 0);
     }
 
-    default String buildRelatedIdentifiers(List<CodeUnit> units, Set<CodeUnitType> types, int indent) {
+    default String summarizeSymbols(Collection<CodeUnit> units, Set<CodeUnitType> types, int indent) {
         var prefix = "  ".repeat(Math.max(0, indent));
         var sb = new StringBuilder();
         for (var cu : units) {
@@ -413,7 +413,7 @@ public interface IAnalyzer {
                     .toList();
             if (!children.isEmpty()) {
                 sb.append("\n");
-                sb.append(this.buildRelatedIdentifiers(children, types, indent + 1));
+                sb.append(this.summarizeSymbols(children, types, indent + 1));
             }
             sb.append("\n");
         }

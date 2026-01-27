@@ -1485,10 +1485,8 @@ public class Llm {
             if (usage != null) {
                 var service = contextManager.getService();
                 var modelName = service.nameOf(model);
-                // Filter out cost notifications for 2.0 flash and flash-lite unless explicitly enabled
-                boolean isFreeInternalLLM =
-                        "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.0-flash".equals(modelName);
-                if (isFreeInternalLLM && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
+                // Filter out cost notifications for free-tier models unless explicitly enabled
+                if (service.isFreeTier(modelName) && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
                     logger.debug(
                             "Skipping cost notification for {} (user preference for Free Internal LLM logging)",
                             modelName);
@@ -1509,7 +1507,7 @@ public class Llm {
 
                 int totalTokens = Math.max(0, input) + Math.max(0, output);
                 int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
-                String tokenSummary = "tokens: %,d (%d%% cached)".formatted(totalTokens, cachedPct);
+                String tokenSummary = "%,d tokens / %d%% cached".formatted(totalTokens, cachedPct);
 
                 String message;
                 if (pricing.bands().isEmpty()) {
@@ -1720,10 +1718,10 @@ public class Llm {
             }
 
             return """
-                ## text
+                ## reasoningContent
                 %s
 
-                ## reasoningContent
+                ## text
                 %s
 
                 ## toolExecutionRequests
@@ -1733,8 +1731,8 @@ public class Llm {
                 %s
                 """
                     .formatted(
-                            ai.text() == null ? "" : ai.text(),
                             ai.reasoningContent() == null ? "" : ai.reasoningContent(),
+                            ai.text() == null ? "" : ai.text(),
                             toolRequestsJson,
                             metadataJson);
         }
@@ -1768,8 +1766,15 @@ public class Llm {
         }
     }
 
+    // FIXME nobody should be using this, you can call copy() instead if you want to create another LLM,
+    // or pass the model instance instead of Llm
     public StreamingChatModel getModel() {
-        return this.model;
+        return model;
+    }
+
+    public Llm copy(String newTaskDescription) {
+        return new Llm(
+                model, newTaskDescription, contextManager, allowPartialResponses, forceReasoningEcho, tagRetain, echo);
     }
 
     public void setModel(StreamingChatModel model) {

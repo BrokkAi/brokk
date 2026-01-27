@@ -253,7 +253,8 @@ public class SearchTools {
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")
                     List<String> symbols,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
+                    String reasoning)
+            throws InterruptedException {
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -790,7 +791,7 @@ public class SearchTools {
         StringBuilder fileSummaries = new StringBuilder();
         children.sort(ProjectFile::compareTo);
         for (var file : children) {
-            String identifiers = analyzer.buildRelatedIdentifiers(file);
+            String identifiers = analyzer.summarizeSymbols(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
             String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\">\n" + content + "\n</file>\n";
 

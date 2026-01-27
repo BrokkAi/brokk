@@ -303,6 +303,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         var chip = new WorkspaceChip(
                 chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, Set.of(fragment), kind);
         chip.setBorder(new EmptyBorder(0, 0, 0, 0));
+        chip.setCloseEnabled(!readOnly);
         return chip;
     }
 

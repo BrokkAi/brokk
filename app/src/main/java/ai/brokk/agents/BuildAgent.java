@@ -58,7 +58,6 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1284,14 +1283,11 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
-            long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
-            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
-
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    timeout,
+                    Environment.UNLIMITED_TIMEOUT,
                     execCfg,
                     envVars);
 
@@ -1321,14 +1317,11 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
-            long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
-            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
-
             var output = Environment.instance.runShellCommand(
                     command,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    timeout,
+                    Environment.UNLIMITED_TIMEOUT,
                     execCfg,
                     envVars);
             io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);

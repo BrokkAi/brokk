@@ -458,7 +458,7 @@ ISSUE mode requires:
 - `codeModel` (optional): The LLM model for code generation; defaults to project default.
 - GitHub Issue metadata: `github_token`, `repo_owner`, `repo_name`, `issue_number`.
 - `buildSettings` (optional): JSON object defining how to verify the project (see below).
-- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap). After it is exhausted, the executor stops and does not create a PR. Default: 5.
+- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap). After it is exhausted, the executor stops and does not create a PR. Default: 20.
 
 ### Retry limits: per-task vs overall
 
@@ -467,7 +467,7 @@ ISSUE mode has two retry limits: one for repeating build verification for a sing
 | Setting | What it limits | Default |
 |---------|----------------|---------|
 | `buildSettings.maxBuildAttempts` | Per task: how many times to rerun build/lint/test for that task after attempting fixes when verification fails. | 3 |
-| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 5 |
+| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 20 |
 
 Example: if `maxBuildAttempts=3` and `maxIssueFixAttempts=5`, each task can retry verification up to 3 times, but the job will stop entirely after 5 overall ISSUE attempts.
 
@@ -500,7 +500,7 @@ curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
   "githubToken": "ghp_xxxxxxxxxxxx",
   "plannerModel": "gpt-4o",
   "codeModel": "gpt-4o",
-  "maxIssueFixAttempts": 5,
+  "maxIssueFixAttempts": 20,
   "buildSettings": {
     "buildLintCommand": "./gradlew classes",
     "environmentVariables": {

@@ -58,7 +58,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     private final JSpinner memorySpinner = new JSpinner();
     private final JCheckBox instructionsTabInsertIndentationCheckbox =
             new JCheckBox("Tab inserts indentation in Instructions (Code-style)");
-    private final JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
     private final JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
     private final JLabel watchServiceImplLabel = new JLabel("File watcher implementation:");
     private final JComboBox<String> watchServiceImplCombo =
@@ -99,7 +98,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             MainProject.StartupOpenMode startupOpenMode,
             boolean persistPerProjectBounds,
             boolean instructionsTabInsertIndentation,
-            boolean advancedMode,
             boolean skipCommitGateEzMode,
             List<Service.FavoriteModel> favoriteModels,
             @Nullable Service.FavoriteModel selectedCodeFavorite,
@@ -153,7 +151,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         boolean persistPerProject = persistPerProjectWindowCheckbox.isSelected();
         boolean instructionsIndent = instructionsTabInsertIndentationCheckbox.isSelected();
-        boolean advancedMode = advancedModeCheckbox.isSelected();
         boolean skipEzGate = skipCommitGateEzCheckbox.isSelected();
 
         // Watch service implementation preference (no persistence here)
@@ -197,7 +194,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 startupMode,
                 persistPerProject,
                 instructionsIndent,
-                advancedMode,
                 skipEzGate,
                 favoriteModels,
                 selectedCodeFavorite,
@@ -219,8 +215,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     public boolean applySettings() {
         AdvancedValues values = collectAdvancedValues();
 
-        boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
-
         String previousVendorPref = MainProject.getOtherModelsVendorPreference();
         String previousVendorSelection =
                 previousVendorPref.isBlank() ? ModelProperties.DEFAULT_VENDOR : previousVendorPref;
@@ -235,12 +229,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         // UI / instructions behavior
         GlobalUiSettings.savePersistPerProjectBounds(values.persistPerProjectBounds());
         GlobalUiSettings.saveInstructionsTabInsertIndentation(values.instructionsTabInsertIndentation());
-        GlobalUiSettings.saveAdvancedMode(values.advancedMode());
         GlobalUiSettings.saveSkipCommitGateInEzMode(values.skipCommitGateEzMode());
-
-        if (values.advancedMode() != previousAdvancedMode) {
-            chrome.applyAdvancedModeVisibility();
-        }
 
         // Notifications
         GlobalUiSettings.saveShowCostNotifications(values.showCostNotifications());
@@ -341,10 +330,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             memorySpinner.setValue(v);
         }
 
-        boolean isAdvanced = GlobalUiSettings.isAdvancedMode();
-        advancedModeCheckbox.setSelected(isAdvanced);
         skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
-        skipCommitGateEzCheckbox.setVisible(!isAdvanced);
+        skipCommitGateEzCheckbox.setVisible(true);
         boolean isDevMode = Boolean.getBoolean("brokk.devmode");
         watchServiceImplLabel.setVisible(isDevMode);
         watchServiceImplCombo.setVisible(isDevMode);
@@ -570,30 +557,13 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.NONE;
         panel.add(new JLabel("Interface:"), gbc);
 
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(advancedModeCheckbox, gbc);
-
         skipCommitGateEzCheckbox.setToolTipText(
                 "When EZ mode is enabled, skip the commit confirmation gate before applying changes.");
-        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(skipCommitGateEzCheckbox, gbc);
-
-        advancedModeCheckbox.addActionListener(e -> {
-            boolean advanced = advancedModeCheckbox.isSelected();
-            skipCommitGateEzCheckbox.setVisible(!advanced);
-            watchServiceImplLabel.setVisible(advanced);
-            watchServiceImplCombo.setVisible(advanced);
-            watchNote.setVisible(advanced);
-            panel.revalidate();
-            panel.repaint();
-        });
 
         gbc.insets = new Insets(10, 5, 2, 5);
         gbc.gridx = 0;

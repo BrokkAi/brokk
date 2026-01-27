@@ -45,6 +45,9 @@ public class ArchitectPrompts {
           key functions, classes, or variables related to the goal.
         - Identify the root cause of the problem.
         - Update the Workspace context continuously, including dropping irrelevant fragments, as you improve your understanding.
+        - When the goal involves using an external library, FIRST search for its key classes/modules in Code Intelligence.
+          If not found, use `importDependency` to import the library, then examine its API to understand how to use it.
+          Supported: Java (Maven coordinates), Python (pip packages), Rust (crates), Node.js (npm packages).
 
         Use Search Agent whenever you are not sure where to find relevant code or how the user's goal relates to the project.
         Once Search Agent gives you the code location, you can add it (or derivatives like usages or call graphs)

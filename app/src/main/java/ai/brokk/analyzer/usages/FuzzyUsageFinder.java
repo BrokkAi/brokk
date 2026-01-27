@@ -11,6 +11,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
@@ -19,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -40,14 +42,19 @@ public final class FuzzyUsageFinder {
     private final IAnalyzer analyzer;
     private final AbstractService service;
     private final @Nullable Llm llm;
+    private final @Nullable Predicate<ProjectFile> fileFilter;
 
     public static FuzzyUsageFinder create(IContextManager cm) {
+        return create(cm, null);
+    }
+
+    public static FuzzyUsageFinder create(IContextManager cm, @Nullable Predicate<ProjectFile> fileFilter) {
         var service = cm.getService();
-        var quickestModel = service.quickestModel();
-        var llm = quickestModel instanceof AbstractService.UnavailableStreamingModel
+        var model = service.getModel(ModelProperties.ModelType.USAGES);
+        var llm = model instanceof AbstractService.UnavailableStreamingModel
                 ? null
-                : new Llm(quickestModel, "Disambiguate Code Unit Usages", cm, false, false, false, false);
-        return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm);
+                : new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false);
+        return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm, fileFilter);
     }
 
     /**
@@ -59,10 +66,20 @@ public final class FuzzyUsageFinder {
      * @param llm optional LLM for future disambiguation
      */
     public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, AbstractService service, @Nullable Llm llm) {
+        this(project, analyzer, service, llm, null);
+    }
+
+    public FuzzyUsageFinder(
+            IProject project,
+            IAnalyzer analyzer,
+            AbstractService service,
+            @Nullable Llm llm,
+            @Nullable Predicate<ProjectFile> fileFilter) {
         this.project = project;
         this.analyzer = analyzer;
         this.service = service;
         this.llm = llm;
+        this.fileFilter = fileFilter;
     }
 
     /**
@@ -70,7 +87,7 @@ public final class FuzzyUsageFinder {
      *
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
-    private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) {
+    private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) throws InterruptedException {
         // non-nested identifier
         var shortName = target.identifier().replace("$", ".");
         if (shortName.contains(".")) {
@@ -99,6 +116,11 @@ public final class FuzzyUsageFinder {
         // Use a fast substring scan to prefilter candidate files by the raw identifier, not the regex
         Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
                 List.of(identifier), analyzer.getProject().getAnalyzableFiles(lang));
+
+        // Apply file filter if provided (e.g., to exclude test files)
+        if (fileFilter != null) {
+            candidateFiles = candidateFiles.stream().filter(fileFilter).collect(Collectors.toSet());
+        }
 
         if (maxFiles < candidateFiles.size()) {
             // Case 1: Too many call sites
@@ -134,51 +156,42 @@ public final class FuzzyUsageFinder {
         if (llm != null && !hits.isEmpty()) {
             // Case 4: This symbol is not unique among code units, disambiguate with LLM if possible
             logger.debug("Disambiguating {} hits among {} code units", hits.size(), matchingCodeUnits.size());
-            var unscoredHits = new HashSet<>(hits);
-            var scoredHits = new HashSet<UsageHit>(hits.size());
             var alternatives = matchingCodeUnits.stream()
                     .filter(cu -> !cu.fqName().equals(target.fqName()))
                     .collect(Collectors.toSet());
-            try {
-                var tasks = new ArrayList<RelevanceTask>(hits.size());
-                var mapping = new ArrayList<UsageHit>(hits.size());
-                for (var hit : hits) {
-                    var prompt = UsagePromptBuilder.buildPrompt(hit, target, alternatives, analyzer, identifier, 8_000);
-                    // Use the rich prompt text as the candidate text for classification
-                    tasks.add(new RelevanceTask(prompt.filterDescription(), prompt.promptText()));
-                    mapping.add(hit);
-                }
 
-                if (UsageConfig.isBooleanUsageMode()) {
-                    var decisions = RelevanceClassifier.relevanceBooleanBatch(llm, service, tasks);
-                    for (int i = 0; i < tasks.size(); i++) {
-                        var task = tasks.get(i);
-                        var decision = decisions.getOrDefault(task, false);
-                        var base = mapping.get(i);
-                        var scored = base.withConfidence(decision ? 1.0 : 0.0);
-                        scoredHits.add(scored);
-                        unscoredHits.remove(base);
-                    }
-                } else {
-                    var scores = RelevanceClassifier.relevanceScoreBatch(llm, service, tasks);
-                    for (int i = 0; i < tasks.size(); i++) {
-                        var task = tasks.get(i);
-                        var score = scores.getOrDefault(task, 0.0);
-                        var base = mapping.get(i);
-                        var scored = base.withConfidence(score);
-                        scoredHits.add(scored);
-                        unscoredHits.remove(base);
-                    }
-                }
-            } catch (InterruptedException e) {
-                logger.error(
-                        "Unable to batch classify relevance with {} due to exception. Leaving hits unscored.", llm, e);
-                Thread.currentThread().interrupt();
+            // Group hits by enclosing CodeUnit to build one prompt per context.
+            // Note: This is a design tradeoff: all hits within the same method/enclosing unit will receive
+            // the same LLM-derived confidence score. While this saves tokens and latency, it may lack precision
+            // if a method calls multiple overloads where only one is the target. Individual hit disambiguation
+            // could be added here later if higher precision is required.
+            var groupedHits = hits.stream().collect(Collectors.groupingBy(UsageHit::enclosing));
+
+            var tasks = new ArrayList<RelevanceTask>(groupedHits.size());
+            var taskToHits = new ArrayList<List<UsageHit>>(groupedHits.size());
+
+            for (var entry : groupedHits.entrySet()) {
+                var hitsInGroup = entry.getValue();
+                var prompt = UsagePrompt.build(hitsInGroup, target, alternatives, analyzer, identifier, 8_000);
+
+                var task = new RelevanceTask(prompt.filterDescription(), prompt.promptText());
+                tasks.add(task);
+                taskToHits.add(hitsInGroup);
             }
-            var combined = new HashSet<UsageHit>(scoredHits.size() + unscoredHits.size());
-            combined.addAll(scoredHits);
-            combined.addAll(unscoredHits);
-            finalHits = combined;
+
+            var scores = RelevanceClassifier.relevanceScoreBatch(project.getDiskCache(), llm, service, tasks);
+            var resultHits = new HashSet<UsageHit>(hits.size());
+
+            for (int i = 0; i < tasks.size(); i++) {
+                var task = tasks.get(i);
+                var hitsInGroup = taskToHits.get(i);
+                var score = scores.getOrDefault(task, 0.0);
+
+                for (var hit : hitsInGroup) {
+                    resultHits.add(hit.withConfidence(score));
+                }
+            }
+            finalHits = resultHits;
             logger.debug("Found {} disambiguated hits", finalHits.size());
         }
 
@@ -266,7 +279,7 @@ public final class FuzzyUsageFinder {
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      * <p>If multiple definitions exist (e.g., overloaded methods), aggregates usages from all of them.
      */
-    public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) {
+    public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) throws InterruptedException {
         if (isEffectivelyEmpty()) {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
             return new FuzzyResult.Success(Set.of());
@@ -277,44 +290,45 @@ public final class FuzzyUsageFinder {
             return new FuzzyResult.Failure(fqName, "No definitions found");
         }
 
-        // Aggregate usages from all definitions (handles overloads)
+        // FUF is signature-blind, so we can collapse overloads to reduce the work
+        var def = definitions.iterator().next();
+        CodeUnit cu = new CodeUnit(def.source(), def.kind(), def.packageName(), def.shortName(), null);
+
+        // Aggregate usages from all definitions
         Set<UsageHit> allHits = new HashSet<>();
-        for (var cu : definitions) {
-            var result = findUsages(cu, maxFiles, maxUsages);
-            switch (result) {
-                case FuzzyResult.Success success -> {
-                    allHits.addAll(success.hits());
-                }
-                case FuzzyResult.Ambiguous ambiguous -> {
-                    allHits.addAll(ambiguous.hits());
-                }
-                case FuzzyResult.TooManyCallsites tooMany -> {
-                    logger.debug(
-                            "Too many callsites for {} when finding usages of {}: {} > {}",
-                            cu.fqName(),
-                            fqName,
-                            tooMany.totalCallsites(),
-                            tooMany.limit());
-                }
-                case FuzzyResult.Failure failure -> {
-                    logger.debug("Failure for {} when finding usages of {}: {}", cu.fqName(), fqName, failure.reason());
-                }
+        var result = findUsages(cu, maxFiles, maxUsages);
+        switch (result) {
+            case FuzzyResult.Success success -> {
+                allHits.addAll(success.hits());
             }
-            if (allHits.size() >= maxUsages) {
-                break;
+            case FuzzyResult.Ambiguous ambiguous -> {
+                allHits.addAll(ambiguous.hits());
+            }
+            case FuzzyResult.TooManyCallsites tooMany -> {
+                logger.debug(
+                        "Too many callsites for {} when finding usages of {}: {} > {}",
+                        cu.fqName(),
+                        fqName,
+                        tooMany.totalCallsites(),
+                        tooMany.limit());
+            }
+            case FuzzyResult.Failure failure -> {
+                logger.debug("Failure for {} when finding usages of {}: {}", cu.fqName(), fqName, failure.reason());
             }
         }
-        logger.debug("Total aggregated hits for {}: {}", fqName, allHits.size());
 
-        // Apply maxUsages limit to total
-        if (allHits.size() > maxUsages) {
-            allHits = allHits.stream().limit(maxUsages).collect(Collectors.toSet());
-        }
+        // Throw out very low confidence
+        var filteredHits = filterByConfidence(allHits);
+        logger.debug("Filtered to {} hits for {} out of {}", filteredHits.size(), fqName, allHits.size());
 
-        return new FuzzyResult.Success(allHits);
+        return new FuzzyResult.Success(filteredHits);
     }
 
-    public FuzzyResult findUsages(String fqName) {
+    static Set<UsageHit> filterByConfidence(Set<UsageHit> allHits) {
+        return allHits.stream().filter(h -> h.confidence() >= 0.1).collect(Collectors.toSet());
+    }
+
+    public FuzzyResult findUsages(String fqName) throws InterruptedException {
         return findUsages(fqName, DEFAULT_MAX_FILES, DEFAULT_MAX_USAGES);
     }
 

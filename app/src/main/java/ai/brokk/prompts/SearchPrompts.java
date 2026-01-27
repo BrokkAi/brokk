@@ -2,6 +2,7 @@ package ai.brokk.prompts;
 
 import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
 
+import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.context.Context;
@@ -79,6 +80,12 @@ public class SearchPrompts {
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ISSUE_JSON);
             }
+        },
+        PROMPT_ENRICHMENT {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER);
+            }
         };
 
         public abstract Set<Terminal> terminals();
@@ -104,13 +111,13 @@ public class SearchPrompts {
                 """;
     }
 
-    public final List<ChatMessage> buildAskPrompt(Context ctx, String input) {
+    public final List<ChatMessage> buildAskPrompt(Context ctx, String input, TaskResult.TaskMeta meta) {
         var messages = new ArrayList<ChatMessage>();
         messages.add(new SystemMessage(
                 "Act as an expert software developer when answering the user's question based on the code in the Workspace.\n\n"
                         + SystemPrompts.MARKDOWN_REMINDER));
         messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-        messages.addAll(CodePrompts.instance.getHistoryMessages(ctx));
+        messages.addAll(CodePrompts.instance.getHistoryMessages(ctx, meta));
         messages.add(askRequest(input));
         return messages;
     }
@@ -202,6 +209,16 @@ public class SearchPrompts {
                     fragments should always be done in conjunction with other tools, since you will gain
                     no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                External library discovery:
+                  - When the goal requires using an external library, search for its key classes/modules first
+                  - If NOT found in Code Intelligence, use `importDependency` to import it:
+                    * Java: `importDependency("com.fasterxml.jackson.core:jackson-databind")`
+                    * Python: `importDependency("requests")` or `importDependency("numpy 2.0.0")`
+                    * Rust: `importDependency("serde")` or `importDependency("tokio 1.0")`
+                    * Node.js: `importDependency("lodash")` or `importDependency("@types/node")`
+                  - Once imported, the library becomes searchable and can be added to the Workspace.
+                  - This helps Code Agent see actual API signatures and write more accurate code.
                 </instructions>
                 """
                         .formatted(
@@ -272,6 +289,7 @@ public class SearchPrompts {
      *
      * @param context the current context
      * @param model the model to use for token limit calculation
+     * @param taskMeta the task metadata
      * @param goal the search goal
      * @param objective the search objective
      * @param mcpTools the list of MCP tools available
@@ -281,6 +299,7 @@ public class SearchPrompts {
     public PromptResult buildPrompt(
             Context context,
             StreamingChatModel model,
+            TaskResult.TaskMeta taskMeta,
             String goal,
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
@@ -315,11 +334,11 @@ public class SearchPrompts {
         messages.addAll(workspaceMessages);
 
         // Conversation history plus this agent's messages
-        messages.addAll(cm.getHistoryMessages());
+        messages.addAll(CodePrompts.instance.getHistoryMessages(context, taskMeta));
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)
-        var related = context.buildRelatedIdentifiers(10);
+        var related = context.buildRelatedSymbols(10);
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             messages.add(new UserMessage(
@@ -588,6 +607,31 @@ public class SearchPrompts {
                           - identifiers/symbol names
                           - fragment ids when available
                         It MAY include a section like "## Agent Instructions" but it must be inside bodyMarkdown.
+                    """);
+            case PROMPT_ENRICHMENT ->
+                new TerminalObjective(
+                        "prompt_enrichment",
+                        """
+                    Write an execution-ready enrichment of the user's request. Output ONLY the enriched prompt text via answer(String).
+
+                    Rules:
+                      - Restate the request and preserve ALL explicit facts/constraints from the input.
+                      - Do NOT invent. Do NOT guess. Do NOT add new tech, requirements, or details not stated.
+                      - Ambiguities/missing info must become questions under **Open Questions** (no assumptions).
+                      - Identify the primary code changes needed in this repo to implement the request (what to edit/add/remove at a high level).
+                      - If input names files/functions/symbols, cite them; otherwise do NOT invent paths/symbols.
+                      - Put test/verification expectations in **Acceptance Criteria** and/or **Verification**.
+
+                    Output (REQUIRED; exact labels, in order):
+                    **Summary**
+                    **Context**
+                    **Requirements**
+                    **Constraints**
+                    **Edge Cases**
+                    **Acceptance Criteria**
+                    **Open Questions**
+                    **Verification**
+                    **Plan** (explicit step-by-step; in **Plan**, name the key files/modules/classes/methods to change only if supported by the input or discovered from the repo; otherwise ask in **Open Questions**)
                     """);
         };
     }

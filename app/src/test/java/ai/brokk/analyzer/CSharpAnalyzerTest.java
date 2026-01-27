@@ -372,7 +372,7 @@ public final class CSharpAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
 

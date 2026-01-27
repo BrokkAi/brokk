@@ -21,6 +21,8 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
     private final Map<CodeUnit, String> skeletons = new HashMap<>();
     private final Map<CodeUnit, String> sources = new HashMap<>();
+    private final Map<ProjectFile, List<ImportInfo>> importInfoByFile = new HashMap<>();
+    private final Map<CodeUnit, Set<String>> relevantImportsByCodeUnit = new LinkedHashMap<>();
     private @Nullable IProject testProject;
 
     public TestAnalyzer(
@@ -108,9 +110,15 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
         return Stream.concat(matchingClasses.stream(), matchingMethods.stream()).collect(Collectors.toSet());
     }
 
+    private final Map<ProjectFile, List<String>> importStatementsByFile = new HashMap<>();
+
+    public void setImportStatements(ProjectFile file, List<String> imports) {
+        importStatementsByFile.put(file, imports);
+    }
+
     @Override
     public List<String> importStatementsOf(ProjectFile file) {
-        return List.of();
+        return List.copyOf(importStatementsByFile.getOrDefault(file, List.of()));
     }
 
     @Override
@@ -187,6 +195,24 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return Set.of();
+    }
+
+    @Override
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
+        return List.copyOf(importInfoByFile.getOrDefault(file, List.of()));
+    }
+
+    public void setImportInfo(ProjectFile file, List<ImportInfo> infos) {
+        importInfoByFile.put(file, List.copyOf(infos));
+    }
+
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        return Collections.unmodifiableSet(relevantImportsByCodeUnit.getOrDefault(cu, Set.of()));
+    }
+
+    public void setRelevantImports(CodeUnit cu, Set<String> imports) {
+        relevantImportsByCodeUnit.put(cu, new LinkedHashSet<>(imports));
     }
 
     public void setDirectAncestors(CodeUnit cu, List<CodeUnit> ancestors) {

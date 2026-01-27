@@ -4,8 +4,10 @@ import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.util.HistoryIo;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +36,10 @@ import org.jetbrains.annotations.Nullable;
 class SessionSynchronizer {
     private static final Logger logger = LogManager.getLogger(SessionSynchronizer.class);
     private static final String TMP_DIR = "tmp";
+    private static final String SYNC_INFO_DIR = "sync";
+    private static final String SYNC_INFO_FILE = "sync_info.json";
+
+    private static final Object SYNC_INFO_LOCK = new Object();
 
     private final SessionManager sessionManager;
     private final IContextManager contextManager;
@@ -75,6 +81,21 @@ class SessionSynchronizer {
         }
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record SyncInfo(Set<UUID> oversizedSessionIds) {
+
+        @SuppressWarnings("RedundantNullCheck") // In case null is passed during deserialization
+        public SyncInfo {
+            if (oversizedSessionIds == null) {
+                oversizedSessionIds = new HashSet<>();
+            }
+        }
+
+        SyncInfo() {
+            this(new HashSet<>());
+        }
+    }
+
     SessionSynchronizer(IContextManager contextManager) {
         this(contextManager, new DefaultSyncCallbacks());
     }
@@ -109,7 +130,9 @@ class SessionSynchronizer {
                 Map<UUID, SessionInfo> localSessions,
                 List<RemoteSessionMeta> remoteSessions,
                 Set<UUID> tombstones,
-                Set<UUID> unreadableSessionIds) {
+                Set<UUID> unreadableSessionIds,
+                SyncInfo syncInfo) {
+            Set<UUID> oversizedSessionIds = syncInfo.oversizedSessionIds();
 
             Map<UUID, RemoteSessionMeta> remoteMap = remoteSessions.stream()
                     .collect(Collectors.toMap(RemoteSessionMeta::uuid, Function.identity(), (a, b) -> a));
@@ -152,10 +175,6 @@ class SessionSynchronizer {
                         }
                     } else {
                         // Remote active
-                        if (unreadableSessionIds.contains(id)) {
-                            continue;
-                        }
-
                         if (local == null) {
                             actions.add(new SyncAction(id, ActionType.DOWNLOAD, null, remote));
                         } else {
@@ -172,8 +191,10 @@ class SessionSynchronizer {
                 }
             }
 
-            // Sort actions: Delete Remote -> Download/Delete Local (Newest Remote First) -> Upload
             return actions.stream()
+                    .filter(a -> !(a.type() == ActionType.DOWNLOAD && unreadableSessionIds.contains(a.sessionId())))
+                    .filter(a -> !(a.type() == ActionType.UPLOAD && oversizedSessionIds.contains(a.sessionId())))
+                    // Sort actions: Delete Remote -> Download/Delete Local (Newest Remote First) -> Upload
                     .sorted(Comparator.comparing((SyncAction a) -> {
                                 if (a.type() == ActionType.DELETE_REMOTE) return 0;
                                 if (a.type() == ActionType.DOWNLOAD || a.type() == ActionType.DELETE_LOCAL) return 1;
@@ -219,6 +240,11 @@ class SessionSynchronizer {
                         logger.warn("Daily upload limit reached. Pausing remaining uploads for this sync cycle.");
                         break;
                     }
+
+                    if (isUploadPayloadTooLarge(action, finalEx)) {
+                        logger.warn("Session {} is too large to upload (413). Adding to oversized sessions list.", id);
+                        addOversizedSession(id);
+                    }
                 }
             }
             return result;
@@ -228,6 +254,12 @@ class SessionSynchronizer {
             return action.type() == ActionType.UPLOAD
                     && e instanceof ServiceHttpException se
                     && se.getStatusCode() == 429;
+        }
+
+        private boolean isUploadPayloadTooLarge(SyncAction action, Exception e) {
+            return action.type() == ActionType.UPLOAD
+                    && e instanceof ServiceHttpException se
+                    && se.getStatusCode() == 413;
         }
 
         private void handleDeleteRemote(SyncAction action, SyncCallbacks callbacks, SyncResult result)
@@ -440,9 +472,10 @@ class SessionSynchronizer {
             }
 
             Map<UUID, IContextManager> openContextManagers = getOpenContextManagers();
+            SyncInfo syncInfo = readSyncInfo();
 
             // Plan
-            List<SyncAction> actions = planner.plan(localSessions, remoteSessions, tombstones, unreadableIds);
+            List<SyncAction> actions = planner.plan(localSessions, remoteSessions, tombstones, unreadableIds, syncInfo);
             if (actions.isEmpty()) {
                 break;
             }
@@ -571,6 +604,52 @@ class SessionSynchronizer {
                 Files.deleteIfExists(remoteZipPath);
             } catch (IOException e) {
                 logger.warn("Failed to delete temp remote zip: {}", remoteZipPath, e);
+            }
+        }
+    }
+
+    SyncInfo readSyncInfo() {
+        synchronized (SYNC_INFO_LOCK) {
+            Path syncInfoPath = sessionsDir.resolve(SYNC_INFO_DIR).resolve(SYNC_INFO_FILE);
+            if (!Files.exists(syncInfoPath)) {
+                return new SyncInfo();
+            }
+            try {
+                return AbstractProject.objectMapper.readValue(syncInfoPath.toFile(), SyncInfo.class);
+            } catch (IOException e) {
+                logger.warn("Failed to read sync info, returning empty: {}", e.getMessage());
+                return new SyncInfo();
+            }
+        }
+    }
+
+    private void addOversizedSession(UUID id) {
+        synchronized (SYNC_INFO_LOCK) {
+            try {
+                Path syncDir = sessionsDir.resolve(SYNC_INFO_DIR);
+                Files.createDirectories(syncDir);
+                Path syncInfoPath = syncDir.resolve(SYNC_INFO_FILE);
+
+                SyncInfo existing;
+                if (Files.exists(syncInfoPath)) {
+                    try {
+                        existing = AbstractProject.objectMapper.readValue(syncInfoPath.toFile(), SyncInfo.class);
+                    } catch (IOException e) {
+                        logger.warn("Failed to read existing sync info, creating new: {}", e.getMessage());
+                        existing = new SyncInfo();
+                    }
+                } else {
+                    existing = new SyncInfo();
+                }
+
+                Set<UUID> updatedIds = new HashSet<>(existing.oversizedSessionIds());
+                updatedIds.add(id);
+                SyncInfo updated = new SyncInfo(updatedIds);
+                String json = AbstractProject.objectMapper.writeValueAsString(updated);
+                AtomicWrites.save(syncInfoPath, json);
+                logger.info("Added session {} to oversized sessions list", id);
+            } catch (IOException e) {
+                logger.warn("Failed to write sync info: {}", e.getMessage());
             }
         }
     }
