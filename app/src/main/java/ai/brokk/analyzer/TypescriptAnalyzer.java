@@ -137,7 +137,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+    protected TypescriptAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
         return new TypescriptAnalyzer(getProject(), state, listener);
     }
 
@@ -1040,6 +1040,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        // Delegate to JsTsAnalyzer for ES6 and CommonJS require extraction
         super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
     }
 
