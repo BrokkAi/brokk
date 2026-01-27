@@ -106,5 +106,15 @@ class JobRunnerTest {
         assertTrue(
                 prompt.contains("DIFF_START\n" + diff + "\nDIFF_END"),
                 "Prompt should include the provided diff between DIFF_START and DIFF_END");
+
+        // Verify strict filtering criteria
+        assertTrue(prompt.contains("Exclusions"), "Prompt should explicitly list Exclusions");
+        assertTrue(prompt.contains("Anti-patterns"), "Prompt should explicitly list Anti-patterns");
+        assertTrue(
+                prompt.contains("Do NOT flag \"hardcoded defaults\" or \"configuration values\" as HIGH severity"),
+                "Prompt should exclude hardcoded defaults from HIGH severity");
+        assertTrue(
+                prompt.contains("\"Maintainability\" issues alone should be considered MEDIUM or LOW"),
+                "Prompt should categorize maintainability as MEDIUM or LOW");
     }
 }

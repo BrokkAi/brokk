@@ -1961,9 +1961,13 @@ public final class JobRunner {
 
                 SEVERITY DEFINITIONS:
                 - CRITICAL: likely exploitable security issue, data loss/corruption, auth/permission bypass, remote crash, or severe production outage risk.
-                - HIGH: likely bug, race condition, broken error handling, incorrect logic, resource leak, significant performance regression, or high-impact maintainability risk.
-                - MEDIUM: could become a bug; edge-case correctness; non-trivial readability/maintenance concerns.
-                - LOW: style, nits, subjective preference, minor readability, minor refactors.
+                - HIGH: likely bug, race condition, broken error handling, incorrect logic, resource leak, or significant performance regression.
+                - MEDIUM: could become a bug; edge-case correctness; high-impact maintainability or non-trivial readability concerns.
+                - LOW: style, nits, subjective preference, minor readability, minor refactors, or standard maintainability improvements.
+
+                STRICT FILTERING CRITERIA:
+                - Exclusions: Do NOT flag "hardcoded defaults" or "configuration values" as HIGH severity.
+                - Anti-patterns: "Maintainability" issues alone should be considered MEDIUM or LOW, never HIGH or CRITICAL.
 
                 COMMENT POLICY (STRICT):
                 - %s
