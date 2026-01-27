@@ -1,6 +1,5 @@
-package ai.brokk.gui.widgets;
+package ai.brokk.gui.components;
 
-import ai.brokk.gui.components.RoundedLineBorder;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
 import java.awt.Component;
