@@ -97,13 +97,13 @@ public final class IssueModeHandler {
                 }
 
                 String targetBranch = gitHubAuth.getDefaultBranch();
-                var inlineComments = fetchInlineComments(jobId, store, gitRepo, cm, planner, githubToken, targetBranch);
+                var inlineComments = fetchInlineComments(jobId, gitRepo, cm, planner, githubToken, targetBranch);
 
                 if (inlineComments.isEmpty()) {
                     store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Review-bot: no inline comments to fix."));
                 } else {
                     var taskIndex = new AtomicInteger(0);
-                    var lastTask = new AtomicReference<String>("");
+                    final var lastTask = new AtomicReference<String>("Review-fix");
 
                     IssueModeSupport.runIssueReviewFixAttemptsWithCommandResultEvents(jobId, store, console, cancelled, inlineComments,
                             comment -> {
@@ -127,7 +127,14 @@ public final class IssueModeHandler {
                     if (cancelled.getAsBoolean()) return;
 
                     IssueModeSupport.runIssueModeTestLintRetryLoop(jobId, store, console, cancelled,
-                            (attempt, msg) -> { try { store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg)); console.showNotification(IConsoleIO.NotificationRole.INFO, msg); } catch (Throwable ignore) {} },
+                            (attempt, msg) -> {
+                                try {
+                                    store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
+                                    console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                } catch (Throwable t) {
+                                    logger.warn("Failed to emit retry loop notification", t);
+                                }
+                            },
                             cmd -> { try { return BuildAgent.runExplicitCommand(cm, cmd, buildDetailsOverride); } catch (InterruptedException e) { throw new RuntimeException(e); } },
                             out -> { try { cm.executeTask(TaskList.TaskItem.createFixTask("fix build error:\n" + out), planner, codeModel); } catch (Exception e) { logger.warn("Final fix failed", e); } },
                             buildDetailsOverride, spec.effectiveMaxIssueFixAttempts());
@@ -155,7 +162,6 @@ public final class IssueModeHandler {
 
     private static List<PrReviewService.InlineComment> fetchInlineComments(
             String jobId,
-            ai.brokk.executor.jobs.JobStore store,
             GitRepo gitRepo,
             ai.brokk.ContextManager cm,
             StreamingChatModel model,

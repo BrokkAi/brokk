@@ -18,7 +18,6 @@ public final class LutzModeHandler {
     private LutzModeHandler() {}
 
     public static void run(JobExecutionContext ctx) throws Exception {
-        var jobId = ctx.jobId();
         var spec = ctx.spec();
         var cm = ctx.cm();
         var console = ctx.io();
@@ -44,12 +43,10 @@ public final class LutzModeHandler {
         var generatedTasks = cm.getTaskList().tasks();
         if (generatedTasks.isEmpty()) {
             var msg = "SearchAgent generated no tasks for: " + spec.taskInput();
-            if (console != null) {
-                try {
-                    console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                } catch (Throwable ignore) {
-                    // Non-critical: event writing failed
-                }
+            try {
+                console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+            } catch (Throwable ignore) {
+                // Non-critical: notification failed
             }
             // No tasks generated; outer loop will handle completion/progress
             return;

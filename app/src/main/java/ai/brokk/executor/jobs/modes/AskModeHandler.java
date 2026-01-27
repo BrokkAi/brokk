@@ -28,7 +28,6 @@ public final class AskModeHandler {
         var spec = ctx.spec();
         var cm = ctx.cm();
         var store = ctx.store();
-        var console = ctx.io();
         var plannerModel = ctx.plannerModel();
 
         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {

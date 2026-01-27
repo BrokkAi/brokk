@@ -181,7 +181,7 @@ public final class IssueModeSupport {
         var out = new StringBuilder();
         int lastEnd = 0;
         while (matcher.find()) {
-            out.append(bodyMarkdown, lastEnd, matcher.start());
+            out.append(bodyMarkdown, /* start= */ lastEnd, /* end= */ matcher.start());
             String content = matcher.group(1);
             String annotated = PrReviewService.annotateDiffWithLineNumbers(content);
             out.append("```diff\n").append(annotated).append("\n```");
@@ -280,8 +280,8 @@ public final class IssueModeSupport {
 
     public static void runIssueModeTestLintRetryLoop(
             String jobId,
-            JobStore store,
-            IConsoleIO io,
+            @Nullable JobStore store,
+            @Nullable IConsoleIO io,
             BooleanSupplier isCancelled,
             BiConsumer<Integer, String> progressSink,
             Function<String, String> commandRunner,
@@ -364,7 +364,7 @@ public final class IssueModeSupport {
             PrReviewService.InlineComment comment, String outcome, @Nullable String details) {
 
         String path = Objects.requireNonNullElse(comment.path(), "");
-        String severity = comment.severity() == null ? "" : comment.severity().name();
+        String severity = comment.severity().name();
         String body = Objects.requireNonNullElse(comment.bodyMarkdown(), "");
 
         String base = """

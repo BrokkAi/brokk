@@ -192,7 +192,7 @@ public final class JobRunner {
                         spec,
                         cm,
                         store,
-                        console,
+                        currentConsole,
                         cancelled::get,
                         plannerModel,
                         codeModel,
