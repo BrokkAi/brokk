@@ -474,13 +474,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         return false;
     }
 
-    /**
-     * Public API for checking if imports could reference a target file.
-     * C++ quoted includes are resolved relative to the source file's directory.
-     */
-    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
-        return couldImportFile(imports, target);
-    }
 
     @Override
     protected void extractImports(
