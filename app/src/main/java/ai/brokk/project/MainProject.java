@@ -582,6 +582,7 @@ public final class MainProject extends AbstractProject {
         if (detailsFuture.isDone()) {
             // existing Future completed with an unknown value; overwrite it with ours
             // (again: we don't care about potential references to the old Future; there aren't any)
+            logger.warn("Project build details are already saved; overwriting them with " + details);
             detailsFuture = CompletableFuture.completedFuture(details);
         } else {
             detailsFuture.complete(details);

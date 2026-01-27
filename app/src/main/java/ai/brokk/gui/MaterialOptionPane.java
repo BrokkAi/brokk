@@ -71,6 +71,9 @@ public class MaterialOptionPane {
     /**
      * Shows a modal dialog with a message and a Cancel button.
      * The dialog stays open until the provided future completes or the user clicks Cancel.
+     * <p>
+     * NOTE: This method blocks the calling thread until the dialog is closed. If called on the EDT,
+     * it triggers a secondary event pump (standard Swing modal behavior).
      *
      * @return true if the future completed successfully, false if the user cancelled.
      */
@@ -90,6 +93,13 @@ public class MaterialOptionPane {
         cancelButton.addActionListener(e -> {
             future.cancel(true);
             dialog.dispose();
+        });
+
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                future.cancel(true);
+            }
         });
 
         // Close dialog when future completes

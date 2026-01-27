@@ -25,6 +25,8 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
+import static java.util.Objects.requireNonNull;
+
 public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
 
@@ -141,7 +143,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
                     if (!isDisplayable() || !isShowing()) {
                         return;
                     }
-                    if (data.buildDetails() == null && chrome.getProject() != null) {
+                    if (data.buildDetails() == null) {
                         awaitBuildDetailsAndPopulate(data);
                     } else {
                         populateUIFromData(data);
@@ -159,7 +161,6 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
 
     private void awaitBuildDetailsAndPopulate(SettingsData partialData) {
         var project = chrome.getProject();
-        if (project == null) return;
 
         var future = project.getBuildDetailsFuture();
         boolean completed = ai.brokk.gui.MaterialOptionPane.showBlockingProgressDialog(
@@ -167,7 +168,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
 
         if (completed) {
             try {
-                var details = future.join();
+                var details = requireNonNull(future.getNow(null));
                 populateUIFromData(new SettingsData(
                         partialData.jvmMemorySettings(),
                         partialData.brokkApiKey(),
