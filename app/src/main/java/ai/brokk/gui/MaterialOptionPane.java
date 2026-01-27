@@ -68,6 +68,47 @@ public class MaterialOptionPane {
      *
      * @return the index of the chosen option, or {@link JOptionPane#CLOSED_OPTION} if the user closed the dialog.
      */
+    /**
+     * Shows a modal dialog with a message and a Cancel button.
+     * The dialog stays open until the provided future completes or the user clicks Cancel.
+     * <p>
+     * NOTE: This method blocks the calling thread until the dialog is closed. If called on the EDT,
+     * it triggers a secondary event pump (standard Swing modal behavior).
+     *
+     * @return true if the future completed successfully, false if the user cancelled.
+     */
+    public static boolean showBlockingProgressDialog(
+            @Nullable Component parent,
+            String message,
+            String title,
+            java.util.concurrent.CompletableFuture<?> future) {
+        MaterialButton cancelButton = new MaterialButton("Cancel");
+        MaterialButton[] buttons = {cancelButton};
+
+        JOptionPane pane = new JOptionPane(
+                message, JOptionPane.INFORMATION_MESSAGE, JOptionPane.DEFAULT_OPTION, null, buttons, cancelButton);
+        javax.swing.JDialog dialog = pane.createDialog(parent, title);
+
+        cancelButton.addActionListener(e -> {
+            future.cancel(true);
+            dialog.dispose();
+        });
+
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                future.cancel(true);
+            }
+        });
+
+        // Close dialog when future completes
+        future.whenComplete((res, err) -> SwingUtil.runOnEdt(dialog::dispose));
+
+        dialog.setVisible(true);
+
+        return future.isDone() && !future.isCancelled();
+    }
+
     public static int showOptionDialog(
             @Nullable Component parentComponent,
             Object message,

@@ -343,7 +343,7 @@ class OnboardingOrchestratorTest {
         var project = new ai.brokk.testutil.TestProject(tempDir);
 
         assertFalse(project.hasBuildDetails(), "Fresh project should not have build details");
-        assertEquals(BuildAgent.BuildDetails.EMPTY, project.loadBuildDetails());
+        assertEquals(BuildAgent.BuildDetails.EMPTY, project.loadBuildDetails().orElseThrow());
     }
 
     @Test

@@ -354,7 +354,7 @@ public class ArchitectAgent {
             @P("Command to run all tests.") String testAllCommand,
             @P("Command to run a subset of tests (e.g., a single module/file/class).") String testSomeCommand,
             @P("Directories to exclude from analysis/build context.") List<String> excludedDirectories) {
-        var existingDetails = cm.getProject().loadBuildDetails();
+        var existingDetails = cm.getProject().awaitBuildDetails();
         var details = new BuildAgent.BuildDetails(
                 buildLintCommand,
                 testAllCommand,
@@ -374,7 +374,7 @@ public class ArchitectAgent {
             "Verify the currently configured build/lint command by executing it and returning bounded output. Uses the project's saved build details and environment variables.")
     public String verifyBuildCommand() {
         var project = cm.getProject();
-        var details = project.loadBuildDetails();
+        var details = project.awaitBuildDetails();
         var buildLintCommand = details.buildLintCommand();
         if (buildLintCommand.trim().isEmpty()) {
             return "No build/lint command is configured.";
@@ -584,7 +584,7 @@ public class ArchitectAgent {
                 allowed.add("callCodeAgent");
 
                 // only allow to run the tools when build settings are empty (mostly for new projects)
-                if (cm.getProject().loadBuildDetails().buildLintCommand().isBlank()) {
+                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
                     allowed.add("setBuildDetails");
                     allowed.add("verifyBuildCommand");
                 }
@@ -1077,7 +1077,7 @@ public class ArchitectAgent {
                     """;
         }
 
-        if (cm.getProject().loadBuildDetails().buildLintCommand().isBlank()) {
+        if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
             finalInstructions +=
                     """
 
