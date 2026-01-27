@@ -191,6 +191,10 @@ public class SearchPrompts {
                           → addSymbolUsagesToWorkspace
                           Strings, configs, markdown, comments, reflection, or unknown names?
                           → searchSubstrings
+                     - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
+                       They do NOT surface local variables or hardcoded strings like environment variable names,
+                       system properties, or comments. If searchSubstrings finds a hit in a file but the summary
+                       doesn't reveal the match, you MUST load the full file or method source to see the actual content.
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
                   4) Group related lookups into a single tool call when possible.
