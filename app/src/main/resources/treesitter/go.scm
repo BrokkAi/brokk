@@ -1,9 +1,9 @@
-(package_clause (package_identifier) @package.definition)
+(package_clause (package_identifier) @package.name) @package.definition
 
 (import_declaration) @import.declaration
 
 (function_declaration
-  name: (identifier) @function.name) @function.definition;
+  name: (identifier) @function.name) @function.definition
 
 ; Matches type declarations for structs and interfaces
 (type_declaration

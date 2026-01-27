@@ -23,6 +23,9 @@ import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
+import org.treesitter.TSQuery;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
 
@@ -549,6 +552,45 @@ public class GoAnalyzerTest {
 
         // Test with an empty set
         assertTrue(analyzer.getSymbols(Set.of()).isEmpty(), "getSymbols with empty set should return empty.");
+    }
+
+    @Test
+    void testPackageQueryCapturesBothDefinitionAndName() {
+        String code = "package mypkg";
+        TSParser parser = new TSParser();
+        parser.setLanguage(GO_LANGUAGE);
+        TSTree tree = parser.parseString(null, code);
+        TSNode rootNode = tree.getRootNode();
+
+        // Use the query already loaded by the analyzer
+        TSQuery query = analyzer.getThreadLocalQuery();
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, rootNode);
+        TSQueryMatch match = new TSQueryMatch();
+
+        boolean foundDefinition = false;
+        boolean foundName = false;
+
+        while (cursor.nextMatch(match)) {
+            for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                if (CaptureNames.PACKAGE_DEFINITION.equals(captureName)) {
+                    foundDefinition = true;
+                    assertEquals("package_clause", capture.getNode().getType());
+                } else if (CaptureNames.PACKAGE_NAME.equals(captureName)) {
+                    foundName = true;
+                    assertEquals("package_identifier", capture.getNode().getType());
+                    assertEquals(
+                            "mypkg",
+                            SourceContent.of(code)
+                                    .substringFrom(capture.getNode())
+                                    .trim());
+                }
+            }
+        }
+
+        assertTrue(foundDefinition, "Should have captured @package.definition");
+        assertTrue(foundName, "Should have captured @package.name");
     }
 
     @Test
