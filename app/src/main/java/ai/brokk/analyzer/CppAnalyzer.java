@@ -474,7 +474,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         return false;
     }
 
-
     @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {

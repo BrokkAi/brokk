@@ -620,5 +620,4 @@ class GoImportTest {
 
         assertTrue(result, "Aliased import should still match file in the imported package path");
     }
-
 }

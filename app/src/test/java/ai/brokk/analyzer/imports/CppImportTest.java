@@ -259,7 +259,8 @@ class CppImportTest {
     void testCouldImportFile_quotedIncludeMatches() throws Exception {
         // Test: #include "utils/helper.h" should return true for utils/helper.h
         String headerContent = "void helperFunction();";
-        String sourceContent = """
+        String sourceContent =
+                """
                 #include "utils/helper.h"
 
                 int main() { return 0; }
@@ -284,10 +285,11 @@ class CppImportTest {
 
     @Test
     void testCouldImportFile_angleBracketSystemIncludes() throws Exception {
-        // Test: Angle bracket includes (<vector>) are system includes and should never match 
+        // Test: Angle bracket includes (<vector>) are system includes and should never match
         // project files because they reference external headers.
         String headerContent = "void myFunction();";
-        String sourceContent = """
+        String sourceContent =
+                """
                 #include <myheader.h>
                 #include <vector>
 
@@ -315,7 +317,8 @@ class CppImportTest {
     void testCouldImportFile_relativeIncludeResolvesCorrectly() throws Exception {
         // Test: #include "helper.h" should match both helper.h and src/helper.h (suffix match)
         String headerContent = "void helperFunction();";
-        String sourceContent = """
+        String sourceContent =
+                """
                 #include "helper.h"
 
                 int main() { return 0; }
@@ -337,5 +340,4 @@ class CppImportTest {
             assertTrue(result, "#include \"helper.h\" should match src/helper.h via suffix match");
         }
     }
-
 }

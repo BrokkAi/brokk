@@ -13,9 +13,6 @@ import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.SourceContent;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.analyzer.ImportInfo;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.TreeSitterAnalyzer;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
@@ -897,7 +894,8 @@ public class JavaImportTest {
                 .addFileContents("import com.example.Outer.Inner; public class Bar {}", "Bar.java")
                 .build()) {
             var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
-            var outerFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Outer").get();
+            var outerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "com.example.Outer").get();
             var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
             var imports = analyzer.importInfoOf(barFile);
 
@@ -933,8 +931,7 @@ public class JavaImportTest {
         // Two files in the same package - Bar references Foo without an import
         try (var testProject = InlineTestProjectCreator.code(
                         "package com.example; public class Foo {}", "com/example/Foo.java")
-                .addFileContents(
-                        "package com.example; public class Bar { private Foo foo; }", "com/example/Bar.java")
+                .addFileContents("package com.example; public class Bar { private Foo foo; }", "com/example/Bar.java")
                 .build()) {
             var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();

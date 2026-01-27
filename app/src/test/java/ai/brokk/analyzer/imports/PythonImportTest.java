@@ -6,8 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.ImportAnalysisProvider;
-import ai.brokk.analyzer.ImportInfo;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
@@ -954,7 +952,8 @@ public class PythonImportTest {
         try (var testProject = builder.build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var sourceFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
-            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.utils.helper").get();
+            var targetFile =
+                    AnalyzerUtil.getFileFor(analyzer, "mypackage.utils.helper").get();
             var imports = analyzer.importInfoOf(sourceFile);
 
             boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
@@ -983,8 +982,10 @@ public class PythonImportTest {
 
         try (var testProject = builder.build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.consumer.consumer").get();
-            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling.sibling_func").get();
+            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.consumer.consumer")
+                    .get();
+            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling.sibling_func")
+                    .get();
             var imports = analyzer.importInfoOf(sourceFile);
 
             boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
@@ -1012,8 +1013,10 @@ public class PythonImportTest {
 
         try (var testProject = builder.build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "consumer.consumer").get();
-            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mymodule.MyClass").get();
+            var sourceFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.consumer").get();
+            var targetFile =
+                    AnalyzerUtil.getFileFor(analyzer, "mymodule.MyClass").get();
             var imports = analyzer.importInfoOf(sourceFile);
 
             boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
@@ -1041,8 +1044,10 @@ public class PythonImportTest {
 
         try (var testProject = builder.build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "consumer.consumer").get();
-            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.PackageClass").get();
+            var sourceFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.consumer").get();
+            var targetFile =
+                    AnalyzerUtil.getFileFor(analyzer, "mypackage.PackageClass").get();
             var imports = analyzer.importInfoOf(sourceFile);
 
             boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
@@ -1074,12 +1079,13 @@ public class PythonImportTest {
                         "root/level1/level2/level3/consumer.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "root.level1.level2.level3.consumer.Consumer").get();
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "root.level1.level2.level3.consumer.Consumer")
+                    .get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             assertTrue(
-                    resolvedImports.stream().anyMatch(cu -> cu.fqName().equals("root.level1.grandparent.GrandparentClass")),
+                    resolvedImports.stream()
+                            .anyMatch(cu -> cu.fqName().equals("root.level1.grandparent.GrandparentClass")),
                     "Should resolve GrandparentClass from 3-dot relative import");
         }
     }
@@ -1107,8 +1113,8 @@ public class PythonImportTest {
                         "a/b/c/d/consumer.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "a.b.c.d.consumer.Consumer").get();
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "a.b.c.d.consumer.Consumer")
+                    .get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             assertTrue(
@@ -1137,7 +1143,8 @@ public class PythonImportTest {
                     AnalyzerUtil.getFileFor(analyzer, "pkg.consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
-            assertTrue(resolvedImports.isEmpty(), "Should resolve no imports when relative path goes above project root");
+            assertTrue(
+                    resolvedImports.isEmpty(), "Should resolve no imports when relative path goes above project root");
         }
     }
 
@@ -1166,8 +1173,8 @@ public class PythonImportTest {
                         "root/level1/level2/level3/consumer.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "root.level1.level2.level3.consumer.Consumer").get();
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "root.level1.level2.level3.consumer.Consumer")
+                    .get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var importedNames =

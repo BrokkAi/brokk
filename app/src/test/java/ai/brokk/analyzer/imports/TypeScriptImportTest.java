@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ImportInfo;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypescriptAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
@@ -528,8 +527,7 @@ public class TypeScriptImportTest {
                 .addFileContents(
                         """
                 export function X(): void {}
-                """,
-                        "src/utils/helper.ts")
+                """, "src/utils/helper.ts")
                 .build()) {
 
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -560,8 +558,7 @@ public class TypeScriptImportTest {
                 .addFileContents(
                         """
                 export default class User {}
-                """,
-                        "src/models/User.ts")
+                """, "src/models/User.ts")
                 .build()) {
 
             var analyzer = createTreeSitterAnalyzer(testProject);

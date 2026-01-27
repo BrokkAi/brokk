@@ -482,7 +482,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         return false;
     }
 
-
     @Override
     public Set<String> relevantImportsFor(CodeUnit cu) {
         var sourceOpt = getSource(cu, false);

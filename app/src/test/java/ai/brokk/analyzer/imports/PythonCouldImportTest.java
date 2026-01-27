@@ -28,7 +28,7 @@ public class PythonCouldImportTest {
         Files.createDirectories(tempDir.resolve("pkg/sub"));
         Files.writeString(tempDir.resolve("pkg/__init__.py"), "");
         Files.writeString(tempDir.resolve("pkg/sub/__init__.py"), "");
-        
+
         var project = new TestProject(tempDir);
         analyzer = new PythonAnalyzer(project);
     }
@@ -49,8 +49,9 @@ public class PythonCouldImportTest {
         ProjectFile target = createFile("pkg/utils.py", "def some_fn(): pass");
 
         ImportInfo imp = new ImportInfo("from .. import utils", false, "utils", null);
-        
-        assertTrue(analyzer.couldImportFile(source, List.of(imp), target),
+
+        assertTrue(
+                analyzer.couldImportFile(source, List.of(imp), target),
                 "Should resolve .. as parent package and match utils.py");
     }
 
@@ -63,8 +64,9 @@ public class PythonCouldImportTest {
         ProjectFile target = createFile("pkg/other.py", "something = 1");
 
         ImportInfo imp = new ImportInfo("from ..other import something", false, "something", null);
-        
-        assertTrue(analyzer.couldImportFile(source, List.of(imp), target),
+
+        assertTrue(
+                analyzer.couldImportFile(source, List.of(imp), target),
                 "Should resolve ..other as pkg.other and match target");
     }
 
@@ -79,8 +81,9 @@ public class PythonCouldImportTest {
         // PythonAnalyzer.resolveRelativeImport returns Optional.empty() for this.
         // couldImportFile should be conservative and return true if resolution fails.
         ImportInfo imp = new ImportInfo("from ... import utils", false, "utils", null);
-        
-        assertTrue(analyzer.couldImportFile(source, List.of(imp), target),
+
+        assertTrue(
+                analyzer.couldImportFile(source, List.of(imp), target),
                 "Should return true conservatively when relative import resolution fails (too many dots)");
     }
 
@@ -90,8 +93,7 @@ public class PythonCouldImportTest {
         ProjectFile target = createFile("pkg/target.py", "");
 
         ImportInfo imp = new ImportInfo("import unrelated", false, "unrelated", null);
-        
-        assertFalse(analyzer.couldImportFile(source, List.of(imp), target),
-                "Should not match unrelated import");
+
+        assertFalse(analyzer.couldImportFile(source, List.of(imp), target), "Should not match unrelated import");
     }
 }
