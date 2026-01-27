@@ -1,8 +1,8 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
+import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialChip;

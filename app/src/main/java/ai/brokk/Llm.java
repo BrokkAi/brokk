@@ -1821,10 +1821,8 @@ public class Llm {
             var tr = toolContext.toolRegistry();
             for (var request : toolRequests) {
                 var toolResult = tr.executeTool(request);
-                currentMessages.add(new ToolExecutionResultMessage(
-                        request.id(),
-                        request.name(),
-                        toolResult.resultText()));
+                currentMessages.add(
+                        new ToolExecutionResultMessage(request.id(), request.name(), toolResult.resultText()));
             }
 
             turns++;

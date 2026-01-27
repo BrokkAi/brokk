@@ -38,14 +38,12 @@ import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.ActionGroupPanel;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.components.MaterialProgressButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
@@ -289,26 +287,26 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         reviewActionPanel.add(reviewModeToggle, BorderLayout.EAST);
 
         this.codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
-        this.codeReviewPanel.addHeaderControl(reviewActionPanel);
 
         this.fileTreePanel =
                 new FileTreePanel(List.of(), contextManager.getProject().getRoot());
 
-        var leftHeaderPanel = new JPanel(new BorderLayout());
-        leftHeaderPanel.setOpaque(false);
-        leftHeaderPanel.add(reviewActionPanel, BorderLayout.NORTH);
-        leftHeaderPanel.add(commitsTable, BorderLayout.CENTER);
-
-        // leftSplitPane starts with leftHeaderPanel in PREVIEW mode
-        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftHeaderPanel, fileTreePanel);
+        // leftSplitPane starts with commitsTable in PREVIEW mode (swapped for reviewListPanel in REVIEW mode)
+        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitsTable, fileTreePanel);
         this.leftSplitPane.setResizeWeight(0.4);
+
+        // Wrapper that keeps reviewActionPanel visible above the swappable leftSplitPane content
+        var leftPanelWrapper = new JPanel(new BorderLayout());
+        leftPanelWrapper.setOpaque(false);
+        leftPanelWrapper.add(reviewActionPanel, BorderLayout.NORTH);
+        leftPanelWrapper.add(leftSplitPane, BorderLayout.CENTER);
 
         // Right side: ReviewDetailPanel above diff view (only shown in REVIEW mode)
         this.rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, null, diffWithToolbar);
         this.rightVerticalSplitPane.setResizeWeight(0.0);
 
-        // Main split: left (commits/review list + file tree), right (review detail + diff)
-        this.mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
+        // Main split: left (action panel + commits/review list + file tree), right (review detail + diff)
+        this.mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanelWrapper, rightVerticalSplitPane);
         this.mainSplitPane.setDividerLocation(300);
 
         this.mainCardLayout = new CardLayout();
@@ -1060,23 +1058,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         SwingUtil.runOnEdt(() -> {
             boolean isReview = (mode == PanelMode.REVIEW);
 
-            // Left: commits table in PREVIEW, review list in REVIEW. 
-            // Both are now wrapped in their respective containers that hold the Guided Review action panel.
+            // Left: commits table in PREVIEW, review list in REVIEW
             if (isReview) {
                 leftSplitPane.setTopComponent(codeReviewPanel.getListPanel());
             } else {
-                // Find the container that holds the commitsTable
-                Component top = leftSplitPane.getTopComponent();
-                if (top instanceof JPanel p && p.getLayout() instanceof BorderLayout) {
-                    p.add(commitsTable, BorderLayout.CENTER);
-                }
+                leftSplitPane.setTopComponent(commitsTable);
             }
             leftSplitPane.setDividerSize(defaultSplitPaneDividerSize());
             leftSplitPane.setResizeWeight(0.4);
 
             // Right: review detail above diff in REVIEW, diff-only in PREVIEW
-            rightVerticalSplitPane.setTopComponent(isReview ? codeReviewPanel.getDetailPanel() : null);
-            rightVerticalSplitPane.setDividerSize(isReview ? defaultSplitPaneDividerSize() : 0);
+            if (isReview) {
+                rightVerticalSplitPane.setTopComponent(codeReviewPanel.getDetailPanel());
+                rightVerticalSplitPane.setDividerSize(defaultSplitPaneDividerSize());
+            } else {
+                rightVerticalSplitPane.setTopComponent(null);
+                rightVerticalSplitPane.setDividerSize(0);
+            }
 
             mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
             mainSplitPane.setDividerLocation(300);
@@ -1093,11 +1091,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void setGuidedReviewBusy(boolean busy) {
         SwingUtil.runOnEdt(() -> {
             guidedReviewBusy = busy;
-            if (busy) {
-                guidedReviewBtn.setText("Cancel");
-            } else {
-                updateGuidedReviewButton();
-            }
+            updateGuidedReviewButton();
         });
     }
 
@@ -1131,18 +1125,22 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void updateGuidedReviewButton() {
-        guidedReviewBtn.setVisible(true);
-        if (currentMode == PanelMode.REVIEW) {
+        if (guidedReviewBusy) {
+            guidedReviewBtn.setText("Cancel");
+            guidedReviewBtn.setToolTipText("Cancel current review generation");
+            guidedReviewBtn.setEnabled(true);
+            reviewModeToggle.setEnabled(false);
+        } else if (currentMode == PanelMode.REVIEW) {
             guidedReviewBtn.setText("Close Review");
             guidedReviewBtn.setToolTipText("Exit review mode and return to change preview");
             guidedReviewBtn.setEnabled(true);
-            reviewModeToggle.setVisible(false);
+            reviewModeToggle.setEnabled(false);
         } else {
             guidedReviewBtn.setText("Guided Review");
             guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
             guidedReviewBtn.setEnabled(
                     commitsTable.getSelectedCommitIds().isEmpty() || commitsTable.isSelectionContiguous());
-            reviewModeToggle.setVisible(true);
+            reviewModeToggle.setEnabled(true);
         }
     }
 
@@ -1379,7 +1377,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.getDetailPanel().showPlaceholder();
         codeReviewPanel.getListPanel().setStalenessNotice(null);
         setMode(PanelMode.PREVIEW);
-        requestUpdate();
+
+        // Immediately refresh UI to restore the diff view for the current changes
+        performRefresh();
     }
 
     /**
@@ -1457,13 +1457,20 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void generateGuidedReviewInternal(ReviewScope scope) {
+        SwingUtilities.invokeLater(() -> {
+            setMode(PanelMode.REVIEW);
+            codeReviewPanel.getDetailPanel().setBusy(true);
+        });
+
         cm.submitLlmAction(() -> {
             chrome.showOutputSpinner("Generating guided review...");
             try {
                 // Wait for any pending session downloads (e.g. from PR checkout) before proceeding
                 cm.getProject().getSessionManager().awaitForeignDownloads();
 
-                var options = reviewModeToggle.isSelected() ? ReviewAgent.ReviewOptions.DEEPER : ReviewAgent.ReviewOptions.FASTER;
+                var options = reviewModeToggle.isSelected()
+                        ? ReviewAgent.ReviewOptions.DEEPER
+                        : ReviewAgent.ReviewOptions.FASTER;
                 // Use the markdown panel from the review detail panel as the console
                 var agentIo = codeReviewPanel.getDetailPanel().getMarkdownConsole();
                 var agent = new ReviewAgent(scope, options, cm, agentIo);
@@ -1478,7 +1485,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     chrome.hideOutputSpinner();
                     lastReviewState = new ReviewState(scope.metadata().fromRef(), now);
                     reviewTargetCommit = currentHash;
-                    setMode(PanelMode.REVIEW);
                     emitReviewTabStateFromCached();
                     codeReviewPanel.displayReview(result.review(), result.context());
                     codeReviewPanel.setBusy(false);
@@ -1492,8 +1498,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     chrome.hideOutputSpinner();
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
-                    revalidate();
-                    repaint();
+                    closeReview();
                 });
             } catch (ReviewGenerationException ex) {
                 logger.warn("Review generation failed: {}", ex.getMessage());
@@ -1506,8 +1511,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             ? "Review generation failed: " + ex.getStopDetails().explanation()
                             : "Review generation failed: " + ex.getMessage();
                     chrome.toolError(userMessage, "Review Error");
-                    revalidate();
-                    repaint();
+                    closeReview();
                 });
             } catch (Exception ex) {
                 logger.error("Unexpected error during review generation", ex);
@@ -1516,8 +1520,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
-                    revalidate();
-                    repaint();
+                    closeReview();
                 });
             }
         });

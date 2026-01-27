@@ -1,6 +1,5 @@
 package ai.brokk.agents;
 
-import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
@@ -8,21 +7,18 @@ import ai.brokk.AbstractService;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.LlmOutputMeta;
-import ai.brokk.project.ModelProperties;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.cli.MemoryConsole;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService.CumulativeChanges;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitRepoData.FileDiff;
-import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.WorkspaceTools;
@@ -35,7 +31,6 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
@@ -54,7 +49,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -78,15 +72,14 @@ public class ReviewAgent {
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
 
-
     public record ReviewOptions(
             AbstractService.ModelConfig scanModel, AbstractService.ModelConfig reviewModel, int reviewToolTurns) {
-        public static final ReviewOptions FASTER = new ReviewOptions(
-                ModelProperties.flash3, ModelProperties.opus4_5, 0);
-        public static final ReviewOptions DEEPER = new ReviewOptions(
-                ModelProperties.flash3, ModelProperties.opus4_5_medium, 3);
-        public static final ReviewOptions ASYNC = new ReviewOptions(
-                ModelProperties.flash3, ModelProperties.gpt5_1_medium, 5);
+        public static final ReviewOptions FASTER =
+                new ReviewOptions(ModelProperties.flash3, ModelProperties.opus4_5, 0);
+        public static final ReviewOptions DEEPER =
+                new ReviewOptions(ModelProperties.flash3, ModelProperties.opus4_5_medium, 3);
+        public static final ReviewOptions ASYNC =
+                new ReviewOptions(ModelProperties.flash3, ModelProperties.gpt5_1_medium, 5);
     }
 
     private final ReviewOptions options;
@@ -369,7 +362,6 @@ public class ReviewAgent {
         ctx = ctx.addFragments(ctx.buildAutoContext(10));
         return new ContextSetupResult(ctx, true);
     }
-
 
     static @Nullable FileDiff findFileDiff(String relPath, List<FileDiff> fileDiffs) {
         return fileDiffs.stream()

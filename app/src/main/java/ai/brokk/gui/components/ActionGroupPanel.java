@@ -48,7 +48,9 @@ public class ActionGroupPanel extends JPanel {
     private final MouseAdapter hoverListener = new MouseAdapter() {
         @Override
         public void mouseEntered(MouseEvent e) {
-            setHovering(true);
+            if (isEnabled()) {
+                setHovering(true);
+            }
         }
 
         @Override
@@ -64,7 +66,7 @@ public class ActionGroupPanel extends JPanel {
 
         @Override
         public void mouseClicked(MouseEvent e) {
-            if (e.getSource() != modeSwitch) {
+            if (isEnabled() && e.getSource() != modeSwitch) {
                 modeSwitch.doClick();
             }
         }
@@ -117,27 +119,46 @@ public class ActionGroupPanel extends JPanel {
     }
 
     @Override
-    protected void paintComponent(Graphics g) {
-        if (hovering) {
-            boolean isDark = UIManager.getBoolean("laf.dark");
-            Color hoverBg = null;
-            try {
-                hoverBg = ThemeColors.getColor(isDark, ThemeColors.FILTER_ICON_HOVER_BACKGROUND);
-            } catch (Exception e) {
-                logger.warn("Could not get theme color for hover background", e);
-            }
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        if (!enabled) {
+            setHovering(false);
+        }
+        for (Component c : getComponents()) {
+            c.setEnabled(enabled);
+        }
+        repaint();
+    }
 
-            if (hoverBg != null) {
-                Graphics2D g2 = (Graphics2D) g.create();
+    @Override
+    protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int arc = getHeight(); // pill shape
+
+            if (hovering && isEnabled()) {
+                boolean isDark = UIManager.getBoolean("laf.dark");
+                Color hoverBg = null;
                 try {
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    int arc = getHeight(); // pill shape
+                    hoverBg = ThemeColors.getColor(isDark, ThemeColors.FILTER_ICON_HOVER_BACKGROUND);
+                } catch (Exception e) {
+                    logger.warn("Could not get theme color for hover background", e);
+                }
+
+                if (hoverBg != null) {
                     g2.setColor(hoverBg);
                     g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
-                } finally {
-                    g2.dispose();
                 }
             }
+
+            if (!isEnabled()) {
+                // Render a muted/desaturated overlay
+                g2.setColor(new Color(128, 128, 128, 30));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+            }
+        } finally {
+            g2.dispose();
         }
         super.paintComponent(g);
     }

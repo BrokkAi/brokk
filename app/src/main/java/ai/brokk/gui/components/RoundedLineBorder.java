@@ -45,7 +45,12 @@ public class RoundedLineBorder extends AbstractBorder {
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(color);
+            Color drawColor = color;
+            if (!c.isEnabled()) {
+                drawColor =
+                        new Color(color.getRed(), color.getGreen(), color.getBlue(), Math.max(0, color.getAlpha() / 2));
+            }
+            g2.setColor(drawColor);
             g2.setStroke(new BasicStroke(thickness));
 
             float stroke = thickness;
