@@ -1958,6 +1958,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         String sessionName = "Merge %s and %s"
                 .formatted(repo.shortHash(conflict.ourCommitId()), repo.shortHash(conflict.otherCommitId()));
         cm.createSessionAsync(sessionName).whenComplete((ignored, err) -> {
+            SwingUtilities.invokeLater(() -> chrome.getRightPanel().selectBuildTab());
             if (err != null) {
                 logger.error("Failed to create merge session '{}'", sessionName, err);
                 SwingUtilities.invokeLater(() -> chrome.toolError(

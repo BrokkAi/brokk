@@ -266,31 +266,60 @@ public final class MainProject extends AbstractProject {
         if (diskCache != null) {
             return diskCache;
         }
-        var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
-        var lockFile = cacheDir.resolve("cache.lock");
+
+        // 1. Try primary cache location
+        Path primaryCacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve(CACHE_DIR);
+        if (tryOpenCache(primaryCacheDir)) {
+            return Objects.requireNonNull(diskCache);
+        }
+
+        // 2. Fallback to unique temporary directory
+        try {
+            Path tempCacheDir = Files.createTempDirectory("brokk-cache-");
+            logger.info("Primary cache locked or inaccessible; falling back to temporary cache at {}", tempCacheDir);
+            if (tryOpenCache(tempCacheDir)) {
+                return Objects.requireNonNull(diskCache);
+            }
+        } catch (IOException e) {
+            logger.error("Failed to create temporary cache directory: {}", e.getMessage());
+        }
+
+        // 3. Absolute fallback to Noop
+        return new IStringDiskCache.NoopCache();
+    }
+
+    private boolean tryOpenCache(Path cacheDir) {
+        Path lockFile = cacheDir.resolve("cache.lock");
+        FileChannel channel = null;
+        FileLock lock = null;
         try {
             Files.createDirectories(cacheDir);
 
-            // Attempt to acquire exclusive lock on cache.lock
-            cacheLockChannel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            cacheFileLock = cacheLockChannel.tryLock();
-            if (cacheFileLock == null) {
-                logger.info(
-                        "Unable to acquire exclusive lock on {}; cache is likely in use by another instance.",
-                        lockFile);
-                cacheLockChannel.close();
-                cacheLockChannel = null;
-                return new IStringDiskCache.NoopCache();
+            channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            lock = channel.tryLock();
+
+            if (lock == null) {
+                logger.debug("Unable to acquire lock on {}", lockFile);
+                channel.close();
+                return false;
             }
 
             DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
-            diskCache = new StringDiskCache(dlc);
+            this.diskCache = new StringDiskCache(dlc);
+            this.cacheLockChannel = channel;
+            this.cacheFileLock = lock;
+
             logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
-            return diskCache;
+            return true;
         } catch (IOException e) {
-            logger.error("Unable to open disk cache at {}: {}", cacheDir, e.getMessage());
-            closeCacheLock();
-            return new IStringDiskCache.NoopCache();
+            logger.warn("Failed to initialize cache at {}: {}", cacheDir, e.getMessage());
+            try {
+                if (lock != null) lock.release();
+                if (channel != null) channel.close();
+            } catch (IOException cleanupEx) {
+                // Ignore cleanup errors
+            }
+            return false;
         }
     }
 
