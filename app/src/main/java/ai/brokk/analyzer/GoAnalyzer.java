@@ -559,7 +559,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
      * {@code selector_expression} operands to identify imported package usage (e.g., 'fmt' in 'fmt.Println').
      */
     @Override
-    protected Set<String> extractTypeIdentifiers(String source) {
+    public Set<String> extractTypeIdentifiers(String source) {
         TSParser parser = getTSParser();
         TSTree tree = parser.parseString(null, source);
         if (tree == null || tree.getRootNode().isNull()) {

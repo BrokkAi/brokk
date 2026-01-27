@@ -1287,7 +1287,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
      * miss headers required for functions or variables, even if it occasionally over-matches local symbols.
      */
     @Override
-    protected Set<String> extractTypeIdentifiers(String source) {
+    public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         TSTree tree = parser.parseString(null, source);

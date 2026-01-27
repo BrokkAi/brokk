@@ -9,6 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.SourceContent;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.HashSet;
@@ -734,6 +737,33 @@ public class JavaImportTest {
             assertFalse(
                     relevantImports.contains("import external.*;"),
                     "Should NOT include external.* because it provides no types used by this method");
+        }
+    }
+
+    @Test
+    public void testExtractTypeIdentifiersCapturesQualifiedTypes() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                public class Foo {
+                    List simple;
+                    java.util.List qualified;
+                }
+                """,
+                        "Foo.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var pf = testProject.getAnalyzableFiles(Languages.JAVA).stream()
+                    .filter(f -> f.getFileName().equals("Foo.java"))
+                    .findFirst()
+                    .orElseThrow();
+            String source = SourceContent.read(pf).get().text();
+
+            Set<String> identifiers = analyzer.extractTypeIdentifiers(source);
+
+            assertTrue(identifiers.contains("List"), "Should capture simple type_identifier 'List'");
+            assertTrue(
+                    identifiers.contains("java.util.List"),
+                    "Should capture scoped_type_identifier 'java.util.List'");
         }
     }
 }

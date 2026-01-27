@@ -895,7 +895,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param source the source code to analyze
      * @return set of potential type identifier names
      */
-    protected Set<String> extractTypeIdentifiers(String source) {
+    public Set<String> extractTypeIdentifiers(String source) {
         // Base implementation returns empty set.
         // Languages without an override will return no identifiers,
         // causing relevantImportsFor to include all imports as a conservative fallback.

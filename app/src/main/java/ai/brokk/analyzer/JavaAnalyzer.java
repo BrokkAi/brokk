@@ -700,7 +700,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
      * from local variables or method names, ensuring that only relevant type-related imports are pulled in.
      */
     @Override
-    protected Set<String> extractTypeIdentifiers(String source) {
+    public Set<String> extractTypeIdentifiers(String source) {
         try {
             TSTree tree = getTSParser().parseString(null, source);
             TSNode root = tree.getRootNode();
@@ -709,7 +709,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             }
 
             org.treesitter.TSQuery identifierQuery =
-                    new org.treesitter.TSQuery(getTSLanguage(), "(type_identifier) @type");
+                    new org.treesitter.TSQuery(
+                            getTSLanguage(), "[(type_identifier) (scoped_type_identifier)] @type");
             TSQueryCursor cursor = new TSQueryCursor();
             cursor.exec(identifierQuery, root);
 

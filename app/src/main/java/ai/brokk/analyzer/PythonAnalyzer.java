@@ -1043,7 +1043,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
      * function calls. The import filtering logic handles false positives gracefully.
      */
     @Override
-    protected Set<String> extractTypeIdentifiers(String source) {
+    public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         TSTree tree = parser.parseString(null, source);
