@@ -165,6 +165,12 @@ public final class BrokkCli implements Callable<Integer> {
     private String codeModelName;
 
     @CommandLine.Option(
+            names = "--brokk-key",
+            description = "Brokk API key override (uses BROKK_API_KEY environment variable if not specified).")
+    @Nullable
+    private String brokkApiKey;
+
+    @CommandLine.Option(
             names = "--deepscan",
             arity = "0..1",
             fallbackValue = "true",
@@ -221,6 +227,16 @@ public final class BrokkCli implements Callable<Integer> {
         if (projectPath == null) {
             System.err.println("Error: --project is required.");
             return 1;
+        }
+
+        // Process Brokk API key override (CLI flag > env var > global config)
+        String effectiveBrokkKey = brokkApiKey;
+        if (effectiveBrokkKey == null || effectiveBrokkKey.isBlank()) {
+            effectiveBrokkKey = System.getenv("BROKK_API_KEY");
+        }
+        if (effectiveBrokkKey != null && !effectiveBrokkKey.isBlank()) {
+            MainProject.setHeadlessBrokkApiKeyOverride(effectiveBrokkKey);
+            logger.info("Using CLI-specified Brokk API key (length={})", effectiveBrokkKey.length());
         }
 
         // --- Action Validation ---
