@@ -444,31 +444,30 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         // Normalize target path for comparison (use forward slashes)
-        String targetRelPath = target.getRelPath().toString().replace('\\', '/');
+        String targetPath = target.getRelPath().toString().replace('\\', '/');
+        int lastSlash = targetPath.lastIndexOf('/');
+        if (lastSlash == -1) {
+            // Target is in the root directory; Go files in root can't be imported by path
+            // except by other files in the root (which don't use import paths).
+            return false;
+        }
+        String targetDir = targetPath.substring(0, lastSlash);
 
         for (ImportInfo info : imports) {
             Matcher m = IMPORT_PATH_PATTERN.matcher(info.rawSnippet());
             if (m.find()) {
                 // group(1) is double-quoted, group(2) is backtick-quoted
-                String path = m.group(1) != null ? m.group(1) : m.group(2);
+                String importPath = m.group(1) != null ? m.group(1) : m.group(2);
 
-                // Go imports match based on the package path.
-                // Case 1: Import path is a prefix of the target relative path.
-                // e.g. "pkg/utils" matches "pkg/utils/helper.go"
-                if (targetRelPath.startsWith(path + "/")) {
-                    return true;
-                }
-
-                // Case 2: Target relative path is a suffix of the import path.
-                // This happens with module/vanity imports like "myproject/pkg/utils"
-                // matching local project file "pkg/utils/helper.go".
-                if (path.endsWith("/" + targetRelPath.substring(0, Math.max(0, targetRelPath.lastIndexOf('/'))))
-                        || path.equals(targetRelPath.substring(0, Math.max(0, targetRelPath.lastIndexOf('/'))))) {
-                    return true;
-                }
-
-                // Case 3: Import path is a segment within the target relative path.
-                if (targetRelPath.contains("/" + path + "/")) {
+                // Go imports match based on the package path (directory).
+                // We use conservative segment-based matching:
+                // 1. Exact match: "pkg/utils" matches "pkg/utils/file.go"
+                // 2. Vanity/Module match: "github.com/org/repo/pkg/utils" matches "pkg/utils/file.go"
+                // 3. Sub-package match: "pkg/utils" matches "src/pkg/utils/file.go"
+                if (importPath.equals(targetDir)
+                        || importPath.endsWith("/" + targetDir)
+                        || targetDir.endsWith("/" + importPath)
+                        || targetPath.contains("/" + importPath + "/")) {
                     return true;
                 }
             }
