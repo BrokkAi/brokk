@@ -136,6 +136,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
+    private final ActionGroupPanel modeTogglePanel;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -453,6 +454,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
 
+        this.modeTogglePanel = createModeTogglePanel();
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -1411,13 +1413,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.refreshBranchUi(branchName);
     }
 
-    private JPanel buildBottomPanel() {
-        JPanel bottomPanel = new JPanel();
-        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
-        bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
-        this.bottomToolbarPanel = bottomPanel;
-
-        // Mode toggle (Core Focus / Full Power) - left aligned
+    private ActionGroupPanel createModeTogglePanel() {
         var coreFocusLabel = new JLabel("Core Focus");
         var fullPowerLabel = new JLabel("Full Power");
 
@@ -1446,6 +1442,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modeTogglePanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        return modeTogglePanel;
+    }
+
+    private JPanel buildBottomPanel() {
+        JPanel bottomPanel = new JPanel();
+        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
+        bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        this.bottomToolbarPanel = bottomPanel;
+
+        // Mode toggle (Core Focus / Full Power) - left aligned
         bottomPanel.add(modeTogglePanel);
 
         // Flexible space before right-side controls (model selector + optional status strip + action button)
@@ -2504,6 +2510,43 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             } catch (Exception ex) {
                 logger.debug("setStatusStrip: non-fatal error while installing status strip", ex);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeLater(r);
+    }
+
+    /**
+     * Returns the mode toggle panel component so it can be moved between panels
+     * (Instructions <-> Tasks) as a single shared component.
+     */
+    public ActionGroupPanel getModeToggleComponent() {
+        return modeTogglePanel;
+    }
+
+    /**
+     * Ensures the mode toggle component is attached to the Instructions bottom bar,
+     * at the left side of the toolbar. Safe to call from any thread.
+     */
+    public void restoreModeToggleToBottom() {
+        Runnable r = () -> {
+            try {
+                // Detach from any previous parent
+                Container currentParent = modeTogglePanel.getParent();
+                if (currentParent != null) {
+                    currentParent.remove(modeTogglePanel);
+                    currentParent.revalidate();
+                    currentParent.repaint();
+                }
+
+                if (bottomToolbarPanel != null) {
+                    // Insert at the beginning (left side)
+                    bottomToolbarPanel.add(modeTogglePanel, 0);
+                    bottomToolbarPanel.revalidate();
+                    bottomToolbarPanel.repaint();
+                }
+            } catch (Exception ex) {
+                logger.debug("restoreModeToggleToBottom: non-fatal error repositioning mode toggle", ex);
             }
         };
         if (SwingUtilities.isEventDispatchThread()) r.run();

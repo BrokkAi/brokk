@@ -426,9 +426,11 @@ public class RightPanel extends JPanel implements ThemeAware {
                 taskListPanel.restoreControls();
                 var center = instructionsPanel.getCenterPanel();
                 center.add(contextArea, Math.min(1, center.getComponentCount()));
+                instructionsPanel.restoreModeToggleToBottom();
                 instructionsPanel.restoreModelSelectorToBottom();
             } else if (selected == taskListPanel) {
                 taskListPanel.setSharedContextArea(contextArea);
+                taskListPanel.setSharedModeToggle(instructionsPanel.getModeToggleComponent());
                 taskListPanel.setSharedModelSelector(instructionsPanel.getModelSelectorComponent());
             }
         });

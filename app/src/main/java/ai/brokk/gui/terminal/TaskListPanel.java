@@ -73,6 +73,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final JPanel southPanel;
     private @Nullable JComponent sharedModelSelectorComp = null;
     private @Nullable JComponent sharedStatusStripComp = null;
+    private @Nullable JComponent sharedModeToggleComp = null;
     private long runningAnimStartMs = 0L;
 
     private @Nullable Integer runningIndex = null;
@@ -1356,20 +1357,52 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 southPanel.remove(comp);
             }
         }
+        // Also remove the shared mode toggle from controls if present
+        if (sharedModeToggleComp != null && sharedModeToggleComp.getParent() == controls) {
+            controls.remove(sharedModeToggleComp);
+            sharedModeToggleComp = null;
+        }
         // Also remove the shared model selector from controls if present
         if (sharedModelSelectorComp != null && sharedModelSelectorComp.getParent() == controls) {
             controls.remove(sharedModelSelectorComp);
             sharedModelSelectorComp = null;
-            controls.revalidate();
         }
         // Also remove the shared status strip from controls if present
         if (sharedStatusStripComp != null && sharedStatusStripComp.getParent() == controls) {
             controls.remove(sharedStatusStripComp);
             sharedStatusStripComp = null;
-            controls.revalidate();
         }
+        controls.revalidate();
         revalidate();
         repaint();
+    }
+
+    /**
+     * Hosts the shared mode toggle component at the left side of the controls row.
+     * The same Swing component instance is physically moved here from InstructionsPanel.
+     */
+    public void setSharedModeToggle(JComponent comp) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                // Detach from any previous parent first
+                var parent = comp.getParent();
+                if (parent != null) {
+                    parent.remove(comp);
+                    parent.revalidate();
+                    parent.repaint();
+                }
+                sharedModeToggleComp = comp;
+
+                // Insert at the beginning (left side) of controls, before the glue
+                comp.setAlignmentY(Component.CENTER_ALIGNMENT);
+                controls.add(comp, 0);
+
+                controls.revalidate();
+                controls.repaint();
+            } catch (Exception e) {
+                logger.debug("Error setting shared ModeToggle in TaskListPanel", e);
+            }
+        });
     }
 
     /**
