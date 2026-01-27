@@ -3989,6 +3989,25 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
+     * Determines whether any of the given import statements could potentially reference the target file
+     * based on text matching. This method is used for cheap pre-filtering before expensive semantic
+     * import resolution.
+     *
+     * <p>Implementations should be conservative and return {@code true} when uncertain to avoid
+     * false negatives. It is acceptable to return {@code true} for imports that don't actually
+     * reference the target (false positives), but returning {@code false} when the import does
+     * reference the target (false negatives) would cause incorrect behavior.
+     *
+     * @param imports the list of import statements from a source file
+     * @param target the target file to check if any import could reference
+     * @return {@code true} if any import could potentially reference the target file,
+     *         {@code false} only if it's certain that none of the imports reference the target
+     */
+    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        return true;
+    }
+
+    /**
      * Combined post-processing pipeline. All hierarchy computation is deferred to lazy on-demand resolution.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
