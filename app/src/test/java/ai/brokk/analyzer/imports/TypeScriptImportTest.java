@@ -544,7 +544,7 @@ public class TypeScriptImportTest {
 
             List<ImportInfo> imports = analyzer.importInfoOf(mainFile);
 
-            boolean result = analyzer.couldImportFile(mainFile, imports, helperFile);
+            boolean result = analyzer.couldImportFile(imports, helperFile);
             assertTrue(result, "Import './utils/helper' should match target 'src/utils/helper.ts'");
         }
     }
@@ -576,7 +576,7 @@ public class TypeScriptImportTest {
 
             List<ImportInfo> imports = analyzer.importInfoOf(componentFile);
 
-            boolean result = analyzer.couldImportFile(componentFile, imports, userFile);
+            boolean result = analyzer.couldImportFile(imports, userFile);
             assertTrue(result, "Import '../models/User' should match target 'src/models/User.ts'");
         }
     }
@@ -608,7 +608,7 @@ public class TypeScriptImportTest {
 
             List<ImportInfo> imports = analyzer.importInfoOf(mainFile);
 
-            boolean result = analyzer.couldImportFile(mainFile, imports, helperFile);
+            boolean result = analyzer.couldImportFile(imports, helperFile);
             assertFalse(result, "Import from 'lodash' (external module) should return false for any project file");
         }
     }
@@ -640,7 +640,7 @@ public class TypeScriptImportTest {
 
             List<ImportInfo> imports = analyzer.importInfoOf(mainFile);
 
-            boolean result = analyzer.couldImportFile(mainFile, imports, indexFile);
+            boolean result = analyzer.couldImportFile(imports, indexFile);
             assertTrue(result, "Import './utils' should match target 'src/utils/index.ts'");
         }
     }
