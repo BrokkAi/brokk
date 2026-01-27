@@ -53,12 +53,6 @@ class ProjectFilteringGitRepoTest {
         return pf.toString().replace('\\', '/');
     }
 
-    private static MainProject createProject(Path tempDir) {
-        var project = new MainProject(tempDir);
-        project.setBuildDetails(BuildAgent.BuildDetails.EMPTY);
-        return project;
-    }
-
     private static void trackFiles(Path tempDir) throws Exception {
         try (var git = Git.open(tempDir.toFile())) {
             // Force-add all files individually to ensure they're staged
@@ -92,7 +86,7 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Should include all tracked files
@@ -116,7 +110,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "*.class\n*.log\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Should include .java but not .class or .log
@@ -141,7 +135,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "build/\ntarget/\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Should include src/ but not build/ or target/
@@ -166,7 +160,7 @@ class ProjectFilteringGitRepoTest {
         // Ignore all .pyc files except important.pyc
         Files.writeString(tempDir.resolve(".gitignore"), "*.pyc\n!important.pyc\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Should include app.py and important.pyc, but not app.pyc
@@ -191,7 +185,7 @@ class ProjectFilteringGitRepoTest {
         // Ignore build/ but not build/keep/
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n!build/keep/\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Should include src/ and build/keep/, but not other build/ files
@@ -217,7 +211,7 @@ class ProjectFilteringGitRepoTest {
         // Ignore logs/ but not logs/important/
         Files.writeString(tempDir.resolve(".gitignore"), "logs/\n!logs/important/\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Should only include logs/important/ files
@@ -243,7 +237,7 @@ class ProjectFilteringGitRepoTest {
         // Ignore all .pyc but not in src/important/
         Files.writeString(tempDir.resolve(".gitignore"), "**/*.pyc\n!src/important/*.pyc\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Should only include src/important/*.pyc
@@ -264,11 +258,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Set baseline exclusions
+        // Set baseline exclusions via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("generated", "vendor"));
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -293,11 +285,9 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n");
 
-        var project = createProject(tempDir);
-
-        // Set baseline exclusions
+        // Set baseline exclusions via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("vendor"));
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -321,7 +311,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "\n# Just comments\n\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Should include all files when gitignore is empty
@@ -342,7 +332,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "*.class\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
 
         // First call should populate cache
         var allFiles1 = project.getAllFiles();
@@ -366,7 +356,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "*.class\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
 
         var allFiles1 = project.getAllFiles();
 
@@ -387,7 +377,7 @@ class ProjectFilteringGitRepoTest {
         createFile(tempDir, "src/Main.java", "class Main {}");
         createFile(tempDir, "build/Generated.java", "class Generated {}");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Should include all files when not a git repo
@@ -412,7 +402,7 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
 
         // Get Java files
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
@@ -440,7 +430,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n*.class\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
         // Should only include src/Main.java
@@ -460,11 +450,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Set baseline exclusions
+        // Set baseline exclusions via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("generated"));
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
@@ -490,11 +478,9 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n");
 
-        var project = createProject(tempDir);
-
-        // Set baseline exclusions
+        // Set baseline exclusions via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("vendor"));
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
@@ -521,7 +507,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n!build/keep/\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
         // Should include src/Main.java and build/keep/Important.java
@@ -547,7 +533,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "*.class\n*.pyc\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
 
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
         assertEquals(1, javaFiles.size());
@@ -569,7 +555,7 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
         assertTrue(javaFiles.isEmpty(), "Should return empty list when no Java files exist");
@@ -590,7 +576,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "target/\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
         // Should include both src files but not target
@@ -611,7 +597,7 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
         // getFiles() should also respect filtering
@@ -633,7 +619,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore AFTER tracking files
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
         // getFiles() should respect gitignore
@@ -679,7 +665,7 @@ class ProjectFilteringGitRepoTest {
         Files.createDirectories(tempDir.resolve("subdir"));
         Files.writeString(tempDir.resolve("subdir/.gitignore"), "build/*\n!build/keep/\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Root .gitignore should exclude *.log files
@@ -738,7 +724,7 @@ class ProjectFilteringGitRepoTest {
         // Subdirectory un-ignores keep.log specifically
         createFile(tempDir, "parent/sub/.gitignore", "!keep.log\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // parent/debug.log should be ignored by parent/.gitignore
@@ -804,7 +790,7 @@ class ProjectFilteringGitRepoTest {
         // Service un-ignores keep.log specifically (overrides root)
         createFile(tempDir, "projects/service/.gitignore", "!keep.log\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Root level: debug.log should be ignored
@@ -868,7 +854,7 @@ class ProjectFilteringGitRepoTest {
         // Backend un-ignores important.log specifically
         createFile(tempDir, "services/backend/.gitignore", "!important.log\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // services/debug.log should be ignored (ancestor rule)
@@ -935,7 +921,7 @@ class ProjectFilteringGitRepoTest {
         // Nested: ignore keep.tmp again (double negation completes)
         createFile(tempDir, "sub/nested/.gitignore", "keep.tmp\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Double negation tests
@@ -1000,7 +986,7 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
 
         // Measure time (crude smoke test - just ensure it completes reasonably)
         long startTime = System.currentTimeMillis();
@@ -1060,7 +1046,7 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
 
         // First call to getAllFiles() - should populate cache
         var allFiles1 = project.getAllFiles();
@@ -1113,7 +1099,7 @@ class ProjectFilteringGitRepoTest {
         Files.createDirectories(gitInfoDir);
         Files.writeString(gitInfoDir.resolve("exclude"), "# Local excludes\n" + "local-config.yaml\n" + "temp-*.txt\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Files matching .git/info/exclude should be excluded
@@ -1166,7 +1152,7 @@ class ProjectFilteringGitRepoTest {
 
         // Open project with backend as root (subdirectory of git repo)
         var backendRoot = tempDir.resolve("backend");
-        var project = createProject(backendRoot);
+        var project = MainProject.forTests(backendRoot);
         var allFiles = project.getAllFiles();
 
         // Root .gitignore should exclude *.log files (even though we're in a subdirectory)
@@ -1228,7 +1214,7 @@ class ProjectFilteringGitRepoTest {
 
         // Open project with projects/service as root
         var serviceRoot = tempDir.resolve("projects/service");
-        var project = createProject(serviceRoot);
+        var project = MainProject.forTests(serviceRoot);
         var allFiles = project.getAllFiles();
 
         // Root .gitignore should exclude *.secret and .env
@@ -1291,7 +1277,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore that tries (but fails) to un-ignore a file in an ignored directory
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n" + "!build/app.java\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // build/ directory is ignored, so ALL files inside it should be ignored
@@ -1332,7 +1318,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore using build/* (not build/) so negation works
         Files.writeString(tempDir.resolve(".gitignore"), "build/*\n" + "!build/app.java\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // build/* ignores contents of build/ but not the directory itself
@@ -1377,7 +1363,7 @@ class ProjectFilteringGitRepoTest {
         config.save();
         repo.close();
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Global gitignore patterns should be applied
@@ -1425,7 +1411,7 @@ class ProjectFilteringGitRepoTest {
         config.save();
         repo.close();
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // XDG ignore patterns should be applied
@@ -1468,7 +1454,7 @@ class ProjectFilteringGitRepoTest {
         // Create local .gitignore that un-ignores important.log (higher precedence)
         Files.writeString(tempDir.resolve(".gitignore"), "!important.log\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // important.log should be included (local .gitignore overrides global)
@@ -1514,7 +1500,7 @@ class ProjectFilteringGitRepoTest {
         config.save();
         repo.close();
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Global gitignore patterns should be applied
@@ -1538,7 +1524,7 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
 
         // First call should populate cache with all files (no gitignore yet)
         var allFiles1 = project.getAllFiles();
@@ -1581,7 +1567,7 @@ class ProjectFilteringGitRepoTest {
         Files.createDirectories(gitInfoDir);
         Files.writeString(gitInfoDir.resolve("exclude"), "*.tmp\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // .git/info/exclude should exclude *.tmp files
@@ -1616,7 +1602,7 @@ class ProjectFilteringGitRepoTest {
         // Note: We don't track files in git because the project is outside the git repo
         // The project will detect this is not a git repo and skip gitignore filtering
 
-        var project = createProject(projectDir);
+        var project = MainProject.forTests(projectDir);
         var allFiles = project.getAllFiles();
 
         // Since project is not in a git repo, gitignore filtering should be skipped
@@ -1637,7 +1623,7 @@ class ProjectFilteringGitRepoTest {
         createFile(tempDir, "src/Main.java", "class Main {}");
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var repo = project.getRepo();
 
         // For regular repos (non-worktrees), getWorkTreeRoot() should return the project root
@@ -1686,7 +1672,7 @@ class ProjectFilteringGitRepoTest {
         // Create .gitignore with lowercase pattern
         createFile(tempDir, ".gitignore", "*.log\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // With case-sensitive matching: *.log matches .log but not .LOG or .Log
@@ -1761,7 +1747,7 @@ class ProjectFilteringGitRepoTest {
                         "!**/keep.md\n" // Except keep.md (negation with **)
                 );
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // Test **: should match temp/ at any depth
@@ -1864,7 +1850,7 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir); // Track .gitignore
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var allFiles = project.getAllFiles();
 
         // IMPORTANT: Despite being tracked by Git, important.log is EXCLUDED by Brokk
@@ -1906,7 +1892,7 @@ class ProjectFilteringGitRepoTest {
         // Create initial .gitignore (only ignores .log)
         createFile(tempDir, ".gitignore", "*.log\n");
 
-        var project = createProject(tempDir);
+        var project = MainProject.forTests(tempDir);
 
         // Initial state: only .log files ignored
         var allFiles1 = project.getAllFiles();
@@ -2002,7 +1988,7 @@ class ProjectFilteringGitRepoTest {
                 config.save();
             }
 
-            var project = createProject(tempDir);
+            var project = MainProject.forTests(tempDir);
             var allFiles = project.getAllFiles();
 
             // Verify tilde was expanded and file was ignored
@@ -2040,11 +2026,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Set file pattern exclusion for exact filename
+        // Set file pattern exclusion for exact filename via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("package-lock.json"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2066,11 +2050,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Set file pattern exclusions for extension patterns
+        // Set file pattern exclusions for extension patterns via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.svg", "*.min.js"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2092,11 +2074,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Set file pattern exclusion for path glob
+        // Set file pattern exclusion for path glob via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("**/test/resources/**"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2118,12 +2098,10 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Set both directory and file pattern exclusions (unified in exclusionPatterns)
+        // Set both directory and file pattern exclusions via forTests
         var buildDetails =
                 new BuildAgent.BuildDetails("", "", "", Set.of("vendor", "package-lock.json", "*.svg"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2144,12 +2122,10 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Save build details with exclusion patterns
+        // Save build details with exclusion patterns via forTests
         var buildDetails =
                 new BuildAgent.BuildDetails("build", "test", "test {{files}}", Set.of("yarn.lock", "*.svg"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         // Reload and verify patterns are preserved
         var loaded = project.loadBuildDetails().orElseThrow();
@@ -2176,11 +2152,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Save build details with *.* pattern - should match any file with an extension
+        // Save build details with *.* pattern via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.*"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2208,12 +2182,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Save build details with uppercase extension pattern and exact filename
-        // These should match case-insensitively
+        // Save build details with uppercase extension pattern via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.SVG", "package-lock.json"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2240,12 +2211,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Include an invalid glob pattern alongside valid ones
-        // Invalid pattern should be skipped, valid patterns should still work
+        // Include an invalid glob pattern alongside valid ones via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("[invalid", "*.xml"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2271,11 +2239,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Pattern *.* should exclude dotfiles (they have "extensions")
+        // Pattern *.* should exclude dotfiles via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.*"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2300,11 +2266,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // *.js should exclude both dotfile and regular file with .js extension
+        // *.js should exclude both dotfile and regular file via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.js"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2328,11 +2292,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Uppercase extension patterns should match lowercase files
+        // Uppercase extension patterns via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("**/*.JSON", "**/*.MD"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2358,11 +2320,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Pattern "src/test/resources" should only match exact path, not as prefix
+        // Pattern "src/test/resources" via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("src/test/resources"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2391,11 +2351,9 @@ class ProjectFilteringGitRepoTest {
             git.commit().setSign(false).setMessage("Add tracked files").call();
         }
 
-        var project = createProject(tempDir);
-
-        // Add file pattern "*.java" - should exclude tracked files solely due to pattern
+        // Add file pattern "*.java" via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.java"), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 
@@ -2419,11 +2377,9 @@ class ProjectFilteringGitRepoTest {
 
         trackFiles(tempDir);
 
-        var project = createProject(tempDir);
-
-        // Empty/whitespace patterns should be ignored, trimmed pattern should work
+        // Empty/whitespace patterns via forTests
         var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("  ", "\t", "", "  *.xml  "), Map.of());
-        project.saveBuildDetails(buildDetails);
+        var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
 

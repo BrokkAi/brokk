@@ -231,8 +231,7 @@ class BuildAgentTest {
         }
 
         // Create project and test isGitignored method
-        var project = new MainProject(tempDir);
-        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
+        var project = MainProject.forTests(tempDir);
 
         // Verify empty directory is NOT ignored
         assertFalse(project.isGitignored(Path.of("tests/fixtures")), "Empty directory should NOT be ignored");
@@ -362,8 +361,7 @@ class BuildAgentTest {
             git.commit().setSign(false).setMessage("Initial").call();
         }
 
-        var project = new MainProject(tempDir);
-        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
+        var project = MainProject.forTests(tempDir);
         var agent = new BuildAgent(project, null, null);
 
         var patterns = Set.of(
@@ -401,8 +399,7 @@ class BuildAgentTest {
             git.commit().setSign(false).setMessage("Initial").call();
         }
 
-        var project = new MainProject(tempDir);
-        project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
+        var project = MainProject.forTests(tempDir);
         var agent = new BuildAgent(project, null, null);
 
         agent.reportBuildDetails(

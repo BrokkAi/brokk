@@ -64,6 +64,7 @@ import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 public final class MainProject extends AbstractProject {
     private static final Logger logger =
@@ -249,6 +250,18 @@ public final class MainProject extends AbstractProject {
 
         // Initialize dependency update scheduler
         this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
+    }
+
+    @TestOnly
+    public static MainProject forTests(Path root) {
+        return forTests(root, BuildAgent.BuildDetails.EMPTY);
+    }
+
+    @TestOnly
+    public static MainProject forTests(Path root, BuildAgent.BuildDetails buildDetails) {
+        var mp = new MainProject(root);
+        mp.saveBuildDetails(buildDetails);
+        return mp;
     }
 
     @Override
