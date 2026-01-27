@@ -243,6 +243,8 @@ public final class MainProject extends AbstractProject {
         var bdOpt = loadBuildDetails();
         if (bdOpt.isPresent()) {
             this.detailsFuture.complete(bdOpt.get());
+        } else {
+            this.detailsFuture.complete(BuildAgent.BuildDetails.EMPTY);
         }
 
         // Initialize cache and trigger migration/defaulting if necessary
