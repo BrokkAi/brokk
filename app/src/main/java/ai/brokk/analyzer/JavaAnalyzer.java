@@ -779,7 +779,36 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         // Collect identifiers still unresolved after explicit import matching
         Set<String> unresolvedIdentifiers = typeIdentifiers.stream()
                 .filter(id -> !resolvedIdentifiers.contains(id))
+                .collect(Collectors.toCollection(HashSet::new));
+
+        if (unresolvedIdentifiers.isEmpty()) {
+            return Collections.unmodifiableSet(matchedImports);
+        }
+
+        // Handle qualified types (e.g. java.util.List). If they don't match any import's package,
+        // assume they are fully qualified and already resolved.
+        Set<String> qualifiedNames = unresolvedIdentifiers.stream()
+                .filter(id -> id.contains("."))
                 .collect(Collectors.toSet());
+
+        Set<String> importPackages = allImports.stream()
+                .map(i -> extractPackageFromWildcard(i.rawSnippet()))
+                .filter(p -> !p.isEmpty())
+                .collect(Collectors.toSet());
+
+        for (String qn : qualifiedNames) {
+            boolean matchesImport = false;
+            for (String pkg : importPackages) {
+                if (qn.startsWith(pkg + ".")) {
+                    matchesImport = true;
+                    break;
+                }
+            }
+            // If it doesn't match any import prefix, treat as already resolved
+            if (!matchesImport) {
+                unresolvedIdentifiers.remove(qn);
+            }
+        }
 
         if (unresolvedIdentifiers.isEmpty()) {
             return Collections.unmodifiableSet(matchedImports);
@@ -805,7 +834,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         // After checking all wildcards, if any identifiers are still unresolved
         // (not in explicit imports AND not resolved via wildcards to known types),
         // include ALL remaining wildcards as a conservative fallback for external dependencies.
-        boolean stillUnresolved = unresolvedIdentifiers.stream().anyMatch(id -> !resolvedViaWildcard.contains(id));
+        boolean stillUnresolved = unresolvedIdentifiers.stream()
+                .filter(id -> !resolvedViaWildcard.contains(id))
+                // Only simple names (no dots) trigger the conservative wildcard fallback
+                .anyMatch(id -> !id.contains("."));
 
         if (stillUnresolved) {
             for (ImportInfo wildcardImp : wildcardImports) {

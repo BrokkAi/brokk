@@ -741,6 +741,48 @@ public class JavaImportTest {
     }
 
     @Test
+    public void testRelevantImportsExcludesFullyQualifiedTypes() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                package consumer;
+                import java.util.List;
+                import other.*;
+
+                public class Consumer {
+                    public void method(java.util.ArrayList fq, List explicit, UnknownType wildcard) {
+                        // java.util.ArrayList is FQ - should not trigger wildcard
+                        // List is explicit - should include java.util.List
+                        // UnknownType - should include other.*
+                    }
+                }
+                """,
+                        "Consumer.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var declarations = analyzer.getDeclarations(consumerFile);
+
+            var consumerClass = declarations.stream()
+                    .filter(cu -> cu.isClass() && cu.shortName().equals("Consumer"))
+                    .findFirst()
+                    .get();
+            var method = analyzer.getDirectChildren(consumerClass).stream()
+                    .filter(cu -> cu.identifier().equals("method"))
+                    .findFirst()
+                    .get();
+
+            var relevant = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(method))
+                    .orElse(Set.of());
+
+            assertTrue(relevant.contains("import java.util.List;"), "Should include explicit import for List");
+            assertTrue(relevant.contains("import other.*;"), "Should include wildcard for UnknownType");
+            assertEquals(2, relevant.size(), "Should only have 2 imports (ArrayList should not trigger extra wildcards)");
+        }
+    }
+
+    @Test
     public void testExtractTypeIdentifiersCapturesQualifiedTypes() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
