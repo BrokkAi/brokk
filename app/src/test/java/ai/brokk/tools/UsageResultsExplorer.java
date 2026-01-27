@@ -40,6 +40,7 @@ import org.jspecify.annotations.Nullable;
 public class UsageResultsExplorer extends BaseThemedDialog {
 
     private final Path resultsDir;
+    private boolean onlineMode = false;
     private final EvalResults summary;
     private final DetailedResults truePositives;
     private final DetailedResults falsePositives;
@@ -92,6 +93,17 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         }
 
         AggregateMetrics aggregate = computeAggregate(projects);
+
+        Path aggregateSummaryFile = resultsDir.resolve("aggregate-summary.json");
+        if (Files.exists(aggregateSummaryFile)) {
+            try {
+                AggregateSummary aggSummary = mapper.readValue(aggregateSummaryFile.toFile(), AggregateSummary.class);
+                this.onlineMode = aggSummary.online();
+            } catch (Exception e) {
+                System.err.println("Warning: Failed to read aggregate-summary.json: " + e.getMessage());
+            }
+        }
+
         this.summary = new EvalResults(projects, aggregate);
         this.truePositives = new DetailedResults(allTruePositives);
         this.falsePositives = new DetailedResults(allFalsePositives);
@@ -151,6 +163,7 @@ public class UsageResultsExplorer extends BaseThemedDialog {
         // NORTH: Summary Panel
         JPanel summaryPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 10));
         summaryPanel.setBorder(BorderFactory.createTitledBorder("Aggregate Metrics"));
+        summaryPanel.add(new JLabel("Mode: " + (onlineMode ? "Online" : "Offline")));
         var agg = summary.aggregate();
         summaryPanel.add(new JLabel("TP: " + agg.totalTP()));
         summaryPanel.add(new JLabel("FP: " + agg.totalFP()));
