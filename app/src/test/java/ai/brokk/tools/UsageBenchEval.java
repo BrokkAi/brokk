@@ -138,7 +138,7 @@ public class UsageBenchEval implements Callable<Integer> {
                         r.errorMessage()))
                 .toList();
 
-        AggregateSummary aggregateSummary = new AggregateSummary(aggregate, projectResults, failedProjects);
+        AggregateSummary aggregateSummary = new AggregateSummary(online, aggregate, projectResults, failedProjects);
 
         var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
 

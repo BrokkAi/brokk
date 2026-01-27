@@ -68,6 +68,7 @@ public class UsageBenchTypes {
             @JsonProperty("errorMessage") String errorMessage) {}
 
     public record AggregateSummary(
+            @JsonProperty("online") boolean online,
             @JsonProperty("metrics") AggregateMetrics metrics,
             @JsonProperty("successfulProjects") List<ProjectResult> successfulProjects,
             @JsonProperty("failedProjects") List<FailedProject> failedProjects) {}
