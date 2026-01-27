@@ -21,8 +21,6 @@ import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJavascript;
 
 public class JavascriptAnalyzer extends JsTsAnalyzer {
-
-    // JS_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
@@ -60,7 +58,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+    protected JavascriptAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
         return new JavascriptAnalyzer(getProject(), state, listener);
     }
 
@@ -150,16 +148,6 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         return true;
     }
 
-    @Override
-    protected SkeletonType getSkeletonTypeForCapture(String captureName) {
-        // The primaryCaptureName from the query is expected to be "class.definition"
-        // or "function.definition" for relevant skeleton-producing captures.
-        // The primaryCaptureName from the query is expected to be "class.definition"
-        // or "function.definition" for relevant skeleton-producing captures.
-        // This method is now implemented in the base class using captureConfiguration from LanguageSyntaxProfile.
-        // This override can be removed.
-        return super.getSkeletonTypeForCapture(captureName);
-    }
 
     @Override
     protected String renderFunctionDeclaration(
@@ -444,72 +432,30 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         return JS_SYNTAX_PROFILE;
     }
 
-    public static void createModulesFromJavaScriptLikeImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
-        if (!localImportStatements.isEmpty()) {
-            // Use a consistent, unique short name for the module CU, based on filename.
-            // This ensures module CUs from different files have distinct fqNames.
-            String moduleShortName = file.getFileName();
-            CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
-
-            // Check if a module CU with this FQ name already exists
-            // or if this logic somehow runs twice for the same file.
-            if (!localCuByFqName.containsKey(moduleCU.fqName())) {
-                localTopLevelCUs.addFirst(moduleCU); // Add to the beginning for preferred order
-                localCuByFqName.put(moduleCU.fqName(), moduleCU);
-                // Join imports into a single multi-line signature string for the module CU
-                String importBlockSignature = String.join("\n", localImportStatements);
-                localSignatures
-                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(importBlockSignature);
-                // Add a general range for the module CU (e.g. entire file or first import to last)
-                // For simplicity, can use the range of the root node or skip detailed range for module CU.
-                // Here, we'll use the root node's range as a placeholder.
-                var moduleRange = new Range(
-                        rootNode.getStartByte(),
-                        rootNode.getEndByte(),
-                        rootNode.getStartPoint().getRow(),
-                        rootNode.getEndPoint().getRow(),
-                        rootNode.getStartByte()); // commentStartByte same as startByte for module
-                // Module CUs typically don't need comment expansion as they represent the whole file
-                localSourceRanges
-                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(moduleRange);
-                log.trace("Created MODULE CU for {} with {} import statements.", file, localImportStatements.size());
-            } else {
-                log.warn(
-                        "Module CU for {} with fqName {} already exists. Skipping duplicate module CU creation.",
-                        file,
-                        moduleCU.fqName());
-            }
-        }
-    }
-
-
-
     @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+
+        // Enhance the last added ImportInfo with JS-specific identifier/alias extraction
         TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
-        if (importNode != null && !importNode.isNull()) {
-            String rawSnippet = sourceContent.substringFrom(importNode);
+        if (importNode != null && !importNode.isNull() && !localImportInfos.isEmpty()) {
+            ImportInfo last = localImportInfos.getLast();
+            // Verify this is the info for the node we just processed via super
+            if (last.rawSnippet().equals(sourceContent.substringFrom(importNode))) {
+                List<String> identifiers = new ArrayList<>();
+                List<String> aliases = new ArrayList<>();
+                extractNamedImportIdentifiers(importNode, sourceContent, identifiers, aliases);
 
-            List<String> identifiers = new ArrayList<>();
-            List<String> aliases = new ArrayList<>();
-            extractNamedImportIdentifiers(importNode, sourceContent, identifiers, aliases);
-
-            String firstId = identifiers.isEmpty() ? null : identifiers.getFirst();
-            String firstAlias = aliases.isEmpty() ? null : aliases.getFirst();
-            localImportInfos.add(new ImportInfo(rawSnippet, false, firstId, firstAlias));
+                if (!identifiers.isEmpty() || !aliases.isEmpty()) {
+                    String firstId = identifiers.isEmpty() ? null : identifiers.getFirst();
+                    String firstAlias = aliases.isEmpty() ? null : aliases.getFirst();
+                    localImportInfos.set(
+                            localImportInfos.size() - 1,
+                            new ImportInfo(last.rawSnippet(), last.isWildcard(), firstId, firstAlias));
+                }
+            }
         }
-        extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportInfos);
     }
 
     /**
@@ -554,27 +500,6 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         }
     }
 
-    @Override
-    protected void createModulesFromImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
-        createModulesFromJavaScriptLikeImports(
-                file,
-                localImportStatements,
-                rootNode,
-                modulePackageName,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges);
-    }
 
     /**
      * Extracts all identifiers (names and aliases) from an import statement string.
