@@ -68,6 +68,11 @@ public class UsageBenchEval implements Callable<Integer> {
             description = "Number of projects to evaluate in parallel (default: 2)")
     private int parallelism = 2;
 
+    @CommandLine.Option(
+            names = {"--online"},
+            description = "Use online Service instead of OfflineService")
+    private boolean online = false;
+
     public static void main(String[] args) {
         int exitCode = new CommandLine(new UsageBenchEval()).execute(args);
         System.exit(exitCode);
@@ -271,10 +276,11 @@ public class UsageBenchEval implements Callable<Integer> {
         return mapper.readValue(path.toFile(), ProgramUsages.class);
     }
 
-    private EvaluationData evaluateProject(IProject project, ProgramUsages groundTruth, Language language)
+    private EvaluationData evaluateProject(
+            IProject project, ProgramUsages groundTruth, Language language, boolean online)
             throws InterruptedException {
         IAnalyzer analyzer = language.createAnalyzer(project);
-        AbstractService service = new OfflineService(project);
+        AbstractService service = online ? new Service(project) : new OfflineService(project);
         FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, service, null);
 
         String projectName = project.getRoot().getFileName().toString();
@@ -482,7 +488,7 @@ public class UsageBenchEval implements Callable<Integer> {
 
             try (IProject project = loadProject(entry)) {
                 ProgramUsages groundTruth = loadGroundTruth(entry.usagesJsonPath());
-                EvaluationData evalData = evaluateProject(project, groundTruth, entry.language());
+                EvaluationData evalData = evaluateProject(project, groundTruth, entry.language(), online);
 
                 Path projectOutputDir = output.resolve(entry.language().internalName())
                         .resolve(projectName);
