@@ -82,7 +82,6 @@ public class MaterialOptionPane {
             String message,
             String title,
             java.util.concurrent.CompletableFuture<?> future) {
-        String[] options = {"Cancel"};
         MaterialButton cancelButton = new MaterialButton("Cancel");
         MaterialButton[] buttons = {cancelButton};
 
