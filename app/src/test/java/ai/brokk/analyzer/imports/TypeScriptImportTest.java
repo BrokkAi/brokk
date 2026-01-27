@@ -544,12 +544,7 @@ public class TypeScriptImportTest {
 
             List<ImportInfo> imports = analyzer.importInfoOf(mainFile);
 
-            // Use reflection to call protected couldImportFile method
-            java.lang.reflect.Method method = analyzer.getClass().getSuperclass()
-                    .getDeclaredMethod("couldImportFile", java.util.List.class, ProjectFile.class);
-            method.setAccessible(true);
-
-            boolean result = (boolean) method.invoke(analyzer, imports, helperFile);
+            boolean result = analyzer.couldImportFile(mainFile, imports, helperFile);
             assertTrue(result, "Import './utils/helper' should match target 'src/utils/helper.ts'");
         }
     }
@@ -581,11 +576,7 @@ public class TypeScriptImportTest {
 
             List<ImportInfo> imports = analyzer.importInfoOf(componentFile);
 
-            java.lang.reflect.Method method = analyzer.getClass().getSuperclass()
-                    .getDeclaredMethod("couldImportFile", java.util.List.class, ProjectFile.class);
-            method.setAccessible(true);
-
-            boolean result = (boolean) method.invoke(analyzer, imports, userFile);
+            boolean result = analyzer.couldImportFile(componentFile, imports, userFile);
             assertTrue(result, "Import '../models/User' should match target 'src/models/User.ts'");
         }
     }
@@ -617,11 +608,7 @@ public class TypeScriptImportTest {
 
             List<ImportInfo> imports = analyzer.importInfoOf(mainFile);
 
-            java.lang.reflect.Method method = analyzer.getClass().getSuperclass()
-                    .getDeclaredMethod("couldImportFile", java.util.List.class, ProjectFile.class);
-            method.setAccessible(true);
-
-            boolean result = (boolean) method.invoke(analyzer, imports, helperFile);
+            boolean result = analyzer.couldImportFile(mainFile, imports, helperFile);
             assertFalse(result, "Import from 'lodash' (external module) should return false for any project file");
         }
     }
@@ -653,11 +640,7 @@ public class TypeScriptImportTest {
 
             List<ImportInfo> imports = analyzer.importInfoOf(mainFile);
 
-            java.lang.reflect.Method method = analyzer.getClass().getSuperclass()
-                    .getDeclaredMethod("couldImportFile", java.util.List.class, ProjectFile.class);
-            method.setAccessible(true);
-
-            boolean result = (boolean) method.invoke(analyzer, imports, indexFile);
+            boolean result = analyzer.couldImportFile(mainFile, imports, indexFile);
             assertTrue(result, "Import './utils' should match target 'src/utils/index.ts'");
         }
     }

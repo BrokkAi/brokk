@@ -4025,7 +4025,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return {@code true} if any import could potentially reference the target file,
      *         {@code false} only if it's certain that none of the imports reference the target
      */
-    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         return true;
     }
 
