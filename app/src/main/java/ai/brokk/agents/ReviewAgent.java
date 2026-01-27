@@ -8,6 +8,7 @@ import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Language;
@@ -88,8 +89,17 @@ public class ReviewAgent {
         void updateProgress(String stage, int progress);
     }
 
-    private final AbstractService.ModelConfig modelConfig;
-    private final boolean optimizeForLatency;
+    public record ReviewOptions(
+            AbstractService.ModelConfig scanModel, AbstractService.ModelConfig reviewModel, int reviewToolTurns) {
+        public static final ReviewOptions FASTER = new ReviewOptions(
+                ModelProperties.flash3, ModelProperties.opus4_5, 0);
+        public static final ReviewOptions DEEPER = new ReviewOptions(
+                ModelProperties.flash3, ModelProperties.opus4_5_medium, 3);
+        public static final ReviewOptions ASYNC = new ReviewOptions(
+                ModelProperties.flash3, ModelProperties.gpt5_1_medium, 5);
+    }
+
+    private final ReviewOptions options;
     private final IContextManager cm;
     private @Nullable Context contextBeingBuilt;
     private boolean isComplex = false;
@@ -103,15 +113,10 @@ public class ReviewAgent {
      *
      * An example of determining `commit` using GitRepo::getMergeBase is in SessionChangesPanel.
      */
-    public ReviewAgent(
-            ReviewScope scope,
-            AbstractService.ModelConfig modelConfig,
-            boolean optimizeForLatency,
-            IContextManager cm) {
+    public ReviewAgent(ReviewScope scope, ReviewOptions options, IContextManager cm) {
         this.changes = scope.changes();
         this.metadata = scope.metadata();
-        this.modelConfig = modelConfig;
-        this.optimizeForLatency = optimizeForLatency;
+        this.options = options;
         this.cm = cm;
     }
 
@@ -119,8 +124,7 @@ public class ReviewAgent {
     ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm) {
         this(
                 new ReviewScope(changes, new ReviewScope.Metadata("HEAD~1", "HEAD", sessionIds)),
-                ModelType.ARCHITECT.defaultConfig(),
-                true,
+                ReviewOptions.FASTER,
                 cm);
     }
 
@@ -157,9 +161,7 @@ public class ReviewAgent {
             // Publish the context as it stands after setup but before Turn 1
             scope.publish(reviewContext);
 
-            var turn1ModelConfig = (optimizeForLatency && !setupResult.isComplex())
-                    ? cm.getProject().getModelConfig(ModelType.SCAN)
-                    : modelConfig;
+            var turn1ModelConfig = (!setupResult.isComplex()) ? options.scanModel() : options.reviewModel();
             var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
 
@@ -190,7 +192,26 @@ public class ReviewAgent {
                 };
                 turn1Llm.setOutput(progressConsole);
 
-                turn1Result = turn1Llm.sendRequest(turn1Messages);
+                if (options.reviewToolTurns() > 0) {
+                    var tr = cm.getToolRegistry()
+                            .builder()
+                            .register(new WorkspaceTools(reviewContext))
+                            .build();
+                    turn1Result = turn1Llm.loop(
+                            turn1Messages,
+                            new ToolContext(
+                                    tr.getTools(List.of(
+                                            "addFilesToWorkspace",
+                                            "addClassesToWorkspace",
+                                            "addClassSummariesToWorkspace",
+                                            "addFileSummariesToWorkspace",
+                                            "addMethodsToWorkspace")),
+                                    ToolChoice.AUTO,
+                                    tr),
+                            options.reviewToolTurns());
+                } else {
+                    turn1Result = turn1Llm.sendRequest(turn1Messages);
+                }
                 if (turn1Result.error() == null) {
                     break;
                 }
@@ -269,8 +290,7 @@ public class ReviewAgent {
     }
 
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
-        var model = requireNonNull(cm.getService()
-                .getModel(optimizeForLatency ? cm.getProject().getModelConfig(ModelType.SCAN) : modelConfig));
+        var model = requireNonNull(cm.getService().getModel(options.scanModel()));
         var llm = cm.getLlm(model, "Review Context Selection");
 
         Set<Language> analyzerLanguages = cm.getProject().getAnalyzerLanguages();

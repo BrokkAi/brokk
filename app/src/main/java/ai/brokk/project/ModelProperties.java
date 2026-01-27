@@ -37,17 +37,17 @@ public final class ModelProperties {
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
     private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.LOW);
     private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.DISABLE);
-    private static final ModelConfig gpt5_1_medium = new ModelConfig(GPT_5_1, ReasoningLevel.MEDIUM);
+    public static final ModelConfig gpt5_1_medium = new ModelConfig(GPT_5_1, ReasoningLevel.MEDIUM);
 
     private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
     private static final ModelConfig haiku4_5 = new ModelConfig(HAIKU_4_5);
-    private static final ModelConfig opus4_5 = new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE);
-    private static final ModelConfig opus4_5_medium = new ModelConfig(OPUS_4_5, ReasoningLevel.MEDIUM);
+    public static final ModelConfig opus4_5 = new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE);
+    public static final ModelConfig opus4_5_medium = new ModelConfig(OPUS_4_5, ReasoningLevel.MEDIUM);
 
-    private static final ModelConfig flash2Lite = new ModelConfig(FLASH_2_0_LITE);
-    private static final ModelConfig flash2 = new ModelConfig(FLASH_2_0);
-    private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
-    private static final ModelConfig gp3 = new ModelConfig(GEMINI_3_PRO_PREVIEW);
+    public static final ModelConfig flash2Lite = new ModelConfig(FLASH_2_0_LITE);
+    public static final ModelConfig flash2 = new ModelConfig(FLASH_2_0);
+    public static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
+    public static final ModelConfig gp3 = new ModelConfig(GEMINI_3_PRO_PREVIEW);
 
     private static final ModelConfig gcf1 = new ModelConfig(GCF_1);
 

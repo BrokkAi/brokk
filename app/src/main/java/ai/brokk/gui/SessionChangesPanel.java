@@ -38,6 +38,7 @@ import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialProgressButton;
+import ai.brokk.gui.components.MaterialToggleButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.ThemeColors;
@@ -173,6 +174,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialProgressButton guidedReviewBtn;
 
+    private final MaterialToggleButton reviewModeToggle;
+
     private final MaterialButton captureBtn;
 
     private final CardLayout mainCardLayout;
@@ -255,6 +258,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
         this.guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
 
+        this.reviewModeToggle = new MaterialToggleButton("Faster");
+        this.reviewModeToggle.setToolTipText("Toggle between Faster and Deeper review modes");
+        this.reviewModeToggle.addActionListener(e -> {
+            reviewModeToggle.setText(reviewModeToggle.isSelected() ? "Deeper" : "Faster");
+        });
+
         this.captureBtn =
                 createIconButton(Icons.CONTENT_CAPTURE, "Capture these changes and add them to the workspace context");
         this.commitsTable = new CommitsTablePanel();
@@ -280,8 +289,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.fileTreePanel =
                 new FileTreePanel(List.of(), contextManager.getProject().getRoot());
 
+        var reviewActionPanel = new JPanel(new BorderLayout(5, 0));
+        reviewActionPanel.setOpaque(false);
+        reviewActionPanel.add(guidedReviewBtn, BorderLayout.CENTER);
+        reviewActionPanel.add(reviewModeToggle, BorderLayout.EAST);
+
+        var leftContentPanel = new JPanel(new BorderLayout(0, 5));
+        leftContentPanel.setOpaque(false);
+        leftContentPanel.add(reviewActionPanel, BorderLayout.NORTH);
+        leftContentPanel.add(fileTreePanel, BorderLayout.CENTER);
+
         // leftSplitPane starts with commitsTable in PREVIEW mode
-        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitsTable, fileTreePanel);
+        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitsTable, leftContentPanel);
         this.leftSplitPane.setResizeWeight(0.4);
 
         // Right side: ReviewDetailPanel above diff view (only shown in REVIEW mode)
@@ -322,7 +341,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.add(pushBtn);
         buttonPanel.add(prBtn);
         buttonPanel.add(captureBtn);
-        buttonPanel.add(guidedReviewBtn);
         headerPanel.add(buttonPanel, BorderLayout.EAST);
 
         add(headerPanel, BorderLayout.NORTH);
@@ -1109,11 +1127,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             guidedReviewBtn.setText("Close Review");
             guidedReviewBtn.setToolTipText("Exit review mode and return to change preview");
             guidedReviewBtn.setEnabled(true);
+            reviewModeToggle.setVisible(false);
         } else {
             guidedReviewBtn.setText("Guided Review");
             guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
             guidedReviewBtn.setEnabled(
                     commitsTable.getSelectedCommitIds().isEmpty() || commitsTable.isSelectionContiguous());
+            reviewModeToggle.setVisible(true);
         }
     }
 
@@ -1428,7 +1448,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             try {
                 // Wait for any pending session downloads (e.g. from PR checkout) before proceeding
                 cm.getProject().getSessionManager().awaitForeignDownloads();
-                var agent = new ReviewAgent(scope, cm.getProject().getModelConfig(ModelType.ARCHITECT), true, cm);
+
+                var options = reviewModeToggle.isSelected() ? ReviewAgent.ReviewOptions.DEEPER : ReviewAgent.ReviewOptions.FASTER;
+                var agent = new ReviewAgent(scope, options, cm);
 
                 agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
                     guidedReviewBtn.setProgress(p);
@@ -1973,6 +1995,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.applyTheme(guiTheme);
         commitsTable.applyTheme(guiTheme);
         fileTreePanel.applyTheme(guiTheme);
+        reviewModeToggle.repaint();
         for (AbstractDiffPanel panel : diffCore.getCachedPanels()) {
             panel.applyTheme(guiTheme);
         }

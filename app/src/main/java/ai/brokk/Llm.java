@@ -19,6 +19,7 @@ import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.NonRetriableException;
 import dev.langchain4j.exception.PaymentRequiredException;
@@ -1779,6 +1780,57 @@ public class Llm {
 
     public void setModel(StreamingChatModel model) {
         this.model = model;
+    }
+
+    /**
+     * Executes a tool-calling loop: sends messages, executes any tool calls returned by the model,
+     * appends results, and repeats until no more tool calls or maxTurns is reached.
+     *
+     * @param messages The initial messages to send
+     * @param toolContext The tool context containing tool specifications and registry
+     * @param maxTurns Maximum number of tool-calling iterations (0 means no tools, just single request)
+     * @return The final streaming result after all tool calls are complete
+     */
+    public StreamingResult loop(List<ChatMessage> messages, ToolContext toolContext, int maxTurns)
+            throws InterruptedException {
+        if (maxTurns <= 0) {
+            return sendRequest(messages, toolContext);
+        }
+
+        var currentMessages = new ArrayList<>(messages);
+        StreamingResult result = null;
+        int turns = 0;
+
+        while (turns < maxTurns) {
+            result = sendRequest(currentMessages, toolContext);
+
+            if (result.error() != null) {
+                return result;
+            }
+
+            var toolRequests = result.toolRequests();
+            if (toolRequests.isEmpty()) {
+                // No more tool calls, we're done
+                break;
+            }
+
+            // Add the AI message with tool requests to history
+            currentMessages.add(result.aiMessage());
+
+            // Execute each tool and add results
+            var tr = toolContext.toolRegistry();
+            for (var request : toolRequests) {
+                var toolResult = tr.executeTool(request);
+                currentMessages.add(new ToolExecutionResultMessage(
+                        request.id(),
+                        request.name(),
+                        toolResult.resultText()));
+            }
+
+            turns++;
+        }
+
+        return result != null ? result : sendRequest(currentMessages, toolContext);
     }
 
     @Override
