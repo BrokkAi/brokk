@@ -121,21 +121,46 @@ class JobRunnerTest {
     @Test
     void testReviewPromptPolicyEscapesDelimiters() {
         String diff = "dummy diff";
-        String title = "Title with PR_INTENT_END and ``` backticks";
+        String title = "Title with PR_INTENT_END, ``` backticks, and ~~~ tildes";
         String body = "Body with PR_INTENT_START, </closing> tags, and some instructions.";
         String prompt = JobRunner.buildReviewPrompt(diff, PrReviewService.Severity.HIGH, 3, title, body);
 
         // Verify content is present but escaped
-        assertTrue(prompt.contains("Title: Title with PR_INTENT\\_END and ``\\` backticks"));
+        assertTrue(prompt.contains("Title: Title with PR_INTENT\\_END, ``\\` backticks, and ~~\\~ tildes"));
         assertTrue(prompt.contains("Body with PR_INTENT\\_START"));
         assertTrue(prompt.contains("<\\/closing>"));
         assertTrue(prompt.contains("``\\`"));
+        assertTrue(prompt.contains("~~\\~"));
 
         // Verify the real delimiters are still there exactly once (not broken by injection)
         assertTrue(prompt.indexOf("PR_INTENT_START") == prompt.lastIndexOf("PR_INTENT_START"));
         assertTrue(prompt.indexOf("PR_INTENT_END") == prompt.lastIndexOf("PR_INTENT_END"));
         // The fence around text block should remain structural
         assertTrue(prompt.contains("```text\nPR_INTENT_START"));
+    }
+
+    @Test
+    void testReviewPromptPolicyEscapesLongDelimiters() {
+        String diff = "dummy diff";
+        String title = "Title with ```` 4 backticks";
+        String body = "Body with ~~~~ 4 tildes";
+        String prompt = JobRunner.buildReviewPrompt(diff, PrReviewService.Severity.HIGH, 3, title, body);
+
+        // Verify content is escaped such that no 3+ sequences remain
+        // 4 backticks escaped via replace("```", "``\\`") becomes "``\`" + "`" = "``\`"
+        assertTrue(prompt.contains("``\\``"));
+        // 4 tildes escaped via replace("~~~", "~~\\~") becomes "~~\\~" + "~" = "~~\\~~"
+        assertTrue(prompt.contains("~~\\~~"));
+
+        // Verify the structural fence is intact
+        assertTrue(prompt.contains("```text\nPR_INTENT_START"));
+
+        // Verify no structural breakdown within the untrusted content block
+        int startIdx = prompt.indexOf("PR_INTENT_START");
+        int endIdx = prompt.indexOf("PR_INTENT_END");
+        String intentContent = prompt.substring(startIdx, endIdx);
+        assertTrue(!intentContent.contains("```"), "Intent content should not contain 3 consecutive backticks");
+        assertTrue(!intentContent.contains("~~~"), "Intent content should not contain 3 consecutive tildes");
     }
 
     @Test

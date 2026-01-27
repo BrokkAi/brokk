@@ -1859,6 +1859,7 @@ public final class JobRunner {
         return text.replace("PR_INTENT_START", "PR_INTENT\\_START")
                 .replace("PR_INTENT_END", "PR_INTENT\\_END")
                 .replace("```", "``\\`")
+                .replace("~~~", "~~\\~")
                 .replace("</", "<\\/");
     }
 
