@@ -2718,6 +2718,17 @@ public class Chrome
 
     private void applyFocusHighlight(Component component) {
         if (component instanceof JComponent jcomp) {
+            // ProjectTree: use 2px line border that replaces (not compounds) the tree's 2px empty
+            // so total insets stay 2px and the tree does not shift on click.
+            if (component == projectFilesPanel.getProjectTree()) {
+                if (jcomp.getClientProperty("originalBorder") == null) {
+                    jcomp.putClientProperty("originalBorder", BorderFactory.createEmptyBorder(2, 2, 2, 2));
+                }
+                jcomp.setBorder(BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2));
+                jcomp.repaint();
+                return;
+            }
+
             // Store original border if not already stored
             if (jcomp.getClientProperty("originalBorder") == null) {
                 jcomp.putClientProperty("originalBorder", jcomp.getBorder());
