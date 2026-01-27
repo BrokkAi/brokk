@@ -9,6 +9,8 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.IStringDiskCache;
+import org.jetbrains.annotations.Blocking;
+
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -60,6 +62,7 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    @Blocking
     public BuildAgent.BuildDetails awaitBuildDetails() {
         return parent.awaitBuildDetails();
     }

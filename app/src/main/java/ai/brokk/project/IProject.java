@@ -179,6 +179,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    @Blocking
     default BuildAgent.BuildDetails awaitBuildDetails() {
         return BuildAgent.BuildDetails.EMPTY;
     }

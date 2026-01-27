@@ -577,6 +577,8 @@ public final class MainProject extends AbstractProject {
      */
     @Override
     public void setBuildDetails(BuildAgent.BuildDetails details) {
+        // not threadsafe, that's okay;
+        // the only caller (outside of tests) does so during construction before anyone else can see it
         if (detailsFuture.isDone()) {
             detailsFuture = CompletableFuture.completedFuture(details);
         } else {
@@ -600,6 +602,7 @@ public final class MainProject extends AbstractProject {
      * @throws IllegalStateException if called on the Swing EDT
      */
     @Override
+    @Blocking
     public BuildAgent.BuildDetails awaitBuildDetails() {
         try {
             return detailsFuture.get();
