@@ -1139,7 +1139,9 @@ public final class JobRunner {
                                                         context,
                                                         issuePlannerModel,
                                                         githubToken,
-                                                        targetBranch);
+                                                        targetBranch,
+                                                        details.title(),
+                                                        details.body());
                                                 logger.info(
                                                         "ISSUE job {} review-bot produced {} inline comment(s)",
                                                         jobId,
@@ -2828,7 +2830,9 @@ public final class JobRunner {
             Context ctx,
             StreamingChatModel reviewModel,
             String githubToken,
-            String baseBranch) {
+            String baseBranch,
+            String title,
+            String description) {
 
         String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
         if (remoteName != null) {
@@ -2862,7 +2866,7 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult = reviewDiff(ctx, reviewModel, annotatedDiff, "Issue Review", "Automated review for issue fixes");
+                    TaskResult reviewResult = reviewDiff(ctx, reviewModel, annotatedDiff, title, description);
                     String reviewText = reviewResult.output().text().join();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
