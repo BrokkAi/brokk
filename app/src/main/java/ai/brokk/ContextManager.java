@@ -425,7 +425,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Load saved context history or create a new one
         CompletableFuture<Void> contextTask = submitBackgroundTask("Loading saved context", () -> {
-            initializeCurrentSessionAndHistory(false);
+            try {
+                initializeCurrentSessionAndHistory(false);
+            } finally {
+                io.hideSessionSwitchSpinner();
+            }
         });
 
         // Ensure build details are loaded/generated asynchronously
