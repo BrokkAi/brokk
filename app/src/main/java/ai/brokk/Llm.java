@@ -1785,7 +1785,7 @@ public class Llm {
 
     /**
      * Executes a tool-calling loop: sends messages, executes any tool calls returned by the model,
-     * appends results, and repeats until no more tool calls or maxTurns is reached.
+     * appends results, and repeats until no more tool calls or turnsWithTools is reached.
      * <p>
      * Tool execution failures (e.g., exceptions or validation errors) are logged as warnings and
      * communicated back to the LLM as error results, but they are otherwise ignored by design to
@@ -1793,12 +1793,12 @@ public class Llm {
      *
      * @param messages The initial messages to send
      * @param toolContext The tool context containing tool specifications and registry
-     * @param maxTurns Maximum number of tool-calling iterations (0 means no tools, just single request)
+     * @param turnsWithTools Maximum number of tool-calling iterations (0 means no tools, just single request)
      * @return The final streaming result after all tool calls are complete
      */
-    public StreamingResult loop(List<ChatMessage> messages, ToolContext toolContext, int maxTurns)
+    public StreamingResult loop(List<ChatMessage> messages, ToolContext toolContext, int turnsWithTools)
             throws InterruptedException {
-        if (maxTurns <= 0) {
+        if (turnsWithTools <= 0) {
             return sendRequest(messages, toolContext);
         }
 
@@ -1806,7 +1806,7 @@ public class Llm {
         StreamingResult result = null;
         int turns = 0;
 
-        while (turns < maxTurns) {
+        while (turns < turnsWithTools) {
             result = sendRequest(currentMessages, toolContext);
 
             if (result.error() != null) {
@@ -1815,8 +1815,8 @@ public class Llm {
 
             var toolRequests = result.toolRequests();
             if (toolRequests.isEmpty()) {
-                // No more tool calls, we're done
-                break;
+                // No more tool calls = we're done
+                return result;
             }
 
             // Add the AI message with tool requests to history
@@ -1836,7 +1836,9 @@ public class Llm {
             turns++;
         }
 
-        return result;
+        // If we exited the loop because we hit turnsWithTools, make one final request without tools to force a
+        // response.
+        return sendRequest(currentMessages, ToolContext.empty());
     }
 
     @Override

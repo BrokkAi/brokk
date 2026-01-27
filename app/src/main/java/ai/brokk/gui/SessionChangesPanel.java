@@ -1479,7 +1479,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void generateGuidedReviewInternal(ReviewScope scope) {
         SwingUtilities.invokeLater(() -> {
             setMode(PanelMode.GENERATING);
-            codeReviewPanel.getDetailPanel().setBusy(true);
         });
 
         cm.submitLlmAction(() -> {
