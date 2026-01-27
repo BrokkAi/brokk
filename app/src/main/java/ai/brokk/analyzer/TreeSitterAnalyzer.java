@@ -966,9 +966,33 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         resolveReporter.reportFinal();
 
-        // The candidates list already includes files that could import the target (including same-package).
-        // Return the candidates directly since couldImportFile already did the filtering.
-        return Set.copyOf(candidates);
+        // 5. Return the resolved reverse cache result, plus candidates that implicitly reference 
+        // the file (e.g. same package in Java) even without an explicit import.
+        Set<ProjectFile> resolved = lazyImports.getReferencingFiles(file);
+        Set<ProjectFile> result = new HashSet<>();
+        if (resolved != null) {
+            result.addAll(resolved);
+        }
+
+        String targetPkg = fileProperties(file).topLevelCodeUnits().stream()
+                .map(CodeUnit::packageName)
+                .findFirst()
+                .orElse("");
+
+        for (ProjectFile candidate : candidates) {
+            if (result.contains(candidate)) continue;
+
+            String candidatePkg = fileProperties(candidate).topLevelCodeUnits().stream()
+                    .map(CodeUnit::packageName)
+                    .findFirst()
+                    .orElse("");
+
+            if (!targetPkg.isEmpty() && targetPkg.equals(candidatePkg)) {
+                result.add(candidate);
+            }
+        }
+
+        return Collections.unmodifiableSet(result);
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
