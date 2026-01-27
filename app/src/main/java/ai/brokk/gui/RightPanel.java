@@ -205,7 +205,7 @@ public class RightPanel extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     Context live = contextManager.liveContext();
                     if (!newCtx.id().equals(live.id())) {
-                        historicalNoticePanel.setMessage("Viewing historical Context + Tasks.", true);
+                        historicalNoticePanel.setMessage("Viewing historical Context + Tasks");
                     } else {
                         historicalNoticePanel.setMessage(null);
                     }
