@@ -130,13 +130,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         };
     }
 
-    public void setBusy(boolean busy) {
-        if (busy) {
-            placeholderArea.setText("Generating review...");
-            // Switch to content card and prepare markdownPanel for streaming
-            clearContent();
-            cardLayout.show(this, CARD_CONTENT);
-        }
+    public void prepareForStreaming() {
+        clearContent();
+        cardLayout.show(this, CARD_CONTENT);
     }
 
     public void addReviewNavigationListener(ReviewNavigationListener listener) {

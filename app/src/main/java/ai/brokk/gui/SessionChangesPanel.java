@@ -47,6 +47,8 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
+import java.awt.event.HierarchyEvent;
+import java.awt.event.HierarchyListener;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -108,6 +110,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             updateDiffToolbarVisibility();
             diffContainer.revalidate();
             diffContainer.repaint();
+        }
+
+        if (newMode == PanelMode.GENERATING) {
+            codeReviewPanel.getDetailPanel().prepareForStreaming();
         }
 
         if (newMode == PanelMode.EMPTY || newMode == PanelMode.ERROR) {
@@ -1068,16 +1074,24 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             if (isReview || isGenerating) {
                 rightVerticalSplitPane.setTopComponent(codeReviewPanel.getDetailPanel());
                 rightVerticalSplitPane.setDividerSize(defaultSplitPaneDividerSize());
-                // Set divider location after layout completes (proportional method requires non-zero size)
-                SwingUtilities.invokeLater(() -> {
-                    int height = rightVerticalSplitPane.getHeight();
-                    if (height > 0) {
-                        rightVerticalSplitPane.setDividerLocation((int) (height * 0.4));
-                    } else {
-                        // Fallback: use a reasonable fixed height if layout hasn't happened yet
-                        rightVerticalSplitPane.setDividerLocation(200);
-                    }
-                });
+
+                // Set divider location once the component is displayable and has size
+                if (rightVerticalSplitPane.getHeight() > 0) {
+                    rightVerticalSplitPane.setDividerLocation(0.4);
+                } else {
+                    rightVerticalSplitPane.addHierarchyListener(new HierarchyListener() {
+                        @Override
+                        public void hierarchyChanged(HierarchyEvent e) {
+                            if ((e.getChangeFlags() & HierarchyEvent.DISPLAYABILITY_CHANGED) != 0
+                                    && rightVerticalSplitPane.isDisplayable()) {
+                                SwingUtilities.invokeLater(() -> {
+                                    rightVerticalSplitPane.setDividerLocation(0.4);
+                                    rightVerticalSplitPane.removeHierarchyListener(this);
+                                });
+                            }
+                        }
+                    });
+                }
             } else {
                 rightVerticalSplitPane.setTopComponent(null);
                 rightVerticalSplitPane.setDividerSize(0);
