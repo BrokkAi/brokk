@@ -413,8 +413,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     @Override
     protected Set<String> getIgnoredCaptures() {
-        log.trace("Stage 0: getIgnoredCaptures called. Returning empty set.");
-        return Set.of();
+        return Set.of(CaptureNames.PACKAGE_DEFINITION);
     }
 
     @Override

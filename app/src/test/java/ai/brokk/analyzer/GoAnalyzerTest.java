@@ -552,6 +552,14 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testGetIgnoredCaptures() {
+        Set<String> ignored = analyzer.getIgnoredCaptures();
+        assertTrue(
+                ignored.contains(CaptureNames.PACKAGE_DEFINITION),
+                "GoAnalyzer should ignore package.definition to avoid noisy name extraction logs.");
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";
