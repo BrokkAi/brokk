@@ -1912,11 +1912,7 @@ public final class JobRunner {
      * Package-private for tests to validate the policy text without invoking the LLM.
      */
     static String buildReviewPrompt(
-            String diff,
-            PrReviewService.Severity minSeverity,
-            int maxComments,
-            String prTitle,
-            String prDescription) {
+            String diff, PrReviewService.Severity minSeverity, int maxComments, String prTitle, String prDescription) {
         String fencedDiff = "```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```";
 
         String metadataBlock =
