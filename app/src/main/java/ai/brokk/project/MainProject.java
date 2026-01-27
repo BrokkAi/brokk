@@ -453,7 +453,6 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public BuildAgent.BuildDetails loadBuildDetails() {
-        // Renamed to avoid conflict with IProject
         String json = projectProps.getProperty(BUILD_DETAILS_KEY);
         if (json != null && !json.isEmpty()) {
             try {
