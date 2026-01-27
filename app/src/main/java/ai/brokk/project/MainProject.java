@@ -239,7 +239,7 @@ public final class MainProject extends AbstractProject {
         }
 
         // Load build details
-        var bd = loadBuildDetailsInternal(); // Uses projectProps
+        var bd = loadBuildDetails(); // Uses projectProps
         if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
             this.detailsFuture.complete(bd);
         }
@@ -451,7 +451,9 @@ public final class MainProject extends AbstractProject {
         return detailsFuture.isDone();
     }
 
-    private BuildAgent.BuildDetails loadBuildDetailsInternal() { // Renamed to avoid conflict with IProject
+    @Override
+    public BuildAgent.BuildDetails loadBuildDetails() {
+        // Renamed to avoid conflict with IProject
         String json = projectProps.getProperty(BUILD_DETAILS_KEY);
         if (json != null && !json.isEmpty()) {
             try {
@@ -505,11 +507,6 @@ public final class MainProject extends AbstractProject {
             }
         }
         return BuildAgent.BuildDetails.EMPTY;
-    }
-
-    @Override
-    public BuildAgent.BuildDetails loadBuildDetails() {
-        return loadBuildDetailsInternal();
     }
 
     @Override
@@ -570,8 +567,9 @@ public final class MainProject extends AbstractProject {
     public void setBuildDetails(BuildAgent.BuildDetails details) {
         if (detailsFuture.isDone()) {
             detailsFuture = CompletableFuture.completedFuture(details);
+        } else {
+            detailsFuture.complete(details);
         }
-        detailsFuture.complete(details);
     }
 
     @Override
