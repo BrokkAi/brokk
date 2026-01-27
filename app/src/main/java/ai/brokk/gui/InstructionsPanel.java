@@ -24,7 +24,6 @@ import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
-import ai.brokk.gui.components.SwitchIcon;
 import ai.brokk.gui.components.TokenUsageBar;
 import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
@@ -35,6 +34,7 @@ import ai.brokk.gui.util.FileDropHandlerFactory;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
+import ai.brokk.gui.widgets.ActionGroupPanel;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
@@ -1420,15 +1420,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Mode toggle (Core Focus / Full Power) - left aligned
         var coreFocusLabel = new JLabel("Core Focus");
         var fullPowerLabel = new JLabel("Full Power");
-        var modeSwitch = new JCheckBox();
-        modeSwitch.setIcon(new SwitchIcon());
-        boolean initialAdvancedMode = GlobalUiSettings.isAdvancedMode();
-        modeSwitch.setSelected(initialAdvancedMode);
 
-        var modeTogglePanel = new ai.brokk.gui.ActionGroupPanel(coreFocusLabel, modeSwitch, fullPowerLabel);
+        var modeTogglePanel = new ActionGroupPanel(coreFocusLabel, fullPowerLabel);
+        boolean initialAdvancedMode = GlobalUiSettings.isAdvancedMode();
+        modeTogglePanel.setSelected(initialAdvancedMode);
 
         final boolean[] programmaticToggleChange = {false};
-        modeSwitch.addItemListener(e -> {
+        modeTogglePanel.addItemListener(e -> {
             assert SwingUtilities.isEventDispatchThread();
 
             if (programmaticToggleChange[0]) {
@@ -1436,7 +1434,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return;
             }
 
-            boolean newMode = modeSwitch.isSelected();
+            boolean newMode = modeTogglePanel.isSelected();
             boolean currentMode = GlobalUiSettings.isAdvancedMode();
             if (newMode == currentMode) {
                 return;

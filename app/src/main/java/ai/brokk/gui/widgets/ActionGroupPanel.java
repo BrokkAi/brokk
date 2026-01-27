@@ -1,4 +1,4 @@
-package ai.brokk.gui;
+package ai.brokk.gui.widgets;
 
 import ai.brokk.gui.components.RoundedLineBorder;
 import ai.brokk.gui.mop.ThemeColors;
@@ -9,6 +9,7 @@ import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.event.ItemListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import javax.swing.BorderFactory;
@@ -32,6 +33,18 @@ public class ActionGroupPanel extends JPanel {
 
     private final JCheckBox modeSwitch;
     private boolean hovering = false;
+
+    public boolean isSelected() {
+        return modeSwitch.isSelected();
+    }
+
+    public void setSelected(boolean selected) {
+        modeSwitch.setSelected(selected);
+    }
+
+    public void addItemListener(ItemListener listener) {
+        modeSwitch.addItemListener(listener);
+    }
 
     private final MouseAdapter hoverListener = new MouseAdapter() {
         @Override
@@ -58,9 +71,10 @@ public class ActionGroupPanel extends JPanel {
         }
     };
 
-    public ActionGroupPanel(JLabel codeModeLabel, JCheckBox modeSwitch, JLabel answerModeLabel) {
+    public ActionGroupPanel(JLabel codeModeLabel, JLabel answerModeLabel) {
         super(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        this.modeSwitch = modeSwitch;
+        this.modeSwitch = new JCheckBox();
+        this.modeSwitch.setIcon(new ai.brokk.gui.components.SwitchIcon());
 
         // Initial border using UI border color
         Color borderColor = UIManager.getColor("Component.borderColor");
