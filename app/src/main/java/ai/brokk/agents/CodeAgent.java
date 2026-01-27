@@ -964,12 +964,13 @@ public class CodeAgent {
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
                             editResult.originalContents());
-                    report("Failed to apply %s block(s), asking LLM to retry".formatted(failedResults.size()));
+                    report("Applied %d of %d unique block(s) successfully; asking LLM to retry"
+                            .formatted(succeededCount, attemptedBlockCount));
                     return new Step.Retry(csForStep, esForStep);
                 }
             } else { // All blocks applied successfully
                 if (succeededCount > 0) {
-                    report(succeededCount + " SEARCH/REPLACE blocks applied.");
+                    report("Applied %d unique SEARCH/REPLACE block(s).".formatted(succeededCount));
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
                 esForStep = es.afterApply(

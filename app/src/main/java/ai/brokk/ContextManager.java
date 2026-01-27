@@ -1478,17 +1478,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return items;
     }
 
+    /**
+     * Create or replace the task list with an optional big picture explanation.
+     */
     @Blocking
     @Override
-    public Context createOrReplaceTaskList(Context context, List<String> tasks) {
+    public Context createOrReplaceTaskList(Context context, @Nullable String bigPicture, List<String> tasks) {
         var items = summarizeTaskList(tasks);
         if (items.isEmpty()) {
             // If no valid tasks provided, clear the task list
-            var newData = new TaskList.TaskListData(List.of());
+            var newData = new TaskList.TaskListData(null, List.of());
             return deriveContextWithTaskList(context, newData);
         }
 
-        var newData = new TaskList.TaskListData(List.copyOf(items));
+        var newData = new TaskList.TaskListData(bigPicture, List.copyOf(items));
         return deriveContextWithTaskList(context, newData);
     }
 
@@ -1500,6 +1503,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         submitContextTask(() -> {
             pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
         });
+    }
+
+    /**
+     * Clear the task list for the current session.
+     */
+    public void clearTaskListAsync() {
+        setTaskListAsync(new TaskList.TaskListData(null, List.of()));
     }
 
     public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data) {
@@ -1628,7 +1638,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var updated = new ArrayList<>(tasks);
         var original = tasks.get(idx);
         updated.set(idx, new TaskList.TaskItem(original.id(), original.title(), original.text(), true));
-        return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)));
+        return deriveContextWithTaskList(
+                context,
+                new TaskList.TaskListData(context.getTaskListDataOrEmpty().bigPicture(), List.copyOf(updated)));
     }
 
     private void captureGitState(Context ctx) {
@@ -1734,10 +1746,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * or ComputedValue.await()) to retrieve fragment values without blocking the EDT.
      */
     private void notifyContextListeners(Context ctx) {
-        var taskList = ctx.getTaskListDataOrEmpty();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
-            listener.onTaskListChanged(taskList);
         }
     }
 

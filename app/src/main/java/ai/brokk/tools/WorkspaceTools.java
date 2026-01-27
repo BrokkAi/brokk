@@ -492,7 +492,7 @@ public class WorkspaceTools {
 
         var cm = context.getContextManager();
         // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
-        context = cm.createOrReplaceTaskList(context, tasks);
+        context = cm.createOrReplaceTaskList(context, explanation, tasks);
 
         var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))

@@ -91,6 +91,24 @@ public class TaskListWorkspaceToolsIntegrationTest {
     }
 
     @Test
+    void workspaceTools_createOrReplaceTaskList_passesBigPicture() {
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
+        var context = new Context(cm);
+        var wst = new WorkspaceTools(context);
+
+        var explanation = "This is the big picture explanation for the task list";
+        var tasks = List.of("Task 1", "Task 2");
+
+        wst.createOrReplaceTaskList(explanation, tasks);
+
+        var updatedContext = wst.getContext();
+        var data = updatedContext.getTaskListDataOrEmpty();
+
+        assertEquals(explanation, data.bigPicture());
+        assertEquals(2, data.tasks().size());
+    }
+
+    @Test
     void workspaceTools_taskTitlesAutoSummarized_inBothMethods() {
         var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var context = new Context(cm);

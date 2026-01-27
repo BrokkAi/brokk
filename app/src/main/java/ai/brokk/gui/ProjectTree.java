@@ -106,12 +106,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         });
     }
 
-    @Override
-    public void removeNotify() {
-        super.removeNotify();
-        this.contextManager.removeFileChangeListener(this);
-    }
-
     private void initializeTree() {
         Path projectRoot = project.getRoot();
 

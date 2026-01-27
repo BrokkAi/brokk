@@ -70,6 +70,12 @@ public enum SpecialTextType {
                         data.tasks().stream().filter(TaskList.TaskItem::done).count();
 
                 var sb = new StringBuilder();
+
+                if (data.bigPicture() != null && !data.bigPicture().isBlank()) {
+                    sb.append("## Big Picture\n\n");
+                    sb.append(data.bigPicture()).append("\n\n");
+                }
+
                 sb.append("# Task List\n\n");
                 sb.append("> Progress: ")
                         .append(completed)

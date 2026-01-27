@@ -39,7 +39,6 @@ import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
@@ -1038,16 +1037,15 @@ public class Chrome
                 }
             }
 
+            // Count incomplete tasks and update the badge
+            var taskList = newCtx.getTaskListDataOrEmpty();
+            int incomplete =
+                    (int) taskList.tasks().stream().filter(t -> !t.done()).count();
+            SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
+
             updateCaptureButtons();
             updateContextHistoryTable(newCtx);
         });
-    }
-
-    @Override
-    public void onTaskListChanged(TaskList.TaskListData data) {
-        // Count incomplete tasks and update the badge
-        int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
-        SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
     }
 
     @Override

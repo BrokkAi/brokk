@@ -984,10 +984,13 @@ public class Context {
     /**
      * Returns the current Task List data parsed from the Task List fragment or an empty list on absence/parse error.
      */
+    /**
+     * Returns the current Task List data parsed from the Task List fragment or an empty list on absence/parse error.
+     */
     public TaskList.TaskListData getTaskListDataOrEmpty() {
         var existing = getTaskListFragment();
         if (existing.isEmpty()) {
-            return new TaskList.TaskListData(List.of());
+            return new TaskList.TaskListData(null, List.of());
         }
         try {
             var fragment = existing.get();
@@ -995,11 +998,11 @@ public class Context {
             return textOpt.map(s -> Json.fromJson(s, TaskList.TaskListData.class))
                     .orElseGet(() -> {
                         logger.warn("Failed to load Task List JSON in time for {}", fragment);
-                        return new TaskList.TaskListData(List.of());
+                        return new TaskList.TaskListData(null, List.of());
                     });
         } catch (Exception e) {
             logger.warn("Failed to parse Task List JSON", e);
-            return new TaskList.TaskListData(List.of());
+            return new TaskList.TaskListData(null, List.of());
         }
     }
 
