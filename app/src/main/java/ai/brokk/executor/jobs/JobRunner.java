@@ -234,6 +234,9 @@ public final class JobRunner {
 
     static final int ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD = 100;
 
+    private static final int MAX_PR_TITLE_CHARS = 200;
+    private static final int MAX_PR_BODY_CHARS = 4000;
+
     enum Mode {
         ARCHITECT,
         CODE,
@@ -1857,6 +1860,13 @@ public final class JobRunner {
                 .replace("PR_INTENT_END", "PR_INTENT\\_END");
     }
 
+    private static String truncatePrField(String text, int maxLength) {
+        if (text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength) + " (truncated)";
+    }
+
     /**
      * Build the review prompt text for a given diff and comment policy.
      *
@@ -1877,8 +1887,11 @@ public final class JobRunner {
 
         String prContext = "";
         if (!prTitle.isBlank() || !prBody.isBlank()) {
-            String escapedTitle = escapePrIntent(prTitle);
-            String escapedBody = escapePrIntent(prBody.isBlank() ? "(no description)" : prBody);
+            String truncatedTitle = truncatePrField(prTitle, MAX_PR_TITLE_CHARS);
+            String truncatedBody = truncatePrField(prBody.isBlank() ? "(no description)" : prBody, MAX_PR_BODY_CHARS);
+
+            String escapedTitle = escapePrIntent(truncatedTitle);
+            String escapedBody = escapePrIntent(truncatedBody);
 
             prContext =
                     """

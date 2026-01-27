@@ -152,6 +152,21 @@ class JobRunnerTest {
     }
 
     @Test
+    void testReviewPromptPolicyTruncatesLargeBody() {
+        String diff = "dummy diff";
+        String title = "Big PR";
+        String largeBody = "A".repeat(5000);
+        String prompt = JobRunner.buildReviewPrompt(diff, PrReviewService.Severity.HIGH, 3, title, largeBody);
+
+        assertTrue(prompt.contains("PR_INTENT_START"));
+        assertTrue(prompt.contains("(truncated)"));
+        // Ensure it doesn't contain the full 5000 chars
+        assertTrue(!prompt.contains("Description:\n" + largeBody));
+        // Should contain the first 4000
+        assertTrue(prompt.contains("A".repeat(4000)));
+    }
+
+    @Test
     void testReviewPromptPolicyIncludesMax3AndSeverityHigh() {
         String diff = "dummy diff";
         String prompt = JobRunner.buildReviewPrompt(diff, PrReviewService.Severity.HIGH, 3, "", "");
