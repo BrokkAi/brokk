@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.CppAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.ProjectFile;
@@ -269,8 +268,8 @@ class CppImportTest {
         try (IProject project = code(headerContent, "utils/helper.h")
                 .addFileContents(sourceContent, "main.cpp")
                 .build()) {
-            CppAnalyzer analyzer = (CppAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
-            analyzer = (CppAnalyzer) analyzer.update();
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
             ProjectFile targetFile = new ProjectFile(project.getRoot(), "utils/helper.h");
@@ -298,8 +297,8 @@ class CppImportTest {
         try (IProject project = code(headerContent, "myheader.h")
                 .addFileContents(sourceContent, "main.cpp")
                 .build()) {
-            CppAnalyzer analyzer = (CppAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
-            analyzer = (CppAnalyzer) analyzer.update();
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
             ProjectFile targetFile = new ProjectFile(project.getRoot(), "myheader.h");
@@ -325,8 +324,8 @@ class CppImportTest {
         try (IProject project = code(headerContent, "src/helper.h")
                 .addFileContents(sourceContent, "src/main.cpp")
                 .build()) {
-            CppAnalyzer analyzer = (CppAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
-            analyzer = (CppAnalyzer) analyzer.update();
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
 
             ProjectFile sourceFile = new ProjectFile(project.getRoot(), "src/main.cpp");
             ProjectFile targetFile = new ProjectFile(project.getRoot(), "src/helper.h");

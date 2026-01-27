@@ -10,6 +10,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
@@ -567,7 +568,7 @@ class GoImportTest {
                 .addFileContents("package utils", "pkg/utils/helper.go")
                 .build();
 
-        GoAnalyzer analyzer = new GoAnalyzer(project);
+        TreeSitterAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.go");
         ProjectFile targetFile = new ProjectFile(project.getRoot(), "pkg/utils/helper.go");
 
@@ -588,7 +589,7 @@ class GoImportTest {
                         "main.go")
                 .build();
 
-        GoAnalyzer analyzer = new GoAnalyzer(project);
+        TreeSitterAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.go");
         ProjectFile targetFile = new ProjectFile(project.getRoot(), "main.go");
 
@@ -610,7 +611,7 @@ class GoImportTest {
                 .addFileContents("package utils", "pkg/utils/helper.go")
                 .build();
 
-        GoAnalyzer analyzer = new GoAnalyzer(project);
+        TreeSitterAnalyzer analyzer = new GoAnalyzer(project);
         ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.go");
         ProjectFile targetFile = new ProjectFile(project.getRoot(), "pkg/utils/helper.go");
 
