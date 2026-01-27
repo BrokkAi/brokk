@@ -554,4 +554,77 @@ class GoImportTest {
         assertEquals("import \"os\"", imports.get(1));
         assertEquals("import _ \"net/http\"", imports.get(2));
     }
+
+    @Test
+    void testCouldImportFile_matchesFilesInImportPath() throws Exception {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package main
+                import "myproject/pkg/utils"
+                func main() {}
+                """,
+                        "main.go")
+                .addFileContents("package utils", "pkg/utils/helper.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.go");
+        ProjectFile targetFile = new ProjectFile(project.getRoot(), "pkg/utils/helper.go");
+
+        List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+        boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+
+        assertTrue(result, "Should match file in the imported package path");
+    }
+
+    @Test
+    void testCouldImportFile_standardLibraryReturnsFalse() throws Exception {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package main
+                import "fmt"
+                func main() {}
+                """,
+                        "main.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.go");
+        ProjectFile targetFile = new ProjectFile(project.getRoot(), "main.go");
+
+        List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+        boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+
+        assertFalse(result, "Standard library import should not match project files");
+    }
+
+    @Test
+    void testCouldImportFile_aliasedImportWorks() throws Exception {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package main
+                import f "myproject/pkg/utils"
+                func main() {}
+                """,
+                        "main.go")
+                .addFileContents("package utils", "pkg/utils/helper.go")
+                .build();
+
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.go");
+        ProjectFile targetFile = new ProjectFile(project.getRoot(), "pkg/utils/helper.go");
+
+        List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+        boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+
+        assertTrue(result, "Aliased import should still match file in the imported package path");
+    }
+
+    private boolean invokeCouldImportFile(
+            GoAnalyzer analyzer, ProjectFile source, List<ImportInfo> imports, ProjectFile target) throws Exception {
+        var method =
+                GoAnalyzer.class.getDeclaredMethod("couldImportFile", ProjectFile.class, List.class, ProjectFile.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(analyzer, source, imports, target);
+    }
 }

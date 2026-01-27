@@ -438,6 +438,46 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
+    protected boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        if (imports.isEmpty()) {
+            return false;
+        }
+
+        // Normalize target path for comparison (use forward slashes)
+        String targetRelPath = target.getRelPath().toString().replace('\\', '/');
+
+        for (ImportInfo info : imports) {
+            Matcher m = IMPORT_PATH_PATTERN.matcher(info.rawSnippet());
+            if (m.find()) {
+                // group(1) is double-quoted, group(2) is backtick-quoted
+                String path = m.group(1) != null ? m.group(1) : m.group(2);
+
+                // Go imports match based on the package path.
+                // Case 1: Import path is a prefix of the target relative path.
+                // e.g. "pkg/utils" matches "pkg/utils/helper.go"
+                if (targetRelPath.startsWith(path + "/")) {
+                    return true;
+                }
+
+                // Case 2: Target relative path is a suffix of the import path.
+                // This happens with module/vanity imports like "myproject/pkg/utils"
+                // matching local project file "pkg/utils/helper.go".
+                if (path.endsWith("/" + targetRelPath.substring(0, Math.max(0, targetRelPath.lastIndexOf('/'))))
+                        || path.equals(targetRelPath.substring(0, Math.max(0, targetRelPath.lastIndexOf('/'))))) {
+                    return true;
+                }
+
+                // Case 3: Import path is a segment within the target relative path.
+                if (targetRelPath.contains("/" + path + "/")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     public Set<String> relevantImportsFor(CodeUnit cu) {
         var sourceOpt = getSource(cu, false);
         if (sourceOpt.isEmpty()) {
