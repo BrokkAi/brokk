@@ -20,6 +20,7 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ContentDiffUtils;
@@ -155,17 +156,16 @@ public class ReviewAgent {
                 if (options.reviewToolTurns() > 0) {
                     var tr = cm.getToolRegistry()
                             .builder()
-                            .register(new WorkspaceTools(reviewContext))
+                            .register(new SearchTools(cm))
                             .build();
                     turn1Result = turn1Llm.loop(
                             turn1Messages,
                             new ToolContext(
                                     tr.getTools(List.of(
-                                            "addFilesToWorkspace",
-                                            "addClassesToWorkspace",
-                                            "addClassSummariesToWorkspace",
-                                            "addFileSummariesToWorkspace",
-                                            "addMethodsToWorkspace")),
+                                            "getFileSummaries",
+                                            "getMethodSources",
+                                            "getClassSources",
+                                            "getFileContents")),
                                     ToolChoice.AUTO,
                                     tr),
                             options.reviewToolTurns());
@@ -251,7 +251,8 @@ public class ReviewAgent {
 
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
         var model = requireNonNull(cm.getService().getModel(options.scanModel()));
-        var llm = cm.getLlm(model, "Review Context Selection");
+        var llm = cm.getLlm(new Llm.Options(model, "Review Context Selection").withEcho());
+        llm.setOutput(io);
 
         Set<Language> analyzerLanguages = cm.getProject().getAnalyzerLanguages();
         boolean hasAnalyzedLanguage = !analyzerLanguages.equals(Set.of(Languages.NONE));

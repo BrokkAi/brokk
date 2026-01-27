@@ -6,6 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;
@@ -1785,6 +1786,10 @@ public class Llm {
     /**
      * Executes a tool-calling loop: sends messages, executes any tool calls returned by the model,
      * appends results, and repeats until no more tool calls or maxTurns is reached.
+     * <p>
+     * Tool execution failures (e.g., exceptions or validation errors) are logged as warnings and
+     * communicated back to the LLM as error results, but they are otherwise ignored by design to
+     * allow the model an opportunity to self-correct or proceed with partial information.
      *
      * @param messages The initial messages to send
      * @param toolContext The tool context containing tool specifications and registry
@@ -1821,6 +1826,9 @@ public class Llm {
             var tr = toolContext.toolRegistry();
             for (var request : toolRequests) {
                 var toolResult = tr.executeTool(request);
+                if (toolResult.status() == ToolExecutionResult.Status.INTERNAL_ERROR) {
+                    logger.warn("Tool call failure for {}: {}", request.name(), toolResult.resultText());
+                }
                 currentMessages.add(
                         new ToolExecutionResultMessage(request.id(), request.name(), toolResult.resultText()));
             }
@@ -1828,7 +1836,7 @@ public class Llm {
             turns++;
         }
 
-        return result != null ? result : sendRequest(currentMessages, toolContext);
+        return result;
     }
 
     @Override

@@ -1472,7 +1472,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         ? ReviewAgent.ReviewOptions.DEEPER
                         : ReviewAgent.ReviewOptions.FASTER;
                 // Use the markdown panel from the review detail panel as the console
-                var agentIo = codeReviewPanel.getDetailPanel().getMarkdownConsole();
+                var agentIo = codeReviewPanel.getDetailPanel().getMarkdownIO();
                 var agent = new ReviewAgent(scope, options, cm, agentIo);
 
                 var result = agent.execute();
@@ -1481,32 +1481,20 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 long now = System.currentTimeMillis();
 
                 SwingUtilities.invokeLater(() -> {
-                    setGuidedReviewBusy(false);
-                    chrome.hideOutputSpinner();
                     lastReviewState = new ReviewState(scope.metadata().fromRef(), now);
                     reviewTargetCommit = currentHash;
                     emitReviewTabStateFromCached();
                     codeReviewPanel.displayReview(result.review(), result.context());
-                    codeReviewPanel.setBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
                     revalidate();
                     repaint();
                 });
             } catch (InterruptedException ex) {
                 logger.debug("Review generation cancelled by user");
-                SwingUtilities.invokeLater(() -> {
-                    chrome.hideOutputSpinner();
-                    codeReviewPanel.setBusy(false);
-                    setGuidedReviewBusy(false);
-                    closeReview();
-                });
+                SwingUtilities.invokeLater(this::closeReview);
             } catch (ReviewGenerationException ex) {
                 logger.warn("Review generation failed: {}", ex.getMessage());
                 SwingUtilities.invokeLater(() -> {
-                    chrome.hideOutputSpinner();
-                    codeReviewPanel.setBusy(false);
-                    setGuidedReviewBusy(false);
-
                     String userMessage = ex.getStopDetails() != null
                             ? "Review generation failed: " + ex.getStopDetails().explanation()
                             : "Review generation failed: " + ex.getMessage();
@@ -1516,11 +1504,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (Exception ex) {
                 logger.error("Unexpected error during review generation", ex);
                 SwingUtilities.invokeLater(() -> {
+                    chrome.toolError("Review generation failed: " + ex.getMessage());
+                    closeReview();
+                });
+            } finally {
+                SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
-                    chrome.toolError("Review generation failed: " + ex.getMessage());
-                    closeReview();
                 });
             }
         });

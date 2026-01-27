@@ -111,7 +111,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     /**
      * Returns an IConsoleIO implementation that echoes LLM output to the markdown panel.
      */
-    public IConsoleIO getMarkdownConsole() {
+    public IConsoleIO getMarkdownIO() {
         return new IConsoleIO() {
             @Override
             public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
