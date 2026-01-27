@@ -1084,8 +1084,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         return identifiers;
     }
 
-    @Override
-    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
         PythonModuleInfo targetModule = resolveModuleInfo(target);
         String targetFqn = targetModule.moduleQualifiedPackage();
 
@@ -1123,14 +1122,16 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                 return true;
             }
 
-            // Check if modulePath is a prefix of targetFqn or vice versa.
-            // If target is "mypackage.utils", imports could be:
-            // - "import mypackage" (true, because target is inside)
-            // - "import mypackage.utils" (true, exact match)
-            // - "from mypackage import utils" (true, exact match)
-            // - "from mypackage.utils import helper" (true, exact match)
-
-            if (targetFqn.equals(modulePath) || targetFqn.startsWith(modulePath + ".") || modulePath.startsWith(targetFqn + ".")) {
+            // Check for potential dependencies based on module paths.
+            // A dependency exists if:
+            // 1. Exact match: The import targets the file directly (e.g., import mypkg.mod)
+            // 2. Target is within the imported module: The import targets a package containing the file
+            //    (e.g., 'import mypkg' where the target file is 'mypkg/mod.py').
+            // 3. Import is from within the target module: The import targets a sub-module or member of the file
+            //    (e.g., 'from mypkg.mod import func').
+            if (targetFqn.equals(modulePath)
+                    || targetFqn.startsWith(modulePath + ".")
+                    || modulePath.startsWith(targetFqn + ".")) {
                 return true;
             }
 
@@ -1138,6 +1139,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             // (e.g. "from mypackage import utils" where target is mypackage/utils.py)
             if (imp.identifier() != null) {
                 String fullImportedName = modulePath + "." + imp.identifier();
+                // Check if this full name exactly matches the target or is a parent of the target
                 if (targetFqn.equals(fullImportedName) || targetFqn.startsWith(fullImportedName + ".")) {
                     return true;
                 }
