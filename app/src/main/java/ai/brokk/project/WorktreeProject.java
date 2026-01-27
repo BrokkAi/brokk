@@ -9,14 +9,13 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.IStringDiskCache;
-import org.jetbrains.annotations.Blocking;
-
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Blocking;
 
 public final class WorktreeProject extends AbstractProject {
     private final MainProject parent;

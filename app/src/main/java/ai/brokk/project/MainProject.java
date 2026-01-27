@@ -580,6 +580,8 @@ public final class MainProject extends AbstractProject {
         // not threadsafe, that's okay;
         // the only caller (outside of tests) does so during construction before anyone else can see it
         if (detailsFuture.isDone()) {
+            // existing Future completed with an unknown value; overwrite it with ours
+            // (again: we don't care about potential references to the old Future; there aren't any)
             detailsFuture = CompletableFuture.completedFuture(details);
         } else {
             detailsFuture.complete(details);
