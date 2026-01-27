@@ -1875,11 +1875,7 @@ public final class JobRunner {
      * Package-private for tests to validate the policy text without invoking the LLM.
      */
     static String buildReviewPrompt(
-            String diff,
-            PrReviewService.Severity minSeverity,
-            int maxComments,
-            String prTitle,
-            String prBody) {
+            String diff, PrReviewService.Severity minSeverity, int maxComments, String prTitle, String prBody) {
         String fencedDiff = "```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```";
 
         // Compose the policy lines using explicit phrasing that tests can rely on.
@@ -2093,7 +2089,6 @@ public final class JobRunner {
                 stop,
                 meta);
     }
-
 
     private static Throwable unwrapFailure(Throwable throwable) {
         var current = throwable;
