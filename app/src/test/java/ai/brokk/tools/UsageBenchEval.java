@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 import picocli.CommandLine;
 
@@ -78,47 +79,27 @@ public class UsageBenchEval implements Callable<Integer> {
 
         boolean hadFailures = false;
         List<ProjectResult> projectResults = new ArrayList<>();
-        List<CodeUnitDetail> allTPDetails = new ArrayList<>();
-        List<CodeUnitDetail> allFPDetails = new ArrayList<>();
-        List<CodeUnitDetail> allFNDetails = new ArrayList<>();
 
         for (ProjectEntry entry : projectEntries) {
-            String projectName = entry.projectDir().getFileName().toString();
-            System.out.printf(
-                    "Evaluating project: %s (%s)...%n",
-                    projectName, entry.language().internalName());
-            try (IProject project = loadProject(entry)) {
-                ProgramUsages groundTruth = loadGroundTruth(entry.usagesJsonPath());
-                EvaluationData evalData = evaluateProject(project, groundTruth, entry.language());
+            ProjectEvalResult evalResult = new ProjectEvalCallable(entry).call();
 
-                projectResults.add(evalData.projectResult());
-                allTPDetails.addAll(evalData.tpDetails());
-                allFPDetails.addAll(evalData.fpDetails());
-                allFNDetails.addAll(evalData.fnDetails());
-
-                Path projectOutputDir = output.resolve(entry.language().internalName())
-                        .resolve(projectName);
-                writeProjectResults(
-                        projectOutputDir,
-                        evalData.projectResult(),
-                        evalData.tpDetails(),
-                        evalData.fpDetails(),
-                        evalData.fnDetails());
-
-                ProjectResult result = evalData.projectResult();
-                System.out.printf(
-                        "  TP=%d, FP=%d, FN=%d, P=%.3f, R=%.3f, F1=%.3f%n",
-                        result.truePositives(),
-                        result.falsePositives(),
-                        result.falseNegatives(),
-                        result.precision(),
-                        result.recall(),
-                        result.f1());
-            } catch (Exception e) {
-                System.err.printf("Failed to process %s: %s%n", entry.projectDir(), e.getMessage());
-                e.printStackTrace();
+            if (!evalResult.success()) {
+                System.err.printf("Failed to process %s: %s%n", entry.projectDir(), evalResult.errorMessage());
                 hadFailures = true;
+                continue;
             }
+
+            ProjectResult result = evalResult.result();
+            projectResults.add(result);
+
+            System.out.printf(
+                    "  TP=%d, FP=%d, FN=%d, P=%.3f, R=%.3f, F1=%.3f%n",
+                    result.truePositives(),
+                    result.falsePositives(),
+                    result.falseNegatives(),
+                    result.precision(),
+                    result.recall(),
+                    result.f1());
         }
 
         Files.createDirectories(output);
@@ -422,6 +403,69 @@ public class UsageBenchEval implements Callable<Integer> {
     }
 
     private record ProjectEntry(Path projectDir, Path usagesJsonPath, Language language) {}
+
+    private record ProjectEvalResult(
+            ProjectEntry entry,
+            @Nullable ProjectResult result,
+            boolean success,
+            String errorMessage,
+            List<CodeUnitDetail> tpDetails,
+            List<CodeUnitDetail> fpDetails,
+            List<CodeUnitDetail> fnDetails) {
+
+        static ProjectEvalResult failure(ProjectEntry entry, String errorMessage) {
+            return new ProjectEvalResult(entry, null, false, errorMessage, List.of(), List.of(), List.of());
+        }
+
+        static ProjectEvalResult success(
+                ProjectEntry entry,
+                ProjectResult result,
+                List<CodeUnitDetail> tpDetails,
+                List<CodeUnitDetail> fpDetails,
+                List<CodeUnitDetail> fnDetails) {
+            return new ProjectEvalResult(entry, result, true, "", tpDetails, fpDetails, fnDetails);
+        }
+    }
+
+    private class ProjectEvalCallable implements Callable<ProjectEvalResult> {
+        private final ProjectEntry entry;
+
+        ProjectEvalCallable(ProjectEntry entry) {
+            this.entry = entry;
+        }
+
+        @Override
+        public ProjectEvalResult call() {
+            String projectName = entry.projectDir().getFileName().toString();
+            System.out.printf(
+                    "Evaluating project: %s (%s)...%n",
+                    projectName, entry.language().internalName());
+
+            try (IProject project = loadProject(entry)) {
+                ProgramUsages groundTruth = loadGroundTruth(entry.usagesJsonPath());
+                EvaluationData evalData = evaluateProject(project, groundTruth, entry.language());
+
+                Path projectOutputDir = output.resolve(entry.language().internalName())
+                        .resolve(projectName);
+
+                writeProjectResults(
+                        projectOutputDir,
+                        evalData.projectResult(),
+                        evalData.tpDetails(),
+                        evalData.fpDetails(),
+                        evalData.fnDetails());
+
+                return ProjectEvalResult.success(
+                        entry,
+                        evalData.projectResult(),
+                        evalData.tpDetails(),
+                        evalData.fpDetails(),
+                        evalData.fnDetails());
+            } catch (Exception e) {
+                return ProjectEvalResult.failure(entry, e.getMessage() != null ? e.getMessage() : e.toString());
+            }
+        }
+    }
 
     private static class SimpleProject implements IProject {
         private final Path root;
