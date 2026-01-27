@@ -503,19 +503,21 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             if (normalized.startsWith("import ")) {
                 normalized = normalized.substring("import ".length());
             }
-            if (normalized.startsWith("static ")) {
+            boolean isStatic = normalized.startsWith("static ");
+            if (isStatic) {
                 normalized = normalized.substring("static ".length());
             }
             if (normalized.endsWith(";")) {
                 normalized = normalized.substring(0, normalized.length() - 1).strip();
             }
-            // Extract the simple name (last segment after the last dot)
+
+            // Extract the simple name (last segment)
+            // For 'import com.foo.Outer.Inner;', identifier is 'Inner'.
+            // For 'import static com.foo.Bar.METHOD;', identifier is 'METHOD'.
             int lastDot = normalized.lastIndexOf('.');
-            if (lastDot >= 0 && lastDot < normalized.length() - 1) {
-                identifier = normalized.substring(lastDot + 1);
-            } else {
-                identifier = normalized;
-            }
+            identifier = (lastDot >= 0 && lastDot < normalized.length() - 1)
+                    ? normalized.substring(lastDot + 1)
+                    : normalized;
         }
 
         // Java doesn't have import aliases
@@ -864,17 +866,23 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         final String targetClassName = targetName;
 
         for (ImportInfo imp : imports) {
-            // Case 1: Explicit import (e.g. import com.example.Foo;)
-            // Matches if the imported identifier is the target class name.
-            if (!imp.isWildcard() && targetClassName.equals(imp.identifier())) {
-                return true;
+            // Case 1: Explicit import (e.g. import com.example.Foo; or import static com.example.Foo.METHOD;)
+            if (!imp.isWildcard() && imp.identifier() != null) {
+                // Direct match on simple name (e.g. Foo or METHOD)
+                if (targetClassName.equals(imp.identifier())) return true;
+
+                // For static imports or nested classes, the target class might be the parent segment
+                // e.g. import static com.example.Foo.METHOD; should match Foo.java
+                // e.g. import com.example.Foo.Inner; should match Foo.java
+                if (imp.rawSnippet().contains("." + targetClassName + ".")) return true;
             }
 
             // Case 2: Wildcard import (e.g. import com.example.*;)
-            // Matches if the wildcard package is exactly the target's package.
+            // Matches if the wildcard package is exactly the target's package,
+            // or if it's a static wildcard import of the target class.
             if (imp.isWildcard()) {
                 String importPkg = extractPackageFromWildcard(imp.rawSnippet());
-                if (importPkg.equals(targetPackage)) {
+                if (importPkg.equals(targetPackage) || importPkg.equals(targetPackage + "." + targetClassName)) {
                     return true;
                 }
             }

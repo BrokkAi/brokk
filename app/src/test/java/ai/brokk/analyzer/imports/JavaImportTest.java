@@ -869,8 +869,7 @@ public class JavaImportTest {
             var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
             var imports = analyzer.importInfoOf(barFile);
 
-            // Per implementation, identifier extracted is 'METHOD', which does not match 'Foo'
-            assertFalse(analyzer.couldImportFile(imports, fooFile));
+            assertTrue(analyzer.couldImportFile(imports, fooFile));
         }
     }
 
@@ -881,16 +880,12 @@ public class JavaImportTest {
                 .addFileContents("import static com.example.Foo.*; public class Bar {}", "Bar.java")
                 .build()) {
             var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
-            // In JavaAnalyzer, a file Foo.java in com.example provides a class com.example.Foo.
-            // If another file has "import static com.example.Foo.*;", extractPackageFromWildcard 
-            // returns "com.example.Foo".
-            // However, the target file's package is "com.example".
-            // So "com.example.Foo" != "com.example".
             var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
             var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
             var imports = analyzer.importInfoOf(barFile);
 
-            assertFalse(analyzer.couldImportFile(imports, fooFile));
+            // static wildcard imports of a class should be relevant to that class file
+            assertTrue(analyzer.couldImportFile(imports, fooFile));
         }
     }
 
@@ -906,9 +901,8 @@ public class JavaImportTest {
             var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
             var imports = analyzer.importInfoOf(barFile);
 
-            // identifier is 'Inner', target file primary class simple name is 'Outer'.
-            // They do not match.
-            assertFalse(analyzer.couldImportFile(imports, outerFile));
+            // Explicitly importing an inner class should make the outer class file relevant
+            assertTrue(analyzer.couldImportFile(imports, outerFile));
         }
     }
 }
