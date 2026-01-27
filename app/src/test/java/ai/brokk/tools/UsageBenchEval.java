@@ -55,6 +55,12 @@ public class UsageBenchEval implements Callable<Integer> {
             description = "Specific project names to target (repeatable)")
     private List<String> projects = List.of();
 
+    @CommandLine.Option(
+            names = {"-p", "--parallelism"},
+            defaultValue = "2",
+            description = "Number of projects to evaluate in parallel (default: 2)")
+    private int parallelism = 2;
+
     public static void main(String[] args) {
         int exitCode = new CommandLine(new UsageBenchEval()).execute(args);
         System.exit(exitCode);
@@ -150,6 +156,7 @@ public class UsageBenchEval implements Callable<Integer> {
         System.out.println("================================================================================");
         System.out.printf(" Input Directory: %s%n", inputDir.toAbsolutePath());
         System.out.printf(" Language Filter: %s%n", language);
+        System.out.printf(" Parallelism:     %d%n", parallelism);
         System.out.printf(" Output File:     %s%n", output.toAbsolutePath());
         System.out.printf(" Projects Found:  %d%n", projectCount);
         if (!projects.isEmpty()) {
