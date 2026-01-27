@@ -172,7 +172,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton prBtn;
 
-    private final MaterialProgressButton guidedReviewBtn;
+    private final MaterialButton guidedReviewBtn;
 
     private final MaterialToggleButton reviewModeToggle;
 
@@ -255,7 +255,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.pullBtn = createIconButton(Icons.DOWNLOAD, "Pull changes from the remote repository");
         this.pushBtn = createIconButton(Icons.PUBLISH, "Push your commits to the remote repository");
         this.prBtn = createIconButton(Icons.ADD_DIAMOND, "Create a pull request for the current branch");
-        this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
+        this.guidedReviewBtn = new MaterialButton("Guided Review");
         this.guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
 
         this.reviewModeToggle = new MaterialToggleButton("Faster");
@@ -452,8 +452,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
 
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
-        guidedReviewBtn.setIdleAction(this::generateGuidedReview);
-        guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
+        guidedReviewBtn.addActionListener(e -> generateGuidedReview());
     }
 
     private MaterialButton createIconButton(Icon icon, @Nullable String tooltip) {
@@ -1086,8 +1085,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void setGuidedReviewBusy(boolean busy) {
         SwingUtil.runOnEdt(() -> {
             guidedReviewBusy = busy;
-            if (!busy) {
-                guidedReviewBtn.resetToIdle();
+            if (busy) {
+                guidedReviewBtn.setText("Cancel");
+            } else {
+                updateGuidedReviewButton();
             }
         });
     }
@@ -1199,6 +1200,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      * Called by the Guided Review button when there's already data available.
      */
     private void generateGuidedReview() {
+        if (guidedReviewBusy) {
+            cm.interruptLlmAction();
+            return;
+        }
+
         if (currentMode == PanelMode.REVIEW) {
             closeReview();
             return;
@@ -1238,7 +1244,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void startReviewAllChanges() {
         setGuidedReviewBusy(true);
         codeReviewPanel.setBusy(true);
-        guidedReviewBtn.setProgress(0);
 
         LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
@@ -1450,11 +1455,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 cm.getProject().getSessionManager().awaitForeignDownloads();
 
                 var options = reviewModeToggle.isSelected() ? ReviewAgent.ReviewOptions.DEEPER : ReviewAgent.ReviewOptions.FASTER;
-                var agent = new ReviewAgent(scope, options, cm);
-
-                agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
-                    guidedReviewBtn.setProgress(p);
-                }));
+                // Use the markdown panel from the review detail panel as the console
+                var agentIo = codeReviewPanel.getDetailPanel().getMarkdownConsole();
+                var agent = new ReviewAgent(scope, options, cm, agentIo);
 
                 var result = agent.execute();
 
@@ -1844,7 +1847,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // Set busy state immediately
         setGuidedReviewBusy(true);
         codeReviewPanel.setBusy(true);
-        guidedReviewBtn.setProgress(0);
 
         LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(cm, fromRef, toRef))
                 .thenAccept(this::generateGuidedReviewAsync)

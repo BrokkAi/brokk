@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
@@ -77,17 +78,6 @@ public class ReviewAgent {
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
 
-    int progressOf100 = 0;
-    int SETUP_PROGRESS = 5;
-
-    @FunctionalInterface
-    public interface ProgressUpdater {
-        /**
-         * @param stage description of current stage
-         * @param progress value between 0 and 100
-         */
-        void updateProgress(String stage, int progress);
-    }
 
     public record ReviewOptions(
             AbstractService.ModelConfig scanModel, AbstractService.ModelConfig reviewModel, int reviewToolTurns) {
@@ -101,6 +91,7 @@ public class ReviewAgent {
 
     private final ReviewOptions options;
     private final IContextManager cm;
+    private final IConsoleIO io;
     private @Nullable Context contextBeingBuilt;
     private boolean isComplex = false;
 
@@ -113,11 +104,12 @@ public class ReviewAgent {
      *
      * An example of determining `commit` using GitRepo::getMergeBase is in SessionChangesPanel.
      */
-    public ReviewAgent(ReviewScope scope, ReviewOptions options, IContextManager cm) {
+    public ReviewAgent(ReviewScope scope, ReviewOptions options, IContextManager cm, IConsoleIO io) {
         this.changes = scope.changes();
         this.metadata = scope.metadata();
         this.options = options;
         this.cm = cm;
+        this.io = io;
     }
 
     @TestOnly
@@ -125,16 +117,8 @@ public class ReviewAgent {
         this(
                 new ReviewScope(changes, new ReviewScope.Metadata("HEAD~1", "HEAD", sessionIds)),
                 ReviewOptions.FASTER,
-                cm);
-    }
-
-    private @Nullable ProgressUpdater progressUpdater;
-
-    /**
-     * Optional
-     */
-    public void setProgressUpdater(@Nullable ProgressUpdater updater) {
-        this.progressUpdater = updater;
+                cm,
+                cm.getIo());
     }
 
     @Blocking
@@ -151,12 +135,10 @@ public class ReviewAgent {
                     .addFragments(diffFragment)
                     .addFragments(extractSessionContext(metadata.sessionIds()));
 
-            updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
             var setupResult = setupContext(initialContext);
             var reviewContext = setupResult.context();
             logPhaseTime("Context selection", contextStart);
-            updateProgress("Analyzing changes", SETUP_PROGRESS);
 
             // Publish the context as it stands after setup but before Turn 1
             scope.publish(reviewContext);
@@ -164,6 +146,7 @@ public class ReviewAgent {
             var turn1ModelConfig = (!setupResult.isComplex()) ? options.scanModel() : options.reviewModel();
             var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
+            turn1Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
             long turn1Start = System.currentTimeMillis();
@@ -175,22 +158,6 @@ public class ReviewAgent {
                 turn1Messages.addAll(
                         WorkspacePrompts.getMessagesInAddedOrder(reviewContext, EnumSet.noneOf(SpecialTextType.class)));
                 turn1Messages.add(buildAnalysisRequestMessage());
-
-                int turn1Floor = progressOf100;
-                AtomicInteger linesSeen = new AtomicInteger(0);
-                MemoryConsole progressConsole = new MemoryConsole() {
-                    @Override
-                    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
-                        super.llmOutput(token, type, meta);
-                        if (token.contains("\n")) {
-                            int lines = linesSeen.addAndGet(
-                                    (int) token.chars().filter(ch -> ch == '\n').count());
-                            int p = turn1Floor + (lines / 6);
-                            updateProgress("Analyzing changes", min(100, p));
-                        }
-                    }
-                };
-                turn1Llm.setOutput(progressConsole);
 
                 if (options.reviewToolTurns() > 0) {
                     var tr = cm.getToolRegistry()
@@ -403,12 +370,6 @@ public class ReviewAgent {
         return new ContextSetupResult(ctx, true);
     }
 
-    private void updateProgress(String stage, int progress) {
-        progressOf100 = progress;
-        if (progressUpdater != null) {
-            progressUpdater.updateProgress(stage, progress);
-        }
-    }
 
     static @Nullable FileDiff findFileDiff(String relPath, List<FileDiff> fileDiffs) {
         return fileDiffs.stream()
