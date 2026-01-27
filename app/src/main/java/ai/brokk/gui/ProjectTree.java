@@ -126,6 +126,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         setShowsRootHandles(true);
         getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         setCellRenderer(new ProjectTreeCellRenderer());
+        // Reserve 2px so Chrome's focus border (same thickness) can replace it without changing size
+        setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
         // Load root children immediately, then restore any persisted expansion state
         SwingUtilities.invokeLater(() -> loadChildrenForNodeAsync(treeRoot)
@@ -1757,6 +1759,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 }
             }
 
+            // Override the LAF focus-cell border for all states: use empty so extra insets never
+            // change cell size on click (avoids tree shift) and so the reused renderer does not
+            // carry over a previously set border to other cells.
+            setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             return this;
         }
     }

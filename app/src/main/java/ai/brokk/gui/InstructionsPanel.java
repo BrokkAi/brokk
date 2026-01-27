@@ -874,12 +874,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                        if (rows >= maxRows) break;
+                        if (rows >= 7) break;
                     }
                 }
-                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                return Math.max(1, Math.min(maxRows, rows));
+                return Math.max(1, Math.min(7, rows));
             }
 
             @Override
@@ -2437,6 +2435,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     public JComponent getModelSelectorComponent() {
         return modelSelector.getComponent();
+    }
+
+    /**
+     * Cycles the model dropdown selection forward or backward in the favorites list.
+     * No-op in Core Focus (EZ) mode (dropdown is hidden), or if the manage dialog is open
+     * or there are no favorites.
+     */
+    public void cycleModel(boolean forward) {
+        if (!GlobalUiSettings.isAdvancedMode()) return;
+        modelSelector.cycleModel(forward);
     }
 
     /**
