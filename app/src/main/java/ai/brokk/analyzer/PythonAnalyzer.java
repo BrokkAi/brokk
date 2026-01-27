@@ -1117,9 +1117,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             }
 
             // Handle relative imports
+            String resolvedPath = modulePath;
             if (modulePath.startsWith(".")) {
-                // Conservatively return true for relative imports as we can't resolve them without source context
-                return true;
+                Optional<String> absolutePath = resolveRelativeImport(sourceFile, modulePath);
+                if (absolutePath.isEmpty()) {
+                    continue;
+                }
+                resolvedPath = absolutePath.get();
             }
 
             // Check for potential dependencies based on module paths.
@@ -1129,16 +1133,16 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             //    (e.g., 'import mypkg' where the target file is 'mypkg/mod.py').
             // 3. Import is from within the target module: The import targets a sub-module or member of the file
             //    (e.g., 'from mypkg.mod import func').
-            if (targetFqn.equals(modulePath)
-                    || targetFqn.startsWith(modulePath + ".")
-                    || modulePath.startsWith(targetFqn + ".")) {
+            if (targetFqn.equals(resolvedPath)
+                    || targetFqn.startsWith(resolvedPath + ".")
+                    || resolvedPath.startsWith(targetFqn + ".")) {
                 return true;
             }
 
             // Also check if the imported identifier matches the target's module name
             // (e.g. "from mypackage import utils" where target is mypackage/utils.py)
             if (imp.identifier() != null) {
-                String fullImportedName = modulePath + "." + imp.identifier();
+                String fullImportedName = resolvedPath + "." + imp.identifier();
                 // Check if this full name exactly matches the target or is a parent of the target
                 if (targetFqn.equals(fullImportedName) || targetFqn.startsWith(fullImportedName + ".")) {
                     return true;
