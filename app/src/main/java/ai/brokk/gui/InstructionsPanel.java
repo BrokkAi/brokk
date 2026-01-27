@@ -1425,7 +1425,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         boolean initialAdvancedMode = GlobalUiSettings.isAdvancedMode();
         modeSwitch.setSelected(initialAdvancedMode);
 
-        var modeTogglePanel = new ActionGroupPanel(coreFocusLabel, modeSwitch, fullPowerLabel);
+        var modeTogglePanel = new ai.brokk.gui.ActionGroupPanel(coreFocusLabel, modeSwitch, fullPowerLabel);
 
         final boolean[] programmaticToggleChange = {false};
         modeSwitch.addItemListener(e -> {

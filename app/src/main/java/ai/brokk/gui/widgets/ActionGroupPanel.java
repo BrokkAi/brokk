@@ -4,6 +4,7 @@ import ai.brokk.gui.components.RoundedLineBorder;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -78,9 +79,13 @@ public class ActionGroupPanel extends JPanel {
         add(modeSwitch);
         add(Box.createHorizontalStrut(2));
         add(answerModeLabel);
+    }
 
-        // Keep the grouping box tight; prevent BoxLayout from stretching it
-        setMaximumSize(getPreferredSize());
+    @Override
+    public Dimension getMaximumSize() {
+        // Return preferred size dynamically to prevent BoxLayout from stretching
+        // while avoiding the stale cached size issue from setMaximumSize() in constructor
+        return getPreferredSize();
     }
 
     @Override
