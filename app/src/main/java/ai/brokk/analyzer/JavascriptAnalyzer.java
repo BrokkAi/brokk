@@ -20,19 +20,7 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJavascript;
 
-public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, JsLikeModuleResolver {
-
-    private final Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
-            Caffeine.newBuilder().maximumSize(10_000).build();
-
-    @Override
-    public Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
-        return moduleResolutionCache;
-    }
-
-    private static final Pattern ES6_IMPORT_PATTERN = Pattern.compile("from\\s+['\"]([^'\"]+)['\"]");
-    private static final Pattern ES6_SIDE_EFFECT_IMPORT_PATTERN = Pattern.compile("^\\s*import\\s+['\"]([^'\"]+)['\"]");
-    private static final Pattern CJS_REQUIRE_PATTERN = Pattern.compile("require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
+public class JavascriptAnalyzer extends JsTsAnalyzer {
 
     // JS_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
@@ -504,32 +492,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         }
     }
 
-    @Override
-    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        return this.resolveImportsWithCache(this, file, importStatements);
-    }
 
-    public static Optional<String> extractModulePathFromImport(String importStatement) {
-        // Try ES6 pattern first (imports with 'from')
-        Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
-        if (es6Matcher.find()) {
-            return Optional.of(es6Matcher.group(1));
-        }
-
-        // Try ES6 side-effect imports (import './polyfill')
-        Matcher sideEffectMatcher = ES6_SIDE_EFFECT_IMPORT_PATTERN.matcher(importStatement);
-        if (sideEffectMatcher.find()) {
-            return Optional.of(sideEffectMatcher.group(1));
-        }
-
-        // Try CommonJS pattern
-        Matcher cjsMatcher = CJS_REQUIRE_PATTERN.matcher(importStatement);
-        if (cjsMatcher.find()) {
-            return Optional.of(cjsMatcher.group(1));
-        }
-
-        return Optional.empty();
-    }
 
     @Override
     protected void extractImports(
@@ -538,19 +501,15 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         if (importNode != null && !importNode.isNull()) {
             String rawSnippet = sourceContent.substringFrom(importNode);
 
-            // Extract all identifiers and aliases from this import statement
             List<String> identifiers = new ArrayList<>();
             List<String> aliases = new ArrayList<>();
             extractNamedImportIdentifiers(importNode, sourceContent, identifiers, aliases);
 
-            // Create ONE ImportInfo per import statement to avoid duplicate raw snippets
-            // Store first identifier/alias found (for basic matching)
-            // relevantImportsFor will do full parsing for comprehensive matching
             String firstId = identifiers.isEmpty() ? null : identifiers.getFirst();
             String firstAlias = aliases.isEmpty() ? null : aliases.getFirst();
             localImportInfos.add(new ImportInfo(rawSnippet, false, firstId, firstAlias));
         }
-        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportInfos);
+        extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportInfos);
     }
 
     /**
@@ -604,7 +563,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             Map<String, CodeUnit> localCuByFqName,
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, List<CodeUnit>> localChildren) {
         createModulesFromJavaScriptLikeImports(
                 file,
                 localImportStatements,
@@ -614,21 +574,6 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 localTopLevelCUs,
                 localSignatures,
                 localSourceRanges);
-    }
-
-    @Override
-    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return performImportedCodeUnitsOf(file);
-    }
-
-    @Override
-    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return performReferencingFilesOf(file);
-    }
-
-    @Override
-    public Set<String> relevantImportsFor(CodeUnit cu) {
-        return relevantImportsForJsLike(this, cu);
     }
 
     /**

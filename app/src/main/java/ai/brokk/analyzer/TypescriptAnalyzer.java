@@ -21,17 +21,8 @@ import org.treesitter.TSNode;
 import org.treesitter.TSParser;
 import org.treesitter.TreeSitterTypescript;
 
-public final class TypescriptAnalyzer extends TreeSitterAnalyzer
-        implements ImportAnalysisProvider, JsLikeModuleResolver {
+public final class TypescriptAnalyzer extends JsTsAnalyzer {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
-
-    private final Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
-            Caffeine.newBuilder().maximumSize(10_000).build();
-
-    @Override
-    public Cache<JsLikeModuleResolver.ModulePathKey, Optional<ProjectFile>> getModuleResolutionCache() {
-        return moduleResolutionCache;
-    }
 
     // Compiled regex patterns for memory efficiency
     private static final Pattern TRAILING_SEMICOLON = Pattern.compile(";\\s*$");
@@ -1050,33 +1041,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
-        JsLikeModuleResolver.extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportInfos);
-    }
-
-    @Override
-    protected void createModulesFromImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
-        JavascriptAnalyzer.createModulesFromJavaScriptLikeImports(
-                file,
-                localImportStatements,
-                rootNode,
-                modulePackageName,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges);
-    }
-
-    @Override
-    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        return this.resolveImportsWithCache(this, file, importStatements);
     }
 
     @Override
@@ -1090,20 +1054,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer
         return null;
     }
 
-    @Override
-    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return performImportedCodeUnitsOf(file);
-    }
-
-    @Override
-    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return performReferencingFilesOf(file);
-    }
-
-    @Override
-    public Set<String> relevantImportsFor(CodeUnit cu) {
-        return relevantImportsForJsLike(this, cu);
-    }
 
     @Override
     public Set<String> extractIdentifiersFromImport(String importStatement) {
