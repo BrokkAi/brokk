@@ -120,7 +120,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
             @Override
             public void toolError(String msg, String title) {
-                // Ignore tool errors in the review panel
+                // Ignore tool errors
+            }
+
+            @Override
+            public void showNotification(NotificationRole role, String message) {
+                // Ignore notifications
             }
         };
     }
