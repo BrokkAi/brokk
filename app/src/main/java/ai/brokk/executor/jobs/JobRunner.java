@@ -1857,7 +1857,9 @@ public final class JobRunner {
 
     private static String escapePrIntent(String text) {
         return text.replace("PR_INTENT_START", "PR_INTENT\\_START")
-                .replace("PR_INTENT_END", "PR_INTENT\\_END");
+                .replace("PR_INTENT_END", "PR_INTENT\\_END")
+                .replace("```", "``\\`")
+                .replace("</", "<\\/");
     }
 
     private static String truncatePrField(String text, int maxLength) {
