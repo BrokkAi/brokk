@@ -13,6 +13,9 @@ import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.SourceContent;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.analyzer.ImportInfo;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TreeSitterAnalyzer;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
@@ -21,6 +24,12 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 public class JavaImportTest {
+
+    private boolean invokeCouldImportFile(JavaAnalyzer analyzer, List<ImportInfo> imports, ProjectFile target) throws Exception {
+        var method = TreeSitterAnalyzer.class.getDeclaredMethod("couldImportFile", List.class, ProjectFile.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(analyzer, imports, target);
+    }
 
     @Test
     public void testOrdinaryImport() throws IOException {
@@ -806,6 +815,106 @@ public class JavaImportTest {
             assertTrue(identifiers.contains("List"), "Should capture simple type_identifier 'List'");
             assertTrue(
                     identifiers.contains("java.util.List"), "Should capture scoped_type_identifier 'java.util.List'");
+        }
+    }
+
+    @Test
+    public void testCouldImportFileExplicitImportMatches() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents("import com.example.Foo; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            assertTrue(invokeCouldImportFile(analyzer, imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileWildcardImportMatches() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents("import com.example.*; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            assertTrue(invokeCouldImportFile(analyzer, imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileUnrelatedImportsReturnsFalse() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents("import other.pkg.Bar; public class Baz {}", "Baz.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var bazFile = AnalyzerUtil.getFileFor(analyzer, "Baz").get();
+            var imports = analyzer.importInfoOf(bazFile);
+
+            assertFalse(invokeCouldImportFile(analyzer, imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileStaticImport() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo { public static final int METHOD = 1; }",
+                        "com/example/Foo.java")
+                .addFileContents("import static com.example.Foo.METHOD; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            // Per implementation, identifier extracted is 'METHOD', which does not match 'Foo'
+            assertFalse(invokeCouldImportFile(analyzer, imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileStaticWildcardImport() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo { }", "com/example/Foo.java")
+                .addFileContents("import static com.example.Foo.*; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            // In JavaAnalyzer, a file Foo.java in com.example provides a class com.example.Foo.
+            // If another file has "import static com.example.Foo.*;", extractPackageFromWildcard 
+            // returns "com.example.Foo".
+            // However, the target file's package is "com.example".
+            // So "com.example.Foo" != "com.example".
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            assertFalse(invokeCouldImportFile(analyzer, imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileInnerClass() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Outer { public static class Inner {} }",
+                        "com/example/Outer.java")
+                .addFileContents("import com.example.Outer.Inner; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var outerFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Outer").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            // identifier is 'Inner', target file primary class simple name is 'Outer'.
+            // They do not match.
+            assertFalse(invokeCouldImportFile(analyzer, imports, outerFile));
         }
     }
 }

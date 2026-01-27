@@ -847,6 +847,45 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        String targetName = target.getFileName();
+        if (targetName.endsWith(".java")) {
+            targetName = targetName.substring(0, targetName.length() - 5);
+        }
+        final String targetClassName = targetName;
+
+        // Determine target package from its top-level declarations
+        List<CodeUnit> topLevels = getTopLevelDeclarations(target);
+        String targetPackage = topLevels.stream()
+                .filter(CodeUnit::isClass)
+                .map(CodeUnit::packageName)
+                .findFirst()
+                .orElse("");
+
+        for (ImportInfo imp : imports) {
+            // Case 1: Explicit import (e.g. import com.example.Foo;)
+            // Matches if the imported identifier is the target class name.
+            if (!imp.isWildcard() && targetClassName.equals(imp.identifier())) {
+                return true;
+            }
+
+            // Case 2: Wildcard import (e.g. import com.example.*;)
+            // Matches if the wildcard package is exactly the target's package.
+            if (imp.isWildcard()) {
+                String importPkg = extractPackageFromWildcard(imp.rawSnippet());
+                if (importPkg.equals(targetPackage)) {
+                    return true;
+                }
+            }
+
+            // Static imports are handled conservatively by the logic above if they 
+            // reference the class name or its package. 
+        }
+
+        return false;
+    }
+
+    @Override
     protected String extractPackageFromWildcard(String rawSnippet) {
         // e.g., "import internal.*;" -> "internal"
         // e.g., "import static org.junit.Assert.*;" -> "org.junit.Assert"
