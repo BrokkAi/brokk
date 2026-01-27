@@ -60,6 +60,11 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
     private final Queue<HostCommand> pendingCommands = new ConcurrentLinkedQueue<>();
     private volatile boolean bridgeReady = false;
 
+    // Stored until bridge is ready (mirrors master's MOPWebViewHost pattern)
+    private volatile @Nullable ContextManager contextManager;
+    private volatile @Nullable Chrome chrome;
+    private volatile boolean showEmptyState = false;
+
     // Minimal command interface for buffering
     private sealed interface HostCommand {
         record Append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta)
@@ -131,6 +136,14 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 // Create per-instance client and bridge
                 client = cefApp.createClient();
                 bridge = new JCEFBridge(this);
+                // Apply stored state that may have arrived before bridge existed
+                if (contextManager != null) {
+                    bridge.setContextManager(contextManager);
+                }
+                if (chrome != null) {
+                    bridge.setChrome(chrome);
+                }
+                bridge.setShowEmptyState(showEmptyState);
 
                 // Set up message router for JS→Java callbacks
                 CefMessageRouter.CefMessageRouterConfig routerConfig = new CefMessageRouter.CefMessageRouterConfig();
@@ -461,6 +474,16 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         bridgeReady = true;
         flushPendingCommands();
 
+        // Send initial environment snapshot (mirrors master's MOPBridge.onBridgeReady)
+        if (bridge != null && browser != null) {
+            boolean ready = bridge.getContextManager() != null
+                    && bridge.getContextManager().isAnalyzerReady();
+            bridge.sendEnvironmentInfo(browser, ready);
+            if (ready) {
+                bridge.onAnalyzerReadyResponse(browser, getContextCacheId());
+            }
+        }
+
         // Restore focus to parent window (JCEF native browser may have stolen it)
         SwingUtilities.invokeLater(() -> {
             var window = SwingUtilities.getWindowAncestor(this);
@@ -529,6 +552,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     @Override
     public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
         if (bridgeReady && browser != null && bridge != null) {
             bridge.setShowEmptyState(browser, show);
         } else {
@@ -781,6 +805,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     @Override
     public void setContextManager(@Nullable ContextManager contextManager) {
+        this.contextManager = contextManager;
         if (bridge != null) {
             bridge.setContextManager(contextManager);
         }
@@ -788,6 +813,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     @Override
     public void setSymbolRightClickHandler(@Nullable Chrome chrome) {
+        this.chrome = chrome;
         if (bridge != null) {
             bridge.setChrome(chrome);
         }
