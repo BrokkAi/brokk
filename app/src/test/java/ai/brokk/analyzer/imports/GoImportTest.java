@@ -572,7 +572,7 @@ class GoImportTest {
         ProjectFile targetFile = new ProjectFile(project.getRoot(), "pkg/utils/helper.go");
 
         List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
-        boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+        boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
 
         assertTrue(result, "Should match file in the imported package path");
     }
@@ -593,7 +593,7 @@ class GoImportTest {
         ProjectFile targetFile = new ProjectFile(project.getRoot(), "main.go");
 
         List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
-        boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+        boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
 
         assertFalse(result, "Standard library import should not match project files");
     }
@@ -615,16 +615,9 @@ class GoImportTest {
         ProjectFile targetFile = new ProjectFile(project.getRoot(), "pkg/utils/helper.go");
 
         List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
-        boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+        boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
 
         assertTrue(result, "Aliased import should still match file in the imported package path");
     }
 
-    private boolean invokeCouldImportFile(
-            GoAnalyzer analyzer, ProjectFile source, List<ImportInfo> imports, ProjectFile target) throws Exception {
-        var method =
-                GoAnalyzer.class.getDeclaredMethod("couldImportFile", ProjectFile.class, List.class, ProjectFile.class);
-        method.setAccessible(true);
-        return (boolean) method.invoke(analyzer, source, imports, target);
-    }
 }

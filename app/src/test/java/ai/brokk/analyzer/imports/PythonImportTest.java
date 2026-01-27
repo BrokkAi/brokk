@@ -957,7 +957,7 @@ public class PythonImportTest {
             var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.utils.helper").get();
             var imports = analyzer.importInfoOf(sourceFile);
 
-            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
             assertTrue(result, "from mypackage.utils import helper should match mypackage/utils.py");
         }
     }
@@ -987,7 +987,7 @@ public class PythonImportTest {
             var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling.sibling_func").get();
             var imports = analyzer.importInfoOf(sourceFile);
 
-            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
             assertTrue(result, "from . import sibling should match sibling module in same package");
         }
     }
@@ -1016,7 +1016,7 @@ public class PythonImportTest {
             var targetFile = AnalyzerUtil.getFileFor(analyzer, "mymodule.MyClass").get();
             var imports = analyzer.importInfoOf(sourceFile);
 
-            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
             assertFalse(result, "import os should not match any project file");
         }
     }
@@ -1045,7 +1045,7 @@ public class PythonImportTest {
             var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.PackageClass").get();
             var imports = analyzer.importInfoOf(sourceFile);
 
-            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
             assertTrue(result, "from mypackage import * should match files in mypackage");
         }
     }
@@ -1176,20 +1176,5 @@ public class PythonImportTest {
             assertTrue(importedNames.contains("GrandparentClass"), "Should import GrandparentClass via 3-dot wildcard");
             assertTrue(importedNames.contains("grandparent_func"), "Should import grandparent_func via 3-dot wildcard");
         }
-    }
-
-    /**
-     * Helper method to invoke the protected couldImportFile method via reflection.
-     */
-    private boolean invokeCouldImportFile(
-            PythonAnalyzer analyzer,
-            ProjectFile sourceFile,
-            java.util.List<ImportInfo> imports,
-            ProjectFile targetFile)
-            throws Exception {
-        var method = PythonAnalyzer.class.getDeclaredMethod(
-                "couldImportFile", ProjectFile.class, java.util.List.class, ProjectFile.class);
-        method.setAccessible(true);
-        return (boolean) method.invoke(analyzer, sourceFile, imports, targetFile);
     }
 }

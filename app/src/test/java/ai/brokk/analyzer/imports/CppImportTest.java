@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CppAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.ProjectFile;
@@ -268,15 +269,15 @@ class CppImportTest {
         try (IProject project = code(headerContent, "utils/helper.h")
                 .addFileContents(sourceContent, "main.cpp")
                 .build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
-            analyzer = (TreeSitterAnalyzer) analyzer.update();
+            CppAnalyzer analyzer = (CppAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (CppAnalyzer) analyzer.update();
 
             ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
             ProjectFile targetFile = new ProjectFile(project.getRoot(), "utils/helper.h");
 
             List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
 
-            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
 
             assertTrue(result, "#include \"utils/helper.h\" should match utils/helper.h");
         }
@@ -297,15 +298,15 @@ class CppImportTest {
         try (IProject project = code(headerContent, "myheader.h")
                 .addFileContents(sourceContent, "main.cpp")
                 .build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
-            analyzer = (TreeSitterAnalyzer) analyzer.update();
+            CppAnalyzer analyzer = (CppAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (CppAnalyzer) analyzer.update();
 
             ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
             ProjectFile targetFile = new ProjectFile(project.getRoot(), "myheader.h");
 
             List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
 
-            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
 
             assertFalse(result, "System includes (angle brackets) should not match project files");
         }
@@ -324,28 +325,18 @@ class CppImportTest {
         try (IProject project = code(headerContent, "src/helper.h")
                 .addFileContents(sourceContent, "src/main.cpp")
                 .build()) {
-            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
-            analyzer = (TreeSitterAnalyzer) analyzer.update();
+            CppAnalyzer analyzer = (CppAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (CppAnalyzer) analyzer.update();
 
             ProjectFile sourceFile = new ProjectFile(project.getRoot(), "src/main.cpp");
             ProjectFile targetFile = new ProjectFile(project.getRoot(), "src/helper.h");
 
             List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
 
-            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
 
             assertTrue(result, "#include \"helper.h\" should match src/helper.h via suffix match");
         }
     }
 
-    /**
-     * Helper method to invoke the protected couldImportFile via reflection.
-     */
-    private boolean invokeCouldImportFile(
-            TreeSitterAnalyzer analyzer, ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target)
-            throws Exception {
-        var method = TreeSitterAnalyzer.class.getDeclaredMethod("couldImportFile", List.class, ProjectFile.class);
-        method.setAccessible(true);
-        return (boolean) method.invoke(analyzer, imports, target);
-    }
 }

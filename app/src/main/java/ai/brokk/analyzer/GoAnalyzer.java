@@ -476,6 +476,15 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         return false;
     }
 
+    /**
+     * Public API for checking if imports could reference a target file.
+     * Go imports don't use sourceFile for resolution (package paths are absolute),
+     * so this delegates to the 2-parameter version.
+     */
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        return couldImportFile(imports, target);
+    }
+
     @Override
     public Set<String> relevantImportsFor(CodeUnit cu) {
         var sourceOpt = getSource(cu, false);
