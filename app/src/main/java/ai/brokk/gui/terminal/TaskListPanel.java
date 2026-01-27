@@ -1229,8 +1229,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     return;
                 }
 
-                // Update icon with count if possible
-                if (incomplete <= 0) {
+                // Update icon with count if possible.
+                // Do not show a badge when the task list is not editable (historical state).
+                if (incomplete <= 0 || !taskListEditable) {
                     try {
                         tabs.setIconAt(idx, tasksBaseIcon);
                     } finally {

@@ -1719,6 +1719,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public void setSelectedContext(Context contextFromHistory) {
         contextHistory.setSelectedContext(contextFromHistory);
+        notifyContextListeners(contextFromHistory);
     }
 
     /**
@@ -1728,11 +1729,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * or previously frozen. Listeners should use non-blocking access methods (ComputedValue.tryGet()
      * or ComputedValue.await()) to retrieve fragment values without blocking the EDT.
      */
-    private void notifyContextListeners(@Nullable Context ctx) {
-        if (ctx == null) {
-            logger.warn("notifyContextListeners called with null context");
-            return;
-        }
+    private void notifyContextListeners(Context ctx) {
         var taskList = ctx.getTaskListDataOrEmpty();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);

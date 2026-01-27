@@ -288,10 +288,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
 
-        historyTableComponent.addSelectionListener(ctx -> {
-            contextManager.setSelectedContext(ctx);
-            // setContext is for *previewing* a context without changing selection state in the manager
-            chrome.setContext(ctx);
+        historyTableComponent.addSelectionListener(contextFromHistory -> {
+            if (!contextFromHistory.equals(contextManager.selectedContext())) {
+                contextManager.setSelectedContext(contextFromHistory);
+            }
         });
 
         historyTableComponent.addDoubleClickListener(context -> {
