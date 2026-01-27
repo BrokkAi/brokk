@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
@@ -252,5 +253,98 @@ class CppImportTest {
             assertTrue(
                     importedUnits.isEmpty(), "Includes that escape project root should not resolve to any CodeUnits");
         }
+    }
+
+    @Test
+    void testCouldImportFile_quotedIncludeMatches() throws Exception {
+        // Test: #include "utils/helper.h" should return true for utils/helper.h
+        String headerContent = "void helperFunction();";
+        String sourceContent = """
+                #include "utils/helper.h"
+
+                int main() { return 0; }
+                """;
+
+        try (IProject project = code(headerContent, "utils/helper.h")
+                .addFileContents(sourceContent, "main.cpp")
+                .build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
+            ProjectFile targetFile = new ProjectFile(project.getRoot(), "utils/helper.h");
+
+            List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+
+            assertTrue(result, "#include \"utils/helper.h\" should match utils/helper.h");
+        }
+    }
+
+    @Test
+    void testCouldImportFile_angleBracketReturnsFalse() throws Exception {
+        // Test: #include <vector> should return false for any project file
+        String headerContent = "void myFunction();";
+        String sourceContent = """
+                #include <vector>
+                #include <iostream>
+
+                int main() { return 0; }
+                """;
+
+        try (IProject project = code(headerContent, "myheader.h")
+                .addFileContents(sourceContent, "main.cpp")
+                .build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
+            ProjectFile targetFile = new ProjectFile(project.getRoot(), "myheader.h");
+
+            List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+
+            assertFalse(result, "#include <vector> should not match any project file");
+        }
+    }
+
+    @Test
+    void testCouldImportFile_relativeIncludeResolvesCorrectly() throws Exception {
+        // Test: #include "helper.h" should match both helper.h and src/helper.h (suffix match)
+        String headerContent = "void helperFunction();";
+        String sourceContent = """
+                #include "helper.h"
+
+                int main() { return 0; }
+                """;
+
+        try (IProject project = code(headerContent, "src/helper.h")
+                .addFileContents(sourceContent, "src/main.cpp")
+                .build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile sourceFile = new ProjectFile(project.getRoot(), "src/main.cpp");
+            ProjectFile targetFile = new ProjectFile(project.getRoot(), "src/helper.h");
+
+            List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+
+            assertTrue(result, "#include \"helper.h\" should match src/helper.h via suffix match");
+        }
+    }
+
+    /**
+     * Helper method to invoke the protected couldImportFile via reflection.
+     */
+    private boolean invokeCouldImportFile(TreeSitterAnalyzer analyzer, ProjectFile sourceFile,
+            List<ImportInfo> imports, ProjectFile target) throws Exception {
+        var method = TreeSitterAnalyzer.class.getDeclaredMethod(
+                "couldImportFile", ProjectFile.class, List.class, ProjectFile.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(analyzer, sourceFile, imports, target);
     }
 }
