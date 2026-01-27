@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -29,6 +30,9 @@ import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
+
+    private static final Pattern WILDCARD_IMPORT_PATTERN =
+            Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -947,8 +951,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     protected String extractPackageFromWildcard(String rawSnippet) {
         // Python: "from pkg.sub import *" -> "pkg.sub"
         // Python: "from ..pkg import *" -> "..pkg"
-        if (rawSnippet.startsWith("from ") && rawSnippet.contains(" import *")) {
-            return rawSnippet.substring(5, rawSnippet.indexOf(" import *")).trim();
+        var matcher = WILDCARD_IMPORT_PATTERN.matcher(rawSnippet);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
         }
         return super.extractPackageFromWildcard(rawSnippet);
     }
