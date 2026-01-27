@@ -74,8 +74,8 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         hast: undefined,
                         reasoningState: evt.meta.isReasoning ? {
                             startTime: Date.now(),
-                            complete: false,
-                            isCollapsed: false,
+                            complete: !isStreaming,
+                            isCollapsed: !isStreaming,
                         } : undefined,
                     };
                     list = [...list, bubble];
