@@ -50,9 +50,9 @@ public class UsageBenchEval implements Callable<Integer> {
 
     @CommandLine.Option(
             names = {"--output"},
-            defaultValue = "./usage-results",
-            description = "Output directory for results (default: ./usage-results)")
-    private Path output = Path.of("./usage-results");
+            defaultValue = "../build/reports/usage-results",
+            description = "Output directory for results (default: ../build/reports/usage-results)")
+    private Path output = Path.of("../build/reports/usage-results");
 
     @CommandLine.Option(
             names = {"--projects"},
