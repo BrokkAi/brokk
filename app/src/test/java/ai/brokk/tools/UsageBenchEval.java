@@ -82,6 +82,7 @@ public class UsageBenchEval implements Callable<Integer> {
 
         List<ProjectResult> projectResults = new ArrayList<>();
         boolean hadFailures;
+        List<ProjectEvalResult> evalResultsList;
 
         try (LoggingExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "usage-bench")) {
             List<CompletableFuture<ProjectEvalResult>> futures = projectEntries.stream()
@@ -90,8 +91,7 @@ public class UsageBenchEval implements Callable<Integer> {
 
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
-            List<ProjectEvalResult> evalResultsList =
-                    futures.stream().map(CompletableFuture::join).toList();
+            evalResultsList = futures.stream().map(CompletableFuture::join).toList();
 
             hadFailures = evalResultsList.stream().anyMatch(r -> !r.success());
 
@@ -123,11 +123,29 @@ public class UsageBenchEval implements Callable<Integer> {
         AggregateMetrics aggregate = computeAggregateMetrics(projectResults);
         EvalResults evalResults = new EvalResults(projectResults, aggregate);
 
+        // Collect failed projects
+        List<FailedProject> failedProjects = evalResultsList.stream()
+                .filter(r -> !r.success())
+                .map(r -> new FailedProject(
+                        r.entry().projectDir().getFileName().toString(),
+                        r.errorMessage()))
+                .toList();
+
+        AggregateSummary aggregateSummary = new AggregateSummary(aggregate, projectResults, failedProjects);
+
         var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
 
+        // Write backwards-compatible summary.json
         Files.writeString(
                 output.resolve("summary.json"),
                 writer.writeValueAsString(evalResults),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
+
+        // Write new aggregate-summary.json
+        Files.writeString(
+                output.resolve("aggregate-summary.json"),
+                writer.writeValueAsString(aggregateSummary),
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING);
 

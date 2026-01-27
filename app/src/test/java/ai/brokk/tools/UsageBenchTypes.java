@@ -62,4 +62,13 @@ public class UsageBenchTypes {
             @JsonProperty("usages") List<UsageDetail> usages) {}
 
     public record DetailedResults(@JsonProperty("codeUnits") List<CodeUnitDetail> codeUnits) {}
+
+    public record FailedProject(
+            @JsonProperty("project") String project,
+            @JsonProperty("errorMessage") String errorMessage) {}
+
+    public record AggregateSummary(
+            @JsonProperty("metrics") AggregateMetrics metrics,
+            @JsonProperty("successfulProjects") List<ProjectResult> successfulProjects,
+            @JsonProperty("failedProjects") List<FailedProject> failedProjects) {}
 }
