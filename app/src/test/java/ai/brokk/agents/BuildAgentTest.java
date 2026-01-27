@@ -196,7 +196,6 @@ class BuildAgentTest {
 
     @Test
     void testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories(@TempDir Path tempDir) throws Exception {
-        logger.info("testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories: START");
         // Initialize git repo
         try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
             var config = git.getRepository().getConfig();
@@ -230,15 +229,10 @@ class BuildAgentTest {
             git.add().addFilepattern(".").call();
             git.commit().setMessage("Initial commit").call();
         }
-        logger.info("testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories: git setup complete");
 
         // Create project and test isGitignored method
-        logger.info("testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories: creating MainProject");
         var project = new MainProject(tempDir);
-        logger.info(
-                "testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories: MainProject created, saving build details");
         project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
-        logger.info("testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories: build details saved");
 
         // Verify empty directory is NOT ignored
         assertFalse(project.isGitignored(Path.of("tests/fixtures")), "Empty directory should NOT be ignored");
@@ -257,9 +251,7 @@ class BuildAgentTest {
         assertTrue(project.isGitignored(Path.of("build")), "Gitignored directory SHOULD be ignored");
         assertTrue(project.isGitignored(Path.of("build/output")), "Nested gitignored directory SHOULD be ignored");
 
-        logger.info("testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories: closing project");
         project.close();
-        logger.info("testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories: END");
     }
 
     void testInterpolatePythonVersionVariable() {
@@ -355,7 +347,6 @@ class BuildAgentTest {
 
     @Test
     void testRemoveGitignoreDuplicatesFiltersRedundantDirectories(@TempDir Path tempDir) throws Exception {
-        logger.info("testRemoveGitignoreDuplicatesFiltersRedundantDirectories: START");
         try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
             var config = git.getRepository().getConfig();
             config.setString("user", null, "name", "Test User");
@@ -370,17 +361,10 @@ class BuildAgentTest {
             git.add().addFilepattern(".").call();
             git.commit().setSign(false).setMessage("Initial").call();
         }
-        logger.info("testRemoveGitignoreDuplicatesFiltersRedundantDirectories: git setup complete");
 
-        logger.info("testRemoveGitignoreDuplicatesFiltersRedundantDirectories: creating MainProject");
         var project = new MainProject(tempDir);
-        logger.info(
-                "testRemoveGitignoreDuplicatesFiltersRedundantDirectories: MainProject created, saving build details");
         project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
-        logger.info(
-                "testRemoveGitignoreDuplicatesFiltersRedundantDirectories: build details saved, creating BuildAgent");
         var agent = new BuildAgent(project, null, null);
-        logger.info("testRemoveGitignoreDuplicatesFiltersRedundantDirectories: BuildAgent created");
 
         var patterns = Set.of(
                 "node_modules", // Gitignored - should be removed
@@ -398,14 +382,11 @@ class BuildAgentTest {
         assertTrue(deduplicated.contains("*.svg"), "File pattern should be kept");
         assertTrue(deduplicated.contains("**/*.generated"), "Glob pattern should be kept");
 
-        logger.info("testRemoveGitignoreDuplicatesFiltersRedundantDirectories: closing project");
         project.close();
-        logger.info("testRemoveGitignoreDuplicatesFiltersRedundantDirectories: END");
     }
 
     @Test
     void testReportBuildDetailsDeduplicatesGitignorePatterns(@TempDir Path tempDir) throws Exception {
-        logger.info("testReportBuildDetailsDeduplicatesGitignorePatterns: START");
         try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
             var config = git.getRepository().getConfig();
             config.setString("user", null, "name", "Test User");
@@ -419,15 +400,10 @@ class BuildAgentTest {
             git.add().addFilepattern(".").call();
             git.commit().setSign(false).setMessage("Initial").call();
         }
-        logger.info("testReportBuildDetailsDeduplicatesGitignorePatterns: git setup complete");
 
-        logger.info("testReportBuildDetailsDeduplicatesGitignorePatterns: creating MainProject");
         var project = new MainProject(tempDir);
-        logger.info("testReportBuildDetailsDeduplicatesGitignorePatterns: MainProject created, saving build details");
         project.saveBuildDetails(BuildAgent.BuildDetails.EMPTY);
-        logger.info("testReportBuildDetailsDeduplicatesGitignorePatterns: build details saved, creating BuildAgent");
         var agent = new BuildAgent(project, null, null);
-        logger.info("testReportBuildDetailsDeduplicatesGitignorePatterns: BuildAgent created");
 
         agent.reportBuildDetails(
                 "npm run build",
@@ -448,9 +424,7 @@ class BuildAgentTest {
         assertFalse(llmPatterns.contains("node_modules"), "Deduplicated pattern should not be in LLM tracking");
         assertTrue(llmPatterns.contains("build"), "Kept pattern should be in LLM tracking");
 
-        logger.info("testReportBuildDetailsDeduplicatesGitignorePatterns: closing project");
         project.close();
-        logger.info("testReportBuildDetailsDeduplicatesGitignorePatterns: END");
     }
 
     @Test
