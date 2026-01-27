@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.ImportInfo;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
@@ -928,5 +930,138 @@ public class PythonImportTest {
                     resolvedImports.stream().anyMatch(cu -> cu.identifier().equals("OnlyInB")),
                     "OnlyInB should be imported via wildcard from b");
         }
+    }
+
+    @Test
+    public void testCouldImportFile_fromPackageModuleImport() throws Exception {
+        // Test: "from mypackage.utils import helper" should match mypackage/utils.py
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents(
+                        """
+                        def helper():
+                            pass
+                        """,
+                        "mypackage/utils.py")
+                .addFileContents(
+                        """
+                        from mypackage.utils import helper
+
+                        def consumer():
+                            helper()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.utils.helper").get();
+            var imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            assertTrue(result, "from mypackage.utils import helper should match mypackage/utils.py");
+        }
+    }
+
+    @Test
+    public void testCouldImportFile_relativeImportSibling() throws Exception {
+        // Test: "from . import sibling" should match sibling module in same package
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents(
+                        """
+                        def sibling_func():
+                            pass
+                        """,
+                        "mypackage/sibling.py")
+                .addFileContents(
+                        """
+                        from . import sibling
+
+                        def consumer():
+                            sibling.sibling_func()
+                        """,
+                        "mypackage/consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.consumer.consumer").get();
+            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling.sibling_func").get();
+            var imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            assertTrue(result, "from . import sibling should match sibling module in same package");
+        }
+    }
+
+    @Test
+    public void testCouldImportFile_standardLibraryImport() throws Exception {
+        // Test: "import os" should NOT match any project files
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class MyClass:
+                            pass
+                        """,
+                        "mymodule.py")
+                .addFileContents(
+                        """
+                        import os
+
+                        def consumer():
+                            os.path.exists("test")
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "consumer.consumer").get();
+            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mymodule.MyClass").get();
+            var imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            assertFalse(result, "import os should not match any project file");
+        }
+    }
+
+    @Test
+    public void testCouldImportFile_wildcardImport() throws Exception {
+        // Test: "from mypackage import *" should match files in mypackage
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class PackageClass:
+                            pass
+                        """,
+                        "mypackage/__init__.py")
+                .addFileContents(
+                        """
+                        from mypackage import *
+
+                        def consumer():
+                            obj = PackageClass()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "consumer.consumer").get();
+            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.PackageClass").get();
+            var imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = invokeCouldImportFile(analyzer, sourceFile, imports, targetFile);
+            assertTrue(result, "from mypackage import * should match files in mypackage");
+        }
+    }
+
+    /**
+     * Helper method to invoke the protected couldImportFile method via reflection.
+     */
+    private boolean invokeCouldImportFile(
+            PythonAnalyzer analyzer,
+            ProjectFile sourceFile,
+            java.util.List<ImportInfo> imports,
+            ProjectFile targetFile)
+            throws Exception {
+        var method = PythonAnalyzer.class.getDeclaredMethod(
+                "couldImportFile", ProjectFile.class, java.util.List.class, ProjectFile.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(analyzer, sourceFile, imports, targetFile);
     }
 }

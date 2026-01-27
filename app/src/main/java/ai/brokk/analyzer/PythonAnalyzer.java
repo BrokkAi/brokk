@@ -1085,6 +1085,74 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
+    protected boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        PythonModuleInfo targetModule = resolveModuleInfo(target);
+        String targetFqn = targetModule.moduleQualifiedPackage();
+
+        for (ImportInfo imp : imports) {
+            String raw = imp.rawSnippet();
+
+            // Extract the module part.
+            // Patterns:
+            // 1. "import X.Y" -> module path is X.Y
+            // 2. "from X.Y import Z" -> module path is X.Y
+            // 3. "from .X import Y" -> relative module path
+            // 4. "from . import Y" -> relative module path (dots only)
+
+            String modulePath = null;
+            if (raw.startsWith("from ")) {
+                // "from path import name"
+                int importIdx = raw.indexOf(" import ");
+                if (importIdx != -1) {
+                    modulePath = raw.substring(5, importIdx).trim();
+                }
+            } else if (raw.startsWith("import ")) {
+                // "import path" or "import path as alias"
+                String pathPart = raw.substring(7).trim();
+                int asIdx = pathPart.indexOf(" as ");
+                modulePath = (asIdx != -1) ? pathPart.substring(0, asIdx).trim() : pathPart;
+            }
+
+            if (modulePath == null || modulePath.isEmpty()) {
+                continue;
+            }
+
+            // Handle relative imports
+            if (modulePath.startsWith(".")) {
+                // Determine absolute path of the relative import
+                Optional<String> resolved = resolveRelativeImport(sourceFile, modulePath);
+                if (resolved.isPresent()) {
+                    modulePath = resolved.get();
+                } else {
+                    continue;
+                }
+            }
+
+            // Check if modulePath is a prefix of targetFqn or vice versa.
+            // If target is "mypackage.utils", imports could be:
+            // - "import mypackage" (true, because target is inside)
+            // - "import mypackage.utils" (true, exact match)
+            // - "from mypackage import utils" (true, exact match)
+            // - "from mypackage.utils import helper" (true, exact match)
+
+            if (targetFqn.equals(modulePath) || targetFqn.startsWith(modulePath + ".") || modulePath.startsWith(targetFqn + ".")) {
+                return true;
+            }
+
+            // Also check if the imported identifier matches the target's module name
+            // (e.g. "from mypackage import utils" where target is mypackage/utils.py)
+            if (imp.identifier() != null) {
+                String fullImportedName = modulePath + "." + imp.identifier();
+                if (targetFqn.equals(fullImportedName) || targetFqn.startsWith(fullImportedName + ".")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 

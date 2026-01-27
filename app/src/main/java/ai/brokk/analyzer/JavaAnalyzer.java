@@ -847,7 +847,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+    protected boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
         String targetName = target.getFileName();
         if (targetName.endsWith(".java")) {
             targetName = targetName.substring(0, targetName.length() - 5);
