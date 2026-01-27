@@ -127,7 +127,8 @@ public class BuildDetailsPathNormalizationTest {
         AtomicWrites.save(propsFile, props, "legacy test");
 
         // Act: construct project and load canonicalized details
-        var project = MainProject.forTests(root);
+        // We use new MainProject instead of forTests() because we want to test loading existing disk state
+        var project = new MainProject(root);
         var loaded = project.loadBuildDetails().orElseThrow();
 
         // Assert: canonicalization occurred on load
@@ -213,7 +214,8 @@ public class BuildDetailsPathNormalizationTest {
         AtomicWrites.save(propsFile, projectProps, "migration test");
 
         // 2. Act: Load details via MainProject
-        MainProject project = MainProject.forTests(root);
+        // We use new MainProject instead of forTests() because we want to test loading existing disk state
+        MainProject project = new MainProject(root);
         BuildAgent.BuildDetails loadedDetails = project.loadBuildDetails().orElseThrow();
 
         // 3. Assert: .brokk/workspace.properties now contains jdk.home

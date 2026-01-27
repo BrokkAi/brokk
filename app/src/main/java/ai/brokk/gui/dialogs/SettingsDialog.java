@@ -136,31 +136,54 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     void loadSettingsInBackground() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        var worker = new SwingWorker<SettingsData, Void>() {
-            @Override
-            protected SettingsData doInBackground() {
-                // All I/O happens here in background thread
-                return SettingsData.load(chrome.getProject());
-            }
-
-            @Override
-            protected void done() {
-                // Guard: if the dialog has been disposed or is no longer showing, skip all UI updates
-                if (!isDisplayable() || !isShowing()) {
-                    return;
-                }
-
-                try {
-                    var data = get();
-                    populateUIFromData(data);
-                } catch (Exception e) {
+        ai.brokk.concurrent.LoggingFuture.supplyAsync(() -> SettingsData.load(chrome.getProject()))
+                .thenAccept(data -> SwingUtil.runOnEdt(() -> {
+                    if (!isDisplayable() || !isShowing()) {
+                        return;
+                    }
+                    if (data.buildDetails() == null && chrome.getProject() != null) {
+                        awaitBuildDetailsAndPopulate(data);
+                    } else {
+                        populateUIFromData(data);
+                    }
+                }))
+                .exceptionally(e -> {
                     logger.error("Failed to load settings", e);
-                    chrome.toolError("Failed to load settings: " + e.getMessage(), "Settings Error");
-                    dispose();
-                }
+                    SwingUtil.runOnEdt(() -> {
+                        chrome.toolError("Failed to load settings: " + e.getMessage(), "Settings Error");
+                        dispose();
+                    });
+                    return null;
+                });
+    }
+
+    private void awaitBuildDetailsAndPopulate(SettingsData partialData) {
+        var project = chrome.getProject();
+        if (project == null) return;
+
+        var future = project.getBuildDetailsFuture();
+        boolean completed = ai.brokk.gui.MaterialOptionPane.showBlockingProgressDialog(
+                this, "Waiting for build settings inference...", "Project Initialization", future);
+
+        if (completed) {
+            try {
+                var details = future.join();
+                populateUIFromData(new SettingsData(
+                        partialData.jvmMemorySettings(),
+                        partialData.brokkApiKey(),
+                        partialData.accountBalance(),
+                        partialData.favoriteModels(),
+                        details,
+                        partialData.styleGuide(),
+                        partialData.commitMessageFormat()));
+            } catch (Exception e) {
+                logger.error("Error retrieving build details", e);
+                dispose();
             }
-        };
-        worker.execute();
+        } else {
+            // User cancelled
+            dispose();
+        }
     }
 
     /**
@@ -459,7 +482,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
      * Consolidated settings data loaded in background to avoid EDT blocking.
      * All I/O operations happen in the static load() method which runs off EDT.
      */
-    public static record SettingsData(
+    public record SettingsData(
             // Global settings
             MainProject.JvmMemorySettings jvmMemorySettings,
             String brokkApiKey,
@@ -506,8 +529,11 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             String commitFormat = null;
 
             if (project != null) {
-                // TODO use awaitBuildDetails and notify the user that we're waiting
-                buildDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+                var future = project.getBuildDetailsFuture();
+                if (future.isDone() && !future.isCancelled()) {
+                    buildDetails = future.getNow(BuildAgent.BuildDetails.EMPTY);
+                }
+                // If null, the caller (SettingsDialog) will handle the modal await logic
                 styleGuide = project.getStyleGuide();
                 commitFormat = project.getCommitMessageFormat();
             }
