@@ -686,15 +686,15 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             String type = current.getType();
 
             // If we hit a known reference/usage node type, it's likely a reference
-            if (type.equals("method_invocation")
-                    || type.equals("field_access")
-                    || type.equals("object_creation_expression")
-                    || type.equals("type_identifier")
-                    || type.equals("scoped_type_identifier")
-                    || type.equals("marker_annotation")
+            if (type.equals(METHOD_INVOCATION)
+                    || type.equals(FIELD_ACCESS)
+                    || type.equals(OBJECT_CREATION_EXPRESSION)
+                    || type.equals(TYPE_IDENTIFIER)
+                    || type.equals(SCOPED_TYPE_IDENTIFIER)
+                    || type.equals(MARKER_ANNOTATION)
                     || type.equals(ANNOTATION)
-                    || type.equals("class_literal")
-                    || type.equals("import_declaration")) {
+                    || type.equals(CLASS_LITERAL)
+                    || type.equals(IMPORT_DECLARATION)) {
                 return true;
             }
 
@@ -708,8 +708,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                         || pType.equals(INTERFACE_DECLARATION)
                         || pType.equals(ENUM_DECLARATION)
                         || pType.equals(RECORD_DECLARATION)
-                        || pType.equals("variable_declarator")
-                        || pType.equals("formal_parameter")) {
+                        || pType.equals(VARIABLE_DECLARATOR)
+                        || pType.equals(FORMAL_PARAMETER)) {
 
                     TSNode nameNode = parent.getChildByFieldName("name");
                     if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == startByte) {
