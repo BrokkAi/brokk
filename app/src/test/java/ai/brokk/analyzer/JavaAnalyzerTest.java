@@ -1100,13 +1100,14 @@ public class JavaAnalyzerTest {
                     int DEFAULT_PRIORITY = 100;
                 }
                 """;
-        try (var testProject = InlineTestProjectCreator.code(code, "SyntaxConstants.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "SyntaxConstants.java").build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var declarations = analyzer.getAllDeclarations();
 
             // Verify the interface itself is detected
-            boolean foundInterface = declarations.stream()
-                    .anyMatch(cu -> cu.isClass() && "SyntaxConstants".equals(cu.fqName()));
+            boolean foundInterface =
+                    declarations.stream().anyMatch(cu -> cu.isClass() && "SyntaxConstants".equals(cu.fqName()));
             assertTrue(foundInterface, "Interface SyntaxConstants should be detected as a class");
 
             // Verify the fields are detected
@@ -1115,8 +1116,7 @@ public class JavaAnalyzerTest {
                     .map(CodeUnit::identifier)
                     .collect(java.util.stream.Collectors.toSet());
 
-            assertTrue(
-                    fieldNames.contains("SYNTAX_STYLE_NONE"), "Field SYNTAX_STYLE_NONE should be detected");
+            assertTrue(fieldNames.contains("SYNTAX_STYLE_NONE"), "Field SYNTAX_STYLE_NONE should be detected");
             assertTrue(
                     fieldNames.contains("SYNTAX_STYLE_ACTIONSCRIPT"),
                     "Field SYNTAX_STYLE_ACTIONSCRIPT should be detected");
@@ -1134,13 +1134,14 @@ public class JavaAnalyzerTest {
                     String NAME_X = "x", NAME_Y = "y", NAME_Z = "z";
                 }
                 """;
-        try (var testProject = InlineTestProjectCreator.code(code, "MultiConstants.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "MultiConstants.java").build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var declarations = analyzer.getAllDeclarations();
 
             // Verify the interface itself is detected
-            boolean foundInterface = declarations.stream()
-                    .anyMatch(cu -> cu.isClass() && "MultiConstants".equals(cu.fqName()));
+            boolean foundInterface =
+                    declarations.stream().anyMatch(cu -> cu.isClass() && "MultiConstants".equals(cu.fqName()));
             assertTrue(foundInterface, "Interface MultiConstants should be detected as a class");
 
             // Verify the fields are detected
@@ -1172,7 +1173,8 @@ public class JavaAnalyzerTest {
                     List RAW_LIST = List.of();
                 }
                 """;
-        try (var testProject = InlineTestProjectCreator.code(code, "ComplexConstants.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "ComplexConstants.java").build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var declarations = analyzer.getAllDeclarations();
 
