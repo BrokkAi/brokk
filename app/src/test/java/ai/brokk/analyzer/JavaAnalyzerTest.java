@@ -1090,6 +1090,43 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("Issue #2476: Interface constants/fields are not detected")
+    public void testInterfaceConstantsFieldsDetection() throws IOException {
+        String code =
+                """
+                public interface SyntaxConstants {
+                    String SYNTAX_STYLE_NONE = "text/plain";
+                    String SYNTAX_STYLE_ACTIONSCRIPT = "text/actionscript";
+                    String SYNTAX_STYLE_C = "text/c";
+                    int DEFAULT_PRIORITY = 100;
+                }
+                """;
+        try (var testProject = InlineTestProjectCreator.code(code, "SyntaxConstants.java").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var declarations = analyzer.getAllDeclarations();
+
+            // Verify the interface itself is detected
+            boolean foundInterface = declarations.stream()
+                    .anyMatch(cu -> cu.isClass() && "SyntaxConstants".equals(cu.fqName()));
+            assertTrue(foundInterface, "Interface SyntaxConstants should be detected as a class");
+
+            // Verify the fields are detected
+            Set<String> fieldNames = declarations.stream()
+                    .filter(CodeUnit::isField)
+                    .map(CodeUnit::shortName)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            assertTrue(
+                    fieldNames.contains("SYNTAX_STYLE_NONE"), "Field SYNTAX_STYLE_NONE should be detected");
+            assertTrue(
+                    fieldNames.contains("SYNTAX_STYLE_ACTIONSCRIPT"),
+                    "Field SYNTAX_STYLE_ACTIONSCRIPT should be detected");
+            assertTrue(fieldNames.contains("SYNTAX_STYLE_C"), "Field SYNTAX_STYLE_C should be detected");
+            assertTrue(fieldNames.contains("DEFAULT_PRIORITY"), "Field DEFAULT_PRIORITY should be detected");
+        }
+    }
+
+    @Test
     public void testSummaryFragmentSupportingFragmentsFiltersNestedAncestors() throws IOException {
         try (var project = InlineTestProjectCreator.code(
                         """
