@@ -550,6 +550,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         refreshUi(true);
         cm.addContextListener(this);
+        cm.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
     }
 
     private void addTask() {
@@ -891,7 +892,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         clearCompletedBtn.setEnabled(anyCompleted);
 
         boolean anyTasks = model.getSize() > 0;
-        if (llmBusy) {
+        var service = chrome.getContextManager().getService();
+        boolean serviceIsOnline = service.isOnline();
+
+        if (!serviceIsOnline) {
+            goStopButton.setIcon(null);
+            goStopButton.setText("Offline");
+            goStopButton.setToolTipText("LLM service is offline; please check your connection or key");
+            goStopButton.setBackground(UIManager.getColor("Button.disabledBackground"));
+            goStopButton.setForeground(UIManager.getColor("Button.disabledForeground"));
+            goStopButton.setEnabled(false);
+        } else if (llmBusy) {
             goStopButton.setIcon(Icons.STOP);
             goStopButton.setText(null);
             goStopButton.setToolTipText("Cancel the current operation");
