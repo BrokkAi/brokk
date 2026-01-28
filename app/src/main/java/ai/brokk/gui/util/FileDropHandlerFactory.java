@@ -35,6 +35,11 @@ public final class FileDropHandlerFactory {
     /* Package-private test seam to allow tests to override the ContextSizeGuard check behavior.
      * Default delegates to production implementation. Generalized to accept IContextManager and IConsoleIO
      * so tests can exercise the logic without constructing a real Chrome.
+     *
+     * Note: the default implementation requires a Chrome to perform UI dialogs and to query model limits.
+     * To avoid a raw ClassCastException for callers that pass a non-Chrome IConsoleIO, the default
+     * implementation validates the io parameter and throws a clear IllegalStateException if it is not a Chrome.
+     * Tests should override this seam when they provide a test IConsoleIO.
      */
     interface ContextSizeChecker {
         void check(
@@ -45,11 +50,24 @@ public final class FileDropHandlerFactory {
     }
 
     static ContextSizeChecker contextSizeChecker =
-            (files, contextManager, io, onDecision) -> ContextSizeGuard.checkAndConfirm(files, (Chrome) io, onDecision);
+            (files, contextManager, io, onDecision) -> {
+                if (io instanceof Chrome chrome) {
+                    ContextSizeGuard.checkAndConfirm(files, chrome, onDecision);
+                } else {
+                    throw new IllegalStateException(
+                            "ContextSizeChecker default requires io to be a Chrome; override contextSizeChecker when using the IContextManager overload with a non-Chrome IConsoleIO.");
+                }
+            };
 
     static void resetContextSizeCheckerForTests() {
-        contextSizeChecker = (files, contextManager, io, onDecision) ->
-                ContextSizeGuard.checkAndConfirm(files, (Chrome) io, onDecision);
+        contextSizeChecker = (files, contextManager, io, onDecision) -> {
+            if (io instanceof Chrome chrome) {
+                ContextSizeGuard.checkAndConfirm(files, chrome, onDecision);
+            } else {
+                throw new IllegalStateException(
+                        "ContextSizeChecker default requires io to be a Chrome; override contextSizeChecker when using the IContextManager overload with a non-Chrome IConsoleIO.");
+            }
+        };
     }
 
     /**
