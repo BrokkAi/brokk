@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.DiffService;
 import ai.brokk.git.GitRepoData.FileDiff;
@@ -159,7 +160,7 @@ class ReviewAgentTest {
             """;
 
         var stubModel = new TestScriptedLanguageModel(resp1, resp2);
-        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var llm = new Llm(stubModel, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
 
         var initialMessages = new ArrayList<ChatMessage>();
         initialMessages.add(new UserMessage("analyze"));
@@ -201,7 +202,7 @@ class ReviewAgentTest {
             """;
 
         var stubModel = new TestScriptedLanguageModel(badResp, badRetry, badRetry, badRetry, badRetry);
-        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var llm = new Llm(stubModel, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
 
         var initialMessages = new ArrayList<ChatMessage>();
         initialMessages.add(new UserMessage("analyze"));
@@ -237,7 +238,7 @@ class ReviewAgentTest {
 
         var stubModel =
                 new TestScriptedLanguageModel(resp1, resp2, badContentFix, badContentFix, badContentFix, badContentFix);
-        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var llm = new Llm(stubModel, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
         var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
 
         var result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
@@ -272,7 +273,7 @@ class ReviewAgentTest {
             """;
 
         var stubModel = new TestScriptedLanguageModel(resp1);
-        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var llm = new Llm(stubModel, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
         var initialMessages = new ArrayList<ChatMessage>();
         initialMessages.add(new UserMessage("analyze"));
         var turn1Result = llm.sendRequest(initialMessages);
@@ -301,7 +302,7 @@ class ReviewAgentTest {
             """;
 
         var stage2Model = new TestScriptedLanguageModel(mismatchContent, fixContent);
-        var stage2Llm = new Llm(stage2Model, "test", cm, false, false, false, false);
+        var stage2Llm = new Llm(stage2Model, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
         var t1Result = stage2Llm.sendRequest(initialMessages);
 
         Map<Integer, CodeExcerpt> result2 =
@@ -351,7 +352,7 @@ class ReviewAgentTest {
             """;
 
         var stubModel = new TestScriptedLanguageModel(resp1, resp2);
-        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var llm = new Llm(stubModel, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
         var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
 
         Map<Integer, CodeExcerpt> result =
@@ -403,7 +404,7 @@ class ReviewAgentTest {
                 ```""";
 
         var stubModel = new TestScriptedLanguageModel(resp1, resp2);
-        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var llm = new Llm(stubModel, "test", TaskResult.Type.NONE, cm, false, false, false, false);
         var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
 
         ReviewAgent.RetryResult retryResult = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
@@ -448,7 +449,7 @@ class ReviewAgentTest {
                 + "**Recommendation:** Do the thing.\n";
 
         var stubModel = new TestScriptedLanguageModel(resp1);
-        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var llm = new Llm(stubModel, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
         var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
 
         ReviewAgent.RetryResult result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
@@ -489,7 +490,7 @@ class ReviewAgentTest {
                 ```""";
 
         var stubModel = new TestScriptedLanguageModel(resp1, resp2);
-        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var llm = new Llm(stubModel, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
         var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
 
         ReviewAgent.RetryResult retryResult = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
@@ -559,7 +560,7 @@ class ReviewAgentTest {
                 """;
 
         var stubModel = new TestScriptedLanguageModel(resp1, resp2, resp3);
-        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var llm = new Llm(stubModel, "test", TaskResult.Type.REVIEW, cm, false, false, false, false);
         var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
 
         ReviewAgent.RetryResult retryResult = agent.retryInStages(llm, new ArrayList<>(), turn1Result);

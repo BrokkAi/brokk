@@ -1865,7 +1865,7 @@ public final class JobRunner {
         List<ChatMessage> messages;
         messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
         // Create an LLM instance for the planner model and route output to the ContextManager IO
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question, TaskResult.Type.ASK).withEcho());
         llm.setOutput(cm.getIo());
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
@@ -2001,7 +2001,7 @@ public final class JobRunner {
 
         List<ChatMessage> messages = List.of(new UserMessage(prompt));
 
-        var llm = cm.getLlm(new Llm.Options(model, "Diff Review").withEcho());
+        var llm = cm.getLlm(new Llm.Options(model, "Diff Review", TaskResult.Type.ASK).withEcho());
         llm.setOutput(cm.getIo());
 
         TaskResult.StopDetails stop = null;

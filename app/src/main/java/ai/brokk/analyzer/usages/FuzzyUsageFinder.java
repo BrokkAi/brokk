@@ -53,7 +53,15 @@ public final class FuzzyUsageFinder {
         var model = service.getModel(ModelProperties.ModelType.USAGES);
         var llm = model instanceof AbstractService.UnavailableStreamingModel
                 ? null
-                : new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false);
+                : new Llm(
+                        model,
+                        "Disambiguate Code Unit Usages",
+                        ai.brokk.TaskResult.Type.CLASSIFY,
+                        cm,
+                        false,
+                        false,
+                        false,
+                        false);
         return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm, fileFilter);
     }
 

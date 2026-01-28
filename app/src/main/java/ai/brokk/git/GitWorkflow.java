@@ -5,6 +5,7 @@ import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CommitPrompts;
@@ -94,7 +95,10 @@ public final class GitWorkflow {
             logger.debug("No messages generated from diff");
             return Optional.empty();
         }
-        var result = cm.getLlm(cm.getService().getModel(ModelType.COMMIT_MESSAGE), "Infer commit message")
+        var result = cm.getLlm(
+                        cm.getService().getModel(ModelType.COMMIT_MESSAGE),
+                        "Infer commit message",
+                        TaskResult.Type.SUMMARIZE)
                 .sendRequest(messages);
 
         if (result.error() != null) {
@@ -134,7 +138,8 @@ public final class GitWorkflow {
         }
 
         var modelToUse = cm.getService().getModel(ModelType.COMMIT_MESSAGE);
-        var llm = cm.getLlm(new Llm.Options(modelToUse, "Infer commit message (streaming)").withEcho());
+        var llm = cm.getLlm(
+                new Llm.Options(modelToUse, "Infer commit message (streaming)", TaskResult.Type.SUMMARIZE).withEcho());
         llm.setOutput(streamingOutput);
         var result = llm.sendRequest(messages);
 
@@ -261,7 +266,7 @@ public final class GitWorkflow {
         toolSpecs.addAll(tr.getTools(List.of("suggestPrDetails")));
         var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
 
-        var llm = cm.getLlm(new Llm.Options(modelToUse, "PR-description")
+        var llm = cm.getLlm(new Llm.Options(modelToUse, "PR-description", TaskResult.Type.SUMMARIZE)
                 .withPartialResponses()
                 .withEcho());
         llm.setOutput(streamingOutput);

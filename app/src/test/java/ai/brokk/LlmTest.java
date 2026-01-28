@@ -81,7 +81,7 @@ public class LlmTest {
                 System.out.println("Testing model: " + modelName);
                 // Get model instance via the Models object
                 StreamingChatModel model = getModel(modelName);
-                var coder = contextManager.getLlm(model, "testModels");
+                var coder = contextManager.getLlm(model, "testModels", TaskResult.Type.NONE);
                 assertNotNull(model, "Failed to get model instance for: " + modelName);
 
                 // Use the non-streaming sendMessage variant for simplicity in testing basic connectivity
@@ -149,7 +149,7 @@ public class LlmTest {
             try {
                 System.out.println("Testing tool calling for model: " + modelName);
                 StreamingChatModel model = getModel(modelName);
-                var coder = contextManager.getLlm(model, "testToolCalling");
+                var coder = contextManager.getLlm(model, "testToolCalling", TaskResult.Type.NONE);
                 assertNotNull(model, "Failed to get model instance for: " + modelName);
 
                 var messages = new ArrayList<ChatMessage>();
@@ -268,7 +268,15 @@ public class LlmTest {
 
     @Test
     void testParseJsonToToolRequests() {
-        var llm = new Llm(getModel("test"), "testParseJsonToToolRequests", contextManager, false, false, false, false);
+        var llm = new Llm(
+                getModel("test"),
+                "testParseJsonToToolRequests",
+                TaskResult.Type.NONE,
+                contextManager,
+                false,
+                false,
+                false,
+                false);
         var mapper = new ObjectMapper();
 
         // Case 1: Pure JSON with tool calls

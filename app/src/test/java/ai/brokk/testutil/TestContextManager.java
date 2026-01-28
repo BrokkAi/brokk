@@ -177,7 +177,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public Llm getLlm(StreamingChatModel model, String taskDescription) {
-        return new Llm(model, taskDescription, this, false, false, false, false);
+    public Llm getLlm(StreamingChatModel model, String taskDescription, ai.brokk.TaskResult.Type type) {
+        return new Llm(model, taskDescription, type, this, false, false, false, false);
     }
 }

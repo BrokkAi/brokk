@@ -65,7 +65,6 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -1123,29 +1122,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param text The text to capture.
      */
     public void addPastedTextFragment(String text) {
-        var pasteInfoFuture = new DescribePasteWorker(this, text);
-        pasteInfoFuture.execute();
+        var rawFuture = new DescribePasteWorker(this, text).execute();
 
-        var descriptionFuture = LoggingFuture.supplyAsync(
-                () -> {
-                    try {
-                        return pasteInfoFuture.get().description();
-                    } catch (InterruptedException | ExecutionException e) {
-                        logger.warn("Could not get description for pasted text", e);
-                        return "pasted text";
-                    }
-                },
-                contextActionExecutor);
-        var syntaxStyleFuture = LoggingFuture.supplyAsync(
-                () -> {
-                    try {
-                        return pasteInfoFuture.get().syntaxStyle();
-                    } catch (InterruptedException | ExecutionException e) {
-                        logger.warn("Could not get syntax style for pasted text", e);
-                        return SyntaxConstants.SYNTAX_STYLE_NONE;
-                    }
-                },
-                contextActionExecutor);
+        var descriptionFuture = rawFuture.thenApply(DescribePasteWorker.PasteInfo::description);
+        var syntaxStyleFuture = rawFuture.thenApply(DescribePasteWorker.PasteInfo::syntaxStyle);
 
         var fragment = new ContextFragments.PasteTextFragment(this, text, descriptionFuture, syntaxStyleFuture);
         addFragments(fragment);
@@ -1753,7 +1733,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var userMessage = UserMessage.from(textContent, imageContent);
                 List<ChatMessage> messages = List.of(userMessage);
 
-                Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Summarize pasted image")
+                Llm.StreamingResult result = getLlm(
+                                serviceProvider.get().summarizeModel(),
+                                "Summarize pasted image",
+                                TaskResult.Type.SUMMARIZE)
                         .sendRequest(messages);
 
                 if (result.error() != null) {
@@ -1834,7 +1817,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             BuildAgent agent = new BuildAgent(
-                    project, getLlm(serviceProvider.get().getScanModel(), "Infer build details"), toolRegistry);
+                    project,
+                    getLlm(serviceProvider.get().getScanModel(), "Infer build details", TaskResult.Type.NONE),
+                    toolRegistry);
             BuildDetails inferredDetails;
             try {
                 inferredDetails = agent.execute();
@@ -2041,7 +2026,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             """
                                     .formatted(codeForLLM)));
 
-            var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide")
+            var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide", TaskResult.Type.NONE)
                     .sendRequest(messages);
             if (result.error() != null) {
                 String message =
@@ -2144,7 +2129,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Compress the log into a summary
         var msgs = SummarizerPrompts.instance.compressHistory(entry.toString());
-        Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Compress history entry")
+        Llm.StreamingResult result = getLlm(
+                        serviceProvider.get().summarizeModel(), "Compress history entry", TaskResult.Type.SUMMARIZE)
                 .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
 
         if (result.error() != null) {
@@ -2873,7 +2859,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         protected String doInBackground() throws Exception {
             var msgs = SummarizerPrompts.instance.collectMessages(content, words);
             // Use quickModel for summarization
-            Llm.StreamingResult result = cm.getLlm(cm.getService().quickestModel(), "Summarize: " + content)
+            Llm.StreamingResult result = cm.getLlm(
+                            cm.getService().quickestModel(), "Summarize: " + content, TaskResult.Type.SUMMARIZE)
                     .sendRequest(msgs);
             if (result.error() != null) {
                 logger.warn("Summarization failed or was cancelled.");

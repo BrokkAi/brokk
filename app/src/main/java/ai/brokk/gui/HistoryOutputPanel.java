@@ -1630,7 +1630,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             contextManager.submitLlmAction(() -> {
                 try {
                     var model = contextManager.getService().getScanModel();
-                    var llm = contextManager.getLlm(new Llm.Options(model, "Create Task List"));
+                    var llm = contextManager.getLlm(new Llm.Options(model, "Create Task List", TaskResult.Type.SEARCH));
                     llm.setOutput(chrome);
 
                     var system = new SystemMessage(

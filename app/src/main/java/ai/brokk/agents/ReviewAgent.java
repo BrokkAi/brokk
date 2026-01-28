@@ -161,7 +161,7 @@ public class ReviewAgent {
                     ? cm.getProject().getModelConfig(ModelType.SCAN)
                     : modelConfig;
             var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
-            var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
+            var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review", TaskResult.Type.REVIEW).withEcho());
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
             long turn1Start = System.currentTimeMillis();
@@ -271,7 +271,7 @@ public class ReviewAgent {
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
         var model = requireNonNull(cm.getService()
                 .getModel(optimizeForLatency ? cm.getProject().getModelConfig(ModelType.SCAN) : modelConfig));
-        var llm = cm.getLlm(model, "Review Context Selection");
+        var llm = cm.getLlm(model, "Review Context Selection", TaskResult.Type.REVIEW);
 
         Set<Language> analyzerLanguages = cm.getProject().getAnalyzerLanguages();
         boolean hasAnalyzedLanguage = !analyzerLanguages.equals(Set.of(Languages.NONE));

@@ -8,6 +8,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -296,22 +297,24 @@ public class ContextAgent {
         var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
 
         // Create Llm instances - only analyzed group streams to UI
-        var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): " + goal)
+        var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): " + goal, TaskResult.Type.SCAN)
                 .withForceReasoningEcho()
                 .withEcho();
         var filesLlmAnalyzed = cm.getLlm(filesOpts);
         filesLlmAnalyzed.setOutput(io);
 
-        var filesLlmUnanalyzed = cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): " + goal));
+        var filesLlmUnanalyzed = cm.getLlm(
+                new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         filesLlmUnanalyzed.setOutput(io);
 
-        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): " + goal)
+        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): " + goal, TaskResult.Type.SCAN)
                 .withForceReasoningEcho()
                 .withEcho();
         var llmAnalyzed = cm.getLlm(analyzedOpts);
         llmAnalyzed.setOutput(io);
 
-        var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal));
+        var llmUnanalyzed =
+                cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         llmUnanalyzed.setOutput(io);
 
         // Process each group in parallel
@@ -785,7 +788,10 @@ public class ContextAgent {
         }
 
         Llm filesLlmWithEcho = showBatch1Reasoning
-                ? cm.getLlm(new Llm.Options(cm.getService().quickestModel(), "ContextAgent Files Unanalyzed " + goal)
+                ? cm.getLlm(new Llm.Options(
+                                cm.getService().quickestModel(),
+                                "ContextAgent Files Unanalyzed " + goal,
+                                TaskResult.Type.SCAN)
                         .withForceReasoningEcho())
                 : filesLlm;
         if (showBatch1Reasoning) {

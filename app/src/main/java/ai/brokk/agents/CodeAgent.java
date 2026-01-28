@@ -159,8 +159,9 @@ public class CodeAgent {
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
-        var coder = contextManager.getLlm(
-                new Llm.Options(model, userInput).withEcho().withPartialResponses());
+        var coder = contextManager.getLlm(new Llm.Options(model, userInput, TaskResult.Type.CODE)
+                .withEcho()
+                .withPartialResponses());
 
         coder.setOutput(io);
 
@@ -566,7 +567,7 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation and original content.
      */
     public TaskResult runQuickTask(ProjectFile file, String oldText, String instructions) throws InterruptedException {
-        var llm = contextManager.getLlm(model, "QuickEdit: " + instructions);
+        var llm = contextManager.getLlm(model, "QuickEdit: " + instructions, TaskResult.Type.CODE);
         llm.setOutput(io);
 
         // Use up to 5 related classes as context (format as combined summaries)
@@ -790,7 +791,7 @@ public class CodeAgent {
             var notInContext = Sets.difference(mentionedFiles, filesInContext);
             if (!notInContext.isEmpty()) {
                 var quickModel = contextManager.getService().quickestModel();
-                var llm = contextManager.getLlm(quickModel, "Check if asking for files");
+                var llm = contextManager.getLlm(quickModel, "Check if asking for files", TaskResult.Type.CLASSIFY);
 
                 var filterDescription =
                         "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";

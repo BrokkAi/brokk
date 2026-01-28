@@ -518,7 +518,7 @@ public class ArchitectAgent {
             return codeAgentSuccessResult();
         }
 
-        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal).withEcho());
+        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal, TaskResult.Type.ARCHITECT).withEcho());
         var modelsService = cm.getService();
 
         while (true) {
@@ -640,8 +640,11 @@ public class ArchitectAgent {
                         currentModelTokens);
 
                 // Emergency LLM restricted to critical workspace tools
-                var emergencyLlm = cm.getLlm(
-                        new Llm.Options(fallbackModel, "Architect emergency (context too large): " + goal).withEcho());
+                var emergencyLlm = cm.getLlm(new Llm.Options(
+                                fallbackModel,
+                                "Architect emergency (context too large): " + goal,
+                                TaskResult.Type.ARCHITECT)
+                        .withEcho());
                 notifyCriticalWorkspaceRestriction(workspaceTokenSize, fallbackModelTokens);
                 var emergencyAllowed = criticalAllowedTools();
                 emergencyAllowed = WorkspaceTools.filterByAnalyzerAvailability(emergencyAllowed, cm.getProject());

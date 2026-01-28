@@ -149,12 +149,12 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
-        var llmOptions = new Llm.Options(model, "Search: " + goal).withEcho();
+        var llmOptions = new Llm.Options(model, "Search: " + goal, TaskResult.Type.SEARCH).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
 
         var summarizeModel = cm.getService().getModel(ModelType.SCAN);
-        this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
+        this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal, TaskResult.Type.SUMMARIZE);
 
         this.beastMode = false;
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
@@ -528,7 +528,7 @@ public class SearchAgent {
 
         io.llmOutput(
                 "\n**Brokk** performing initial workspace review…", ChatMessageType.AI, LlmOutputMeta.newMessage());
-        var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal).withEcho();
+        var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal, TaskResult.Type.SEARCH).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
@@ -566,8 +566,7 @@ public class SearchAgent {
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
-        var meta =
-                new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(scanModel, cm.getService()));
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.SCAN, Service.ModelConfig.from(scanModel, cm.getService()));
 
         if (recommendation.success() && !recommendation.fragments().isEmpty()) {
             var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
