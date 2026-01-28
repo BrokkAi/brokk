@@ -1126,6 +1126,40 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testInterfaceConstantsMultipleDeclarators() throws IOException {
+        String code =
+                """
+                public interface MultiConstants {
+                    int CONST_A = 1, CONST_B = 2;
+                    String NAME_X = "x", NAME_Y = "y", NAME_Z = "z";
+                }
+                """;
+        try (var testProject = InlineTestProjectCreator.code(code, "MultiConstants.java").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var declarations = analyzer.getAllDeclarations();
+
+            // Verify the interface itself is detected
+            boolean foundInterface = declarations.stream()
+                    .anyMatch(cu -> cu.isClass() && "MultiConstants".equals(cu.fqName()));
+            assertTrue(foundInterface, "Interface MultiConstants should be detected as a class");
+
+            // Verify the fields are detected
+            Set<String> fieldNames = declarations.stream()
+                    .filter(CodeUnit::isField)
+                    .map(CodeUnit::identifier)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            assertTrue(fieldNames.contains("CONST_A"), "Field CONST_A should be detected");
+            assertTrue(fieldNames.contains("CONST_B"), "Field CONST_B should be detected");
+            assertTrue(fieldNames.contains("NAME_X"), "Field NAME_X should be detected");
+            assertTrue(fieldNames.contains("NAME_Y"), "Field NAME_Y should be detected");
+            assertTrue(fieldNames.contains("NAME_Z"), "Field NAME_Z should be detected");
+
+            assertEquals(5, fieldNames.size(), "Should detect exactly 5 constant fields");
+        }
+    }
+
+    @Test
     public void testSummaryFragmentSupportingFragmentsFiltersNestedAncestors() throws IOException {
         try (var project = InlineTestProjectCreator.code(
                         """
