@@ -454,6 +454,10 @@ public class ContextFragments {
                             ? null
                             : decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file, contextManager) : null);
+            if (file.getRelPath().normalize().getFileName() == null) {
+                throw new IllegalArgumentException("ProjectPathFragment relPath must not be empty");
+            }
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
         }
 
@@ -524,6 +528,10 @@ public class ContextFragments {
                     "%s @%s".formatted(file.getFileName(), revision),
                     FileTypeUtil.get().guessContentType(file.absPath().toFile()),
                     ContentSnapshot.textSnapshot(content, Set.of(), Set.of(file)));
+            if (file.getRelPath().normalize().getFileName() == null) {
+                throw new IllegalArgumentException("ProjectPathFragment relPath must not be empty");
+            }
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
             this.revision = revision;
             this.content = content;
@@ -610,6 +618,7 @@ public class ContextFragments {
                     FileTypeUtil.get().guessContentType(file.absPath().toFile()),
                     snapshotText == null ? null : decodeFrozen(snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file) : null);
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
         }
 
@@ -651,6 +660,7 @@ public class ContextFragments {
                     SyntaxConstants.SYNTAX_STYLE_NONE,
                     null,
                     () -> computeSnapshotFor(file));
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
         }
 

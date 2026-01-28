@@ -86,15 +86,16 @@ public class WorkspaceTools {
         List<ProjectFile> projectFiles = new ArrayList<>();
         List<String> errors = new ArrayList<>();
         for (String path : relativePaths) {
-            if (path.isBlank()) {
-                errors.add("Null or blank path provided.");
-                continue;
-            }
             try {
                 var file = context.getContextManager().toFile(path);
                 if (!file.exists()) {
                     errors.add("File at `%s` does not exist (remember, don't use this method to create new files)"
                             .formatted(path));
+                    continue;
+                }
+                if (file.isDirectory()) {
+                    errors.add(
+                            "File path " + path + " is a directory; only normal files may be added to the Workspace");
                     continue;
                 }
                 projectFiles.add(file);
