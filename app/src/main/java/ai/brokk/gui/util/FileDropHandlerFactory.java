@@ -107,7 +107,7 @@ public final class FileDropHandlerFactory {
                     return false;
                 }
 
-                // If we have a concrete ContextManager, prefer its isLlmTaskInProgress check; otherwise assume safe.
+                // If the concrete ContextManager tracks task state, consult it; otherwise assume safe.
                 if (cm instanceof ContextManager cmConcrete && cmConcrete.isLlmTaskInProgress()) {
                     io.systemNotify(
                             "Cannot add to workspace while an action is running.",
