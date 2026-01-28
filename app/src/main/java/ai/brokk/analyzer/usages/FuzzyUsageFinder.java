@@ -251,6 +251,12 @@ public final class FuzzyUsageFinder {
                                 .collect(Collectors.joining("\n"));
 
                         var range = new IAnalyzer.Range(startByte, endByte, lineIdx, lineIdx, lineIdx);
+
+                        // Filter out hits that are actually declarations or comments if the analyzer supports AST checks
+                        if (!analyzer.isDeclarationReference(file, startByte, endByte)) {
+                            continue;
+                        }
+
                         var enclosingCodeUnit = analyzer.enclosingCodeUnit(file, range);
 
                         if (enclosingCodeUnit.isPresent()) {

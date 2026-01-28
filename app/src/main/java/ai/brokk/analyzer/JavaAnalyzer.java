@@ -663,6 +663,82 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    public boolean isDeclarationReference(ProjectFile file, int startByte, int endByte) {
+        TSTree tree = treeOf(file);
+        if (tree == null) {
+            return true;
+        }
+
+        TSNode root = tree.getRootNode();
+        if (root.isNull()) {
+            return true;
+        }
+
+        // Find the most specific node at this byte range
+        TSNode node = root.getNamedDescendantForByteRange(startByte, endByte);
+        if (node == null || node.isNull()) {
+            return true;
+        }
+
+        // 1. Reject comments
+        String type = node.getType();
+        if (type.contains("comment")) {
+            return false;
+        }
+
+        // 2. Walk up to check context
+        TSNode current = node;
+        while (current != null && !current.isNull()) {
+            String nodeType = current.getType();
+
+            // If we find these, it's definitely a reference/usage position
+            if (nodeType.equals("method_invocation")
+                    || nodeType.equals("field_access")
+                    || nodeType.equals("object_creation_expression")
+                    || nodeType.equals("type_identifier")
+                    || nodeType.equals("scoped_type_identifier")
+                    || nodeType.equals("marker_annotation")
+                    || nodeType.equals("annotation")
+                    || nodeType.equals("class_literal")
+                    || nodeType.equals("import_declaration")) {
+
+                // Even if inside one of these, check if we are specifically the "name" identifier
+                // of a declaration.
+                TSNode parent = current.getParent();
+                if (parent != null && !parent.isNull()) {
+                    String parentType = parent.getType();
+                    if (parentType.equals(METHOD_DECLARATION)
+                            || parentType.equals(FIELD_DECLARATION)
+                            || parentType.equals(CLASS_DECLARATION)
+                            || parentType.equals(INTERFACE_DECLARATION)
+                            || parentType.equals(ENUM_DECLARATION)
+                            || parentType.equals(RECORD_DECLARATION)
+                            || parentType.equals("variable_declarator")
+                            || parentType.equals("formal_parameter")) {
+
+                        TSNode nameNode = parent.getChildByFieldName("name");
+                        if (nameNode != null && nameNode.getStartByte() == startByte) {
+                            return false; // This is the name of the thing being declared
+                        }
+                    }
+                }
+                return true;
+            }
+
+            // Stop walking if we hit a declaration boundary without seeing a reference context
+            if (nodeType.equals(METHOD_DECLARATION)
+                    || nodeType.equals(CLASS_DECLARATION)
+                    || nodeType.equals(FIELD_DECLARATION)) {
+                break;
+            }
+
+            current = current.getParent();
+        }
+
+        return true;
+    }
+
+    @Override
     protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,

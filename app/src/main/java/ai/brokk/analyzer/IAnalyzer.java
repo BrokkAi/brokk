@@ -177,6 +177,19 @@ public interface IAnalyzer {
      */
     Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine);
 
+    /**
+     * Determines whether the code at the given byte range represents an actual reference
+     * (e.g., method call, type usage, field access) rather than a declaration, parameter name, or comment.
+     *
+     * @param file the file to check
+     * @param startByte start byte offset
+     * @param endByte end byte offset
+     * @return true if the range is considered a reference (default), false if it is clearly a declaration or comment.
+     */
+    default boolean isDeclarationReference(ProjectFile file, int startByte, int endByte) {
+        return true;
+    }
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
