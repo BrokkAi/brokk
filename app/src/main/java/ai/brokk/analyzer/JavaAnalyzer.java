@@ -670,7 +670,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         TSNode root = tree.getRootNode();
         if (root.isNull()) return true;
 
-        TSNode node = root.getNamedDescendantForByteRange(startByte, endByte);
+        TSNode node = root.getDescendantForByteRange(startByte, endByte);
         if (node == null || node.isNull()) return true;
 
         // 1. Check if the node itself or any parent is a comment
