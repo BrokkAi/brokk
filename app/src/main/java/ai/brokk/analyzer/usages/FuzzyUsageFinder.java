@@ -243,7 +243,7 @@ public final class FuzzyUsageFinder {
 
                         // Filter out hits that are actually declarations or comments if the analyzer supports AST
                         // checks
-                        if (!analyzer.isDeclarationReference(file, startByte, endByte)) {
+                        if (!analyzer.isAccessExpression(file, startByte, endByte)) {
                             continue;
                         }
 

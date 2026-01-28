@@ -40,7 +40,7 @@ public final class JavaTreeSitterNodeTypes {
     public static final String ANNOTATION = "annotation";
     public static final String MARKER_ANNOTATION = "marker_annotation";
 
-    // Reference node types (used in isDeclarationReference)
+    // Reference node types (used in isAccessExpression)
     public static final String METHOD_INVOCATION = "method_invocation";
     public static final String FIELD_ACCESS = "field_access";
     public static final String OBJECT_CREATION_EXPRESSION = "object_creation_expression";

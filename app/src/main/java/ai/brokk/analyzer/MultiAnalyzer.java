@@ -139,9 +139,9 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
     }
 
     @Override
-    public boolean isDeclarationReference(ProjectFile file, int startByte, int endByte) {
+    public boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
         return delegateFor(file)
-                .map(delegate -> delegate.isDeclarationReference(file, startByte, endByte))
+                .map(delegate -> delegate.isAccessExpression(file, startByte, endByte))
                 .orElse(true); // conservative default when no delegate found
     }
 

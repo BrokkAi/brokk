@@ -663,7 +663,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    public boolean isDeclarationReference(ProjectFile file, int startByte, int endByte) {
+    public boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
         TSTree tree = treeOf(file);
         if (tree == null) return true;
 
