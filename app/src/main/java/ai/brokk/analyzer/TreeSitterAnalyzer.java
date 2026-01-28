@@ -96,6 +96,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     private final LazyImportCache lazyImports = new LazyImportCache();
 
+    /**
+     * Helper util for lazy tree computation.
+     */
+    private final LazyTreeCache lazyTrees = new LazyTreeCache();
+
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -159,6 +164,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         record Computed(List<CodeUnit> supertypes) implements SuperTypeInfo {}
 
         record Uncomputed() implements SuperTypeInfo {}
+    }
+
+    /**
+     * Helper class to encapsulate lazy tree caching.
+     */
+    private static final class LazyTreeCache {
+        private final ConcurrentHashMap<ProjectFile, TSTree> cache = new ConcurrentHashMap<>();
+
+        @Nullable
+        TSTree get(ProjectFile file) {
+            return cache.get(file);
+        }
+
+        void put(ProjectFile file, TSTree tree) {
+            cache.put(file, tree);
+        }
+
+        boolean isEmpty() {
+            return cache.isEmpty();
+        }
+
+        void forEach(BiConsumer<? super ProjectFile, ? super TSTree> action) {
+            cache.forEach(action);
+        }
     }
 
     /**
