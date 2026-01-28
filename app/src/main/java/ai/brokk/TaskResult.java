@@ -126,6 +126,11 @@ public record TaskResult(
         CLASSIFY;
 
         public String displayName() {
+            if (this == SEARCH) {
+                // Historical, user-facing label for search mode
+                return "Lutz Mode";
+            }
+
             var lower = name().toLowerCase(Locale.ROOT);
             return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
         }
