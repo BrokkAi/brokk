@@ -151,7 +151,7 @@ class BlitzForgeInterruptedTest {
         // Use UnavailableStreamingModel to avoid AdaptiveExecutor configuration issues in tests
         var config = new BlitzForge.RunConfig(
                 "Apply test instruction",
-                new Service.UnavailableStreamingModel(),
+                new AbstractService.OfflineStreamingModel(),
                 () -> "per-file context",
                 () -> "shared context",
                 ".*",

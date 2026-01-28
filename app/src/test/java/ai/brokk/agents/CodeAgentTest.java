@@ -3,9 +3,9 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.Llm;
-import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.JavaAnalyzer;
@@ -102,7 +102,7 @@ class CodeAgentTest {
         project = new TestProject(projectRoot, Languages.JAVA);
         cm = new TestContextManager(projectRoot, consoleIO, new JavaAnalyzer(project));
         assert cm.getProject() == project;
-        codeAgent = new CodeAgent(cm, new Service.UnavailableStreamingModel(), consoleIO);
+        codeAgent = new CodeAgent(cm, new AbstractService.OfflineStreamingModel(), consoleIO);
 
         // Save original shell command runner factory
         originalShellCommandRunnerFactory = Environment.shellCommandRunnerFactory;

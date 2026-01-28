@@ -1105,7 +1105,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         LoggingFuture.supplyAsync(() -> {
                     var service = chrome.getContextManager().getService();
                     var model = service.getModel(config);
-                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                    if (model == null || model instanceof AbstractService.OfflineStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
                                         "Unavailable",
@@ -1636,7 +1636,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var models = contextManager.getService();
             // If we have an UnavailableStreamingModel, the service failed to initialize
-            if (models.quickestModel() instanceof Service.UnavailableStreamingModel) {
+            if (models.quickestModel() instanceof AbstractService.OfflineStreamingModel) {
                 return "Service contains unavailable model stub (initialization may have failed)";
             }
             return "Service appears initialized; check network connectivity and API key validity";
