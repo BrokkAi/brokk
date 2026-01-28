@@ -1345,7 +1345,10 @@ public class BuildAgent {
     private static Duration resolveTimeout(long timeoutSeconds) {
         if (timeoutSeconds == -1) {
             return Environment.UNLIMITED_TIMEOUT;
-        } else if (timeoutSeconds <= 0) {
+        } else if (timeoutSeconds == Environment.DEFAULT_RUN_TIMEOUT_SECONDS
+                || timeoutSeconds == Environment.DEFAULT_TEST_TIMEOUT_SECONDS) {
+            return Environment.DEFAULT_TIMEOUT;
+        } else if (timeoutSeconds < 0) {
             return Environment.DEFAULT_TIMEOUT;
         } else {
             return Duration.ofSeconds(timeoutSeconds);

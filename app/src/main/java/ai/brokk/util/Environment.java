@@ -42,6 +42,9 @@ public class Environment {
     /** Default timeout for generic shell commands. Overridable via BRK_BUILD_TIMEOUT_SECONDS. */
     public static final Duration DEFAULT_TIMEOUT = resolveDefaultTimeout();
 
+    public static final long DEFAULT_RUN_TIMEOUT_SECONDS = 0L;
+    public static final long DEFAULT_TEST_TIMEOUT_SECONDS = 0L;
+
     private static Duration resolveDefaultTimeout() {
         String override = System.getenv("BRK_BUILD_TIMEOUT_SECONDS");
         if (override != null) {

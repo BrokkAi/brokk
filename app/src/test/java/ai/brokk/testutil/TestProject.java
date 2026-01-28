@@ -26,8 +26,8 @@ public class TestProject implements IProject {
     private final Path root;
     private final Language language;
 
-    private long runCommandTimeoutSeconds = 0L;
-    private long testCommandTimeoutSeconds = 0L;
+    private long runCommandTimeoutSeconds = ai.brokk.util.Environment.DEFAULT_RUN_TIMEOUT_SECONDS;
+    private long testCommandTimeoutSeconds = ai.brokk.util.Environment.DEFAULT_TEST_TIMEOUT_SECONDS;
 
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
             CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
