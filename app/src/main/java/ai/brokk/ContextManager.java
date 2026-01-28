@@ -37,10 +37,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.tools.GitTools;
-import ai.brokk.tools.SearchTools;
-import ai.brokk.tools.ToolRegistry;
-import ai.brokk.tools.UiTools;
+import ai.brokk.tools.*;
 import ai.brokk.util.*;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.FileWatcherHelper;
@@ -1444,54 +1441,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return liveContext().getTaskListDataOrEmpty();
     }
 
-    @Blocking
-    private List<TaskList.TaskItem> summarizeTaskList(List<String> texts) {
-        var cleanedTexts =
-                texts.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (cleanedTexts.isEmpty()) {
-            return List.of();
-        }
-
-        // Kick off title summarizations in parallel for all additions.
-        // Each future completes on Swing EDT (SwingWorker.done). This method is @Blocking,
-        // so it must not be invoked from the EDT to avoid deadlock.
-        var futures = cleanedTexts.stream()
-                .map(text -> Map.entry(text, summarizeTaskForConversation(text)))
-                .toList();
-
-        // Resolve each future with timeout; fallback to title=text on any failure.
-        List<TaskList.TaskItem> items = new ArrayList<>(futures.size());
-        for (var entry : futures) {
-            String text = entry.getKey();
-            String title;
-            try {
-                String summarized =
-                        entry.getValue().get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                title = (summarized == null || summarized.isBlank()) ? text : summarized.strip();
-            } catch (Exception e) {
-                // Timeout, interruption, or execution error: fallback to original text as title
-                title = text;
-            }
-            items.add(new TaskList.TaskItem(UUID.randomUUID().toString(), title, text, false));
-        }
-
-        return items;
-    }
-
     /**
      * Create or replace the task list with an optional big picture explanation.
      */
     @Blocking
     @Override
-    public Context createOrReplaceTaskList(Context context, @Nullable String bigPicture, List<String> tasks) {
-        var items = summarizeTaskList(tasks);
-        if (items.isEmpty()) {
-            // If no valid tasks provided, clear the task list
-            var newData = new TaskList.TaskListData(null, List.of());
-            return deriveContextWithTaskList(context, newData);
-        }
-
-        var newData = new TaskList.TaskListData(bigPicture, List.copyOf(items));
+    public Context createOrReplaceTaskList(
+            Context context, @Nullable String bigPicture, List<TaskList.TaskItem> tasks) {
+        var newData = new TaskList.TaskListData(bigPicture, List.copyOf(tasks));
         return deriveContextWithTaskList(context, newData);
     }
 

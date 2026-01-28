@@ -35,7 +35,6 @@ public class SearchPrompts {
               - Then add only those specific items to Workspace (no globs, no wildcards, no bulk directory adds).
               - Summaries: when you only need API signatures/types/constants.
               - Method sources: when you need implementation details for specific methods.
-              - Task Notes (appendNote): factual excerpts and cross-fragment synthesis.
               - Full sources: only when you need complete implementation details.
             """
                     .stripIndent();
@@ -162,12 +161,11 @@ public class SearchPrompts {
                 %s
 
                 Memory model (reliability):
-                  - Durable memory is ONLY the Workspace (fragments + SpecialText such as Task Notes and Discarded Context).
+                  - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).
                   - Chat history (including tool outputs) may be summarized or truncated; do NOT rely on it to retain details.
                   - If you might need something later, persist it into the Workspace:
                       - For structure/types/navigation: add class/file summaries.
                       - For behavior: add method sources; escalate to class source or full files only when needed.
-                      - For cross-fragment conclusions (facts only): appendNote (Task Notes).
                       - When dropping, record breadcrumbs in Discarded Context via dropWorkspaceFragments (keyFacts + dropReason).
                   - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
 
@@ -175,8 +173,7 @@ public class SearchPrompts {
                   1) PRUNE the Workspace continuously.
                      - You may drop a fragment only when it is:
                          (a) unrelated to the goal, OR
-                         (b) adequately replaced by smaller Workspace artifacts (method sources and/or class/file summaries), OR
-                         (c) you have captured any relevant takeaways in Task Notes (appendNote).
+                         (b) adequately replaced by smaller Workspace artifacts (method sources and/or class/file summaries).
                      - When using dropWorkspaceFragments, provide:
                          %s
                      - Workspace granularity (Prefer the smallest sufficient unit of context):

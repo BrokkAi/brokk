@@ -147,7 +147,8 @@ public interface IContextManager {
     }
 
     @Blocking
-    default Context createOrReplaceTaskList(Context context, @Nullable String bigPicture, List<String> tasks) {
+    default Context createOrReplaceTaskList(
+            Context context, @Nullable String bigPicture, List<ai.brokk.tasks.TaskList.TaskItem> tasks) {
         throw new UnsupportedOperationException();
     }
 

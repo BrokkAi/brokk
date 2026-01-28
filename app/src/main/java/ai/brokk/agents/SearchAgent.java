@@ -207,7 +207,6 @@ public class SearchAgent {
         tools.add("searchFilenames");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
-        tools.add("appendNote");
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
@@ -469,7 +468,7 @@ public class SearchAgent {
                     "createOrReplaceTaskList",
                     "workspaceComplete",
                     "abortSearch" -> ToolCategory.TERMINAL;
-            case "dropWorkspaceFragments", "appendNote" -> ToolCategory.WORKSPACE_HYGIENE;
+            case "dropWorkspaceFragments" -> ToolCategory.WORKSPACE_HYGIENE;
             default -> ToolCategory.RESEARCH;
         };
     }
@@ -486,7 +485,6 @@ public class SearchAgent {
     protected int priority(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "appendNote" -> 2;
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;

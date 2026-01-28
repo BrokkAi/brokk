@@ -576,7 +576,6 @@ public class ArchitectAgent {
                 allowed.add("addMethodsToWorkspace");
                 allowed.add("addSymbolUsagesToWorkspace");
                 allowed.add("addUrlContentsToWorkspace");
-                allowed.add("appendNote");
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("explainCommit");
 
@@ -911,7 +910,6 @@ public class ArchitectAgent {
         allowed.add("abortProject");
         allowed.add("dropWorkspaceFragments");
         allowed.add("addFileSummariesToWorkspace");
-        allowed.add("appendNote");
         return allowed;
     }
 
@@ -952,7 +950,6 @@ public class ArchitectAgent {
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "appendNote" -> 2;
             case "addFilesToWorkspace" -> 3;
             case "addFileSummariesToWorkspace" -> 4;
             case "addUrlContentsToWorkspace" -> 5;

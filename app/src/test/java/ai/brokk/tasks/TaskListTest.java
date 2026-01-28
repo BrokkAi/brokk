@@ -30,11 +30,13 @@ public class TaskListTest {
 
     @Test
     void createOrReplaceTaskList_replaceEmptyWithNew() throws Exception {
-        var tasks = List.of("Task 1", "Task 2", "Task 3");
+        var tasks = List.of(
+                new TaskList.TaskItem(
+                        "Task 1", "Inst 1\n\n**Key Locations:**\nLoc 1\n\n**Key Discoveries:**\nDisc 1", false),
+                new TaskList.TaskItem("Task 2", "Inst 2", false),
+                new TaskList.TaskItem("Task 3", "Inst 3\n\n**Key Locations:**\nLoc 3", false));
 
-        // Create task items directly without calling ContextManager
-        var items = tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items));
+        var result = cm.createOrReplaceTaskList(context, "Big Picture", tasks);
 
         // Verify fragment exists
         var fragment = result.getTaskListFragment();
@@ -43,9 +45,10 @@ public class TaskListTest {
         // Verify data
         var data = result.getTaskListDataOrEmpty();
         assertEquals(3, data.tasks().size(), "Should have 3 tasks");
-        assertEquals("Task 1", data.tasks().get(0).text());
-        assertEquals("Task 2", data.tasks().get(1).text());
-        assertEquals("Task 3", data.tasks().get(2).text());
+        assertEquals("Task 1", data.tasks().get(0).title());
+        assertTrue(data.tasks().get(0).text().contains("Inst 1"));
+        assertTrue(data.tasks().get(0).text().contains("Loc 1"));
+        assertTrue(data.tasks().get(0).text().contains("Disc 1"));
 
         // All tasks should start as incomplete
         for (var task : data.tasks()) {
@@ -62,17 +65,17 @@ public class TaskListTest {
                 new TaskList.TaskItem("Done 2", "Second completed task", true)));
         var contextWithInitial = context.withTaskList(initialData);
 
-        // Replace with new tasks (simulating replacement)
-        var newTasks = List.of("New Task A", "New Task B");
-        var newItems =
-                newTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = contextWithInitial.withTaskList(new TaskList.TaskListData(newItems));
+        // Replace with new tasks
+        var newTasks = List.of(
+                new TaskList.TaskItem("New Task A", "Inst A", false),
+                new TaskList.TaskItem("New Task B", "Inst B", false));
+        var result = cm.createOrReplaceTaskList(contextWithInitial, "Replacement", newTasks);
 
         // Verify old tasks are gone and completed tasks dropped
         var data = result.getTaskListDataOrEmpty();
         assertEquals(2, data.tasks().size(), "Should have 2 new tasks");
-        assertEquals("New Task A", data.tasks().get(0).text());
-        assertEquals("New Task B", data.tasks().get(1).text());
+        assertEquals("New Task A", data.tasks().get(0).title());
+        assertEquals("New Task B", data.tasks().get(1).title());
 
         // New tasks should be incomplete
         for (var task : data.tasks()) {
@@ -87,71 +90,37 @@ public class TaskListTest {
         var contextWithInitial = context.withTaskList(initialData);
 
         // Replace with empty list (simulating clearing)
-        var result = contextWithInitial.withTaskList(new TaskList.TaskListData(List.of()));
+        var result = cm.createOrReplaceTaskList(contextWithInitial, null, List.of());
 
         // Task list fragment should be removed
         var fragment = result.getTaskListFragment();
         assertTrue(fragment.isEmpty(), "Empty task list should remove fragment");
     }
 
-    @Test
-    void createOrReplaceTaskList_whitespaceOnlyTasksIgnored() throws Exception {
-        var tasks = List.of("   ", "\t", "Valid Task", "  \n  ");
-
-        // Simulate filtering of whitespace-only tasks
-        var validTasks =
-                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        var items =
-                validTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items));
-
-        var data = result.getTaskListDataOrEmpty();
-        assertEquals(1, data.tasks().size(), "Should filter out whitespace-only tasks");
-        assertEquals("Valid Task", data.tasks().get(0).text());
-    }
-
     // ===== Title Summarization Tests =====
 
     @Test
-    void taskTitlesAreSummarized() throws Exception {
-        // Verify that task titles are summarized (non-blank, different from text if long)
-        var tasks = List.of("This is a very long task description that should be summarized");
+    void taskTitlesExplicitlySet() throws Exception {
+        var explicitTitle = "Summarized Title";
+        var longInstructions = "This is a very long task description that should be summarized";
+        var tasks = List.of(new TaskList.TaskItem(explicitTitle, longInstructions, false));
 
-        var items = tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items));
+        var result = cm.createOrReplaceTaskList(context, "Summary Test", tasks);
 
         var data = result.getTaskListDataOrEmpty();
         assertEquals(1, data.tasks().size());
         var task = data.tasks().get(0);
-        assertFalse(task.title().isEmpty(), "Task title should not be empty");
-        // Title may differ from full text due to summarization
-        assertEquals(
-                "This is a very long task description that should be summarized",
-                task.text(),
-                "Task text should match input");
-    }
-
-    @Test
-    void taskWithoutTitle_usesText() throws Exception {
-        var tasks = List.of("Simple task");
-
-        var items = tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items));
-
-        var data = result.getTaskListDataOrEmpty();
-        var task = data.tasks().get(0);
-        assertEquals("Simple task", task.text());
-        assertFalse(task.title().isEmpty());
+        assertEquals(explicitTitle, task.title());
+        assertTrue(task.text().contains(longInstructions));
     }
 
     // ===== Action Message Tests =====
 
     @Test
     void createOrReplaceTaskList_setsCorrectAction() throws Exception {
-        var tasks = List.of("Task 1");
+        var tasks = List.of(new TaskList.TaskItem("Task 1", "Inst 1", false));
 
-        var items = tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items));
+        var result = cm.createOrReplaceTaskList(context, "Action Test", tasks);
 
         // The description should indicate that something changed (task list added)
         var description = result.getAction(context).join();
