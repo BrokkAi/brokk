@@ -6,6 +6,8 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.TextCanonicalizer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.io.InputStream;
@@ -38,8 +40,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -179,9 +179,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // Note: TSTree native memory is managed by the Tree-sitter JNI binding's garbage collection.
         // The Caffeine cache provides bounded size to limit memory growth during long sessions.
-        private final Cache<ProjectFile, TSTree> cache = Caffeine.newBuilder()
-                .maximumSize(MAX_CACHE_SIZE)
-                .build();
+        private final Cache<ProjectFile, TSTree> cache =
+                Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).build();
 
         @Nullable
         TSTree get(ProjectFile file) {
