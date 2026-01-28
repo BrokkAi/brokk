@@ -241,7 +241,8 @@ public final class FuzzyUsageFinder {
                         int startByte = content.substring(0, start).getBytes(StandardCharsets.UTF_8).length;
                         int endByte = startByte + matcher.group().getBytes(StandardCharsets.UTF_8).length;
 
-                        // Filter out hits that are actually declarations or comments if the analyzer supports AST checks
+                        // Filter out hits that are actually declarations or comments if the analyzer supports AST
+                        // checks
                         if (!analyzer.isDeclarationReference(file, startByte, endByte)) {
                             continue;
                         }
