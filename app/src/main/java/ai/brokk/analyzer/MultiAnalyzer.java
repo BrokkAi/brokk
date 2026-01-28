@@ -139,6 +139,13 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
     }
 
     @Override
+    public boolean isDeclarationReference(ProjectFile file, int startByte, int endByte) {
+        return delegateFor(file)
+                .map(delegate -> delegate.isDeclarationReference(file, startByte, endByte))
+                .orElse(true); // conservative default when no delegate found
+    }
+
+    @Override
     public IProject getProject() {
         return findFirst(analyzer -> Optional.of(analyzer.getProject())).orElseThrow();
     }
