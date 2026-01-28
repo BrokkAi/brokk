@@ -834,8 +834,10 @@ public class CodeAgent {
                     """
                     The build failed.
                     Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
-                    You should use the conversation history to understand what has been done so far, but
-                    only use the Workspace to generate SEARCH/REPLACE blocks.
+                    You should use the conversation history to understand your earlier thinking; since your changes
+                    have been incorporated into the Workspace, look at the current state of those files before
+                    generate SEARCH/REPLACE blocks. You have already made changes, but you made mistakes;
+                    that is why the build is failing!
 
                     IMPORTANT: If solving the build or failure requires editing files or using APIs you do not have
                     in your Workspace, do your best to explain the problem but DO NOT provide any edits.
@@ -964,12 +966,13 @@ public class CodeAgent {
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
                             editResult.originalContents());
-                    report("Failed to apply %s block(s), asking LLM to retry".formatted(failedResults.size()));
+                    report("Applied %d of %d unique block(s) successfully; asking LLM to retry"
+                            .formatted(succeededCount, attemptedBlockCount));
                     return new Step.Retry(csForStep, esForStep);
                 }
             } else { // All blocks applied successfully
                 if (succeededCount > 0) {
-                    report(succeededCount + " SEARCH/REPLACE blocks applied.");
+                    report("Applied %d unique SEARCH/REPLACE block(s).".formatted(succeededCount));
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
                 esForStep = es.afterApply(

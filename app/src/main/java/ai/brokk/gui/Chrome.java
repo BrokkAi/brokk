@@ -39,7 +39,6 @@ import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
@@ -85,6 +84,8 @@ public class Chrome
     // Minimum width for the collapsed sidebar icon strip; without this, Swing relayout can compress the
     // left component to 0px, hiding icons and making the sidebar effectively impossible to expand.
     private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
+    /** Gap between collapsed sidebar and main content when side panels are closed. */
+    private static final int COLLAPSED_SIDEBAR_GAP_PX = 6;
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
@@ -393,41 +394,6 @@ public class Chrome
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean wrapMode = MainProject.getCodeBlockWrapMode();
         switchThemeAndWrapMode(currentTheme, wrapMode);
-    }
-
-    /**
-     * Lightweight method to preview a context without updating history Only updates the LLM text area and context panel
-     * display
-     */
-    public void setContext(Context ctx) {
-        final boolean updateOutput = (!activeContext.equals(ctx) && !contextManager.isTaskScopeInProgress());
-        activeContext = ctx;
-        SwingUtilities.invokeLater(() -> {
-            rightPanel.getTaskListPanel().contextChanged(ctx);
-            // Determine if the current context (ctx) is the latest one in the history
-            boolean isEditable;
-            Context latestContext = contextManager.getContextHistory().liveContext();
-            isEditable = latestContext.equals(ctx);
-            // Toggle read-only state for InstructionsPanel UI (chips + token bar)
-            rightPanel.getInstructionsPanel().setContextReadOnly(!isEditable);
-            // Also update instructions panel (token bar/chips) to reflect the selected context and read-only state
-            rightPanel.getInstructionsPanel().contextChanged(ctx);
-
-            // only update the MOP when no task is in progress
-            // otherwise the TaskScope.append() will take care of it
-            if (updateOutput) {
-                var taskHistory = ctx.getTaskHistory();
-                if (taskHistory.isEmpty()) {
-                    rightPanel.getHistoryOutputPanel().clearLlmOutput();
-                } else {
-                    var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
-                    var mainTask = taskHistory.getLast();
-                    rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(historyTasks, mainTask);
-                }
-            }
-
-            updateCaptureButtons();
-        });
     }
 
     // Theme manager and constants
@@ -771,6 +737,26 @@ public class Chrome
             }
         });
 
+        // Ctrl/Cmd+B => cycle model forward; Ctrl/Cmd+Shift+B => cycle model backward
+        KeyStroke cycleModel = GlobalUiSettings.getKeybinding(
+                "instructions.cycleModel", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_B));
+        bindKey(rootPane, cycleModel, "cycleModel");
+        rootPane.getActionMap().put("cycleModel", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                rightPanel.getInstructionsPanel().cycleModel(true);
+            }
+        });
+        KeyStroke cycleModelBackward = GlobalUiSettings.getKeybinding(
+                "instructions.cycleModelBackward", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_B));
+        bindKey(rootPane, cycleModelBackward, "cycleModelBackward");
+        rootPane.getActionMap().put("cycleModelBackward", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                rightPanel.getInstructionsPanel().cycleModel(false);
+            }
+        });
+
         // Workspace actions
         // Ctrl/Cmd+Shift+I => attach context (add content to workspace)
         KeyStroke attachContextKeyStroke = GlobalUiSettings.getKeybinding(
@@ -1026,6 +1012,9 @@ public class Chrome
 
     @Override
     public void contextChanged(Context newCtx) {
+        final boolean updateOutput = (!activeContext.equals(newCtx) && !contextManager.isTaskScopeInProgress());
+        activeContext = newCtx;
+
         SwingUtilities.invokeLater(() -> {
             globalUndoAction.updateEnabledState();
             globalRedoAction.updateEnabledState();
@@ -1034,16 +1023,29 @@ public class Chrome
             globalToggleMicAction.updateEnabledState();
 
             rightPanel.getHistoryOutputPanel().updateUndoRedoButtonStates();
-            setContext(newCtx);
+
+            // only update the MOP when no task is in progress
+            // otherwise the TaskScope.append() will take care of it
+            if (updateOutput) {
+                var taskHistory = newCtx.getTaskHistory();
+                if (taskHistory.isEmpty()) {
+                    rightPanel.getHistoryOutputPanel().clearLlmOutput();
+                } else {
+                    var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
+                    var mainTask = taskHistory.getLast();
+                    rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(historyTasks, mainTask);
+                }
+            }
+
+            // Count incomplete tasks and update the badge
+            var taskList = newCtx.getTaskListDataOrEmpty();
+            int incomplete =
+                    (int) taskList.tasks().stream().filter(t -> !t.done()).count();
+            SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
+
+            updateCaptureButtons();
             updateContextHistoryTable(newCtx);
         });
-    }
-
-    @Override
-    public void onTaskListChanged(TaskList.TaskListData data) {
-        // Count incomplete tasks and update the badge
-        int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
-        SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
     }
 
     @Override
@@ -1644,7 +1646,7 @@ public class Chrome
         if (collapsed) {
             leftVerticalSplitPane.setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
             toolsPane.getToolsPane().setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
-            horizontalSplitPane.setDividerSize(0);
+            horizontalSplitPane.setDividerSize(COLLAPSED_SIDEBAR_GAP_PX);
             horizontalSplitPane.setDividerLocation(COLLAPSED_SIDEBAR_WIDTH_PX);
             return;
         }
@@ -2714,6 +2716,17 @@ public class Chrome
 
     private void applyFocusHighlight(Component component) {
         if (component instanceof JComponent jcomp) {
+            // ProjectTree: use 2px line border that replaces (not compounds) the tree's 2px empty
+            // so total insets stay 2px and the tree does not shift on click.
+            if (component == projectFilesPanel.getProjectTree()) {
+                if (jcomp.getClientProperty("originalBorder") == null) {
+                    jcomp.putClientProperty("originalBorder", BorderFactory.createEmptyBorder(2, 2, 2, 2));
+                }
+                jcomp.setBorder(BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2));
+                jcomp.repaint();
+                return;
+            }
+
             // Store original border if not already stored
             if (jcomp.getClientProperty("originalBorder") == null) {
                 jcomp.putClientProperty("originalBorder", jcomp.getBorder());

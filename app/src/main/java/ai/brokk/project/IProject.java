@@ -28,6 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 public interface IProject extends AutoCloseable {
 
@@ -114,8 +115,9 @@ public interface IProject extends AutoCloseable {
      * This should only called directly by awaitBuildDetails and CM::createHeadless!
      * Everyone else should use awaitBuildDetails() instead.
      */
-    default BuildAgent.BuildDetails loadBuildDetails() {
-        return BuildAgent.BuildDetails.EMPTY;
+    @VisibleForTesting
+    default Optional<BuildAgent.BuildDetails> loadBuildDetails() {
+        return Optional.empty();
     }
 
     default MainProject.DataRetentionPolicy getDataRetentionPolicy() {
@@ -177,6 +179,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    @Blocking
     default BuildAgent.BuildDetails awaitBuildDetails() {
         return BuildAgent.BuildDetails.EMPTY;
     }

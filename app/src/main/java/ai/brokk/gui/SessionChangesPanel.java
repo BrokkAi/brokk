@@ -1240,18 +1240,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         List<String> selectedIds = commitsTable.getSelectedCommitIds();
         if (selectedIds.isEmpty()) return;
 
+        // Commits are ordered newest to oldest in the table
+        String newestId = selectedIds.getFirst();
+        String oldestId = selectedIds.getLast();
+
+        String fromRef = oldestId.equals("WORKING") ? "HEAD" : oldestId + "^";
+        String toRef = newestId;
+
         String newestNonWorking = selectedIds.stream()
                 .filter(id -> !id.equals("WORKING"))
                 .findFirst()
                 .orElse(null);
 
         if (newestNonWorking == null) {
-            // Only WORKING selected: review uncommitted changes vs HEAD.
-            startCommitRangeReview("WORKING");
+            // Only WORKING selected
+            startCommitRangeReview(fromRef, toRef);
             return;
         }
-
-        String oldestSelected = selectedIds.getLast();
 
         LoggingFuture.supplyAsync(() -> {
                     try {
@@ -1265,8 +1270,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                     Runnable proceed = () -> {
                         if (!needsCheckout) {
-                            // Newest selected is HEAD; review should include uncommitted changes (WORKING).
-                            startCommitRangeReview("WORKING");
+                            startCommitRangeReview(fromRef, toRef);
                             return;
                         }
 
@@ -1285,7 +1289,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         cm.submitExclusiveAction(() -> {
                             try {
                                 repo.checkout(newestNonWorking);
-                                SwingUtilities.invokeLater(() -> startCommitRangeReview(oldestSelected));
+                                SwingUtilities.invokeLater(() -> startCommitRangeReview(fromRef, toRef));
                             } catch (GitAPIException e) {
                                 logger.error("Checkout failed", e);
                                 chrome.toolError("Checkout failed: " + e.getMessage());
@@ -1294,12 +1298,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         });
                     };
 
-                    if (needsCheckout
-                            && !cm.getProject()
-                                    .getRepo()
-                                    .getModifiedProjectFiles()
-                                    .isEmpty()) {
-                        // Commit-first flow before checking out an earlier commit.
+                    if (needsCheckout && !repo.getModifiedProjectFiles().isEmpty()) {
                         ensureCleanThenReview(proceed);
                     } else {
                         proceed.run();
@@ -1795,37 +1794,24 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
     /**
-     * Starts a review for a specific commit range, computing the diff and file comparisons
-     * independently of the UI refresh cycle to avoid race conditions.
+     * Starts a review for a specific commit range.
      */
-    public void startCommitRangeReview(String oldestCommitId) {
+    public void startCommitRangeReview(String fromRef, String toRef) {
         assert SwingUtilities.isEventDispatchThread();
 
-        boolean toWorking = "WORKING".equals(oldestCommitId);
+        this.reviewBaselineRef = fromRef;
+        this.reviewTargetCommit = toRef.equals("WORKING") ? "HEAD" : toRef;
 
-        String fromRef;
-        String toRef;
-        if (toWorking) {
-            // Review uncommitted changes vs current HEAD.
-            fromRef = "HEAD";
-            toRef = "WORKING";
-            this.reviewBaselineRef = null;
-        } else {
-            fromRef = oldestCommitId + "^";
-            toRef = "HEAD";
-            this.reviewBaselineRef = fromRef;
-        }
-
-        // Update dropdown and trigger refresh for the new baseline
-        requestUpdate();
-
-        // Set busy state immediately
         setGuidedReviewBusy(true);
         codeReviewPanel.setBusy(true);
         guidedReviewBtn.setProgress(0);
 
         LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(cm, fromRef, toRef))
-                .thenAccept(this::generateGuidedReviewAsync)
+                .thenAccept(scope -> {
+                    // Update cached changes so the UI refresh shows the same data
+                    this.lastCumulativeChanges = scope.changes();
+                    generateGuidedReviewAsync(scope);
+                })
                 .exceptionally(ex -> {
                     logger.error("Failed to prepare commit range review", ex);
                     SwingUtilities.invokeLater(() -> {
@@ -1927,6 +1913,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         String sessionName = "Merge %s and %s"
                 .formatted(repo.shortHash(conflict.ourCommitId()), repo.shortHash(conflict.otherCommitId()));
         cm.createSessionAsync(sessionName).whenComplete((ignored, err) -> {
+            SwingUtilities.invokeLater(() -> chrome.getRightPanel().selectBuildTab());
             if (err != null) {
                 logger.error("Failed to create merge session '{}'", sessionName, err);
                 SwingUtilities.invokeLater(() -> chrome.toolError(

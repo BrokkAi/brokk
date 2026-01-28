@@ -33,7 +33,7 @@ class ReviewScopeTest {
         IContextManager cm = new TestContextManager(project);
 
         // Create a ReviewScope using fromBaseline
-        var originalScope = ReviewScope.fromBaseline(cm, initialCommit);
+        var originalScope = ReviewScope.fromBaseline(cm, initialCommit, "HEAD");
         assertNotNull(originalScope);
         assertFalse(originalScope.changes().perFileChanges().isEmpty());
 
@@ -66,6 +66,36 @@ class ReviewScopeTest {
         assertEquals(
                 originalScope.changes().perFileChanges().size(),
                 reconstructed.changes().perFileChanges().size());
+
+        project.close();
+    }
+
+    @Test
+    void testFromBaseline_SingleCommit() throws IOException, GitAPIException {
+        var project = InlineTestProjectCreator.code("line1\n", "file.txt")
+                .withGit()
+                .addCommit("file.txt", "file.txt")
+                .build();
+
+        var repo = (ai.brokk.git.GitRepo) project.getRepo();
+        String parentCommit = repo.getCurrentCommitId();
+
+        // Add exactly one more commit
+        ProjectFile pf = new ProjectFile(project.getRoot(), "file.txt");
+        Files.writeString(pf.absPath(), "line1\nline2\n");
+        repo.add(pf);
+        var commit = repo.commitCommand().setMessage("Single change").call();
+        String commitId = commit.getId().getName();
+
+        IContextManager cm = new TestContextManager(project);
+
+        // This is the scenario that was failing: selecting a single commit (not WORKING)
+        // fromRef should be commit^, toRef should be commit
+        var scope = ReviewScope.fromBaseline(cm, commitId + "^", commitId);
+
+        assertEquals(repo.resolveToCommit(parentCommit).name(), scope.metadata().fromRef());
+        assertEquals(repo.resolveToCommit(commitId).name(), scope.metadata().toRef());
+        assertEquals(1, scope.changes().perFileChanges().size());
 
         project.close();
     }

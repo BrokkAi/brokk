@@ -19,12 +19,12 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.gui.components.ActionGroupPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
-import ai.brokk.gui.components.SwitchIcon;
 import ai.brokk.gui.components.TokenUsageBar;
 import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
@@ -136,6 +136,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
+    private final ActionGroupPanel modeTogglePanel;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -453,6 +454,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
 
+        this.modeTogglePanel = createModeTogglePanel();
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -488,8 +490,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Apply initial Advanced Mode state to ensure ModelSelector visibility is correct
         applyAdvancedMode(GlobalUiSettings.isAdvancedMode());
 
-        // Subscribe to service reload events to update button states
+        // Subscribe to events
         contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
+        contextManager.addContextListener(this);
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -871,12 +874,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                        if (rows >= maxRows) break;
+                        if (rows >= 7) break;
                     }
                 }
-                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                return Math.max(1, Math.min(maxRows, rows));
+                return Math.max(1, Math.min(7, rows));
             }
 
             @Override
@@ -1411,24 +1412,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.refreshBranchUi(branchName);
     }
 
-    private JPanel buildBottomPanel() {
-        JPanel bottomPanel = new JPanel();
-        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
-        bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
-        this.bottomToolbarPanel = bottomPanel;
-
-        // Mode toggle (Core Focus / Full Power) - left aligned
+    private ActionGroupPanel createModeTogglePanel() {
         var coreFocusLabel = new JLabel("Core Focus");
         var fullPowerLabel = new JLabel("Full Power");
-        var modeSwitch = new JCheckBox();
-        modeSwitch.setIcon(new SwitchIcon());
-        boolean initialAdvancedMode = GlobalUiSettings.isAdvancedMode();
-        modeSwitch.setSelected(initialAdvancedMode);
 
-        var modeTogglePanel = new ActionGroupPanel(coreFocusLabel, modeSwitch, fullPowerLabel);
+        var modeTogglePanel = new ActionGroupPanel(coreFocusLabel, fullPowerLabel);
+        boolean initialAdvancedMode = GlobalUiSettings.isAdvancedMode();
+        modeTogglePanel.setSelected(initialAdvancedMode);
 
         final boolean[] programmaticToggleChange = {false};
-        modeSwitch.addItemListener(e -> {
+        modeTogglePanel.addItemListener(e -> {
             assert SwingUtilities.isEventDispatchThread();
 
             if (programmaticToggleChange[0]) {
@@ -1436,7 +1429,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return;
             }
 
-            boolean newMode = modeSwitch.isSelected();
+            boolean newMode = modeTogglePanel.isSelected();
             boolean currentMode = GlobalUiSettings.isAdvancedMode();
             if (newMode == currentMode) {
                 return;
@@ -1448,6 +1441,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modeTogglePanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        return modeTogglePanel;
+    }
+
+    private JPanel buildBottomPanel() {
+        JPanel bottomPanel = new JPanel();
+        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
+        bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        this.bottomToolbarPanel = bottomPanel;
+
+        // Mode toggle (Core Focus / Full Power) - left aligned
         bottomPanel.add(modeTogglePanel);
 
         // Flexible space before right-side controls (model selector + optional status strip + action button)
@@ -2157,17 +2160,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         updateTokenCostIndicator();
     }
 
-    /**
-     * Sets read-only UI state for the context widgets (chips + token bar). Safe to call from any thread.
-     */
-    public void setContextReadOnly(boolean readOnly) {
-        SwingUtilities.invokeLater(() -> {
-            workspaceItemsChipPanel.setReadOnly(readOnly);
-            tokenUsageBar.setReadOnly(readOnly);
-            contextAreaContainer.setReadOnly(readOnly);
-        });
-    }
-
     void enableButtons() {
         // Called when an action completes. Reset buttons based on current CM/project state.
         updateButtonStates();
@@ -2446,6 +2438,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Cycles the model dropdown selection forward or backward in the favorites list.
+     * No-op in Core Focus (EZ) mode (dropdown is hidden), or if the manage dialog is open
+     * or there are no favorites.
+     */
+    public void cycleModel(boolean forward) {
+        if (!GlobalUiSettings.isAdvancedMode()) return;
+        modelSelector.cycleModel(forward);
+    }
+
+    /**
      * Accepts an externally provided status strip and places it immediately next to the ModelSelector
      * in the bottom toolbar. Safe to call from any thread.
      * <p>
@@ -2506,6 +2508,43 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             } catch (Exception ex) {
                 logger.debug("setStatusStrip: non-fatal error while installing status strip", ex);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeLater(r);
+    }
+
+    /**
+     * Returns the mode toggle panel component so it can be moved between panels
+     * (Instructions <-> Tasks) as a single shared component.
+     */
+    public ActionGroupPanel getModeToggleComponent() {
+        return modeTogglePanel;
+    }
+
+    /**
+     * Ensures the mode toggle component is attached to the Instructions bottom bar,
+     * at the left side of the toolbar. Safe to call from any thread.
+     */
+    public void restoreModeToggleToBottom() {
+        Runnable r = () -> {
+            try {
+                // Detach from any previous parent
+                Container currentParent = modeTogglePanel.getParent();
+                if (currentParent != null) {
+                    currentParent.remove(modeTogglePanel);
+                    currentParent.revalidate();
+                    currentParent.repaint();
+                }
+
+                if (bottomToolbarPanel != null) {
+                    // Insert at the beginning (left side)
+                    bottomToolbarPanel.add(modeTogglePanel, 0);
+                    bottomToolbarPanel.revalidate();
+                    bottomToolbarPanel.repaint();
+                }
+            } catch (Exception ex) {
+                logger.debug("restoreModeToggleToBottom: non-fatal error repositioning mode toggle", ex);
             }
         };
         if (SwingUtilities.isEventDispatchThread()) r.run();

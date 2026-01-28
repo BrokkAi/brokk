@@ -12,7 +12,6 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -88,9 +87,6 @@ public interface IContextManager {
          * @param newCtx The new context state.
          */
         void contextChanged(Context newCtx);
-
-        /** Called when the task list data has been modified. */
-        default void onTaskListChanged(TaskList.TaskListData data) {}
     }
 
     /**
@@ -151,7 +147,7 @@ public interface IContextManager {
     }
 
     @Blocking
-    default Context createOrReplaceTaskList(Context context, List<String> tasks) {
+    default Context createOrReplaceTaskList(Context context, @Nullable String bigPicture, List<String> tasks) {
         throw new UnsupportedOperationException();
     }
 

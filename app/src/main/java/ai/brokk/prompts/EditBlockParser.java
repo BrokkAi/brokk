@@ -8,6 +8,8 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Parses SEARCH/REPLACE edit blocks.
@@ -20,6 +22,8 @@ import org.jetbrains.annotations.Nullable;
  * <p>Public API remains unchanged.
  */
 public class EditBlockParser {
+    private static final Logger logger = LoggerFactory.getLogger(EditBlockParser.class);
+
     public static EditBlockParser instance = new EditBlockParser();
 
     protected EditBlockParser() {}
@@ -97,8 +101,7 @@ public class EditBlockParser {
             if (block.block() != null) {
                 var srb = block.block();
                 if (Objects.equals(srb.beforeText(), srb.afterText())) {
-                    output.append(
-                            "[HARNESS NOTE: redundant block skipped; REPLACE text is identical to SEARCH text]\n");
+                    logger.trace("redundant block skipped; REPLACE text is identical to SEARCH text");
                     continue;
                 }
 
@@ -109,9 +112,7 @@ public class EditBlockParser {
                     output.append("[BRK_BLOCK_").append(currentIndex).append("]\n");
                     output.append(srb.repr());
                 } else {
-                    output.append("[HARNESS NOTE: reundunant block skipped; duplidate of BRK_BLOCK_")
-                            .append(existingIndex)
-                            .append("]\n");
+                    logger.trace("redundant block skipped; duplicate of BRK_BLOCK_{}", existingIndex);
                 }
             } else if (block.text() != null) {
                 output.append(block.text());

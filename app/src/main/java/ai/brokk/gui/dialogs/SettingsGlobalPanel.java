@@ -762,6 +762,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // A subset of bindings; keep the same IDs for compatibility
         adder.add("instructions.submit", "Submit (Lutz)");
         adder.add("instructions.toggleMode", "Toggle Code/Ask/Lutz");
+        adder.add("instructions.cycleModel", "Cycle Model");
+        adder.add("instructions.cycleModelBackward", "Cycle Model (Reverse)");
         adder.add("global.undo", "Undo");
         adder.add("global.redo", "Redo");
         adder.add("global.copy", "Copy");
@@ -892,6 +894,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         String[] allKeybindingIds = {
             "instructions.submit",
             "instructions.toggleMode",
+            "instructions.cycleModel",
+            "instructions.cycleModelBackward",
             "global.undo",
             "global.redo",
             "global.copy",
@@ -931,6 +935,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return switch (id) {
             case "instructions.submit" -> "Submit (Lutz)";
             case "instructions.toggleMode" -> "Toggle Code/Ask/Lutz";
+            case "instructions.cycleModel" -> "Cycle Model";
+            case "instructions.cycleModelBackward" -> "Cycle Model (Reverse)";
             case "global.undo" -> "Undo";
             case "global.redo" -> "Redo";
             case "global.copy" -> "Copy";
@@ -961,6 +967,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private static void resetAllKeybindingsToDefaults() {
         String[] allKeybindingIds = {
             "instructions.submit",
+            "instructions.cycleModel",
+            "instructions.cycleModelBackward",
             "global.undo",
             "global.redo",
             "global.copy",
@@ -2245,6 +2253,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_F);
     }
 
+    private static KeyStroke defaultCycleModel() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_B);
+    }
+
+    private static KeyStroke defaultCycleModelBackward() {
+        return KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_B);
+    }
+
     private static KeyStroke defaultOpenTerminal() {
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_T);
     }
@@ -2297,6 +2313,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return switch (id) {
             case "instructions.submit" -> KeyboardShortcutUtil.defaultInstructionsSubmit();
             case "instructions.toggleMode" -> defaultToggleMode();
+            case "instructions.cycleModel" -> defaultCycleModel();
+            case "instructions.cycleModelBackward" -> defaultCycleModelBackward();
             case "global.undo" -> defaultUndo();
             case "global.redo" -> defaultRedo();
             case "global.copy" -> defaultCopy();

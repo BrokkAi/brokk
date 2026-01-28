@@ -68,12 +68,8 @@ public class BuildDetailsPathNormalizationTest {
                 absUnder.toString() // absolute under project, becomes relative
                 ));
 
-        var project = new MainProject(root);
-
         var details = new BuildAgent.BuildDetails("", "", "", rawExcludesOrdered);
-
-        // Act: save and read back from properties
-        project.saveBuildDetails(details);
+        var project = MainProject.forTests(root, details);
 
         Properties props1 = loadProps(brokkProps(root));
         String json1 = props1.getProperty("buildDetailsJson");
@@ -131,8 +127,9 @@ public class BuildDetailsPathNormalizationTest {
         AtomicWrites.save(propsFile, props, "legacy test");
 
         // Act: construct project and load canonicalized details
+        // We use new MainProject instead of forTests() because we want to test loading existing disk state
         var project = new MainProject(root);
-        var loaded = project.loadBuildDetails();
+        var loaded = project.loadBuildDetails().orElseThrow();
 
         // Assert: canonicalization occurred on load
         // Expected: "build", "/nbdist" remains absolute (outside project), "foo", "out"
@@ -172,7 +169,7 @@ public class BuildDetailsPathNormalizationTest {
         Files.createDirectories(srcFile.getParent());
         Files.writeString(srcFile, "class Main {}");
 
-        var project = new MainProject(root);
+        var project = MainProject.forTests(root);
 
         // Prepare a synthetic file set to filter
         var pfBuild = new ProjectFile(project.getMasterRootPathForConfig(), Path.of("build/Generated.java"));
@@ -217,8 +214,9 @@ public class BuildDetailsPathNormalizationTest {
         AtomicWrites.save(propsFile, projectProps, "migration test");
 
         // 2. Act: Load details via MainProject
+        // We use new MainProject instead of forTests() because we want to test loading existing disk state
         MainProject project = new MainProject(root);
-        BuildAgent.BuildDetails loadedDetails = project.loadBuildDetails();
+        BuildAgent.BuildDetails loadedDetails = project.loadBuildDetails().orElseThrow();
 
         // 3. Assert: .brokk/workspace.properties now contains jdk.home
         Path workspacePropsFile = root.resolve(".brokk/workspace.properties");
@@ -267,7 +265,7 @@ public class BuildDetailsPathNormalizationTest {
         Files.createDirectories(srcFile.getParent());
         Files.writeString(srcFile, "class Main {}");
 
-        var project = new MainProject(root);
+        var project = MainProject.forTests(root);
 
         // Create ProjectFile instances
         var pfResources = new ProjectFile(root, Path.of("app/src/test/resources/test-data.json"));

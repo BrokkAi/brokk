@@ -5,6 +5,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
@@ -103,6 +104,47 @@ public class Context {
             List<TaskEntry> taskHistory,
             @Nullable ContextFragments.TaskFragment parsedOutput) {
         this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, Set.of(), Set.of());
+    }
+
+    /**
+     * Produces a structural overview of the code currently in context by summarizing symbols
+     * (classes, methods, etc.) for relevant fragments.
+     */
+    @Blocking
+    public String overview() throws InterruptedException {
+        IAnalyzer analyzer = contextManager.getAnalyzer();
+
+        return allFragments()
+                .map(f -> {
+                    String description = f.description().join();
+                    StringBuilder sb =
+                            new StringBuilder("# ").append(description).append("\n");
+
+                    switch (f) {
+                        case ContextFragments.ProjectPathFragment pf -> sb.append(analyzer.summarizeSymbols(pf.file()));
+                        case ContextFragments.SummaryFragment sf -> {
+                            if (sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS) {
+                                var file = contextManager.toFile(sf.getTargetIdentifier());
+                                sb.append(analyzer.summarizeSymbols(file));
+                            } else {
+                                var units = analyzer.getDefinitions(sf.getTargetIdentifier());
+                                if (!units.isEmpty()) {
+                                    sb.append(analyzer.summarizeSymbols(units, CodeUnitType.ALL, 0));
+                                }
+                            }
+                        }
+                        case ContextFragments.CodeFragment cf -> {
+                            var units = analyzer.getDefinitions(cf.getFullyQualifiedName());
+                            if (!units.isEmpty()) {
+                                sb.append(analyzer.summarizeSymbols(units, CodeUnitType.ALL, 0));
+                            }
+                        }
+                        default -> {}
+                    }
+                    return sb.toString().trim();
+                })
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n\n"));
     }
 
     public Map<ProjectFile, String> buildRelatedSymbols(int k) throws InterruptedException {
@@ -504,9 +546,9 @@ public class Context {
     /**
      * Returns all fragments in display order:
      * 1. Conversation history (if not empty)
-     * 2. Task List (if present) — special pinned position for task management
-     * 3. File/path fragments
-     * 4. Other virtual fragments (excluding Task List to avoid duplication)
+     * 2. Pinned fragments
+     * 3. File/path fragments (unpinned)
+     * 4. Other virtual fragments (unpinned)
      */
     public List<ContextFragment> getAllFragmentsInDisplayOrder() {
         var result = new ArrayList<ContextFragment>();
@@ -515,19 +557,19 @@ public class Context {
             result.add(new HistoryFragment(contextManager, taskHistory));
         }
 
-        // Add Task List immediately after history if present
-        var taskListFragment = getTaskListFragment();
-        if (taskListFragment.isPresent()) {
-            result.add(taskListFragment.get());
-        }
+        // 2. Pinned fragments
+        result.addAll(pinnedFragments);
 
-        result.addAll(fragments.stream().filter(f -> f.getType().isPath()).toList());
+        // 3. Unpinned Path fragments
+        result.addAll(fragments.stream()
+                .filter(f -> f.getType().isPath())
+                .filter(f -> !pinnedFragments.contains(f))
+                .toList());
 
-        // Add virtual fragments, excluding the Task List to avoid duplication
+        // 4. Unpinned Virtual fragments
         result.addAll(fragments.stream()
                 .filter(f -> !f.getType().isPath())
-                .filter(f -> taskListFragment.isEmpty()
-                        || !f.id().equals(taskListFragment.get().id()))
+                .filter(f -> !pinnedFragments.contains(f))
                 .toList());
 
         return result;
@@ -942,10 +984,13 @@ public class Context {
     /**
      * Returns the current Task List data parsed from the Task List fragment or an empty list on absence/parse error.
      */
+    /**
+     * Returns the current Task List data parsed from the Task List fragment or an empty list on absence/parse error.
+     */
     public TaskList.TaskListData getTaskListDataOrEmpty() {
         var existing = getTaskListFragment();
         if (existing.isEmpty()) {
-            return new TaskList.TaskListData(List.of());
+            return new TaskList.TaskListData(null, List.of());
         }
         try {
             var fragment = existing.get();
@@ -953,11 +998,11 @@ public class Context {
             return textOpt.map(s -> Json.fromJson(s, TaskList.TaskListData.class))
                     .orElseGet(() -> {
                         logger.warn("Failed to load Task List JSON in time for {}", fragment);
-                        return new TaskList.TaskListData(List.of());
+                        return new TaskList.TaskListData(null, List.of());
                     });
         } catch (Exception e) {
             logger.warn("Failed to parse Task List JSON", e);
-            return new TaskList.TaskListData(List.of());
+            return new TaskList.TaskListData(null, List.of());
         }
     }
 

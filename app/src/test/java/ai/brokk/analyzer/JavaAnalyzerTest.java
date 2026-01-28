@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -1090,6 +1091,107 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testInterfaceConstantsFieldsDetection() throws IOException {
+        String code =
+                """
+                public interface SyntaxConstants {
+                    String SYNTAX_STYLE_NONE = "text/plain";
+                    String SYNTAX_STYLE_ACTIONSCRIPT = "text/actionscript";
+                    String SYNTAX_STYLE_C = "text/c";
+                    int DEFAULT_PRIORITY = 100;
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "SyntaxConstants.java").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var declarations = analyzer.getAllDeclarations();
+
+            // Verify the interface itself is detected
+            boolean foundInterface =
+                    declarations.stream().anyMatch(cu -> cu.isClass() && "SyntaxConstants".equals(cu.fqName()));
+            assertTrue(foundInterface, "Interface SyntaxConstants should be detected as a class");
+
+            // Verify the fields are detected
+            Set<String> fieldNames = declarations.stream()
+                    .filter(CodeUnit::isField)
+                    .map(CodeUnit::identifier)
+                    .collect(Collectors.toSet());
+
+            assertTrue(fieldNames.contains("SYNTAX_STYLE_NONE"), "Field SYNTAX_STYLE_NONE should be detected");
+            assertTrue(
+                    fieldNames.contains("SYNTAX_STYLE_ACTIONSCRIPT"),
+                    "Field SYNTAX_STYLE_ACTIONSCRIPT should be detected");
+            assertTrue(fieldNames.contains("SYNTAX_STYLE_C"), "Field SYNTAX_STYLE_C should be detected");
+            assertTrue(fieldNames.contains("DEFAULT_PRIORITY"), "Field DEFAULT_PRIORITY should be detected");
+        }
+    }
+
+    @Test
+    public void testInterfaceConstantsMultipleDeclarators() throws IOException {
+        String code =
+                """
+                public interface MultiConstants {
+                    int CONST_A = 1, CONST_B = 2;
+                    String NAME_X = "x", NAME_Y = "y", NAME_Z = "z";
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "MultiConstants.java").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var declarations = analyzer.getAllDeclarations();
+
+            // Verify the interface itself is detected
+            boolean foundInterface =
+                    declarations.stream().anyMatch(cu -> cu.isClass() && "MultiConstants".equals(cu.fqName()));
+            assertTrue(foundInterface, "Interface MultiConstants should be detected as a class");
+
+            // Verify the fields are detected
+            Set<String> fieldNames = declarations.stream()
+                    .filter(CodeUnit::isField)
+                    .map(CodeUnit::identifier)
+                    .collect(Collectors.toSet());
+
+            assertTrue(fieldNames.contains("CONST_A"), "Field CONST_A should be detected");
+            assertTrue(fieldNames.contains("CONST_B"), "Field CONST_B should be detected");
+            assertTrue(fieldNames.contains("NAME_X"), "Field NAME_X should be detected");
+            assertTrue(fieldNames.contains("NAME_Y"), "Field NAME_Y should be detected");
+            assertTrue(fieldNames.contains("NAME_Z"), "Field NAME_Z should be detected");
+
+            assertEquals(5, fieldNames.size(), "Should detect exactly 5 constant fields");
+        }
+    }
+
+    @Test
+    public void testInterfaceConstantsWithGenericsAndAnnotations() throws IOException {
+        String code =
+                """
+                import java.util.List;
+                public interface ComplexConstants {
+                    List<String> ITEMS = List.of("a", "b");
+                    @Deprecated
+                    String DEPRECATED_VAL = "old";
+                    @SuppressWarnings("unchecked")
+                    List RAW_LIST = List.of();
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "ComplexConstants.java").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var declarations = analyzer.getAllDeclarations();
+
+            Set<String> fieldNames = declarations.stream()
+                    .filter(CodeUnit::isField)
+                    .map(CodeUnit::identifier)
+                    .collect(Collectors.toSet());
+
+            assertTrue(fieldNames.contains("ITEMS"), "Field ITEMS with generics should be detected");
+            assertTrue(fieldNames.contains("DEPRECATED_VAL"), "Annotated field DEPRECATED_VAL should be detected");
+            assertTrue(fieldNames.contains("RAW_LIST"), "Annotated field RAW_LIST should be detected");
+            assertEquals(3, fieldNames.size());
+        }
+    }
+
+    @Test
     public void testSummaryFragmentSupportingFragmentsFiltersNestedAncestors() throws IOException {
         try (var project = InlineTestProjectCreator.code(
                         """
@@ -1122,7 +1224,7 @@ public class JavaAnalyzerTest {
             var ids = frag.supportingFragments().stream()
                     .filter(f -> f instanceof ContextFragments.SummaryFragment)
                     .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet());
 
             assertTrue(ids.contains("p.OuterBase"), "Should contain top-level ancestor p.OuterBase");
             assertFalse(ids.contains("p.InnerBase"), "Should NOT contain nested class ancestor p.InnerBase");

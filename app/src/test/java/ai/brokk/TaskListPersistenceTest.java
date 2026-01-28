@@ -90,6 +90,32 @@ public class TaskListPersistenceTest {
     }
 
     @Test
+    void createOrReplaceTaskList_persistsBigPicture() throws Exception {
+        var initial =
+                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
+
+        var bigPicture = "This is the big picture overview of the project goals";
+        var tasks = List.of("First task", "Second task");
+        var afterCreate = initial.withTaskList(new TaskList.TaskListData(
+                bigPicture,
+                tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList()));
+
+        // Verify fragment exists
+        Optional<ContextFragments.StringFragment> fragOpt = afterCreate.getTaskListFragment();
+        assertTrue(fragOpt.isPresent(), "Task list fragment should exist after creation");
+
+        // Verify JSON can be parsed back with bigPicture preserved
+        var frag = fragOpt.get();
+        var data = Json.fromJson(frag.text().join(), TaskList.TaskListData.class);
+        assertEquals(bigPicture, data.bigPicture());
+        assertEquals(2, data.tasks().size());
+
+        // Verify getTaskListDataOrEmpty also returns bigPicture
+        var deserialized = afterCreate.getTaskListDataOrEmpty();
+        assertEquals(bigPicture, deserialized.bigPicture());
+    }
+
+    @Test
     void taskListFragment_usesCorrectSyntaxStyle() throws Exception {
         var initial =
                 new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));

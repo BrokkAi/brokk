@@ -64,6 +64,7 @@ import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 public final class MainProject extends AbstractProject {
     private static final Logger logger =
@@ -239,9 +240,11 @@ public final class MainProject extends AbstractProject {
         }
 
         // Load build details
-        var bd = loadBuildDetailsInternal(); // Uses projectProps
-        if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
-            this.detailsFuture.complete(bd);
+        var bdOpt = loadBuildDetails();
+        if (bdOpt.isPresent()) {
+            this.detailsFuture.complete(bdOpt.get());
+        } else {
+            this.detailsFuture.complete(BuildAgent.BuildDetails.EMPTY);
         }
 
         // Initialize cache and trigger migration/defaulting if necessary
@@ -249,6 +252,18 @@ public final class MainProject extends AbstractProject {
 
         // Initialize dependency update scheduler
         this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
+    }
+
+    @TestOnly
+    public static MainProject forTests(Path root) {
+        return forTests(root, BuildAgent.BuildDetails.EMPTY);
+    }
+
+    @TestOnly
+    public static MainProject forTests(Path root, BuildAgent.BuildDetails buildDetails) {
+        var mp = new MainProject(root);
+        mp.saveBuildDetails(buildDetails);
+        return mp;
     }
 
     @Override
@@ -266,31 +281,60 @@ public final class MainProject extends AbstractProject {
         if (diskCache != null) {
             return diskCache;
         }
-        var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
-        var lockFile = cacheDir.resolve("cache.lock");
+
+        // 1. Try primary cache location
+        Path primaryCacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve(CACHE_DIR);
+        if (tryOpenCache(primaryCacheDir)) {
+            return Objects.requireNonNull(diskCache);
+        }
+
+        // 2. Fallback to unique temporary directory
+        try {
+            Path tempCacheDir = Files.createTempDirectory("brokk-cache-");
+            logger.info("Primary cache locked or inaccessible; falling back to temporary cache at {}", tempCacheDir);
+            if (tryOpenCache(tempCacheDir)) {
+                return Objects.requireNonNull(diskCache);
+            }
+        } catch (IOException e) {
+            logger.error("Failed to create temporary cache directory: {}", e.getMessage());
+        }
+
+        // 3. Absolute fallback to Noop
+        return new IStringDiskCache.NoopCache();
+    }
+
+    private boolean tryOpenCache(Path cacheDir) {
+        Path lockFile = cacheDir.resolve("cache.lock");
+        FileChannel channel = null;
+        FileLock lock = null;
         try {
             Files.createDirectories(cacheDir);
 
-            // Attempt to acquire exclusive lock on cache.lock
-            cacheLockChannel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            cacheFileLock = cacheLockChannel.tryLock();
-            if (cacheFileLock == null) {
-                logger.info(
-                        "Unable to acquire exclusive lock on {}; cache is likely in use by another instance.",
-                        lockFile);
-                cacheLockChannel.close();
-                cacheLockChannel = null;
-                return new IStringDiskCache.NoopCache();
+            channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            lock = channel.tryLock();
+
+            if (lock == null) {
+                logger.debug("Unable to acquire lock on {}", lockFile);
+                channel.close();
+                return false;
             }
 
             DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
-            diskCache = new StringDiskCache(dlc);
+            this.diskCache = new StringDiskCache(dlc);
+            this.cacheLockChannel = channel;
+            this.cacheFileLock = lock;
+
             logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
-            return diskCache;
+            return true;
         } catch (IOException e) {
-            logger.error("Unable to open disk cache at {}: {}", cacheDir, e.getMessage());
-            closeCacheLock();
-            return new IStringDiskCache.NoopCache();
+            logger.warn("Failed to initialize cache at {}: {}", cacheDir, e.getMessage());
+            try {
+                if (lock != null) lock.release();
+                if (channel != null) channel.close();
+            } catch (IOException cleanupEx) {
+                // Ignore cleanup errors
+            }
+            return false;
         }
     }
 
@@ -422,65 +466,63 @@ public final class MainProject extends AbstractProject {
         return detailsFuture.isDone();
     }
 
-    private BuildAgent.BuildDetails loadBuildDetailsInternal() { // Renamed to avoid conflict with IProject
-        String json = projectProps.getProperty(BUILD_DETAILS_KEY);
-        if (json != null && !json.isEmpty()) {
-            try {
-                var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
-
-                // Canonicalize exclusion patterns that look like paths
-                var canonicalExclusions = new LinkedHashSet<String>();
-                for (String pattern : details.exclusionPatterns()) {
-                    // Only canonicalize patterns that look like directory paths (contain / or \)
-                    if (pattern.contains("/") || pattern.contains("\\")) {
-                        String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
-                        if (!c.isBlank()) {
-                            canonicalExclusions.add(c);
-                        }
-                    } else {
-                        canonicalExclusions.add(pattern);
-                    }
-                }
-
-                // Normalize environment variables and migrate JAVA_HOME to workspace properties
-                Map<String, String> envIn = details.environmentVariables();
-                Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
-
-                for (Map.Entry<String, String> e : envIn.entrySet()) {
-                    String k = e.getKey();
-                    String v = e.getValue();
-                    if (v == null) {
-                        continue;
-                    }
-                    if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                        // Migration: Move JAVA_HOME from project.properties to workspace.properties
-                        String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
-                        if (!canonicalPath.isBlank()) {
-                            setJdk(canonicalPath);
-                            logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
-                        }
-                    } else {
-                        canonicalEnv.put(k, v);
-                    }
-                }
-
-                // Return a re-wrapped BuildDetails with canonicalized content
-                return new BuildAgent.BuildDetails(
-                        details.buildLintCommand(),
-                        details.testAllCommand(),
-                        details.testSomeCommand(),
-                        canonicalExclusions,
-                        canonicalEnv);
-            } catch (JsonProcessingException e) {
-                logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
-            }
-        }
-        return BuildAgent.BuildDetails.EMPTY;
-    }
-
     @Override
-    public BuildAgent.BuildDetails loadBuildDetails() {
-        return loadBuildDetailsInternal();
+    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
+        String json = projectProps.getProperty(BUILD_DETAILS_KEY);
+        if (json == null || json.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+
+            // Canonicalize exclusion patterns that look like paths
+            var canonicalExclusions = new LinkedHashSet<String>();
+            for (String pattern : details.exclusionPatterns()) {
+                // Only canonicalize patterns that look like directory paths (contain / or \)
+                if (pattern.contains("/") || pattern.contains("\\")) {
+                    String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                    if (!c.isBlank()) {
+                        canonicalExclusions.add(c);
+                    }
+                } else {
+                    canonicalExclusions.add(pattern);
+                }
+            }
+
+            // Normalize environment variables and migrate JAVA_HOME to workspace properties
+            Map<String, String> envIn = details.environmentVariables();
+            Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+
+            for (Map.Entry<String, String> e : envIn.entrySet()) {
+                String k = e.getKey();
+                String v = e.getValue();
+                if (v == null) {
+                    continue;
+                }
+                if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                    // Migration: Move JAVA_HOME from project.properties to workspace.properties
+                    String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
+                    if (!canonicalPath.isBlank()) {
+                        setJdk(canonicalPath);
+                        logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
+                    }
+                } else {
+                    canonicalEnv.put(k, v);
+                }
+            }
+
+            // Return a re-wrapped BuildDetails with canonicalized content
+            return Optional.of(new BuildAgent.BuildDetails(
+                    details.buildLintCommand(),
+                    details.testAllCommand(),
+                    details.testSomeCommand(),
+                    canonicalExclusions,
+                    canonicalEnv));
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -520,26 +562,33 @@ public final class MainProject extends AbstractProject {
                 canonicalExclusions,
                 canonicalEnv);
 
-        if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
-            try {
-                String json = objectMapper.writeValueAsString(canonicalDetails);
-                projectProps.setProperty(BUILD_DETAILS_KEY, json);
-                logger.debug("Saving build details to project properties.");
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
-            saveProjectProperties();
+        try {
+            String json = objectMapper.writeValueAsString(canonicalDetails);
+            projectProps.setProperty(BUILD_DETAILS_KEY, json);
+            logger.debug("Saving build details to project properties.");
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
         }
+        saveProjectProperties();
         setBuildDetails(canonicalDetails);
         invalidateAllFiles();
     }
 
+    /**
+     * Used by BrokkCli to override build details; deliberately does not save
+     */
     @Override
     public void setBuildDetails(BuildAgent.BuildDetails details) {
+        // not threadsafe, that's okay;
+        // the only caller (outside of tests) does so during construction before anyone else can see it
         if (detailsFuture.isDone()) {
-            detailsFuture = new CompletableFuture<>();
+            // existing Future completed with an unknown value; overwrite it with ours
+            // (again: we don't care about potential references to the old Future; there aren't any)
+            logger.warn("Project build details are already saved; overwriting them with " + details);
+            detailsFuture = CompletableFuture.completedFuture(details);
+        } else {
+            detailsFuture.complete(details);
         }
-        detailsFuture.complete(details);
     }
 
     @Override
@@ -558,6 +607,7 @@ public final class MainProject extends AbstractProject {
      * @throws IllegalStateException if called on the Swing EDT
      */
     @Override
+    @Blocking
     public BuildAgent.BuildDetails awaitBuildDetails() {
         try {
             return detailsFuture.get();
