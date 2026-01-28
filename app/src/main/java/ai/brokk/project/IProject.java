@@ -34,6 +34,7 @@ import org.jetbrains.annotations.VisibleForTesting;
 public interface IProject extends AutoCloseable {
 
     long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
+    long DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS = DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
 
     default IGitRepo getRepo() {
         throw new UnsupportedOperationException();
@@ -546,6 +547,14 @@ public interface IProject extends AutoCloseable {
      */
     default long getRunCommandTimeoutSeconds() {
         return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+    }
+
+    /**
+     * Obtains the user-defined test command timeout if set, or the default value otherwise.
+     * @return the default timeout for how long a test command may run for.
+     */
+    default long getTestCommandTimeoutSeconds() {
+        return DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
     }
 
     enum CodeAgentTestScope {

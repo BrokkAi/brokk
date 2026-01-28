@@ -274,4 +274,14 @@ public final class WorktreeProject extends AbstractProject {
     public void setModelConfig(ModelProperties.ModelType modelType, AbstractService.ModelConfig config) {
         parent.setModelConfig(modelType, config);
     }
+
+    @Override
+    public long getRunCommandTimeoutSeconds() {
+        return parent.getRunCommandTimeoutSeconds();
+    }
+
+    @Override
+    public long getTestCommandTimeoutSeconds() {
+        return parent.getTestCommandTimeoutSeconds();
+    }
 }

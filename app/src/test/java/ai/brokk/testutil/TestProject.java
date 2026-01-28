@@ -27,6 +27,7 @@ public class TestProject implements IProject {
     private final Language language;
 
     private long runCommandTimeoutSeconds = 0L;
+    private long testCommandTimeoutSeconds = 0L;
 
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
             CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
@@ -173,6 +174,15 @@ public class TestProject implements IProject {
 
     public void setRunCommandTimeoutSeconds(long seconds) {
         this.runCommandTimeoutSeconds = seconds;
+    }
+
+    @Override
+    public long getTestCommandTimeoutSeconds() {
+        return testCommandTimeoutSeconds;
+    }
+
+    public void setTestCommandTimeoutSeconds(long seconds) {
+        this.testCommandTimeoutSeconds = seconds;
     }
 
     @Override
