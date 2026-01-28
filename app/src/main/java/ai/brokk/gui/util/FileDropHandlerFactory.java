@@ -44,8 +44,8 @@ public final class FileDropHandlerFactory {
                 java.util.function.Consumer<ContextSizeGuard.Decision> onDecision);
     }
 
-    static ContextSizeChecker contextSizeChecker = (files, contextManager, io, onDecision) ->
-            ContextSizeGuard.checkAndConfirm(files, (Chrome) io, onDecision);
+    static ContextSizeChecker contextSizeChecker =
+            (files, contextManager, io, onDecision) -> ContextSizeGuard.checkAndConfirm(files, (Chrome) io, onDecision);
 
     static void resetContextSizeCheckerForTests() {
         contextSizeChecker = (files, contextManager, io, onDecision) ->
@@ -106,11 +106,8 @@ public final class FileDropHandlerFactory {
                         return false;
                     }
 
-                    Path projectRoot = cm
-                            .getProject()
-                            .getRoot()
-                            .toAbsolutePath()
-                            .normalize();
+                    Path projectRoot =
+                            cm.getProject().getRoot().toAbsolutePath().normalize();
 
                     // Normalize and partition into project-internal paths and external paths
                     List<Path> allPaths = files.stream()

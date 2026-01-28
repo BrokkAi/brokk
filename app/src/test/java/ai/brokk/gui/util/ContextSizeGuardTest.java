@@ -2,8 +2,8 @@ package ai.brokk.gui.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.ExternalFile;
+import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,7 +55,8 @@ class ContextSizeGuardTest {
         Files.writeString(projectFile, "p".repeat(100));
 
         // External file (outside project root)
-        var externalPath = Files.createTempFile("external", ".txt").toAbsolutePath().normalize();
+        var externalPath =
+                Files.createTempFile("external", ".txt").toAbsolutePath().normalize();
         Files.writeString(externalPath, "e".repeat(300));
 
         var pf = new ProjectFile(tempDir, tempDir.relativize(projectFile));

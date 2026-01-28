@@ -109,7 +109,8 @@ public class FileDropHandlerFactoryTest {
         cm.setIo(consoleIO);
 
         // Create an external file outside the project root
-        Path external = Files.createTempFile("ext-file-drop", ".txt").toAbsolutePath().normalize();
+        Path external =
+                Files.createTempFile("ext-file-drop", ".txt").toAbsolutePath().normalize();
         Files.writeString(external, "external content");
 
         assertFalse(external.startsWith(project.getRoot().toAbsolutePath().normalize()));

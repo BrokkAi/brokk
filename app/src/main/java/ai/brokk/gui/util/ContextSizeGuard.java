@@ -113,7 +113,8 @@ public final class ContextSizeGuard {
      * @param chrome Chrome instance for dialogs and model info
      * @param onDecision Called with the decision result
      */
-    public static void checkAndConfirm(Collection<? extends BrokkFile> files, Chrome chrome, Consumer<Decision> onDecision) {
+    public static void checkAndConfirm(
+            Collection<? extends BrokkFile> files, Chrome chrome, Consumer<Decision> onDecision) {
         LoggingFuture.supplyAsync(() -> estimateTokens(files))
                 .thenAccept(estimate -> {
                     var contextManager = chrome.getContextManager();
