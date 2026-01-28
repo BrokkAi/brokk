@@ -1285,7 +1285,14 @@ public class BuildAgent {
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
             long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
-            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.UNLIMITED_TIMEOUT;
+            Duration timeout;
+            if (timeoutSeconds == -1) {
+                timeout = Environment.UNLIMITED_TIMEOUT;
+            } else if (timeoutSeconds <= 0) {
+                timeout = Environment.DEFAULT_TIMEOUT;
+            } else {
+                timeout = Duration.ofSeconds(timeoutSeconds);
+            }
 
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
@@ -1321,8 +1328,15 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
-            long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
-            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
+            long timeoutSeconds = cm.getProject().getTestCommandTimeoutSeconds();
+            Duration timeout;
+            if (timeoutSeconds == -1) {
+                timeout = Environment.UNLIMITED_TIMEOUT;
+            } else if (timeoutSeconds <= 0) {
+                timeout = Environment.DEFAULT_TIMEOUT;
+            } else {
+                timeout = Duration.ofSeconds(timeoutSeconds);
+            }
 
             var output = Environment.instance.runShellCommand(
                     command,

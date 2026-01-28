@@ -10,6 +10,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Environment;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -530,5 +531,91 @@ class BuildAgentTest {
 
         assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
         assertTrue(io.getOutputLog().contains("No explicit command specified, skipping."), "Should log skip message");
+    }
+
+    @Test
+    void testRunExplicitCommandUsesTestTimeout(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setTestCommandTimeoutSeconds(120L); // Custom test timeout
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            var capturedTimeout = new java.util.concurrent.atomic.AtomicReference<Duration>();
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                capturedTimeout.set(timeout);
+                return "ok";
+            };
+
+            BuildAgent.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+
+            assertEquals(
+                    Duration.ofSeconds(120), capturedTimeout.get(), "Test command should use test-specific timeout");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunExplicitCommandUnlimitedTimeout(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setTestCommandTimeoutSeconds(-1L); // Unlimited timeout
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            var capturedTimeout = new java.util.concurrent.atomic.AtomicReference<Duration>();
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                capturedTimeout.set(timeout);
+                return "ok";
+            };
+
+            BuildAgent.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+
+            assertEquals(
+                    Environment.UNLIMITED_TIMEOUT,
+                    capturedTimeout.get(),
+                    "Timeout of -1 should result in UNLIMITED_TIMEOUT");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunVerificationUsesRunTimeout(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setRunCommandTimeoutSeconds(45L); // Custom run timeout
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint-cmd", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            var capturedTimeout = new java.util.concurrent.atomic.AtomicReference<Duration>();
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                capturedTimeout.set(timeout);
+                return "ok";
+            };
+
+            BuildAgent.runVerification(ctx);
+
+            assertEquals(
+                    Duration.ofSeconds(45), capturedTimeout.get(), "Verification command should use run-specific timeout");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
     }
 }
