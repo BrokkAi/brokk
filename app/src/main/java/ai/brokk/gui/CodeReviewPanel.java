@@ -34,6 +34,10 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         detailPanel = new ReviewDetailPanel(contextManager, this::selectNext);
     }
 
+    public void addHeaderControl(javax.swing.JComponent component) {
+        listPanel.addHeaderControl(component);
+    }
+
     public ReviewListPanel getListPanel() {
         return listPanel;
     }
@@ -71,7 +75,6 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     public void setBusy(boolean busy) {
         listPanel.setBusy(busy);
-        detailPanel.setBusy(busy);
     }
 
     public void clearSelection() {

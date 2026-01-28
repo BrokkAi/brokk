@@ -6,6 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;
@@ -19,6 +20,7 @@ import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.NonRetriableException;
 import dev.langchain4j.exception.PaymentRequiredException;
@@ -1779,6 +1781,62 @@ public class Llm {
 
     public void setModel(StreamingChatModel model) {
         this.model = model;
+    }
+
+    /**
+     * Executes a tool-calling loop: sends messages, executes any tool calls returned by the model,
+     * appends results, and repeats until no more tool calls or turnsWithTools is reached.
+     * <p>
+     * Tool execution failures (e.g., exceptions or validation errors) are logged as warnings and
+     * communicated back to the LLM as error results, but they are otherwise ignored by design to
+     * allow the model an opportunity to self-correct or proceed with partial information.
+     *
+     * @param messages The initial messages to send
+     * @param toolContext The tool context containing tool specifications and registry
+     * @param turnsWithTools Maximum number of tool-calling iterations (0 means no tools, just single request)
+     * @return The final streaming result after all tool calls are complete
+     */
+    public StreamingResult loop(List<ChatMessage> messages, ToolContext toolContext, int turnsWithTools)
+            throws InterruptedException {
+        assert turnsWithTools > 0 : "use sendrequest instead of loop if no turnsWithTools are desired";
+
+        var currentMessages = new ArrayList<>(messages);
+        StreamingResult result = null;
+        int turns = 0;
+
+        while (turns < turnsWithTools) {
+            result = sendRequest(currentMessages, toolContext);
+
+            if (result.error() != null) {
+                return result;
+            }
+
+            var toolRequests = result.toolRequests();
+            if (toolRequests.isEmpty()) {
+                // No more tool calls = we're done
+                return result;
+            }
+
+            // Add the AI message with tool requests to history
+            currentMessages.add(result.aiMessage());
+
+            // Execute each tool and add results
+            var tr = toolContext.toolRegistry();
+            for (var request : toolRequests) {
+                var toolResult = tr.executeTool(request);
+                if (toolResult.status() != ToolExecutionResult.Status.SUCCESS) {
+                    logger.warn("Tool call failure for {}: {}", request.name(), toolResult.resultText());
+                }
+                currentMessages.add(
+                        new ToolExecutionResultMessage(request.id(), request.name(), toolResult.resultText()));
+            }
+
+            turns++;
+        }
+
+        // If we exited the loop because we hit turnsWithTools, make one final request without tools to force a
+        // response.
+        return sendRequest(currentMessages, ToolContext.empty());
     }
 
     @Override

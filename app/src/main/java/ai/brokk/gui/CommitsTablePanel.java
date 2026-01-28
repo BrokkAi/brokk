@@ -124,6 +124,10 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
         return selectedCount > 0 && selectedCount == table.getRowCount();
     }
 
+    public void clearSelection() {
+        table.clearSelection();
+    }
+
     public void addSelectionListener(Runnable listener) {
         table.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting() && !suppressSelectionEvents) {

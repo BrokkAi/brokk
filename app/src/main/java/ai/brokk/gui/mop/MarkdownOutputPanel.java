@@ -223,14 +223,19 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             return;
         }
 
-        // 1. Transient message cleanup
+        // 1. Exit static document mode when streaming begins
+        if (staticMarkdown != null) {
+            clearStaticDocument();
+        }
+
+        // 2. Transient message cleanup
         boolean wasTransientVisible = transientMessageVisible;
         if (wasTransientVisible) {
             transientMessageVisible = false;
             webHost.hideTransientMessage();
         }
 
-        // 2. Determine if we must start a new message bubble
+        // 3. Determine if we must start a new message bubble
         boolean isNew;
         if (messages.isEmpty() || meta.isNewMessage() || wasTransientVisible) {
             isNew = true;

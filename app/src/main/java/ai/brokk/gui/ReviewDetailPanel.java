@@ -2,6 +2,8 @@ package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
+import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.components.SplitButton;
@@ -18,6 +20,7 @@ import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.KeyChanges;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
 import ai.brokk.util.ReviewParser.TestFeedback;
+import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Dimension;
@@ -105,10 +108,31 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         cardLayout.show(this, CARD_PLACEHOLDER);
     }
 
-    public void setBusy(boolean busy) {
-        if (busy) {
-            placeholderArea.setText("Generating review...");
-        }
+    /**
+     * Returns an IConsoleIO implementation that echoes LLM output to the markdown panel.
+     */
+    public IConsoleIO getMarkdownIO() {
+        return new IConsoleIO() {
+            @Override
+            public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+                markdownPanel.append(token, type, meta);
+            }
+
+            @Override
+            public void toolError(String msg, String title) {
+                // Ignore tool errors
+            }
+
+            @Override
+            public void showNotification(NotificationRole role, String message) {
+                // Ignore notifications
+            }
+        };
+    }
+
+    public void prepareForStreaming() {
+        clearContent();
+        cardLayout.show(this, CARD_CONTENT);
     }
 
     public void addReviewNavigationListener(ReviewNavigationListener listener) {

@@ -1,10 +1,10 @@
 package ai.brokk.agents;
 
-import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
@@ -13,15 +13,15 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.cli.MemoryConsole;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService.CumulativeChanges;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitRepoData.FileDiff;
-import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ContentDiffUtils;
@@ -52,7 +52,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -76,21 +75,19 @@ public class ReviewAgent {
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
 
-    int progressOf100 = 0;
-    int SETUP_PROGRESS = 5;
-
-    @FunctionalInterface
-    public interface ProgressUpdater {
-        /**
-         * @param stage description of current stage
-         * @param progress value between 0 and 100
-         */
-        void updateProgress(String stage, int progress);
+    public record ReviewOptions(
+            AbstractService.ModelConfig scanModel, AbstractService.ModelConfig reviewModel, int reviewToolTurns) {
+        public static final ReviewOptions FASTER =
+                new ReviewOptions(ModelProperties.flash3, ModelProperties.opus4_5, 0);
+        public static final ReviewOptions DEEPER =
+                new ReviewOptions(ModelProperties.flash3, ModelProperties.opus4_5_medium, 3);
+        public static final ReviewOptions ASYNC =
+                new ReviewOptions(ModelProperties.flash3, ModelProperties.gpt5_1_medium, 5);
     }
 
-    private final AbstractService.ModelConfig modelConfig;
-    private final boolean optimizeForLatency;
+    private final ReviewOptions options;
     private final IContextManager cm;
+    private final IConsoleIO io;
     private @Nullable Context contextBeingBuilt;
     private boolean isComplex = false;
 
@@ -103,34 +100,21 @@ public class ReviewAgent {
      *
      * An example of determining `commit` using GitRepo::getMergeBase is in SessionChangesPanel.
      */
-    public ReviewAgent(
-            ReviewScope scope,
-            AbstractService.ModelConfig modelConfig,
-            boolean optimizeForLatency,
-            IContextManager cm) {
+    public ReviewAgent(ReviewScope scope, ReviewOptions options, IContextManager cm, IConsoleIO io) {
         this.changes = scope.changes();
         this.metadata = scope.metadata();
-        this.modelConfig = modelConfig;
-        this.optimizeForLatency = optimizeForLatency;
+        this.options = options;
         this.cm = cm;
+        this.io = io;
     }
 
     @TestOnly
     ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm) {
         this(
                 new ReviewScope(changes, new ReviewScope.Metadata("HEAD~1", "HEAD", sessionIds)),
-                ModelType.ARCHITECT.defaultConfig(),
-                true,
-                cm);
-    }
-
-    private @Nullable ProgressUpdater progressUpdater;
-
-    /**
-     * Optional
-     */
-    public void setProgressUpdater(@Nullable ProgressUpdater updater) {
-        this.progressUpdater = updater;
+                ReviewOptions.FASTER,
+                cm,
+                cm.getIo());
     }
 
     @Blocking
@@ -147,21 +131,18 @@ public class ReviewAgent {
                     .addFragments(diffFragment)
                     .addFragments(extractSessionContext(metadata.sessionIds()));
 
-            updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
             var setupResult = setupContext(initialContext);
             var reviewContext = setupResult.context();
             logPhaseTime("Context selection", contextStart);
-            updateProgress("Analyzing changes", SETUP_PROGRESS);
 
             // Publish the context as it stands after setup but before Turn 1
             scope.publish(reviewContext);
 
-            var turn1ModelConfig = (optimizeForLatency && !setupResult.isComplex())
-                    ? cm.getProject().getModelConfig(ModelType.SCAN)
-                    : modelConfig;
+            var turn1ModelConfig = !setupResult.isComplex() ? options.scanModel() : options.reviewModel();
             var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
+            turn1Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
             long turn1Start = System.currentTimeMillis();
@@ -174,23 +155,25 @@ public class ReviewAgent {
                         WorkspacePrompts.getMessagesInAddedOrder(reviewContext, EnumSet.noneOf(SpecialTextType.class)));
                 turn1Messages.add(buildAnalysisRequestMessage());
 
-                int turn1Floor = progressOf100;
-                AtomicInteger linesSeen = new AtomicInteger(0);
-                MemoryConsole progressConsole = new MemoryConsole() {
-                    @Override
-                    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
-                        super.llmOutput(token, type, meta);
-                        if (token.contains("\n")) {
-                            int lines = linesSeen.addAndGet(
-                                    (int) token.chars().filter(ch -> ch == '\n').count());
-                            int p = turn1Floor + (lines / 6);
-                            updateProgress("Analyzing changes", min(100, p));
-                        }
-                    }
-                };
-                turn1Llm.setOutput(progressConsole);
-
-                turn1Result = turn1Llm.sendRequest(turn1Messages);
+                if (options.reviewToolTurns() > 0) {
+                    var tr = cm.getToolRegistry()
+                            .builder()
+                            .register(new SearchTools(cm))
+                            .build();
+                    turn1Result = turn1Llm.loop(
+                            turn1Messages,
+                            new ToolContext(
+                                    tr.getTools(List.of(
+                                            "getFileSummaries",
+                                            "getMethodSources",
+                                            "getClassSources",
+                                            "getFileContents")),
+                                    ToolChoice.AUTO,
+                                    tr),
+                            options.reviewToolTurns());
+                } else {
+                    turn1Result = turn1Llm.sendRequest(turn1Messages);
+                }
                 if (turn1Result.error() == null) {
                     break;
                 }
@@ -269,9 +252,10 @@ public class ReviewAgent {
     }
 
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
-        var model = requireNonNull(cm.getService()
-                .getModel(optimizeForLatency ? cm.getProject().getModelConfig(ModelType.SCAN) : modelConfig));
-        var llm = cm.getLlm(model, "Review Context Selection");
+        var model = requireNonNull(cm.getService().getModel(options.scanModel()));
+        var llm = cm.getLlm(new Llm.Options(model, "Review Context Selection").withEcho());
+        llm.setOutput(io);
+        io.llmOutput("# Gathering Context", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
 
         Set<Language> analyzerLanguages = cm.getProject().getAnalyzerLanguages();
         boolean hasAnalyzedLanguage = !analyzerLanguages.equals(Set.of(Languages.NONE));
@@ -381,13 +365,6 @@ public class ReviewAgent {
         var ctx = initialContext.addFragments(filesToContext);
         ctx = ctx.addFragments(ctx.buildAutoContext(10));
         return new ContextSetupResult(ctx, true);
-    }
-
-    private void updateProgress(String stage, int progress) {
-        progressOf100 = progress;
-        if (progressUpdater != null) {
-            progressUpdater.updateProgress(stage, progress);
-        }
     }
 
     static @Nullable FileDiff findFileDiff(String relPath, List<FileDiff> fileDiffs) {
@@ -907,14 +884,24 @@ public class ReviewAgent {
                 Every section except Overview is optional; omit them if there is nothing important to say.
                 </instructions>
                 <review_content>
+                # Assume it runs
                 Unless there is strong evidence to the contrary, you should assume that the code compiles and runs.
                 You should be especially cautious about drawing conclusions of compile errors from diffs alone.
+                If a refactoring was performed, you can assume that all the call sites are shown in the diff and
+                you do not need to remind the author to check for additional ones.
 
-                If you have Patch Instructions available, call out important incomplete or unimplemented functionality that
+                # Trust intent
+                When you encounter unusual patterns (e.g., empty methods, swallowed exceptions, hardcoded values), check for comments.
+                If the author has left a comment explaining the unusual choice, you should almost always accept it as a valid design decision.
+                Do not critique it unless it causes a critical failure (e.g. security vulnerability).
+
+                However, strictly verify that the code actually implements what the comment claims.
+                When comments and code disagree, assume both are suspect and flag this as a Tactical Note.
+
+                # Intent from the Workspace
+                If you have Patch Instructions available in the Workspace, call out important incomplete or unimplemented functionality that
                 was asked for but not delivered, but be aware that instructions may be neither complete nor authoritative;
-                the instructions may include false starts, and the patch may include external changes.
-
-                You should NOT assume that more tests exist besides what you see.
+                the instructions may include false starts, and the patch may include external changes that are not covered by the instructions.
                 </review_content>
                 <excerpt_format>
                 When referencing code, use the following format with the file path and line number on a separate line before the code block:
