@@ -345,7 +345,50 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return performReferencingFilesOf(file);
+        Set<ProjectFile> result = new HashSet<>(performReferencingFilesOf(file));
+
+        // Java-specific: add same-package files that actually use the target file.
+        // Files in the same package have implicit visibility, but we only consider them
+        // "referencing" if they contain identifiers matching the target's declarations.
+        List<CodeUnit> targetDecls = getTopLevelDeclarations(file);
+        if (targetDecls.isEmpty()) {
+            return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
+        }
+
+        String targetPackage = targetDecls.stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                .findFirst()
+                .orElse("");
+
+        if (!targetPackage.isEmpty()) {
+            Set<String> targetIdentifiers =
+                    targetDecls.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
+
+            withFileProperties(fileState -> {
+                for (ProjectFile candidate : fileState.keySet()) {
+                    if (candidate.equals(file) || result.contains(candidate)) continue;
+
+                    String candidatePackage = getTopLevelDeclarations(candidate).stream()
+                            .filter(cu -> cu.isClass() || cu.isModule())
+                            .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                            .findFirst()
+                            .orElse("");
+
+                    if (targetPackage.equals(candidatePackage)) {
+                        // Check if the candidate actually uses any of target's identifiers
+                        Set<String> candidateSymbols =
+                                extractTypeIdentifiers(candidate.read().orElse(""));
+                        if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
+                            result.add(candidate);
+                        }
+                    }
+                }
+                return null;
+            });
+        }
+
+        return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
     }
 
     @Override
@@ -504,19 +547,21 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             if (normalized.startsWith("import ")) {
                 normalized = normalized.substring("import ".length());
             }
-            if (normalized.startsWith("static ")) {
+            boolean isStatic = normalized.startsWith("static ");
+            if (isStatic) {
                 normalized = normalized.substring("static ".length());
             }
             if (normalized.endsWith(";")) {
                 normalized = normalized.substring(0, normalized.length() - 1).strip();
             }
-            // Extract the simple name (last segment after the last dot)
+
+            // Extract the simple name (last segment)
+            // For 'import com.foo.Outer.Inner;', identifier is 'Inner'.
+            // For 'import static com.foo.Bar.METHOD;', identifier is 'METHOD'.
             int lastDot = normalized.lastIndexOf('.');
-            if (lastDot >= 0 && lastDot < normalized.length() - 1) {
-                identifier = normalized.substring(lastDot + 1);
-            } else {
-                identifier = normalized;
-            }
+            identifier = (lastDot >= 0 && lastDot < normalized.length() - 1)
+                    ? normalized.substring(lastDot + 1)
+                    : normalized;
         }
 
         // Java doesn't have import aliases
@@ -906,6 +951,77 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         }
 
         return Collections.unmodifiableSet(matchedImports);
+    }
+
+    @Override
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        // Determine target package from its top-level declarations
+        String targetPackage = getTopLevelDeclarations(target).stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                .findFirst()
+                .orElse("");
+
+        // Check for explicit or wildcard imports
+        String targetName = target.getFileName();
+        if (targetName.endsWith(".java")) {
+            targetName = targetName.substring(0, targetName.length() - 5);
+        }
+        final String targetClassName = targetName;
+
+        for (ImportInfo imp : imports) {
+            // Case 1: Explicit import (e.g. import com.example.Foo; or import static com.example.Foo.METHOD;)
+            if (!imp.isWildcard() && imp.identifier() != null) {
+                // Direct match on simple name (e.g. Foo or METHOD)
+                if (targetClassName.equals(imp.identifier())) return true;
+
+                // For static imports or nested classes, the target class might be the parent segment
+                // e.g. import static com.example.Foo.METHOD; should match Foo.java
+                // e.g. import com.example.Foo.Inner; should match Foo.java
+                if (imp.rawSnippet().contains("." + targetClassName + ".")) return true;
+            }
+
+            // Case 2: Wildcard import (e.g. import com.example.*;)
+            // Matches if the wildcard package is exactly the target's package,
+            // or if it's a static wildcard import of the target class.
+            if (imp.isWildcard()) {
+                String importPkg = extractPackageFromWildcard(imp.rawSnippet());
+                if (importPkg.equals(targetPackage) || importPkg.equals(targetPackage + "." + targetClassName)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Overloaded version that takes the source file to check for same-package visibility.
+     */
+    @Override
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        if (sourceFile.equals(target)) {
+            return false;
+        }
+
+        String sourcePackage = getTopLevelDeclarations(sourceFile).stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                .findFirst()
+                .orElse("");
+
+        String targetPackage = getTopLevelDeclarations(target).stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                .findFirst()
+                .orElse("");
+
+        // In Java, files in the same package (including the default package) see each other.
+        if (sourcePackage.equals(targetPackage)) {
+            return true;
+        }
+
+        return couldImportFile(imports, target);
     }
 
     @Override

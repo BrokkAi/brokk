@@ -7,10 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.TypescriptAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -511,6 +513,132 @@ public class TypeScriptImportTest {
                     analyzer.searchDefinitions("unusedFunction").iterator().next();
             Set<String> relevantUnused = provider.relevantImportsFor(unusedFn);
             assertTrue(relevantUnused.isEmpty(), "Should exclude all requires for unused function");
+        }
+    }
+
+    @Test
+    public void testCouldImportFileRelativeImport() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import { X } from './utils/helper';
+                function foo(): void {}
+                """,
+                        "src/main.ts")
+                .addFileContents(
+                        """
+                export function X(): void {}
+                """, "src/utils/helper.ts")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var mainFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
+                    .findFirst()
+                    .get();
+            var helperFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("helper.ts"))
+                    .findFirst()
+                    .get();
+
+            List<ImportInfo> imports = analyzer.importInfoOf(mainFile);
+
+            boolean result = analyzer.couldImportFile(imports, helperFile);
+            assertTrue(result, "Import './utils/helper' should match target 'src/utils/helper.ts'");
+        }
+    }
+
+    @Test
+    public void testCouldImportFileParentRelativeImport() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import User from '../models/User';
+                function foo(): void {}
+                """,
+                        "src/components/Component.ts")
+                .addFileContents(
+                        """
+                export default class User {}
+                """, "src/models/User.ts")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var componentFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("Component.ts"))
+                    .findFirst()
+                    .get();
+            var userFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("User.ts"))
+                    .findFirst()
+                    .get();
+
+            List<ImportInfo> imports = analyzer.importInfoOf(componentFile);
+
+            boolean result = analyzer.couldImportFile(imports, userFile);
+            assertTrue(result, "Import '../models/User' should match target 'src/models/User.ts'");
+        }
+    }
+
+    @Test
+    public void testCouldImportFileExternalModule() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import _ from 'lodash';
+                function foo(): void {}
+                """,
+                        "src/main.ts")
+                .addFileContents(
+                        """
+                export function helper(): void {}
+                """,
+                        "src/utils/helper.ts")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var mainFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
+                    .findFirst()
+                    .get();
+            var helperFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("helper.ts"))
+                    .findFirst()
+                    .get();
+
+            List<ImportInfo> imports = analyzer.importInfoOf(mainFile);
+
+            boolean result = analyzer.couldImportFile(imports, helperFile);
+            assertFalse(result, "Import from 'lodash' (external module) should return false for any project file");
+        }
+    }
+
+    @Test
+    public void testCouldImportFileDirectoryIndex() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import { something } from './utils';
+                function foo(): void {}
+                """,
+                        "src/main.ts")
+                .addFileContents(
+                        """
+                export function something(): void {}
+                """,
+                        "src/utils/index.ts")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var mainFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("main.ts"))
+                    .findFirst()
+                    .get();
+            var indexFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("index.ts"))
+                    .findFirst()
+                    .get();
+
+            List<ImportInfo> imports = analyzer.importInfoOf(mainFile);
+
+            boolean result = analyzer.couldImportFile(imports, indexFile);
+            assertTrue(result, "Import './utils' should match target 'src/utils/index.ts'");
         }
     }
 }
