@@ -808,4 +808,141 @@ public class JavaImportTest {
                     identifiers.contains("java.util.List"), "Should capture scoped_type_identifier 'java.util.List'");
         }
     }
+
+    @Test
+    public void testCouldImportFileExplicitImportMatches() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents("import com.example.Foo; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            assertTrue(analyzer.couldImportFile(imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileWildcardImportMatches() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents("import com.example.*; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            assertTrue(analyzer.couldImportFile(imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileUnrelatedImportsReturnsFalse() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents("import other.pkg.Bar; public class Baz {}", "Baz.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var bazFile = AnalyzerUtil.getFileFor(analyzer, "Baz").get();
+            var imports = analyzer.importInfoOf(bazFile);
+
+            assertFalse(analyzer.couldImportFile(imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileStaticImport() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo { public static final int METHOD = 1; }",
+                        "com/example/Foo.java")
+                .addFileContents("import static com.example.Foo.METHOD; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            assertTrue(analyzer.couldImportFile(imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileStaticWildcardImport() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo { }", "com/example/Foo.java")
+                .addFileContents("import static com.example.Foo.*; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            // static wildcard imports of a class should be relevant to that class file
+            assertTrue(analyzer.couldImportFile(imports, fooFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileInnerClass() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Outer { public static class Inner {} }",
+                        "com/example/Outer.java")
+                .addFileContents("import com.example.Outer.Inner; public class Bar {}", "Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var outerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "com.example.Outer").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "Bar").get();
+            var imports = analyzer.importInfoOf(barFile);
+
+            // Explicitly importing an inner class should make the outer class file relevant
+            assertTrue(analyzer.couldImportFile(imports, outerFile));
+        }
+    }
+
+    @Test
+    public void testCouldImportFileSamePackageNoImport() throws IOException {
+        // Two files in the same package - no import statement needed in Java
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents("package com.example; public class Bar {}", "com/example/Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Bar").get();
+
+            // Bar.java has NO imports at all
+            var imports = analyzer.importInfoOf(barFile);
+            assertTrue(imports.isEmpty(), "Bar should have no imports");
+
+            // But couldImportFile should return true because they're in the same package
+            assertTrue(
+                    analyzer.couldImportFile(barFile, imports, fooFile),
+                    "Same-package files should be considered importable even without explicit imports");
+        }
+    }
+
+    @Test
+    public void testReferencingFilesOfSamePackageNoImport() throws IOException {
+        // Two files in the same package - Bar references Foo without an import
+        try (var testProject = InlineTestProjectCreator.code(
+                        "package com.example; public class Foo {}", "com/example/Foo.java")
+                .addFileContents("package com.example; public class Bar { private Foo foo; }", "com/example/Bar.java")
+                .build()) {
+            var analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            var fooFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Foo").get();
+            var barFile = AnalyzerUtil.getFileFor(analyzer, "com.example.Bar").get();
+
+            // Bar.java references Foo without importing it (same package visibility)
+            var referencingFiles = analyzer.referencingFilesOf(fooFile);
+
+            assertTrue(
+                    referencingFiles.contains(barFile),
+                    "Bar.java should be a referencing file of Foo.java since they're in the same package");
+        }
+    }
 }

@@ -6,6 +6,8 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.TextCanonicalizer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.io.InputStream;
@@ -96,6 +98,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     private final LazyImportCache lazyImports = new LazyImportCache();
 
+    /**
+     * Helper util for lazy tree computation.
+     */
+    private final LazyTreeCache lazyTrees = new LazyTreeCache();
+
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -162,13 +169,44 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
+     * Helper class to encapsulate lazy tree caching with bounded size.
+     * Uses Caffeine cache with eviction to prevent unbounded native memory growth,
+     * since TSTree objects hold native memory through Tree-sitter JNI binding.
+     */
+    private static final class LazyTreeCache {
+        // Limit cache size to prevent unbounded native memory growth
+        private static final int MAX_CACHE_SIZE = 1000;
+
+        // Note: TSTree native memory is managed by the Tree-sitter JNI binding's garbage collection.
+        // The Caffeine cache provides bounded size to limit memory growth during long sessions.
+        private final Cache<ProjectFile, TSTree> cache =
+                Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).build();
+
+        @Nullable
+        TSTree get(ProjectFile file) {
+            return cache.getIfPresent(file);
+        }
+
+        void put(ProjectFile file, TSTree tree) {
+            cache.put(file, tree);
+        }
+
+        boolean isEmpty() {
+            return cache.estimatedSize() == 0;
+        }
+
+        void forEach(BiConsumer<? super ProjectFile, ? super TSTree> action) {
+            cache.asMap().forEach(action);
+        }
+    }
+
+    /**
      * Helper class to encapsulate lazy import resolution caching and circularity detection.
      */
     private static final class LazyImportCache {
         private final ConcurrentHashMap<ProjectFile, Set<CodeUnit>> forwardCache = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<ProjectFile, Set<ProjectFile>> reverseCache = new ConcurrentHashMap<>();
         private final ThreadLocal<Set<ProjectFile>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
-        private volatile boolean isReversePopulated = false;
 
         @Nullable
         Set<CodeUnit> getImportedCodeUnits(ProjectFile file) {
@@ -772,7 +810,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty()) {
+        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty() && lazyTrees.isEmpty()) {
             return this.state;
         }
 
@@ -825,10 +863,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             nextImportGraph = ImportGraph.from(forwardUpdates, reverseUpdates);
         }
 
+        PMap<ProjectFile, FileProperties> nextFileState = this.state.fileState();
+        if (!lazyTrees.isEmpty()) {
+            Map<ProjectFile, FileProperties> fileUpdates = new HashMap<>();
+            lazyTrees.forEach((file, tree) -> {
+                FileProperties existing = this.state.fileState().get(file);
+                if (existing != null && existing.parsedTree() == null) {
+                    fileUpdates.put(
+                            file,
+                            new FileProperties(
+                                    existing.topLevelCodeUnits(),
+                                    tree,
+                                    existing.importStatements(),
+                                    existing.containsTests()));
+                }
+            });
+            if (!fileUpdates.isEmpty()) {
+                nextFileState = nextFileState.plusAll(fileUpdates);
+            }
+        }
+
         return new AnalyzerState(
                 this.state.symbolIndex(),
                 nextCodeUnitState,
-                this.state.fileState(),
+                nextFileState,
                 nextImportGraph,
                 nextTypeHierarchyGraph,
                 this.state.symbolKeyIndex(),
@@ -941,27 +999,74 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return persisted;
         }
 
-        // 3. If not cached, we need to ensure all forward imports are resolved to populate the reverse cache
-        if (!lazyImports.isReversePopulated) {
-            synchronized (lazyImports) {
-                if (!lazyImports.isReversePopulated) {
-                    for (ProjectFile f : this.state.fileState().keySet()) {
-                        // Calling importedCodeUnitsOf ensures forward imports are computed and cached,
-                        // which also populates lazyImports.reverseCache.
-                        performImportedCodeUnitsOf(f);
-                    }
-                    lazyImports.isReversePopulated = true;
-                }
-            }
-        }
+        // 3. Phase 1: Filter candidates using cheap text-based matching
+        List<ProjectFile> allFiles = List.copyOf(this.state.fileState().keySet());
+        int totalFiles = allFiles.size();
+        notifyProgressListener(0, totalFiles, "Filtering import candidates");
 
-        return lazyImports.getReferencingFiles(file) != null
-                ? Objects.requireNonNull(lazyImports.getReferencingFiles(file))
-                : Collections.emptySet();
+        var filterReporter = new DebouncedProgressReporter(totalFiles, "Filtering import candidates", 100);
+        List<ProjectFile> candidates = allFiles.stream()
+                .filter(f -> {
+                    boolean matches = couldImportFile(f, fileProperties(f).importStatements(), file);
+                    filterReporter.increment();
+                    return matches;
+                })
+                .toList();
+        filterReporter.reportFinal();
+
+        // 4. Phase 2: Resolve imports for candidates to populate reverse cache
+        int totalCandidates = candidates.size();
+        var resolveReporter = new DebouncedProgressReporter(totalCandidates, "Resolving candidate imports", 100);
+        for (ProjectFile f : candidates) {
+            // Calling performImportedCodeUnitsOf ensures forward imports are computed and cached,
+            // which also populates lazyImports.reverseCache.
+            performImportedCodeUnitsOf(f);
+            resolveReporter.increment();
+        }
+        resolveReporter.reportFinal();
+
+        // 5. Return the resolved reverse cache result.
+        Set<ProjectFile> resolved = lazyImports.getReferencingFiles(file);
+        if (resolved == null || resolved.isEmpty()) {
+            return Set.of();
+        }
+        return Collections.unmodifiableSet(new HashSet<>(resolved));
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
-        return fileProperties(file).parsedTree();
+        // 1. Check lazy cache first
+        TSTree cached = lazyTrees.get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Fall back to snapshot properties
+        TSTree snapshotTree = fileProperties(file).parsedTree();
+        if (snapshotTree != null) {
+            return snapshotTree;
+        }
+
+        // 3. Parse on-demand if file exists
+        if (Files.exists(file.absPath())) {
+            try {
+                byte[] bytes = readFileBytes(file, null);
+                if (bytes.length == 0) {
+                    return null;
+                }
+                bytes = TextCanonicalizer.stripUtf8Bom(bytes);
+                String src = new String(bytes, StandardCharsets.UTF_8);
+                TSTree tree = getTSParser().parseString(null, src);
+                if (tree != null) {
+                    lazyTrees.put(file, tree);
+                }
+                return tree;
+            } catch (Exception e) {
+                log.debug("Failed to parse tree on-demand for {}: {}", file, e.getMessage());
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /* ---------- IAnalyzer ---------- */
@@ -3986,6 +4091,36 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         return Set.of();
+    }
+
+    /**
+     * Public API for checking if imports from a source file could reference a target file.
+     * This is a conservative text-based pre-filter used to reduce expensive import resolution.
+     *
+     * @param sourceFile the file containing the import statements
+     * @param imports the import statements from the source file
+     * @param target the target file to check
+     * @return true if any import could potentially reference the target (may have false positives)
+     */
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        return couldImportFile(imports, target);
+    }
+
+    /**
+     * Internal implementation for checking if imports could reference a target file.
+     *
+     * <p>Implementations should be conservative and return {@code true} when uncertain to avoid
+     * false negatives. It is acceptable to return {@code true} for imports that don't actually
+     * reference the target (false positives), but returning {@code false} when the import does
+     * reference the target (false negatives) would cause incorrect behavior.
+     *
+     * @param imports the list of import statements from a source file
+     * @param target the target file to check if any import could reference
+     * @return {@code true} if any import could potentially reference the target file,
+     *         {@code false} only if it's certain that none of the imports reference the target
+     */
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        return true;
     }
 
     /**

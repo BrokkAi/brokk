@@ -438,6 +438,51 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        if (imports.isEmpty()) {
+            return false;
+        }
+
+        // Normalize target path for comparison (use forward slashes)
+        String targetPath = target.getRelPath().toString().replace('\\', '/');
+        int lastSlash = targetPath.lastIndexOf('/');
+        String targetDir = lastSlash == -1 ? "" : targetPath.substring(0, lastSlash);
+
+        for (ImportInfo info : imports) {
+            Matcher m = IMPORT_PATH_PATTERN.matcher(info.rawSnippet());
+            if (m.find()) {
+                // group(1) is double-quoted, group(2) is backtick-quoted
+                String importPath = m.group(1) != null ? m.group(1) : m.group(2);
+
+                // Go imports match based on the package path (directory).
+                // If target is in root, targetDir is "".
+                if (targetDir.isEmpty()) {
+                    // If target is in root, it is importable if the import path is "."
+                    // or if it matches the module name (which we don't know here, so we check
+                    // if the import path doesn't look like a standard library path).
+                    if (importPath.equals(".") || importPath.contains("/")) {
+                        return true;
+                    }
+                    continue;
+                }
+
+                // We use conservative segment-based matching for non-root files:
+                // 1. Exact match: "pkg/utils" matches "pkg/utils/file.go"
+                // 2. Vanity/Module match: "github.com/org/repo/pkg/utils" matches "pkg/utils/file.go"
+                // 3. Sub-package match: "pkg/utils" matches "src/pkg/utils/file.go"
+                if (importPath.equals(targetDir)
+                        || importPath.endsWith("/" + targetDir)
+                        || targetDir.endsWith("/" + importPath)
+                        || targetPath.contains("/" + importPath + "/")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     public Set<String> relevantImportsFor(CodeUnit cu) {
         var sourceOpt = getSource(cu, false);
         if (sourceOpt.isEmpty()) {

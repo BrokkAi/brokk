@@ -10,6 +10,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
@@ -553,5 +554,70 @@ class GoImportTest {
         assertEquals("import \"fmt\"", imports.get(0));
         assertEquals("import \"os\"", imports.get(1));
         assertEquals("import _ \"net/http\"", imports.get(2));
+    }
+
+    @Test
+    void testCouldImportFile_matchesFilesInImportPath() throws Exception {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package main
+                import "myproject/pkg/utils"
+                func main() {}
+                """,
+                        "main.go")
+                .addFileContents("package utils", "pkg/utils/helper.go")
+                .build();
+
+        TreeSitterAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.go");
+        ProjectFile targetFile = new ProjectFile(project.getRoot(), "pkg/utils/helper.go");
+
+        List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+        boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+
+        assertTrue(result, "Should match file in the imported package path");
+    }
+
+    @Test
+    void testCouldImportFile_standardLibraryReturnsFalse() throws Exception {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package main
+                import "fmt"
+                func main() {}
+                """,
+                        "main.go")
+                .build();
+
+        TreeSitterAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.go");
+        ProjectFile targetFile = new ProjectFile(project.getRoot(), "main.go");
+
+        List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+        boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+
+        assertFalse(result, "Standard library import should not match project files");
+    }
+
+    @Test
+    void testCouldImportFile_aliasedImportWorks() throws Exception {
+        IProject project = InlineTestProjectCreator.code(
+                        """
+                package main
+                import f "myproject/pkg/utils"
+                func main() {}
+                """,
+                        "main.go")
+                .addFileContents("package utils", "pkg/utils/helper.go")
+                .build();
+
+        TreeSitterAnalyzer analyzer = new GoAnalyzer(project);
+        ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.go");
+        ProjectFile targetFile = new ProjectFile(project.getRoot(), "pkg/utils/helper.go");
+
+        List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+        boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+
+        assertTrue(result, "Aliased import should still match file in the imported package path");
     }
 }

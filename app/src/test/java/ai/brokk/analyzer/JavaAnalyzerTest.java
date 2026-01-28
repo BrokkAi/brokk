@@ -13,6 +13,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -1189,6 +1190,61 @@ public class JavaAnalyzerTest {
             assertTrue(fieldNames.contains("RAW_LIST"), "Annotated field RAW_LIST should be detected");
             assertEquals(3, fieldNames.size());
         }
+    }
+
+    @Test
+    public void testIsAccessExpressionCommentFiltering() throws IOException {
+        String content =
+                """
+                public class Test {
+                    // Target should not be found
+                    /* Target should not be found */
+                    /** Target in javadoc */
+                    private Target myTarget;
+                    public void main() {
+                        new Target();
+                    }
+                }
+                """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Comments should return false
+            assertIsAccessExpression(analyzer, file, content, "Target", 0, false); // // Target
+            assertIsAccessExpression(analyzer, file, content, "Target", 1, false); // /* Target
+            assertIsAccessExpression(analyzer, file, content, "Target", 2, false); // /** Target
+
+            // Real references should return true
+            // Occurrence 3 is 'private Target myTarget' (type identifier)
+            assertIsAccessExpression(analyzer, file, content, "Target", 3, true);
+            // Occurrence 4 is 'new Target()' (object creation)
+            assertIsAccessExpression(analyzer, file, content, "Target", 4, true);
+        }
+    }
+
+    private void assertIsAccessExpression(
+            JavaAnalyzer analyzer,
+            ProjectFile file,
+            String content,
+            String substring,
+            int occurrence,
+            boolean expected) {
+        int charIdx = -1;
+        for (int i = 0; i <= occurrence; i++) {
+            charIdx = content.indexOf(substring, charIdx + 1);
+        }
+        assertTrue(charIdx >= 0, "Could not find occurrence " + occurrence + " of " + substring);
+
+        int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+        int endByte = startByte + substring.getBytes(StandardCharsets.UTF_8).length;
+
+        assertEquals(
+                expected,
+                analyzer.isAccessExpression(file, startByte, endByte),
+                "Expected isAccessExpression=" + expected + " for '" + substring + "' at occurrence " + occurrence);
     }
 
     @Test

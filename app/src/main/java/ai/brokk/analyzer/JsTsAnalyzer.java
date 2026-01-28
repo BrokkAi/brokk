@@ -172,6 +172,101 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 .collect(Collectors.toSet());
     }
 
+    @Override
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        for (ImportInfo imp : imports) {
+            Optional<String> modulePathOpt = extractModulePathFromImport(imp.rawSnippet());
+            if (modulePathOpt.isEmpty()) {
+                continue;
+            }
+
+            String modulePath = modulePathOpt.get();
+
+            // External/node_modules imports (not starting with . or ..) cannot be project files
+            if (!modulePath.startsWith("./") && !modulePath.startsWith("../")) {
+                continue;
+            }
+
+            if (couldModulePathMatchTarget(modulePath, target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Checks if a relative module path could resolve to the given target file.
+     * This is a conservative text-based check that may have false positives but no false negatives.
+     *
+     * @param modulePath the module path from the import (e.g., "./utils/helper", "../models/User")
+     * @param target the target ProjectFile to check
+     * @return true if the module path could potentially resolve to the target
+     */
+    private boolean couldModulePathMatchTarget(String modulePath, ProjectFile target) {
+        // Normalize the module path by removing leading ./ and ../ segments
+        // We keep track of ".." but for matching purposes we just need the semantic path
+        String normalizedPath = modulePath;
+        while (normalizedPath.startsWith("./") || normalizedPath.startsWith("../")) {
+            if (normalizedPath.startsWith("./")) {
+                normalizedPath = normalizedPath.substring(2);
+            } else if (normalizedPath.startsWith("../")) {
+                normalizedPath = normalizedPath.substring(3);
+            }
+        }
+
+        if (normalizedPath.isEmpty()) {
+            return false;
+        }
+
+        // Get the target's relative path as a string with forward slashes
+        String targetPath = target.getRelPath().toString().replace('\\', '/');
+
+        // Check if the target path ends with the normalized import path
+        // We need to check several variations:
+        // 1. Direct match with extension: utils/helper matches utils/helper.ts
+        // 2. Index file match: utils matches utils/index.ts
+
+        // Strip known extensions from the import path if present
+        String importBasePath = normalizedPath;
+        for (String ext : KNOWN_EXTENSIONS) {
+            if (importBasePath.endsWith(ext)) {
+                importBasePath = importBasePath.substring(0, importBasePath.length() - ext.length());
+                break;
+            }
+        }
+
+        // Strip extension from target to get base path
+        String targetBasePath = targetPath;
+        for (String ext : KNOWN_EXTENSIONS) {
+            if (targetBasePath.endsWith(ext)) {
+                targetBasePath = targetBasePath.substring(0, targetBasePath.length() - ext.length());
+                break;
+            }
+        }
+
+        // Check 1: Direct path match (e.g., "utils/helper" matches "src/utils/helper")
+        if (targetBasePath.endsWith(importBasePath)) {
+            // Make sure we're matching a complete path segment
+            int matchStart = targetBasePath.length() - importBasePath.length();
+            if (matchStart == 0 || targetBasePath.charAt(matchStart - 1) == '/') {
+                return true;
+            }
+        }
+
+        // Check 2: Index file match (e.g., "utils" matches "utils/index")
+        if (targetBasePath.endsWith("/index")) {
+            String dirPath = targetBasePath.substring(0, targetBasePath.length() - "/index".length());
+            if (dirPath.endsWith(importBasePath)) {
+                int matchStart = dirPath.length() - importBasePath.length();
+                if (matchStart == 0 || dirPath.charAt(matchStart - 1) == '/') {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     protected static Optional<String> extractModulePathFromImport(String importStatement) {
         Matcher es6Matcher = ES6_IMPORT_PATTERN.matcher(importStatement);
         if (es6Matcher.find()) return Optional.of(es6Matcher.group(1));
