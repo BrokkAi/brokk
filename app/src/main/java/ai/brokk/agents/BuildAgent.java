@@ -1285,7 +1285,7 @@ public class BuildAgent {
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
             long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
-            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
+            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.UNLIMITED_TIMEOUT;
 
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
