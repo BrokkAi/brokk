@@ -94,6 +94,11 @@ public class FileDropHandlerFactoryTest {
         }
 
         @Override
+        public boolean isTaskInProgress() {
+            return false;
+        }
+
+        @Override
         public CompletableFuture<Void> submitContextTask(Runnable task) {
             // Run synchronously to make assertions straightforward
             task.run();
