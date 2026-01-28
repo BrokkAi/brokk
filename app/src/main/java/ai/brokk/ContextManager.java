@@ -848,7 +848,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return;
             }
             dropAll();
-            setSelectedContext(liveContext());
             return;
         }
 
@@ -1671,8 +1670,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param contextFromHistory The context selected in the UI.
      */
     public void setSelectedContext(Context contextFromHistory) {
-        contextHistory.setSelectedContext(contextFromHistory);
-        notifyContextListeners(contextFromHistory);
+        if (contextHistory.setSelectedContext(contextFromHistory)) {
+            notifyContextListeners(contextFromHistory);
+        }
     }
 
     /**
