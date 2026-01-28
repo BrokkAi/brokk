@@ -39,6 +39,12 @@
     name: (identifier) @field.name)
 ) @field.definition
 
+; Interface constant declarations
+(constant_declaration
+  (variable_declarator
+    name: (identifier) @constant.name)
+) @constant.definition
+
 ; Enum declarations
 (enum_declaration
   name: (identifier) @enum.name) @enum.definition

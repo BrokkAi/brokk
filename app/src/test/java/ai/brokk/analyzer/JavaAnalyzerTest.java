@@ -1090,7 +1090,6 @@ public class JavaAnalyzerTest {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("Issue #2476: Interface constants/fields are not detected")
     public void testInterfaceConstantsFieldsDetection() throws IOException {
         String code =
                 """
@@ -1113,7 +1112,7 @@ public class JavaAnalyzerTest {
             // Verify the fields are detected
             Set<String> fieldNames = declarations.stream()
                     .filter(CodeUnit::isField)
-                    .map(CodeUnit::shortName)
+                    .map(CodeUnit::identifier)
                     .collect(java.util.stream.Collectors.toSet());
 
             assertTrue(
