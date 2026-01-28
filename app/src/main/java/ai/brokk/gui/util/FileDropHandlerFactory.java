@@ -9,6 +9,7 @@ import ai.brokk.gui.Chrome;
 
 import java.awt.datatransfer.DataFlavor;
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -81,9 +82,16 @@ public final class FileDropHandlerFactory {
                             .map(rel -> new ProjectFile(projectRoot, rel))
                             .collect(Collectors.toCollection(LinkedHashSet::new));
 
-                    // External files (absolute paths outside the project root)
+                    // External files (absolute paths outside the project root) - only regular files
                     var externalFiles = allPaths.stream()
                             .filter(p -> !p.startsWith(projectRoot))
+                            .filter(p -> {
+                                boolean isFile = Files.isRegularFile(p);
+                                if (!isFile) {
+                                    logger.debug("Skipping external dropped path (not a regular file): {}", p);
+                                }
+                                return isFile;
+                            })
                             .map(p -> {
                                 try {
                                     var ef = new ExternalFile(p);
