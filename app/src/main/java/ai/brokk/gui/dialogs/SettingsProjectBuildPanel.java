@@ -774,7 +774,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         } else {
             buildNoTimeoutCheckbox.setSelected(false);
             buildTimeoutSpinner.setEnabled(true);
-            buildTimeoutSpinner.setValue((int) runTimeout);
+            buildTimeoutSpinner.setValue(clampTimeoutForSpinner(runTimeout));
         }
 
         long testTimeout = project.getMainProject().getTestCommandTimeoutSeconds();
@@ -784,7 +784,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         } else {
             testNoTimeoutCheckbox.setSelected(false);
             testTimeoutSpinner.setEnabled(true);
-            testTimeoutSpinner.setValue((int) testTimeout);
+            testTimeoutSpinner.setValue(clampTimeoutForSpinner(testTimeout));
         }
 
         populateJdkControlsFromProject();
@@ -1143,5 +1143,18 @@ public class SettingsProjectBuildPanel extends JPanel {
                     "Build Cancelled",
                     JOptionPane.INFORMATION_MESSAGE);
         });
+    }
+
+    /**
+     * Clamps a timeout value to the valid spinner range [1, 10800].
+     * Values <= 0 (except -1 which is handled separately) use the default.
+     * Values > 10800 are clamped to 10800.
+     */
+    private static int clampTimeoutForSpinner(long timeoutSeconds) {
+        if (timeoutSeconds <= 0) {
+            return (int) Environment.DEFAULT_TIMEOUT.toSeconds();
+        }
+        // Clamp to spinner max (10800) and ensure fits in int
+        return (int) Math.min(timeoutSeconds, 10800L);
     }
 }
