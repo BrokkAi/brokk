@@ -1160,6 +1160,35 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testInterfaceConstantsWithGenericsAndAnnotations() throws IOException {
+        String code =
+                """
+                import java.util.List;
+                public interface ComplexConstants {
+                    List<String> ITEMS = List.of("a", "b");
+                    @Deprecated
+                    String DEPRECATED_VAL = "old";
+                    @SuppressWarnings("unchecked")
+                    List RAW_LIST = List.of();
+                }
+                """;
+        try (var testProject = InlineTestProjectCreator.code(code, "ComplexConstants.java").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var declarations = analyzer.getAllDeclarations();
+
+            Set<String> fieldNames = declarations.stream()
+                    .filter(CodeUnit::isField)
+                    .map(CodeUnit::identifier)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            assertTrue(fieldNames.contains("ITEMS"), "Field ITEMS with generics should be detected");
+            assertTrue(fieldNames.contains("DEPRECATED_VAL"), "Annotated field DEPRECATED_VAL should be detected");
+            assertTrue(fieldNames.contains("RAW_LIST"), "Annotated field RAW_LIST should be detected");
+            assertEquals(3, fieldNames.size());
+        }
+    }
+
+    @Test
     public void testSummaryFragmentSupportingFragmentsFiltersNestedAncestors() throws IOException {
         try (var project = InlineTestProjectCreator.code(
                         """
