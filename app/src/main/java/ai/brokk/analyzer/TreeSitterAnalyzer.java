@@ -943,9 +943,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // 3. Phase 1: Filter candidates using cheap text-based matching
         List<ProjectFile> allFiles = List.copyOf(this.state.fileState().keySet());
         int totalFiles = allFiles.size();
-        notifyProgressListener(0, totalFiles, "filtering import candidates");
+        notifyProgressListener(0, totalFiles, "Filtering import candidates");
 
-        var filterReporter = new DebouncedProgressReporter(totalFiles, "filtering import candidates", 100);
+        var filterReporter = new DebouncedProgressReporter(totalFiles, "Filtering import candidates", 100);
         List<ProjectFile> candidates = allFiles.stream()
                 .filter(f -> {
                     boolean matches = couldImportFile(f, fileProperties(f).importStatements(), file);
@@ -957,7 +957,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // 4. Phase 2: Resolve imports for candidates to populate reverse cache
         int totalCandidates = candidates.size();
-        var resolveReporter = new DebouncedProgressReporter(totalCandidates, "resolving candidate imports", 100);
+        var resolveReporter = new DebouncedProgressReporter(totalCandidates, "Resolving candidate imports", 100);
         for (ProjectFile f : candidates) {
             // Calling performImportedCodeUnitsOf ensures forward imports are computed and cached,
             // which also populates lazyImports.reverseCache.
