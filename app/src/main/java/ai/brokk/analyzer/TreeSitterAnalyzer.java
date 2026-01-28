@@ -978,9 +978,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         TSTree targetTree = treeOf(file);
         TSNode targetRoot = targetTree != null ? targetTree.getRootNode() : null;
         SourceContent targetSc = SourceContent.read(file).orElse(null);
-        String targetPkg = (targetRoot != null && targetSc != null)
-                ? determinePackageName(file, null, targetRoot, targetSc)
-                : "";
+        String targetPkg =
+                (targetRoot != null && targetSc != null) ? determinePackageName(file, null, targetRoot, targetSc) : "";
 
         for (ProjectFile candidate : candidates) {
             if (result.contains(candidate)) continue;
