@@ -860,11 +860,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             lazyTrees.forEach((file, tree) -> {
                 FileProperties existing = this.state.fileState().get(file);
                 if (existing != null && existing.parsedTree() == null) {
-                    fileUpdates.put(file, new FileProperties(
-                            existing.topLevelCodeUnits(),
-                            tree,
-                            existing.importStatements(),
-                            existing.containsTests()));
+                    fileUpdates.put(
+                            file,
+                            new FileProperties(
+                                    existing.topLevelCodeUnits(),
+                                    tree,
+                                    existing.importStatements(),
+                                    existing.containsTests()));
                 }
             });
             if (!fileUpdates.isEmpty()) {

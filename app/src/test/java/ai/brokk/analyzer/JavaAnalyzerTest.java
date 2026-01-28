@@ -1207,7 +1207,8 @@ public class JavaAnalyzerTest {
                 }
                 """;
 
-        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
 

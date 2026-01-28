@@ -381,7 +381,7 @@ public class TreeSitterStateIOTest {
         var builder = InlineTestProjectCreator.code(
                 """
                         package com.example;
-                        
+
                         public class Lazy {
                             public void doSomething() {}
                         }
@@ -425,7 +425,8 @@ public class TreeSitterStateIOTest {
             var afterLazySnapshot = loadedAnalyzer.snapshotState();
             var afterLazyFileProps = afterLazySnapshot.fileState().get(file);
             assertNotNull(afterLazyFileProps, "File properties should exist after lazy parsing");
-            assertNotNull(afterLazyFileProps.parsedTree(), "Parsed tree should be present in snapshot after lazy parsing");
+            assertNotNull(
+                    afterLazyFileProps.parsedTree(), "Parsed tree should be present in snapshot after lazy parsing");
         }
     }
 
