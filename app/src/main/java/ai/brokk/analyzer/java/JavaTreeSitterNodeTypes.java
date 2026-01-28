@@ -25,6 +25,7 @@ public final class JavaTreeSitterNodeTypes {
 
     // Field-like declarations
     public static final String ENUM_CONSTANT = "enum_constant";
+    public static final String CONSTANT_DECLARATION = "constant_declaration";
 
     // Package declaration
     public static final String PACKAGE_DECLARATION = "package_declaration";
