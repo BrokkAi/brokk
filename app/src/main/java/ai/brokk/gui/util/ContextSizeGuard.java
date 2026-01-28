@@ -1,7 +1,7 @@
 package ai.brokk.gui.util;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -47,15 +47,18 @@ public final class ContextSizeGuard {
     }
 
     /**
-     * Estimates tokens for a collection of files/directories using file size heuristic.
-     * Does not read file contents - uses bytes/4 approximation.
+     * Estimates tokens for a collection of BrokkFile instances (files or directories)
+     * using a file-size heuristic. Does not read file contents - uses bytes/4 approximation.
      *
      * <p><b>Note:</b> Enumeration stops after {@value #MAX_FILES_TO_ENUMERATE} files globally
      * to avoid performance issues with large directory trees. If truncated, the estimate will
      * undercount the actual token size. The returned {@link SizeEstimate#isTruncated()} flag
      * indicates whether truncation occurred.
+     *
+     * @param files Collection of BrokkFile (may include ProjectFile, ExternalFile, or directories)
+     * @return SizeEstimate containing file count, estimated tokens, and truncation flag
      */
-    public static SizeEstimate estimateTokens(Collection<ProjectFile> files) {
+    public static SizeEstimate estimateTokens(Collection<? extends BrokkFile> files) {
         long totalBytes = 0;
         int fileCount = 0;
         boolean truncated = false;
@@ -106,11 +109,11 @@ public final class ContextSizeGuard {
      * <p><b>Error handling:</b> Uses fail-open policy - if estimation fails, the operation proceeds
      * with a warning notification. This prioritizes usability over strict protection.
      *
-     * @param files Files to add
+     * @param files Files to evaluate (collection of BrokkFile)
      * @param chrome Chrome instance for dialogs and model info
      * @param onDecision Called with the decision result
      */
-    public static void checkAndConfirm(Collection<ProjectFile> files, Chrome chrome, Consumer<Decision> onDecision) {
+    public static void checkAndConfirm(Collection<? extends BrokkFile> files, Chrome chrome, Consumer<Decision> onDecision) {
         LoggingFuture.supplyAsync(() -> estimateTokens(files))
                 .thenAccept(estimate -> {
                     var contextManager = chrome.getContextManager();
