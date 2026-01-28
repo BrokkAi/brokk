@@ -1284,15 +1284,7 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
-            long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
-            Duration timeout;
-            if (timeoutSeconds == -1) {
-                timeout = Environment.UNLIMITED_TIMEOUT;
-            } else if (timeoutSeconds <= 0) {
-                timeout = Environment.DEFAULT_TIMEOUT;
-            } else {
-                timeout = Duration.ofSeconds(timeoutSeconds);
-            }
+            Duration timeout = resolveTimeout(cm.getProject().getRunCommandTimeoutSeconds());
 
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
@@ -1328,15 +1320,7 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
-            long timeoutSeconds = cm.getProject().getTestCommandTimeoutSeconds();
-            Duration timeout;
-            if (timeoutSeconds == -1) {
-                timeout = Environment.UNLIMITED_TIMEOUT;
-            } else if (timeoutSeconds <= 0) {
-                timeout = Environment.DEFAULT_TIMEOUT;
-            } else {
-                timeout = Duration.ofSeconds(timeoutSeconds);
-            }
+            Duration timeout = resolveTimeout(cm.getProject().getTestCommandTimeoutSeconds());
 
             var output = Environment.instance.runShellCommand(
                     command,
@@ -1355,6 +1339,16 @@ public class BuildAgent {
             String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
             return ctx.withBuildResult(false, processed);
+        }
+    }
+
+    private static Duration resolveTimeout(long timeoutSeconds) {
+        if (timeoutSeconds == -1) {
+            return Environment.UNLIMITED_TIMEOUT;
+        } else if (timeoutSeconds <= 0) {
+            return Environment.DEFAULT_TIMEOUT;
+        } else {
+            return Duration.ofSeconds(timeoutSeconds);
         }
     }
 
