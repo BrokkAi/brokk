@@ -966,37 +966,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         resolveReporter.reportFinal();
 
-        // 5. Return the resolved reverse cache result plus same-package candidates.
-        Set<ProjectFile> result = new HashSet<>();
+        // 5. Return the resolved reverse cache result.
         Set<ProjectFile> resolved = lazyImports.getReferencingFiles(file);
-        if (resolved != null) {
-            result.addAll(resolved);
+        if (resolved == null || resolved.isEmpty()) {
+            return Set.of();
         }
-
-        // Same-package visibility: candidates that were filtered in Phase 1 but didn't
-        // necessarily have explicit imports (common in Java).
-        TSTree targetTree = treeOf(file);
-        TSNode targetRoot = targetTree != null ? targetTree.getRootNode() : null;
-        SourceContent targetSc = SourceContent.read(file).orElse(null);
-        String targetPkg =
-                (targetRoot != null && targetSc != null) ? determinePackageName(file, null, targetRoot, targetSc) : "";
-
-        for (ProjectFile candidate : candidates) {
-            if (result.contains(candidate)) continue;
-
-            TSTree candidateTree = treeOf(candidate);
-            TSNode candidateRoot = candidateTree != null ? candidateTree.getRootNode() : null;
-            SourceContent candidateSc = SourceContent.read(candidate).orElse(null);
-            String candidatePkg = (candidateRoot != null && candidateSc != null)
-                    ? determinePackageName(candidate, null, candidateRoot, candidateSc)
-                    : "";
-
-            if (!targetPkg.isEmpty() && candidatePkg.equals(targetPkg)) {
-                result.add(candidate);
-            }
-        }
-
-        return Collections.unmodifiableSet(result);
+        return Collections.unmodifiableSet(new HashSet<>(resolved));
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
