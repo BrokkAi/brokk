@@ -482,12 +482,13 @@ public class SearchPrompts {
 
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
-                        Pruning mandate (do this now):
-                          - In parallel with exploration, prune the Workspace
-                          - **MANDATORY** Drop irrelevant/noise fragments now with dropWorkspaceFragments
-                          - **MANDATORY** Reduce Workspace size: replace large fragments with smaller artifacts (addFileSummariesToWorkspace, addClassSummariesToWorkspace, addMethodsToWorkspace) if reasonable
-                          - When replacing fragments, drop the originals (dropWorkspaceFragments) - no superseded fragments!
-                          - Before re-adding content, check Discarded Context to avoid redoing work
+                        Prune effectively to keep the Workspace focused on your goal:
+                          - In parallel with new exploration, prune the Workspace by dropping less-relevant fragments.
+                            When you do, avoid spending a turn entirely on a dropWorkspaceFragments call; always decide what you need
+                            to do next *besides* pruning, and issue those calls together.
+                          - Replace large, partially-relevant file fragments with concise, goal-focused summaries (or targeted class/method fragments) and drop the originals.
+                          - The Discarded Context fragment provides a record of fragments you have seen and dropped;
+                            avoid re-adding this content unnecessarily.
 
                         %s
 
