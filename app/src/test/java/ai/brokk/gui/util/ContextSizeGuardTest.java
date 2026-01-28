@@ -3,6 +3,7 @@ package ai.brokk.gui.util;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.ExternalFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,5 +46,27 @@ class ContextSizeGuardTest {
 
         assertEquals(2, estimate.fileCount());
         assertEquals(200, estimate.estimatedTokens());
+    }
+
+    @Test
+    void estimateTokens_includesExternalFile() throws IOException {
+        // Project-local file
+        var projectFile = tempDir.resolve("proj.txt");
+        Files.writeString(projectFile, "p".repeat(100));
+
+        // External file (outside project root)
+        var externalPath = Files.createTempFile("external", ".txt").toAbsolutePath().normalize();
+        Files.writeString(externalPath, "e".repeat(300));
+
+        var pf = new ProjectFile(tempDir, tempDir.relativize(projectFile));
+        var ef = new ExternalFile(externalPath);
+
+        var estimate = ContextSizeGuard.estimateTokens(List.of(pf, ef));
+
+        assertEquals(2, estimate.fileCount());
+
+        long expected = (Files.size(projectFile) + Files.size(externalPath)) / 4;
+        assertEquals(expected, estimate.estimatedTokens());
+        assertFalse(estimate.isTruncated());
     }
 }
