@@ -1209,40 +1209,42 @@ public class JavaAnalyzerTest {
 
         try (var testProject =
                 InlineTestProjectCreator.code(content, "Test.java").build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
 
-            // Helper to get byte offsets for a substring occurrence
-            var assertIsAccess = new Object() {
-                void check(String substring, int occurrence, boolean expected) {
-                    int charIdx = -1;
-                    for (int i = 0; i <= occurrence; i++) {
-                        charIdx = content.indexOf(substring, charIdx + 1);
-                    }
-                    assertTrue(charIdx >= 0, "Could not find occurrence " + occurrence + " of " + substring);
-
-                    int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
-                    int endByte = startByte + substring.getBytes(StandardCharsets.UTF_8).length;
-
-                    assertEquals(
-                            expected,
-                            analyzer.isAccessExpression(file, startByte, endByte),
-                            "Expected isAccessExpression=" + expected + " for '" + substring + "' at occurrence "
-                                    + occurrence);
-                }
-            };
-
             // Comments should return false
-            assertIsAccess.check("Target", 0, false); // // Target
-            assertIsAccess.check("Target", 1, false); // /* Target
-            assertIsAccess.check("Target", 2, false); // /** Target
+            assertIsAccessExpression(analyzer, file, content, "Target", 0, false); // // Target
+            assertIsAccessExpression(analyzer, file, content, "Target", 1, false); // /* Target
+            assertIsAccessExpression(analyzer, file, content, "Target", 2, false); // /** Target
 
             // Real references should return true
             // Occurrence 3 is 'private Target myTarget' (type identifier)
-            assertIsAccess.check("Target", 3, true);
+            assertIsAccessExpression(analyzer, file, content, "Target", 3, true);
             // Occurrence 4 is 'new Target()' (object creation)
-            assertIsAccess.check("Target", 4, true);
+            assertIsAccessExpression(analyzer, file, content, "Target", 4, true);
         }
+    }
+
+    private void assertIsAccessExpression(
+            JavaAnalyzer analyzer,
+            ProjectFile file,
+            String content,
+            String substring,
+            int occurrence,
+            boolean expected) {
+        int charIdx = -1;
+        for (int i = 0; i <= occurrence; i++) {
+            charIdx = content.indexOf(substring, charIdx + 1);
+        }
+        assertTrue(charIdx >= 0, "Could not find occurrence " + occurrence + " of " + substring);
+
+        int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+        int endByte = startByte + substring.getBytes(StandardCharsets.UTF_8).length;
+
+        assertEquals(
+                expected,
+                analyzer.isAccessExpression(file, startByte, endByte),
+                "Expected isAccessExpression=" + expected + " for '" + substring + "' at occurrence " + occurrence);
     }
 
     @Test
