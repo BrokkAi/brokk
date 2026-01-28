@@ -38,6 +38,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -167,14 +169,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
-     * Helper class to encapsulate lazy tree caching.
+     * Helper class to encapsulate lazy tree caching with bounded size.
+     * Uses Caffeine cache with eviction to prevent unbounded native memory growth,
+     * since TSTree objects hold native memory through Tree-sitter JNI binding.
      */
     private static final class LazyTreeCache {
-        private final ConcurrentHashMap<ProjectFile, TSTree> cache = new ConcurrentHashMap<>();
+        // Limit cache size to prevent unbounded native memory growth
+        private static final int MAX_CACHE_SIZE = 1000;
+
+        // Note: TSTree native memory is managed by the Tree-sitter JNI binding's garbage collection.
+        // The Caffeine cache provides bounded size to limit memory growth during long sessions.
+        private final Cache<ProjectFile, TSTree> cache = Caffeine.newBuilder()
+                .maximumSize(MAX_CACHE_SIZE)
+                .build();
 
         @Nullable
         TSTree get(ProjectFile file) {
-            return cache.get(file);
+            return cache.getIfPresent(file);
         }
 
         void put(ProjectFile file, TSTree tree) {
@@ -182,11 +193,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         boolean isEmpty() {
-            return cache.isEmpty();
+            return cache.estimatedSize() == 0;
         }
 
         void forEach(BiConsumer<? super ProjectFile, ? super TSTree> action) {
-            cache.forEach(action);
+            cache.asMap().forEach(action);
         }
     }
 
