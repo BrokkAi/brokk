@@ -54,6 +54,10 @@ public class SettingsProjectBuildPanel extends JPanel {
     private JRadioButton runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
     private JSpinner buildTimeoutSpinner =
             new JSpinner(new SpinnerNumberModel((int) Environment.DEFAULT_TIMEOUT.toSeconds(), 1, 10800, 1));
+    private JCheckBox buildNoTimeoutCheckbox = new JCheckBox("No timeout limit");
+    private JSpinner testTimeoutSpinner =
+            new JSpinner(new SpinnerNumberModel((int) Environment.DEFAULT_TIMEOUT.toSeconds(), 1, 10800, 1));
+    private JCheckBox testNoTimeoutCheckbox = new JCheckBox("No timeout limit");
     private JProgressBar buildProgressBar = new JProgressBar();
     private MaterialButton inferBuildDetailsButton = new MaterialButton("Infer Build Details");
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
@@ -260,11 +264,34 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.anchor = GridBagConstraints.WEST;
         buildGbc.fill = GridBagConstraints.NONE;
         buildConfigPanel.add(new JLabel("Run Command Timeout (sec):"), buildGbc);
+
+        var runTimeoutPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        runTimeoutPanel.add(buildTimeoutSpinner);
+        runTimeoutPanel.add(buildNoTimeoutCheckbox);
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
         buildGbc.weightx = 1.0;
         buildGbc.fill = GridBagConstraints.HORIZONTAL;
-        buildConfigPanel.add(buildTimeoutSpinner, buildGbc);
+        buildConfigPanel.add(runTimeoutPanel, buildGbc);
+
+        // Test Command Timeout
+        buildGbc.gridx = 0;
+        buildGbc.gridy = buildRow;
+        buildGbc.weightx = 0.0;
+        buildGbc.fill = GridBagConstraints.NONE;
+        buildConfigPanel.add(new JLabel("Test Command Timeout (sec):"), buildGbc);
+
+        var testTimeoutPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        testTimeoutPanel.add(testTimeoutSpinner);
+        testTimeoutPanel.add(testNoTimeoutCheckbox);
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.weightx = 1.0;
+        buildGbc.fill = GridBagConstraints.HORIZONTAL;
+        buildConfigPanel.add(testTimeoutPanel, buildGbc);
+
+        buildNoTimeoutCheckbox.addActionListener(e -> buildTimeoutSpinner.setEnabled(!buildNoTimeoutCheckbox.isSelected()));
+        testNoTimeoutCheckbox.addActionListener(e -> testTimeoutSpinner.setEnabled(!testNoTimeoutCheckbox.isSelected()));
 
         // Infer/Verify buttons
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -738,7 +765,26 @@ public class SettingsProjectBuildPanel extends JPanel {
             runTestsInWorkspaceRadio.setSelected(true);
         }
 
-        buildTimeoutSpinner.setValue((int) project.getMainProject().getRunCommandTimeoutSeconds());
+        long runTimeout = project.getMainProject().getRunCommandTimeoutSeconds();
+        if (runTimeout == -1) {
+            buildNoTimeoutCheckbox.setSelected(true);
+            buildTimeoutSpinner.setEnabled(false);
+        } else {
+            buildNoTimeoutCheckbox.setSelected(false);
+            buildTimeoutSpinner.setEnabled(true);
+            buildTimeoutSpinner.setValue((int) runTimeout);
+        }
+
+        long testTimeout = project.getMainProject().getTestCommandTimeoutSeconds();
+        if (testTimeout == -1) {
+            testNoTimeoutCheckbox.setSelected(true);
+            testTimeoutSpinner.setEnabled(false);
+        } else {
+            testNoTimeoutCheckbox.setSelected(false);
+            testTimeoutSpinner.setEnabled(true);
+            testTimeoutSpinner.setValue((int) testTimeout);
+        }
+
         populateJdkControlsFromProject();
 
         var selectedLang = project.computedBuildLanguage();
@@ -802,10 +848,17 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         var mainProject = project.getMainProject();
-        long timeout = ((Number) buildTimeoutSpinner.getValue()).longValue();
-        if (timeout != mainProject.getRunCommandTimeoutSeconds()) {
-            mainProject.setRunCommandTimeoutSeconds(timeout);
-            logger.debug("Applied Run Command Timeout: {} seconds", timeout);
+
+        long runTimeout = buildNoTimeoutCheckbox.isSelected() ? -1L : ((Number) buildTimeoutSpinner.getValue()).longValue();
+        if (runTimeout != mainProject.getRunCommandTimeoutSeconds()) {
+            mainProject.setRunCommandTimeoutSeconds(runTimeout);
+            logger.debug("Applied Run Command Timeout: {} seconds", runTimeout);
+        }
+
+        long testTimeout = testNoTimeoutCheckbox.isSelected() ? -1L : ((Number) testTimeoutSpinner.getValue()).longValue();
+        if (testTimeout != mainProject.getTestCommandTimeoutSeconds()) {
+            mainProject.setTestCommandTimeoutSeconds(testTimeout);
+            logger.debug("Applied Test Command Timeout: {} seconds", testTimeout);
         }
 
         // JDK Controls (only for Java)
