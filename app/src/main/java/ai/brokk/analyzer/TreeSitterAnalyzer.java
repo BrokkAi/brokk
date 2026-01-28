@@ -990,7 +990,39 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
-        return fileProperties(file).parsedTree();
+        // 1. Check lazy cache first
+        TSTree cached = lazyTrees.get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Fall back to snapshot properties
+        TSTree snapshotTree = fileProperties(file).parsedTree();
+        if (snapshotTree != null) {
+            return snapshotTree;
+        }
+
+        // 3. Parse on-demand if file exists
+        if (Files.exists(file.absPath())) {
+            try {
+                byte[] bytes = readFileBytes(file, null);
+                if (bytes.length == 0) {
+                    return null;
+                }
+                bytes = TextCanonicalizer.stripUtf8Bom(bytes);
+                String src = new String(bytes, StandardCharsets.UTF_8);
+                TSTree tree = getTSParser().parseString(null, src);
+                if (tree != null) {
+                    lazyTrees.put(file, tree);
+                }
+                return tree;
+            } catch (Exception e) {
+                log.debug("Failed to parse tree on-demand for {}: {}", file, e.getMessage());
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /* ---------- IAnalyzer ---------- */
