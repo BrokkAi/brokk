@@ -1318,10 +1318,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         String bp = data.bigPicture();
         if (bp != null && !bp.isBlank()) {
             bigPicturePanel.setStaticDocument(bp);
-            bigPictureScroll.setVisible(true);
-        } else {
-            bigPictureScroll.setVisible(false);
         }
+        // FIXME no room to show bigpicture
+        bigPictureScroll.setVisible(false);
 
         updateButtonStates();
         if (structuralChange) {
