@@ -345,7 +345,53 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return performReferencingFilesOf(file);
+        Set<ProjectFile> result = new HashSet<>(performReferencingFilesOf(file));
+
+        // Java-specific: add same-package files that actually use the target file.
+        // Files in the same package have implicit visibility, but we only consider them
+        // "referencing" if they contain identifiers matching the target's declarations.
+        List<CodeUnit> targetDecls = getTopLevelDeclarations(file);
+        if (targetDecls.isEmpty()) {
+            return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
+        }
+
+        String targetPackage =
+                targetDecls.stream()
+                        .filter(cu -> cu.isClass() || cu.isModule())
+                        .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                        .findFirst()
+                        .orElse("");
+
+        if (!targetPackage.isEmpty()) {
+            Set<String> targetIdentifiers =
+                    targetDecls.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
+
+            withFileProperties(
+                    fileState -> {
+                        for (ProjectFile candidate : fileState.keySet()) {
+                            if (candidate.equals(file) || result.contains(candidate)) continue;
+
+                            String candidatePackage =
+                                    getTopLevelDeclarations(candidate).stream()
+                                            .filter(cu -> cu.isClass() || cu.isModule())
+                                            .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                                            .findFirst()
+                                            .orElse("");
+
+                            if (targetPackage.equals(candidatePackage)) {
+                                // Check if the candidate actually uses any of target's identifiers
+                                Set<String> candidateSymbols =
+                                        extractTypeIdentifiers(candidate.read().orElse(""));
+                                if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
+                                    result.add(candidate);
+                                }
+                            }
+                        }
+                        return null;
+                    });
+        }
+
+        return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
     }
 
     @Override
