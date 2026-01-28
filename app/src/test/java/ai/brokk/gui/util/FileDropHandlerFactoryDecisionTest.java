@@ -3,8 +3,6 @@ package ai.brokk.gui.util;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.ContextManager;
-import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.project.IProject;
@@ -155,11 +153,10 @@ public class FileDropHandlerFactoryDecisionTest {
         // Stub the size-check seam to synchronously return BLOCKED.
         // We intentionally do NOT show any UI here, simulating that the size guard would have already shown an error.
         final boolean[] blockedObserved = {false};
-        FileDropHandlerFactory.contextSizeChecker =
-                (files, cmIn, ioIn, onDecision) -> {
-                    blockedObserved[0] = true;
-                    onDecision.accept(ContextSizeGuard.Decision.BLOCKED);
-                };
+        FileDropHandlerFactory.contextSizeChecker = (files, cmIn, ioIn, onDecision) -> {
+            blockedObserved[0] = true;
+            onDecision.accept(ContextSizeGuard.Decision.BLOCKED);
+        };
 
         TransferHandler handler = FileDropHandlerFactory.createFileDropHandler(cm, consoleIO);
         var support = supportForFiles(List.of(external.toFile()));

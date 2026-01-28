@@ -106,10 +106,12 @@ public class FileDropHandlerFactoryDirIgnoreTest {
         cm.setIo(consoleIO);
 
         // External directory outside the project root
-        Path externalDir = Files.createTempDirectory("ext-dir-drop").toAbsolutePath().normalize();
+        Path externalDir =
+                Files.createTempDirectory("ext-dir-drop").toAbsolutePath().normalize();
 
         // External regular file outside the project root
-        Path externalFile = Files.createTempFile("ext-file-drop", ".txt").toAbsolutePath().normalize();
+        Path externalFile =
+                Files.createTempFile("ext-file-drop", ".txt").toAbsolutePath().normalize();
         Files.writeString(externalFile, "external file content");
 
         assertFalse(externalDir.startsWith(project.getRoot().toAbsolutePath().normalize()));
@@ -134,10 +136,12 @@ public class FileDropHandlerFactoryDirIgnoreTest {
 
         // The combined collection should include the regular external file but NOT the directory.
         assertTrue(
-                filesParam.stream().anyMatch(f -> f instanceof ExternalFile && f.absPath().equals(externalFile)),
+                filesParam.stream()
+                        .anyMatch(f -> f instanceof ExternalFile && f.absPath().equals(externalFile)),
                 "Expected ExternalFile for the regular external file to be present");
         assertFalse(
-                filesParam.stream().anyMatch(f -> f instanceof ExternalFile && f.absPath().equals(externalDir)),
+                filesParam.stream()
+                        .anyMatch(f -> f instanceof ExternalFile && f.absPath().equals(externalDir)),
                 "Did not expect the external directory to be present as an ExternalFile in the size-check collection");
 
         // No project files should have been added

@@ -49,15 +49,14 @@ public final class FileDropHandlerFactory {
                 java.util.function.Consumer<ContextSizeGuard.Decision> onDecision);
     }
 
-    static ContextSizeChecker contextSizeChecker =
-            (files, contextManager, io, onDecision) -> {
-                if (io instanceof Chrome chrome) {
-                    ContextSizeGuard.checkAndConfirm(files, chrome, onDecision);
-                } else {
-                    throw new IllegalStateException(
-                            "ContextSizeChecker default requires io to be a Chrome; override contextSizeChecker when using the IContextManager overload with a non-Chrome IConsoleIO.");
-                }
-            };
+    static ContextSizeChecker contextSizeChecker = (files, contextManager, io, onDecision) -> {
+        if (io instanceof Chrome chrome) {
+            ContextSizeGuard.checkAndConfirm(files, chrome, onDecision);
+        } else {
+            throw new IllegalStateException(
+                    "ContextSizeChecker default requires io to be a Chrome; override contextSizeChecker when using the IContextManager overload with a non-Chrome IConsoleIO.");
+        }
+    };
 
     static void resetContextSizeCheckerForTests() {
         contextSizeChecker = (files, contextManager, io, onDecision) -> {
