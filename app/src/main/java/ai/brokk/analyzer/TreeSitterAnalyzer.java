@@ -801,7 +801,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty()) {
+        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty() && lazyTrees.isEmpty()) {
             return this.state;
         }
 
@@ -854,10 +854,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             nextImportGraph = ImportGraph.from(forwardUpdates, reverseUpdates);
         }
 
+        PMap<ProjectFile, FileProperties> nextFileState = this.state.fileState();
+        if (!lazyTrees.isEmpty()) {
+            Map<ProjectFile, FileProperties> fileUpdates = new HashMap<>();
+            lazyTrees.forEach((file, tree) -> {
+                FileProperties existing = this.state.fileState().get(file);
+                if (existing != null && existing.parsedTree() == null) {
+                    fileUpdates.put(file, new FileProperties(
+                            existing.topLevelCodeUnits(),
+                            tree,
+                            existing.importStatements(),
+                            existing.containsTests()));
+                }
+            });
+            if (!fileUpdates.isEmpty()) {
+                nextFileState = nextFileState.plusAll(fileUpdates);
+            }
+        }
+
         return new AnalyzerState(
                 this.state.symbolIndex(),
                 nextCodeUnitState,
-                this.state.fileState(),
+                nextFileState,
                 nextImportGraph,
                 nextTypeHierarchyGraph,
                 this.state.symbolKeyIndex(),
