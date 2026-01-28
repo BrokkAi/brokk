@@ -725,7 +725,8 @@ public final class MainProject extends AbstractProject {
         }
         try {
             long seconds = Long.parseLong(valueStr);
-            // Use -1 for unlimited, which is valid to store. Positive values are valid. 0 or other negatives fallback to default.
+            // Use -1 for unlimited, which is valid to store. Positive values are valid. 0 or other negatives fallback
+            // to default.
             return (seconds > 0 || seconds == -1) ? seconds : DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
         } catch (NumberFormatException e) {
             return DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;

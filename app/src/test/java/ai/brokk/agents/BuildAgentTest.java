@@ -10,8 +10,8 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Environment;
 import java.nio.file.Files;
-import java.time.Duration;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -613,7 +613,9 @@ class BuildAgentTest {
             BuildAgent.runVerification(ctx);
 
             assertEquals(
-                    Duration.ofSeconds(45), capturedTimeout.get(), "Verification command should use run-specific timeout");
+                    Duration.ofSeconds(45),
+                    capturedTimeout.get(),
+                    "Verification command should use run-specific timeout");
         } finally {
             Environment.shellCommandRunnerFactory = originalFactory;
         }
