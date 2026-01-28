@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -1114,7 +1115,7 @@ public class JavaAnalyzerTest {
             Set<String> fieldNames = declarations.stream()
                     .filter(CodeUnit::isField)
                     .map(CodeUnit::identifier)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet());
 
             assertTrue(fieldNames.contains("SYNTAX_STYLE_NONE"), "Field SYNTAX_STYLE_NONE should be detected");
             assertTrue(
@@ -1148,7 +1149,7 @@ public class JavaAnalyzerTest {
             Set<String> fieldNames = declarations.stream()
                     .filter(CodeUnit::isField)
                     .map(CodeUnit::identifier)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet());
 
             assertTrue(fieldNames.contains("CONST_A"), "Field CONST_A should be detected");
             assertTrue(fieldNames.contains("CONST_B"), "Field CONST_B should be detected");
@@ -1181,7 +1182,7 @@ public class JavaAnalyzerTest {
             Set<String> fieldNames = declarations.stream()
                     .filter(CodeUnit::isField)
                     .map(CodeUnit::identifier)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet());
 
             assertTrue(fieldNames.contains("ITEMS"), "Field ITEMS with generics should be detected");
             assertTrue(fieldNames.contains("DEPRECATED_VAL"), "Annotated field DEPRECATED_VAL should be detected");
@@ -1223,7 +1224,7 @@ public class JavaAnalyzerTest {
             var ids = frag.supportingFragments().stream()
                     .filter(f -> f instanceof ContextFragments.SummaryFragment)
                     .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet());
 
             assertTrue(ids.contains("p.OuterBase"), "Should contain top-level ancestor p.OuterBase");
             assertFalse(ids.contains("p.InnerBase"), "Should NOT contain nested class ancestor p.InnerBase");
