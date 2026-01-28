@@ -665,73 +665,58 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     @Override
     public boolean isDeclarationReference(ProjectFile file, int startByte, int endByte) {
         TSTree tree = treeOf(file);
-        if (tree == null) {
-            return true;
-        }
+        if (tree == null) return true;
 
         TSNode root = tree.getRootNode();
-        if (root.isNull()) {
-            return true;
-        }
+        if (root.isNull()) return true;
 
-        // Find the most specific node at this byte range
         TSNode node = root.getNamedDescendantForByteRange(startByte, endByte);
-        if (node == null || node.isNull()) {
-            return true;
+        if (node == null || node.isNull()) return true;
+
+        // 1. Check if the node itself or any parent is a comment
+        TSNode walk = node;
+        while (walk != null && !walk.isNull()) {
+            if (isCommentNode(walk)) return false;
+            walk = walk.getParent();
         }
 
-        // 1. Reject comments
-        String type = node.getType();
-        if (type.contains("comment")) {
-            return false;
-        }
-
-        // 2. Walk up to check context
+        // 2. Check if we are in a declaration context (name of a method, field, param, etc.)
         TSNode current = node;
         while (current != null && !current.isNull()) {
-            String nodeType = current.getType();
+            String type = current.getType();
 
-            // If we find these, it's definitely a reference/usage position
-            if (nodeType.equals("method_invocation")
-                    || nodeType.equals("field_access")
-                    || nodeType.equals("object_creation_expression")
-                    || nodeType.equals("type_identifier")
-                    || nodeType.equals("scoped_type_identifier")
-                    || nodeType.equals("marker_annotation")
-                    || nodeType.equals("annotation")
-                    || nodeType.equals("class_literal")
-                    || nodeType.equals("import_declaration")) {
-
-                // Even if inside one of these, check if we are specifically the "name" identifier
-                // of a declaration.
-                TSNode parent = current.getParent();
-                if (parent != null && !parent.isNull()) {
-                    String parentType = parent.getType();
-                    if (parentType.equals(METHOD_DECLARATION)
-                            || parentType.equals(FIELD_DECLARATION)
-                            || parentType.equals(CLASS_DECLARATION)
-                            || parentType.equals(INTERFACE_DECLARATION)
-                            || parentType.equals(ENUM_DECLARATION)
-                            || parentType.equals(RECORD_DECLARATION)
-                            || parentType.equals("variable_declarator")
-                            || parentType.equals("formal_parameter")) {
-
-                        TSNode nameNode = parent.getChildByFieldName("name");
-                        if (nameNode != null && nameNode.getStartByte() == startByte) {
-                            return false; // This is the name of the thing being declared
-                        }
-                    }
-                }
+            // If we hit a known reference/usage node type, it's likely a reference
+            if (type.equals("method_invocation")
+                    || type.equals("field_access")
+                    || type.equals("object_creation_expression")
+                    || type.equals("type_identifier")
+                    || type.equals("scoped_type_identifier")
+                    || type.equals("marker_annotation")
+                    || type.equals(ANNOTATION)
+                    || type.equals("class_literal")
+                    || type.equals("import_declaration")) {
                 return true;
             }
 
-            // Stop walking if we hit a declaration boundary without seeing a reference context
-            if (nodeType.equals(METHOD_DECLARATION)
-                    || nodeType.equals(CLASS_DECLARATION)
-                    || nodeType.equals(FIELD_DECLARATION)) {
-                break;
-            }
+            // If we are the 'name' child of a declaration, it's not a reference
+            TSNode parent = current.getParent();
+            if (parent != null && !parent.isNull()) {
+                String pType = parent.getType();
+                if (pType.equals(METHOD_DECLARATION)
+                        || pType.equals(FIELD_DECLARATION)
+                        || pType.equals(CLASS_DECLARATION)
+                        || pType.equals(INTERFACE_DECLARATION)
+                        || pType.equals(ENUM_DECLARATION)
+                        || pType.equals(RECORD_DECLARATION)
+                        || pType.equals("variable_declarator")
+                        || pType.equals("formal_parameter")) {
 
+                    TSNode nameNode = parent.getChildByFieldName("name");
+                    if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == startByte) {
+                        return false;
+                    }
+                }
+            }
             current = current.getParent();
         }
 
