@@ -1,21 +1,20 @@
 package ai.brokk.gui.util;
 
+import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
-
 import java.awt.datatransfer.DataFlavor;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 import javax.swing.JOptionPane;
 import javax.swing.TransferHandler;
@@ -25,15 +24,59 @@ import org.apache.logging.log4j.Logger;
 /**
  * Factory for creating TransferHandler instances that accept file drops into the workspace.
  *
- * Extended to support files dropped from outside the project root by adding them as ExternalPathFragments.
+ * <p>Extended to support files dropped from outside the project root by adding them as
+ * ExternalPathFragments.
  */
 public final class FileDropHandlerFactory {
     private static final Logger logger = LogManager.getLogger(FileDropHandlerFactory.class);
 
     private FileDropHandlerFactory() {}
 
+    /* Package-private test seam to allow tests to override the ContextSizeGuard check behavior.
+     * Default delegates to production implementation. Generalized to accept IContextManager and IConsoleIO
+     * so tests can exercise the logic without constructing a real Chrome.
+     */
+    interface ContextSizeChecker {
+        void check(
+                Collection<? extends BrokkFile> files,
+                IContextManager contextManager,
+                IConsoleIO io,
+                java.util.function.Consumer<ContextSizeGuard.Decision> onDecision);
+    }
+
+    static ContextSizeChecker contextSizeChecker = (files, contextManager, io, onDecision) ->
+            ContextSizeGuard.checkAndConfirm(files, (Chrome) io, onDecision);
+
+    static void resetContextSizeCheckerForTests() {
+        contextSizeChecker = (files, contextManager, io, onDecision) ->
+                ContextSizeGuard.checkAndConfirm(files, (Chrome) io, onDecision);
+    }
+
+    /**
+     * Creates a {@link TransferHandler} for the given {@link Chrome} that accepts file drops into the workspace.
+     *
+     * <p>This overload is the production entrypoint used by the GUI. It delegates to the
+     * overload that operates on {@link IContextManager} and {@link IConsoleIO} so that tests
+     * can exercise the same logic without constructing a full Chrome.
+     */
     public static TransferHandler createFileDropHandler(Chrome chrome) {
-        var contextManager = chrome.getContextManager();
+        return createFileDropHandler(chrome.getContextManager(), chrome);
+    }
+
+    /**
+     * Core implementation of the drag-and-drop handler. Accepts an {@link IContextManager} and
+     * {@link IConsoleIO} so tests can provide lightweight fakes instead of constructing a full Chrome.
+     *
+     * <p>The handler:
+     * <ul>
+     *   <li>Partitions dropped files into project-internal {@link ProjectFile}s and external {@link ExternalFile}s.</li>
+     *   <li>Runs a size check via {@link ContextSizeGuard} (through the {@link #contextSizeChecker} seam).</li>
+     *   <li>Adds project files via {@code contextManager.addFiles}.</li>
+     *   <li>Adds external files as {@code ExternalPathFragment}s via {@link ContextFragment#toPathFragment}.</li>
+     * </ul>
+     */
+    public static TransferHandler createFileDropHandler(IContextManager contextManager, IConsoleIO io) {
+        var cm = contextManager;
         return new TransferHandler() {
             @Override
             public boolean canImport(TransferSupport support) {
@@ -46,8 +89,9 @@ public final class FileDropHandlerFactory {
                     return false;
                 }
 
-                if (contextManager.isLlmTaskInProgress()) {
-                    chrome.systemNotify(
+                // If we have a concrete ContextManager, prefer its isLlmTaskInProgress check; otherwise assume safe.
+                if (cm instanceof ContextManager cmConcrete && cmConcrete.isLlmTaskInProgress()) {
+                    io.systemNotify(
                             "Cannot add to workspace while an action is running.",
                             "Workspace",
                             JOptionPane.INFORMATION_MESSAGE);
@@ -62,7 +106,7 @@ public final class FileDropHandlerFactory {
                         return false;
                     }
 
-                    Path projectRoot = contextManager
+                    Path projectRoot = cm
                             .getProject()
                             .getRoot()
                             .toAbsolutePath()
@@ -107,7 +151,7 @@ public final class FileDropHandlerFactory {
 
                     if (projectFiles.isEmpty() && externalFiles.isEmpty()) {
                         // Preserve existing behavior for empty/unused drops
-                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No project files found in drop");
+                        io.showNotification(IConsoleIO.NotificationRole.INFO, "No project files found in drop");
                         return false;
                     }
 
@@ -116,31 +160,41 @@ public final class FileDropHandlerFactory {
                     combined.addAll(projectFiles);
                     combined.addAll(externalFiles);
 
-                    // Check size and confirm before adding large content
-                    ContextSizeGuard.checkAndConfirm(combined, chrome, decision -> {
+                    // Check size and confirm before adding large content (goes through test seam)
+                    contextSizeChecker.check(combined, cm, io, decision -> {
                         if (decision == ContextSizeGuard.Decision.ALLOW) {
-                            // Run additions off the EDT
-                            contextManager.submitContextTask(() -> {
+                            // Build the runnable to add files/fragments
+                            Runnable additionTask = () -> {
                                 try {
                                     if (!projectFiles.isEmpty()) {
-                                        contextManager.addFiles(projectFiles);
+                                        cm.addFiles(projectFiles);
                                     }
                                     if (!externalFiles.isEmpty()) {
                                         // Convert ExternalFile -> PathFragments and add them
                                         var fragments = externalFiles.stream()
-                                                .map(bf -> ContextFragment.toPathFragment(bf, contextManager))
+                                                .map(bf -> ContextFragment.toPathFragment(bf, cm))
                                                 .collect(Collectors.toCollection(LinkedHashSet::new));
-                                        logger.info("Adding {} external file(s) to context: {}", fragments.size(), externalFiles);
-                                        contextManager.addFragments(fragments);
+                                        logger.info(
+                                                "Adding {} external file(s) to context: {}",
+                                                fragments.size(),
+                                                externalFiles);
+                                        cm.addFragments(fragments);
                                     }
                                 } catch (Exception ex) {
                                     logger.error("Error adding dropped files to context", ex);
-                                    // Use chrome.toolError on EDT if necessary
-                                    chrome.toolError("Failed to add dropped files: " + ex.getMessage());
+                                    io.toolError("Failed to add dropped files: " + ex.getMessage());
                                 }
-                            });
+                            };
+
+                            // Prefer ContextManager.submitContextTask when available for correct task scoping;
+                            // otherwise fall back to the generic submitBackgroundTask.
+                            if (cm instanceof ContextManager cmConcrete) {
+                                cmConcrete.submitContextTask(additionTask);
+                            } else {
+                                cm.submitBackgroundTask("Add dropped files", additionTask);
+                            }
                         } else if (decision == ContextSizeGuard.Decision.CANCELLED) {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
+                            io.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
                         }
                         // BLOCKED case already shows error dialog in checkAndConfirm
                     });
@@ -148,7 +202,7 @@ public final class FileDropHandlerFactory {
                     return true;
                 } catch (Exception ex) {
                     logger.error("Error importing dropped files into workspace", ex);
-                    chrome.toolError("Failed to import dropped files: " + ex.getMessage());
+                    io.toolError("Failed to import dropped files: " + ex.getMessage());
                     return false;
                 }
             }
