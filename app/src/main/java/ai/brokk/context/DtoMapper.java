@@ -26,6 +26,7 @@ import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -258,7 +259,8 @@ public class DtoMapper {
         var messages = dto.messages().stream()
                 .map(msgDto -> fromChatMessageDto(msgDto, reader))
                 .toList();
-        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.taskDescription());
+        return new ContextFragments.TaskFragment(
+                dto.id(), mgr, messages, dto.taskDescription() == null ? "" : dto.taskDescription());
     }
 
     private static @Nullable ContextFragment _buildVirtualFragment(
@@ -581,7 +583,7 @@ public class DtoMapper {
             }
             case "system" -> SystemMessage.from(content);
             case "custom" -> {
-                Map<String, Object> attrs = new java.util.HashMap<>();
+                Map<String, Object> attrs = new HashMap<>();
                 if (dto.attributes() != null) {
                     attrs.putAll(dto.attributes());
                 }
