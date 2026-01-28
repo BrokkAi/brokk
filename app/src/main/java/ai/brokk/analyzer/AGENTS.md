@@ -21,11 +21,7 @@
 1. **Extraction**: Extract text from AST nodes using `sourceContent.substringFrom(TSNode node)` — this correctly handles multi-byte Unicode characters.
 1. **Avoid manual calculations**: Avoid manual byte-to-char offset calculations; the `SourceContent` helper methods (`substringFromBytes`, `byteOffsetToCharPosition`, `charPositionToByteOffset`) handle edge cases.
 
-### 4. Writing Analyzer Tests
-1. **No reflection**: Do not use reflection in tests to access analyzer internals or invoke methods. If a method needs to be tested but is not accessible, ask to relax its visibility in the source file instead of using reflection to work around it.
-2. **Disable failing tests, do not remove them**: If a test does not pass due to a known limitation or pending implementation, annotate it with `@Disabled("reason")` rather than deleting it. This preserves the test as documentation of expected behavior and ensures it can be re-enabled once the underlying issue is fixed.
-
-### 5. Analyzer Snapshot Architecture
+### 4. Analyzer Snapshot Architecture
 1. **Immutability**: Analyzers are **immutable snapshots** of the project state at a point in time.
 1. **Update behavior**: Calling `analyzer.update()` returns a **new** analyzer instance; it does not mutate the existing one. Instance fields on an analyzer represent the state of that specific snapshot and should not be modified.
 1. **Persistent State**: If state needs to persist across `update()` calls (e.g., caches, indexes), it must be stored in the `AnalyzerState` record.
