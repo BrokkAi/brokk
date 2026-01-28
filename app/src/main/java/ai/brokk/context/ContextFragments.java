@@ -189,7 +189,8 @@ public class ContextFragments {
         protected final String id;
         protected final IContextManager contextManager;
         // desc and shortDesc are broken out so that DiffService only has to block for the very few
-        // fragments that don't know their description right away, instead of the many fragments that don't know their text()
+        // fragments that don't know their description right away, instead of the many fragments that don't know their
+        // text()
         protected final ComputedValue<String> descriptionCv;
         protected final ComputedValue<String> shortDescriptionCv;
         protected final ComputedValue<String> syntaxStyleCv;
@@ -239,14 +240,18 @@ public class ContextFragments {
                     : ComputedValue.completed("snap-" + id, initialSnapshot);
         }
 
+        private ComputedValue<Void> allReadyCv() {
+            return ComputedValue.allOf(descriptionCv, shortDescriptionCv, syntaxStyleCv, snapshotCv);
+        }
+
         @Override
         public boolean await(Duration timeout) throws InterruptedException {
-            return snapshotCv.await(timeout).isPresent();
+            return allReadyCv().await(timeout).isPresent();
         }
 
         @Override
         public ComputedValue.Subscription onComplete(Runnable runnable) {
-            return snapshotCv.onComplete((v, ex) -> runnable.run());
+            return allReadyCv().onComplete((v, ex) -> runnable.run());
         }
 
         @Override
