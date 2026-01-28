@@ -355,40 +355,37 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
         }
 
-        String targetPackage =
-                targetDecls.stream()
-                        .filter(cu -> cu.isClass() || cu.isModule())
-                        .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
-                        .findFirst()
-                        .orElse("");
+        String targetPackage = targetDecls.stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                .findFirst()
+                .orElse("");
 
         if (!targetPackage.isEmpty()) {
             Set<String> targetIdentifiers =
                     targetDecls.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
 
-            withFileProperties(
-                    fileState -> {
-                        for (ProjectFile candidate : fileState.keySet()) {
-                            if (candidate.equals(file) || result.contains(candidate)) continue;
+            withFileProperties(fileState -> {
+                for (ProjectFile candidate : fileState.keySet()) {
+                    if (candidate.equals(file) || result.contains(candidate)) continue;
 
-                            String candidatePackage =
-                                    getTopLevelDeclarations(candidate).stream()
-                                            .filter(cu -> cu.isClass() || cu.isModule())
-                                            .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
-                                            .findFirst()
-                                            .orElse("");
+                    String candidatePackage = getTopLevelDeclarations(candidate).stream()
+                            .filter(cu -> cu.isClass() || cu.isModule())
+                            .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                            .findFirst()
+                            .orElse("");
 
-                            if (targetPackage.equals(candidatePackage)) {
-                                // Check if the candidate actually uses any of target's identifiers
-                                Set<String> candidateSymbols =
-                                        extractTypeIdentifiers(candidate.read().orElse(""));
-                                if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
-                                    result.add(candidate);
-                                }
-                            }
+                    if (targetPackage.equals(candidatePackage)) {
+                        // Check if the candidate actually uses any of target's identifiers
+                        Set<String> candidateSymbols =
+                                extractTypeIdentifiers(candidate.read().orElse(""));
+                        if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
+                            result.add(candidate);
                         }
-                        return null;
-                    });
+                    }
+                }
+                return null;
+            });
         }
 
         return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
