@@ -966,28 +966,33 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         resolveReporter.reportFinal();
 
-        // 5. Return the resolved reverse cache result, plus candidates that implicitly reference
-        // the file (e.g. same package in Java) even without an explicit import.
-        Set<ProjectFile> resolved = lazyImports.getReferencingFiles(file);
+        // 5. Return the resolved reverse cache result plus same-package candidates.
         Set<ProjectFile> result = new HashSet<>();
+        Set<ProjectFile> resolved = lazyImports.getReferencingFiles(file);
         if (resolved != null) {
             result.addAll(resolved);
         }
 
-        String targetPkg = fileProperties(file).topLevelCodeUnits().stream()
-                .map(CodeUnit::packageName)
-                .findFirst()
-                .orElse("");
+        // Same-package visibility: candidates that were filtered in Phase 1 but didn't
+        // necessarily have explicit imports (common in Java).
+        TSTree targetTree = treeOf(file);
+        TSNode targetRoot = targetTree != null ? targetTree.getRootNode() : null;
+        SourceContent targetSc = SourceContent.read(file).orElse(null);
+        String targetPkg = (targetRoot != null && targetSc != null)
+                ? determinePackageName(file, null, targetRoot, targetSc)
+                : "";
 
         for (ProjectFile candidate : candidates) {
             if (result.contains(candidate)) continue;
 
-            String candidatePkg = fileProperties(candidate).topLevelCodeUnits().stream()
-                    .map(CodeUnit::packageName)
-                    .findFirst()
-                    .orElse("");
+            TSTree candidateTree = treeOf(candidate);
+            TSNode candidateRoot = candidateTree != null ? candidateTree.getRootNode() : null;
+            SourceContent candidateSc = SourceContent.read(candidate).orElse(null);
+            String candidatePkg = (candidateRoot != null && candidateSc != null)
+                    ? determinePackageName(candidate, null, candidateRoot, candidateSc)
+                    : "";
 
-            if (!targetPkg.isEmpty() && targetPkg.equals(candidatePkg)) {
+            if (!targetPkg.isEmpty() && candidatePkg.equals(targetPkg)) {
                 result.add(candidate);
             }
         }
