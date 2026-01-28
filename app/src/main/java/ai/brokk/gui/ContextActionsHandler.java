@@ -782,7 +782,7 @@ public class ContextActionsHandler {
                 .liveContext()
                 .allFragments()
                 .filter(cf -> cf.getType().includeInProjectGuide())
-                .flatMap(cf -> cf.files().join().stream())
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .filter(pf -> ContextManager.isTestFile(pf, analyzer))
                 .collect(Collectors.toSet()));
     }
