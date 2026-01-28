@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.TaskResult;
 import ai.brokk.project.ModelProperties.ModelType;
 import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.SystemMessage;
@@ -93,7 +94,7 @@ public class BuildOutputPreprocessor {
 
         // Limit build output to fit within token constraints
         var model = cm.getService().getModel(ModelType.BUILD_PROCESSOR);
-        var llm = cm.getLlm(model, "BuildOutputPreprocessor");
+        var llm = cm.getLlm(model, "BuildOutputPreprocessor", TaskResult.Type.SUMMARIZE);
         String truncatedOutput = truncateToTokenLimit(buildOutput, model, cm);
         return preprocessOutput(truncatedOutput, cm, llm);
     }

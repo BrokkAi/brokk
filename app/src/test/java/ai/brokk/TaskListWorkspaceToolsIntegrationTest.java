@@ -24,13 +24,16 @@ public class TaskListWorkspaceToolsIntegrationTest {
         var wst = new WorkspaceTools(context);
 
         var explanation = "Building feature X requires these steps";
-        var tasks = List.of("Step 1: Design API", "Step 2: Implement", "Step 3: Test");
+        var tasks = List.of(
+                new WorkspaceTools.TaskListEntry("Task 1", "Step 1: Design API", "loc1", "disc1"),
+                new WorkspaceTools.TaskListEntry("Task 2", "Step 2: Implement", "loc2", "disc2"),
+                new WorkspaceTools.TaskListEntry("Task 3", "Step 3: Test", "loc3", "disc3"));
 
         var result = wst.createOrReplaceTaskList(explanation, tasks);
 
-        assertTrue(result.contains("Step 1: Design API"));
-        assertTrue(result.contains("Step 2: Implement"));
-        assertTrue(result.contains("Step 3: Test"));
+        assertTrue(result.contains("Task 1"));
+        assertTrue(result.contains("Task 2"));
+        assertTrue(result.contains("Task 3"));
 
         var updatedContext = wst.getContext();
         var data = updatedContext.getTaskListDataOrEmpty();
@@ -43,17 +46,21 @@ public class TaskListWorkspaceToolsIntegrationTest {
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
-        wst.createOrReplaceTaskList("Initial", List.of("Task A"));
+        wst.createOrReplaceTaskList("Initial", List.of(new WorkspaceTools.TaskListEntry("T1", "Task A", "", "")));
         var c1 = wst.getContext();
         assertEquals(1, c1.getTaskListDataOrEmpty().tasks().size());
 
         // Replace with new list (immutably updating WorkspaceTools context)
         wst.setContext(c1);
-        wst.createOrReplaceTaskList("Replace", List.of("Task B", "Task C"));
+        wst.createOrReplaceTaskList(
+                "Replace",
+                List.of(
+                        new WorkspaceTools.TaskListEntry("T2", "Task B", "", ""),
+                        new WorkspaceTools.TaskListEntry("T3", "Task C", "", "")));
         var c2 = wst.getContext();
         assertEquals(2, c2.getTaskListDataOrEmpty().tasks().size());
-        assertEquals("Task B", c2.getTaskListDataOrEmpty().tasks().get(0).text());
-        assertEquals("Task C", c2.getTaskListDataOrEmpty().tasks().get(1).text());
+        assertEquals("T2", c2.getTaskListDataOrEmpty().tasks().get(0).title());
+        assertEquals("T3", c2.getTaskListDataOrEmpty().tasks().get(1).title());
     }
 
     @Test
@@ -62,13 +69,16 @@ public class TaskListWorkspaceToolsIntegrationTest {
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
-        var tasks = List.of("Fix bug in parser", "Add error handling", "Update docs");
+        var tasks = List.of(
+                new WorkspaceTools.TaskListEntry("Fix Parser", "Fix bug in parser", "", ""),
+                new WorkspaceTools.TaskListEntry("Errors", "Add error handling", "", ""),
+                new WorkspaceTools.TaskListEntry("Docs", "Update docs", "", ""));
         var result = wst.createOrReplaceTaskList("Bug fix sprint", tasks);
 
         assertTrue(result.contains("# Task List"));
-        assertTrue(result.contains("1. Fix bug in parser"));
-        assertTrue(result.contains("2. Add error handling"));
-        assertTrue(result.contains("3. Update docs"));
+        assertTrue(result.contains("1. Fix Parser"));
+        assertTrue(result.contains("2. Errors"));
+        assertTrue(result.contains("3. Docs"));
     }
 
     @Test
@@ -81,13 +91,14 @@ public class TaskListWorkspaceToolsIntegrationTest {
         var c1 = initial.withTaskList(mixed);
 
         var wst = new WorkspaceTools(c1);
-        wst.createOrReplaceTaskList("Fresh start", List.of("New task"));
+        wst.createOrReplaceTaskList(
+                "Fresh start", List.of(new WorkspaceTools.TaskListEntry("New", "New task", "", "")));
 
         var updated = wst.getContext();
         var data = updated.getTaskListDataOrEmpty();
         assertEquals(1, data.tasks().size());
-        assertEquals("New task", data.tasks().get(0).text());
-        assertTrue(data.tasks().stream().noneMatch(t -> t.text().equals("Completed")));
+        assertEquals("New", data.tasks().get(0).title());
+        assertTrue(data.tasks().stream().noneMatch(t -> t.title().equals("Done")));
     }
 
     @Test
@@ -97,7 +108,9 @@ public class TaskListWorkspaceToolsIntegrationTest {
         var wst = new WorkspaceTools(context);
 
         var explanation = "This is the big picture explanation for the task list";
-        var tasks = List.of("Task 1", "Task 2");
+        var tasks = List.of(
+                new WorkspaceTools.TaskListEntry("T1", "Task 1", "", ""),
+                new WorkspaceTools.TaskListEntry("T2", "Task 2", "", ""));
 
         wst.createOrReplaceTaskList(explanation, tasks);
 
@@ -109,20 +122,21 @@ public class TaskListWorkspaceToolsIntegrationTest {
     }
 
     @Test
-    void workspaceTools_taskTitlesAutoSummarized_inBothMethods() {
+    void workspaceTools_taskTitlesExplicitlySet() {
         var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
         var longTaskDescription =
                 "This is a very long task description that would benefit from auto-summarization to fit nicely in the UI";
-        wst.createOrReplaceTaskList("Init", List.of(longTaskDescription));
+        var explicitTitle = "Summarized Title";
+        wst.createOrReplaceTaskList(
+                "Init", List.of(new WorkspaceTools.TaskListEntry(explicitTitle, longTaskDescription, "", "")));
 
         var data = wst.getContext().getTaskListDataOrEmpty();
         var task = data.tasks().get(0);
 
-        assertNotNull(task.title());
-        assertFalse(task.title().isEmpty());
-        assertEquals(longTaskDescription, task.text());
+        assertEquals(explicitTitle, task.title());
+        assertTrue(task.text().contains(longTaskDescription));
     }
 }

@@ -1,6 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -618,7 +619,9 @@ public class SettingsProjectBuildPanel extends JPanel {
             try {
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting Build Agent...");
                 var agent = new BuildAgent(
-                        proj, cm.getLlm(cm.getService().getScanModel(), "Infer build details"), cm.getToolRegistry());
+                        proj,
+                        cm.getLlm(cm.getService().getScanModel(), "Infer build details", TaskResult.Type.NONE),
+                        cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
                 // Check if task was cancelled during execution

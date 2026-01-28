@@ -9,6 +9,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -373,33 +374,6 @@ public class WorkspaceTools {
         return "Added %d method source(s).".formatted(addedCount);
     }
 
-    @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use for factual excerpts and cross-fragment synthesis when keeping full text is unnecessary. Describe what IS, not what SHOULD BE — no action items for the Code Agent.")
-    public String appendNote(
-            @P("Markdown content to append. Factual observations only — no action items for the Code Agent.")
-                    String markdown) {
-        if (markdown.isBlank()) {
-            return "Ignoring empty Note";
-        }
-
-        var existed =
-                context.getSpecial(SpecialTextType.SEARCH_NOTES.description()).isPresent();
-
-        var current = context.getSpecial(SpecialTextType.SEARCH_NOTES.description())
-                .map(ContextFragment::text)
-                .map(ComputedValue::join)
-                .orElse("");
-        var updated = current.isBlank() ? markdown : current + "\n\n" + markdown;
-        context = context.withSpecial(SpecialTextType.SEARCH_NOTES, updated);
-
-        logger.debug(
-                "appendNote: {} Task Notes fragment ({} chars).",
-                existed ? "updated existing" : "created new",
-                markdown.length());
-
-        return existed ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
-    }
-
     /**
      * Tools that require an analyzer with SkeletonProvider/SourceCodeProvider capabilities.
      * These should only be offered when the project has at least one analyzed language.
@@ -474,8 +448,27 @@ public class WorkspaceTools {
             - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
 
             Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
-            `tasks` is a List<String> - if you have N tasks, output N list elements.
             """;
+
+    public record TaskListEntry(
+            @P("Short display title for the task.") String title,
+            @P("The full task description (Markdown encouraged).") String instructions,
+            @P("Files and fully qualified method/class names important to implement the task.") String keyLocations,
+            @P(
+                            "Useful discoveries from OUTSIDE the key locations. Note: the Workspace will change as tasks are loaded and executed, so you must capture important discoveries here to preserve them for future tasks.")
+                    String keyDiscoveries) {
+
+        public TaskList.TaskItem toTaskItem() {
+            String combinedText = instructions.strip();
+            if (!keyLocations.isBlank()) {
+                combinedText += "\n\n**Key Locations:**\n" + keyLocations.strip();
+            }
+            if (!keyDiscoveries.isBlank()) {
+                combinedText += "\n\n**Key Discoveries:**\n" + keyDiscoveries.strip();
+            }
+            return new TaskList.TaskItem(title.strip(), combinedText, false);
+        }
+    }
 
     @Tool(
             value =
@@ -484,18 +477,21 @@ public class WorkspaceTools {
             @P(
                             "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown. Include touch points for files, classes, and tests.")
                     String explanation,
-            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
+            @P(TASK_LIST_GUIDANCE) List<TaskListEntry> tasks) {
         logger.debug("createOrReplaceTaskList selected with {} tasks", tasks.size());
         if (tasks.isEmpty()) {
             return "No tasks provided.";
         }
 
+        List<TaskList.TaskItem> taskItems =
+                tasks.stream().map(TaskListEntry::toTaskItem).toList();
+
         var cm = context.getContextManager();
-        // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
-        context = cm.createOrReplaceTaskList(context, explanation, tasks);
+        // Delegate to ContextManager to ensure centralized refresh via setTaskList
+        context = cm.createOrReplaceTaskList(context, explanation, taskItems);
 
         var lines = IntStream.range(0, tasks.size())
-                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i).title())
                 .collect(Collectors.joining("\n"));
         var formattedTaskList = "# Task List\n" + lines + "\n";
 

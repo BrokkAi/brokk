@@ -94,9 +94,11 @@ public final class MergeOneFile {
     public Outcome merge() throws InterruptedException {
         var repo = (GitRepo) cm.getProject().getRepo();
         var file = conflict.file();
-        var llm =
-                cm.getLlm(new Llm.Options(planningModel, "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file))
-                        .withEcho());
+        var llm = cm.getLlm(new Llm.Options(
+                        planningModel,
+                        "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file),
+                        TaskResult.Type.MERGE)
+                .withEcho());
         llm.setOutput(io);
 
         // refine the progress bar total to reflect merge complexity

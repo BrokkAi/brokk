@@ -170,26 +170,22 @@ public class ContextHistory {
     }
 
     /**
-     * Returns {@code true} iff {@code ctx} is present in history.
-     *
      * @param ctx the context to check
-     * @return {@code true} iff {@code ctx} is present in history.
+     * @return {@code true} if the new selection differs from the old
      */
     public synchronized boolean setSelectedContext(@Nullable Context ctx) {
-        if (ctx != null && getContextIds().contains(ctx.id())) {
-            selected = ctx;
-            // Ensure diffs for the selected context start computing
-            diffService.diff(selected);
-            return true;
+        if (ctx == null || !getContextIds().contains(ctx.id())) {
+            throw new IllegalArgumentException("Attempted to select context not present in history");
         }
-        if (logger.isWarnEnabled()) {
-            logger.warn(
-                    "Attempted to select context {} not present in history (history size: {}, available contexts: {})",
-                    ctx == null ? "null" : ctx,
-                    history.size(),
-                    history.stream().map(ac -> ac.context.toString()).collect(Collectors.joining(", ")));
+
+        if (Objects.equals(selected, ctx)) {
+            return false;
         }
-        return false;
+
+        selected = ctx;
+        // Ensure diffs for the selected context start computing
+        diffService.diff(selected);
+        return true;
     }
 
     public Context push(Function<Context, Context> contextGenerator) {

@@ -103,8 +103,10 @@ public class TreeSitterStateIOTest {
             assertTrue(loaded instanceof CppAnalyzer, "Loaded analyzer is not CppAnalyzer");
             CppAnalyzer loadedCpp = (CppAnalyzer) loaded;
 
-            // After deserialization, treeOf(...) should be null (not persisted)
-            assertNull(loadedCpp.treeOf(cppFile), "Expected no parse tree after deserialization");
+            // After deserialization, verify the tree is not in the snapshot state (not persisted)
+            var loadedProps = loadedCpp.snapshotState().fileState().get(cppFile);
+            assertNotNull(loadedProps);
+            assertNull(loadedProps.parsedTree(), "Expected no parse tree in the serialized state");
 
             // Modify the C++ file on disk
             Files.writeString(
@@ -371,6 +373,61 @@ public class TreeSitterStateIOTest {
         var loadedDto = TreeSitterStateIO.toDto(loadedOpt.get());
         assertEquals(originalDto, loadedDto, "Round-trip should preserve all fields including containsTests");
         assertTrue(loadedDto.fileState().getFirst().value().containsTests(), "containsTests=true should be preserved");
+    }
+
+    @Test
+    void lazyTreeParsingAfterRoundtrip(@TempDir Path tempDir) throws Exception {
+        // 1. Create test project with a Java file
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package com.example;
+
+                        public class Lazy {
+                            public void doSomething() {}
+                        }
+                        """,
+                "src/main/java/com/example/Lazy.java");
+
+        try (IProject project = builder.build()) {
+            // 2. Create JavaAnalyzer and get ProjectFile reference
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            ProjectFile file = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Lazy.java"));
+
+            // Verify the original analyzer has the tree parsed
+            assertNotNull(analyzer.treeOf(file), "Original analyzer should have parsed tree");
+
+            // 3. Save state to temp file
+            Path stateFile = tempDir.resolve("lazy_test.smile.gz");
+            TreeSitterStateIO.save(analyzer.snapshotState(), stateFile);
+            assertTrue(Files.exists(stateFile), "State file should exist after save");
+
+            // 4. Load state from file
+            var loadedStateOpt = TreeSitterStateIO.load(stateFile);
+            assertTrue(loadedStateOpt.isPresent(), "Should successfully load state");
+            var loadedState = loadedStateOpt.get();
+
+            // 5. Create new analyzer from loaded state
+            JavaAnalyzer loadedAnalyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+
+            // 6. Verify that initially parsedTree is null in the snapshot (trees are not serialized)
+            var initialSnapshot = loadedAnalyzer.snapshotState();
+            var initialFileProps = initialSnapshot.fileState().get(file);
+            assertNotNull(initialFileProps, "File properties should exist in loaded state");
+            assertNull(initialFileProps.parsedTree(), "Parsed tree should be null in initial snapshot");
+
+            // 7. Call treeOf to trigger lazy parsing
+            var lazyParsedTree = loadedAnalyzer.treeOf(file);
+
+            // 8. Assert the returned tree is not null
+            assertNotNull(lazyParsedTree, "treeOf should return non-null tree after lazy parsing");
+
+            // 9. Call snapshotState() and verify tree is now in the snapshot's fileState
+            var afterLazySnapshot = loadedAnalyzer.snapshotState();
+            var afterLazyFileProps = afterLazySnapshot.fileState().get(file);
+            assertNotNull(afterLazyFileProps, "File properties should exist after lazy parsing");
+            assertNotNull(
+                    afterLazyFileProps.parsedTree(), "Parsed tree should be present in snapshot after lazy parsing");
+        }
     }
 
     @Test

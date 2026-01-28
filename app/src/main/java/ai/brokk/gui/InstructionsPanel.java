@@ -1777,7 +1777,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         Context ctx = cm.liveContext();
         messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
 
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question, TaskResult.Type.ASK).withEcho());
         return executeAskCommand(llm, messages, cm, question, meta);
     }
 

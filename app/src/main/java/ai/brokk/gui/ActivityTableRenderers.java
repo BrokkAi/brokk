@@ -201,7 +201,7 @@ public final class ActivityTableRenderers {
                 case SEARCH -> {
                     return Icons.SEARCH;
                 }
-                case CONTEXT -> {
+                case SCAN -> {
                     return Icons.CONTEXT;
                 }
                 case MERGE -> {

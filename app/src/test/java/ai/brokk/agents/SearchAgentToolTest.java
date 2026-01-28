@@ -182,7 +182,7 @@ class SearchAgentToolTest {
             }
         };
 
-        // Hygiene only: simulate a context mutation (as if appendNote/dropWorkspaceFragments ran),
+        // Hygiene only: simulate a context mutation (as if dropWorkspaceFragments ran),
         // but without invoking WorkspaceTools (which may scan /tmp and fail on systemd-private dirs).
         {
             WorkspaceTools wst = new WorkspaceTools(cm.liveContext());
@@ -194,8 +194,8 @@ class SearchAgentToolTest {
             boolean executedNonHygiene = false;
 
             assertTrue(
-                    agent.categorizeTool("appendNote") == SearchAgent.ToolCategory.WORKSPACE_HYGIENE,
-                    "appendNote must be hygiene");
+                    agent.categorizeTool("dropWorkspaceFragments") == SearchAgent.ToolCategory.WORKSPACE_HYGIENE,
+                    "dropWorkspaceFragments must be hygiene");
 
             agent.context = new Context(cm);
             assertFalse(agent.context.equals(contextAtTurnStart), "Simulated hygiene should mutate context identity");

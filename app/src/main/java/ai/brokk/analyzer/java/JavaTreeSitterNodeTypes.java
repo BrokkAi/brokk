@@ -40,5 +40,17 @@ public final class JavaTreeSitterNodeTypes {
     public static final String ANNOTATION = "annotation";
     public static final String MARKER_ANNOTATION = "marker_annotation";
 
+    // Reference node types (used in isAccessExpression)
+    public static final String METHOD_INVOCATION = "method_invocation";
+    public static final String FIELD_ACCESS = "field_access";
+    public static final String OBJECT_CREATION_EXPRESSION = "object_creation_expression";
+    public static final String TYPE_IDENTIFIER = "type_identifier";
+    public static final String SCOPED_TYPE_IDENTIFIER = "scoped_type_identifier";
+    public static final String CLASS_LITERAL = "class_literal";
+
+    // Declaration context node types
+    public static final String VARIABLE_DECLARATOR = "variable_declarator";
+    public static final String FORMAL_PARAMETER = "formal_parameter";
+
     private JavaTreeSitterNodeTypes() {}
 }

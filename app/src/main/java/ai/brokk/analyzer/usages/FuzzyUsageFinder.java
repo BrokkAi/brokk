@@ -53,7 +53,15 @@ public final class FuzzyUsageFinder {
         var model = service.getModel(ModelProperties.ModelType.USAGES);
         var llm = model instanceof AbstractService.UnavailableStreamingModel
                 ? null
-                : new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false);
+                : new Llm(
+                        model,
+                        "Disambiguate Code Unit Usages",
+                        ai.brokk.TaskResult.Type.CLASSIFY,
+                        cm,
+                        false,
+                        false,
+                        false,
+                        false);
         return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm, fileFilter);
     }
 
@@ -240,6 +248,12 @@ public final class FuzzyUsageFinder {
                         // Get the substring before the match and find its byte length
                         int startByte = content.substring(0, start).getBytes(StandardCharsets.UTF_8).length;
                         int endByte = startByte + matcher.group().getBytes(StandardCharsets.UTF_8).length;
+
+                        // Filter out hits that are actually declarations or comments if the analyzer supports AST
+                        // checks
+                        if (!analyzer.isAccessExpression(file, startByte, endByte)) {
+                            continue;
+                        }
 
                         // Map char offset -> 0-based line index using precomputed starts
                         int lineIdx = FileUtil.findLineIndexForOffset(lineStarts, start);

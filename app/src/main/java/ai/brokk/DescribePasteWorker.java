@@ -1,5 +1,6 @@
 package ai.brokk;
 
+import ai.brokk.concurrent.LoggingFuture;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -7,16 +8,15 @@ import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
-import javax.swing.SwingWorker;
+import java.util.concurrent.CompletableFuture;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteInfo, Void> {
+public class DescribePasteWorker {
     private static final Logger logger = LogManager.getLogger(DescribePasteWorker.class);
 
     private final IContextManager cm;
@@ -43,77 +43,78 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
         this.resultSyntaxStyle = syntaxStyle;
     }
 
-    @Override
-    protected PasteInfo doInBackground() throws Exception {
-        try {
-            var syntaxStyles = new ArrayList<String>();
-            for (Field field : SyntaxConstants.class.getDeclaredFields()) {
-                if (field.getName().startsWith("SYNTAX_STYLE_")) {
-                    syntaxStyles.add((String) field.get(null));
-                }
-            }
+    public CompletableFuture<PasteInfo> execute() {
+        return LoggingFuture.supplyVirtual(() -> {
+                    try {
+                        var syntaxStyles = new ArrayList<String>();
+                        for (var field : SyntaxConstants.class.getDeclaredFields()) {
+                            if (field.getName().startsWith("SYNTAX_STYLE_")) {
+                                syntaxStyles.add((String) field.get(null));
+                            }
+                        }
 
-            var tr = cm.getToolRegistry().builder().register(this).build();
-            var toolSpec = ToolSpecifications.toolSpecificationsFrom(this).get(0);
-            var toolContext = new ToolContext(List.of(toolSpec), ToolChoice.REQUIRED, tr);
+                        var tr = cm.getToolRegistry().builder().register(this).build();
+                        var toolSpec =
+                                ToolSpecifications.toolSpecificationsFrom(this).get(0);
+                        var toolContext = new ToolContext(List.of(toolSpec), ToolChoice.REQUIRED, tr);
 
-            var messages = new ArrayList<ChatMessage>();
-            var prompt =
-                    "Describe the following content in 12 words or fewer, and identify its syntax style by calling the 'describePasteContents' tool. "
-                            + "The syntaxStyle parameter must be one of the following values: "
-                            + String.join(", ", syntaxStyles)
-                            + ".\n\n"
-                            + "Content:\n\n"
-                            + content;
-            messages.add(new UserMessage(prompt));
+                        var messages = new ArrayList<ChatMessage>();
+                        var prompt =
+                                "Describe the following content in 12 words or fewer, and identify its syntax style by calling the 'describePasteContents' tool. "
+                                        + "The syntaxStyle parameter must be one of the following values: "
+                                        + String.join(", ", syntaxStyles)
+                                        + ".\n\n"
+                                        + "Content:\n\n"
+                                        + content;
+                        messages.add(new UserMessage(prompt));
 
-            var llm = cm.getLlm(cm.getService().quickestModel(), "Describe pasted text");
+                        var llm = cm.getLlm(
+                                cm.getService().quickestModel(), "Describe pasted text", TaskResult.Type.SUMMARIZE);
 
-            int maxAttempts = 3;
-            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                var result = llm.sendRequest(messages, toolContext);
-                if (result.error() != null) {
-                    throw new Exception("LLM error while describing paste", result.error());
-                }
+                        int maxAttempts = 3;
+                        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                            var result = llm.sendRequest(messages, toolContext);
+                            if (result.error() != null) {
+                                throw new RuntimeException("LLM error while describing paste", result.error());
+                            }
 
-                // Execute tool calls, which will populate instance fields
-                for (var request : result.toolRequests()) {
-                    tr.executeTool(request);
-                }
+                            // Execute tool calls, which will populate instance fields
+                            for (var request : result.toolRequests()) {
+                                tr.executeTool(request);
+                            }
 
-                // Check results stored in fields
-                var summary = resultSummary;
-                var syntaxStyle = resultSyntaxStyle;
+                            // Check results stored in fields
+                            var summary = resultSummary;
+                            var syntaxStyle = resultSyntaxStyle;
 
-                if (summary != null && syntaxStyle != null && syntaxStyles.contains(syntaxStyle)) {
-                    return new PasteInfo(summary, syntaxStyle);
-                }
+                            if (summary != null && syntaxStyle != null && syntaxStyles.contains(syntaxStyle)) {
+                                return new PasteInfo(summary, syntaxStyle);
+                            }
 
-                // If we are here, the result was not valid. Provide feedback and retry.
-                messages.add(result.aiMessage());
-                if (syntaxStyle == null || syntaxStyles.contains(syntaxStyle)) {
-                    messages.add(new UserMessage(
-                            "Invalid syntax style '" + syntaxStyle + "'. Please choose from the provided list."));
-                } else {
-                    messages.add(new UserMessage(
-                            "Tool call did not provide valid summary and syntaxStyle. Please try again."));
-                }
-                // Reset fields for the next attempt
-                resultSummary = null;
-                resultSyntaxStyle = null;
-            }
-            logger.warn("Failed to get a valid description and syntax style from LLM after {} attempts.", maxAttempts);
-        } catch (Exception e) {
-            logger.warn("Pasted text summarization failed.", e);
-        }
-        return new PasteInfo(
-                resultSummary != null ? resultSummary : "Summarization failed.",
-                resultSyntaxStyle != null ? resultSyntaxStyle : SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-    }
-
-    @Override
-    protected void done() {
-        cm.getIo().postSummarize();
+                            // If we are here, the result was not valid. Provide feedback and retry.
+                            messages.add(result.aiMessage());
+                            if (syntaxStyle == null || syntaxStyles.contains(syntaxStyle)) {
+                                messages.add(new UserMessage("Invalid syntax style '" + syntaxStyle
+                                        + "'. Please choose from the provided list."));
+                            } else {
+                                messages.add(new UserMessage(
+                                        "Tool call did not provide valid summary and syntaxStyle. Please try again."));
+                            }
+                            // Reset fields for the next attempt
+                            resultSummary = null;
+                            resultSyntaxStyle = null;
+                        }
+                        logger.warn(
+                                "Failed to get a valid description and syntax style from LLM after {} attempts.",
+                                maxAttempts);
+                    } catch (Exception e) {
+                        logger.warn("Pasted text summarization failed.", e);
+                    }
+                    return new PasteInfo(
+                            resultSummary != null ? resultSummary : "Summarization failed.",
+                            resultSyntaxStyle != null ? resultSyntaxStyle : SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                })
+                .whenComplete((res, th) -> cm.getIo().postSummarize());
     }
 
     private @Nullable String removeTrailingDot(@Nullable String summary) {

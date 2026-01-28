@@ -147,7 +147,8 @@ public interface IContextManager {
     }
 
     @Blocking
-    default Context createOrReplaceTaskList(Context context, @Nullable String bigPicture, List<String> tasks) {
+    default Context createOrReplaceTaskList(
+            Context context, @Nullable String bigPicture, List<ai.brokk.tasks.TaskList.TaskItem> tasks) {
         throw new UnsupportedOperationException();
     }
 
@@ -277,17 +278,8 @@ public interface IContextManager {
         addFragments(List.of(fragment));
     }
 
-    /** Create a new LLM instance for the given model and description */
-    default Llm getLlm(StreamingChatModel model, String taskDescription) {
-        return getLlm(new Llm.Options(model, taskDescription));
-    }
-
-    /** Create a new LLM instance for the given model and description */
-    default Llm getLlm(StreamingChatModel model, String taskDescription, boolean allowPartialResponses) {
-        var options = new Llm.Options(model, taskDescription);
-        if (allowPartialResponses) {
-            options.withPartialResponses();
-        }
+    default Llm getLlm(StreamingChatModel model, String taskDescription, TaskResult.Type type) {
+        var options = new Llm.Options(model, taskDescription, type);
         return getLlm(options);
     }
 

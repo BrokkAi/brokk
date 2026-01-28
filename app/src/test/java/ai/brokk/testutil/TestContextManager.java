@@ -164,18 +164,9 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public Context createOrReplaceTaskList(Context context, @Nullable String bigPicture, List<String> tasks) {
-        // Strip whitespace-only entries
-        var cleaned =
-                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (cleaned.isEmpty()) {
-            // Clear task list when nothing valid is provided
-            return context.withTaskList(new TaskList.TaskListData(null, List.of()));
-        }
-        var items = cleaned.stream()
-                .map(t -> new TaskList.TaskItem(t, t, false)) // title=text, done=false
-                .toList();
-        return context.withTaskList(new TaskList.TaskListData(bigPicture, items));
+    public Context createOrReplaceTaskList(
+            Context context, @Nullable String bigPicture, List<TaskList.TaskItem> tasks) {
+        return context.withTaskList(new TaskList.TaskListData(bigPicture, List.copyOf(tasks)));
     }
 
     private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
@@ -186,7 +177,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public Llm getLlm(StreamingChatModel model, String taskDescription) {
-        return new Llm(model, taskDescription, this, false, false, false, false);
+    public Llm getLlm(StreamingChatModel model, String taskDescription, ai.brokk.TaskResult.Type type) {
+        return new Llm(model, taskDescription, type, this, false, false, false, false);
     }
 }

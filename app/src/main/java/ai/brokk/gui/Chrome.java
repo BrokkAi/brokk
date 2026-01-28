@@ -98,7 +98,6 @@ public class Chrome
 
     // Dependencies:
     final ContextManager contextManager;
-    private Context activeContext; // Track the currently displayed context
 
     // Global Undo/Redo Actions
     private final GlobalUndoAction globalUndoAction;
@@ -156,7 +155,6 @@ public class Chrome
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.previewManager = new PreviewManager(this);
-        this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI", false);
@@ -1012,8 +1010,7 @@ public class Chrome
 
     @Override
     public void contextChanged(Context newCtx) {
-        final boolean updateOutput = (!activeContext.equals(newCtx) && !contextManager.isTaskScopeInProgress());
-        activeContext = newCtx;
+        final boolean updateOutput = !contextManager.isTaskScopeInProgress();
 
         SwingUtilities.invokeLater(() -> {
             globalUndoAction.updateEnabledState();

@@ -6,6 +6,8 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.TextCanonicalizer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.io.InputStream;
@@ -96,6 +98,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     private final LazyImportCache lazyImports = new LazyImportCache();
 
+    /**
+     * Helper util for lazy tree computation.
+     */
+    private final LazyTreeCache lazyTrees = new LazyTreeCache();
+
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -159,6 +166,38 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         record Computed(List<CodeUnit> supertypes) implements SuperTypeInfo {}
 
         record Uncomputed() implements SuperTypeInfo {}
+    }
+
+    /**
+     * Helper class to encapsulate lazy tree caching with bounded size.
+     * Uses Caffeine cache with eviction to prevent unbounded native memory growth,
+     * since TSTree objects hold native memory through Tree-sitter JNI binding.
+     */
+    private static final class LazyTreeCache {
+        // Limit cache size to prevent unbounded native memory growth
+        private static final int MAX_CACHE_SIZE = 1000;
+
+        // Note: TSTree native memory is managed by the Tree-sitter JNI binding's garbage collection.
+        // The Caffeine cache provides bounded size to limit memory growth during long sessions.
+        private final Cache<ProjectFile, TSTree> cache =
+                Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).build();
+
+        @Nullable
+        TSTree get(ProjectFile file) {
+            return cache.getIfPresent(file);
+        }
+
+        void put(ProjectFile file, TSTree tree) {
+            cache.put(file, tree);
+        }
+
+        boolean isEmpty() {
+            return cache.estimatedSize() == 0;
+        }
+
+        void forEach(BiConsumer<? super ProjectFile, ? super TSTree> action) {
+            cache.asMap().forEach(action);
+        }
     }
 
     /**
@@ -771,7 +810,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty()) {
+        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty() && lazyTrees.isEmpty()) {
             return this.state;
         }
 
@@ -824,10 +863,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             nextImportGraph = ImportGraph.from(forwardUpdates, reverseUpdates);
         }
 
+        PMap<ProjectFile, FileProperties> nextFileState = this.state.fileState();
+        if (!lazyTrees.isEmpty()) {
+            Map<ProjectFile, FileProperties> fileUpdates = new HashMap<>();
+            lazyTrees.forEach((file, tree) -> {
+                FileProperties existing = this.state.fileState().get(file);
+                if (existing != null && existing.parsedTree() == null) {
+                    fileUpdates.put(
+                            file,
+                            new FileProperties(
+                                    existing.topLevelCodeUnits(),
+                                    tree,
+                                    existing.importStatements(),
+                                    existing.containsTests()));
+                }
+            });
+            if (!fileUpdates.isEmpty()) {
+                nextFileState = nextFileState.plusAll(fileUpdates);
+            }
+        }
+
         return new AnalyzerState(
                 this.state.symbolIndex(),
                 nextCodeUnitState,
-                this.state.fileState(),
+                nextFileState,
                 nextImportGraph,
                 nextTypeHierarchyGraph,
                 this.state.symbolKeyIndex(),
@@ -975,7 +1034,39 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
-        return fileProperties(file).parsedTree();
+        // 1. Check lazy cache first
+        TSTree cached = lazyTrees.get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Fall back to snapshot properties
+        TSTree snapshotTree = fileProperties(file).parsedTree();
+        if (snapshotTree != null) {
+            return snapshotTree;
+        }
+
+        // 3. Parse on-demand if file exists
+        if (Files.exists(file.absPath())) {
+            try {
+                byte[] bytes = readFileBytes(file, null);
+                if (bytes.length == 0) {
+                    return null;
+                }
+                bytes = TextCanonicalizer.stripUtf8Bom(bytes);
+                String src = new String(bytes, StandardCharsets.UTF_8);
+                TSTree tree = getTSParser().parseString(null, src);
+                if (tree != null) {
+                    lazyTrees.put(file, tree);
+                }
+                return tree;
+            } catch (Exception e) {
+                log.debug("Failed to parse tree on-demand for {}: {}", file, e.getMessage());
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /* ---------- IAnalyzer ---------- */
