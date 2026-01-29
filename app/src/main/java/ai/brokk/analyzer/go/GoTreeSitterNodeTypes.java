@@ -15,6 +15,7 @@ public final class GoTreeSitterNodeTypes {
     public static final String STRUCT_TYPE = "struct_type";
     public static final String INTERFACE_TYPE = "interface_type";
     public static final String TYPE_SPEC = "type_spec";
+    public static final String TYPE_ALIAS = "type_alias";
 
     // Interface method
     public static final String METHOD_ELEM = "method_elem";

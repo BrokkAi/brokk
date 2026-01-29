@@ -293,20 +293,17 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     protected SkeletonType refineSkeletonType(
             String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
         if (CaptureNames.TYPE_DEFINITION.equals(captureName) && !definitionNode.isNull()) {
-            // definitionNode is the type_declaration; find its type_spec child
+            // definitionNode is the type_declaration
+            // True type aliases (type Foo = Bar) use type_alias nodes
+            // Named types (type Foo Bar) use type_spec nodes and can have methods
             for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
                 var child = definitionNode.getNamedChild(i);
-                if (TYPE_SPEC.equals(child.getType())) {
-                    var kindNode = child.getChildByFieldName("type");
-                    if (kindNode != null && !kindNode.isNull()) {
-                        String kindType = kindNode.getType();
-                        if (!STRUCT_TYPE.equals(kindType) && !INTERFACE_TYPE.equals(kindType)) {
-                            return SkeletonType.FIELD_LIKE;
-                        }
-                    }
-                    break;
+                if (TYPE_ALIAS.equals(child.getType())) {
+                    // True alias syntax (type Foo = Bar) - cannot have methods
+                    return SkeletonType.FIELD_LIKE;
                 }
             }
+            // type_spec nodes (named types) remain CLASS_LIKE as they can have methods
         }
         return super.refineSkeletonType(captureName, definitionNode, profile);
     }

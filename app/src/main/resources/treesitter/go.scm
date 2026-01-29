@@ -5,12 +5,16 @@
 (function_declaration
   name: (identifier) @function.name) @function.definition
 
-; Matches type declarations for structs and interfaces
+; Matches type declarations (named types and aliases)
 (type_declaration
-  (type_spec
-    name: (type_identifier) @type.name ; Capture the type_identifier as the name
-    type: (_) @type.kind ; Capture the specific type (struct_type, interface_type)
-  )
+  [
+    (type_spec
+      name: (type_identifier) @type.name
+      type: (_) @type.kind)
+    (type_alias
+      name: (type_identifier) @type.name
+      type: (_) @type.kind)
+  ]
 ) @type.definition
 
 (var_declaration

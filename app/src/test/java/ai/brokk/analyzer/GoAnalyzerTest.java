@@ -178,7 +178,9 @@ public class GoAnalyzerTest {
         CodeUnit expectedMethod_GetFieldA = CodeUnit.fn(pf, "declpkg", "MyStruct.GetFieldA");
         CodeUnit expectedStructFieldA = CodeUnit.field(pf, "declpkg", "MyStruct.FieldA");
         CodeUnit expectedInterfaceMethod_DoSomething = CodeUnit.fn(pf, "declpkg", "MyInterface.DoSomething");
-        CodeUnit expectedTypeAlias = CodeUnit.field(pf, "declpkg", "_module_.Uint32Map");
+        CodeUnit expectedUint32Map = CodeUnit.cls(pf, "declpkg", "Uint32Map");
+        CodeUnit expectedStringAlias = CodeUnit.field(pf, "declpkg", "_module_.StringAlias");
+        CodeUnit expectedMyInt = CodeUnit.cls(pf, "declpkg", "MyInt");
 
         assertTrue(
                 declarations.contains(expectedFunc),
@@ -235,19 +237,31 @@ public class GoAnalyzerTest {
                                 .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
                                 .toList());
         assertTrue(
-                declarations.contains(expectedTypeAlias),
-                "Declarations should contain type alias Uint32Map as FIELD_LIKE. Found: "
+                declarations.contains(expectedUint32Map),
+                "Declarations should contain named type Uint32Map as CLASS_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedStringAlias),
+                "Declarations should contain type alias StringAlias as FIELD_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedMyInt),
+                "Declarations should contain named type MyInt as CLASS_LIKE. Found: "
                         + declarations.stream()
                                 .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
                                 .toList());
         assertFalse(
-                declarations.contains(CodeUnit.cls(pf, "declpkg", "Uint32Map")),
-                "Type alias Uint32Map should NOT appear as CLASS_LIKE.");
+                declarations.contains(CodeUnit.field(pf, "declpkg", "_module_.Uint32Map")),
+                "Named type Uint32Map should NOT appear as FIELD_LIKE.");
 
         assertEquals(
-                10,
+                12,
                 declarations.size(),
-                "Expected 10 declarations in declarations.go. Found: "
+                "Expected 12 declarations in declarations.go. Found: "
                         + declarations.stream().map(CodeUnit::fqName).toList());
     }
 
