@@ -146,6 +146,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private void populateGeneralTab(SettingsDialog.SettingsData data) {
         commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
         commitFormatArea.setCaretPosition(0); // Reset scroll position to top
+        autoUpdateStyleGuideCheckBox.setSelected(data.autoUpdateStyleGuide());
     }
 
     private void populateIssuesTab() {
@@ -1123,6 +1124,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Load auto-update dependency flags
         autoUpdateLocalDependenciesCheckBox.setSelected(project.getAutoUpdateLocalDependencies());
         autoUpdateGitDependenciesCheckBox.setSelected(project.getAutoUpdateGitDependencies());
+        // Note: autoUpdateStyleGuideCheckBox is also updated in populateGeneralTab for initial load
         autoUpdateStyleGuideCheckBox.setSelected(project.getAutoUpdateStyleGuide());
     }
 

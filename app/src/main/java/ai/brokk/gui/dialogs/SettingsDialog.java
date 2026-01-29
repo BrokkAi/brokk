@@ -176,7 +176,8 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
                         partialData.favoriteModels(),
                         details,
                         partialData.styleGuide(),
-                        partialData.commitMessageFormat()));
+                        partialData.commitMessageFormat(),
+                        partialData.autoUpdateStyleGuide()));
             } catch (Exception e) {
                 logger.error("Error retrieving build details", e);
                 dispose();
@@ -493,7 +494,8 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             // Project-specific settings (nullable if no project)
             @Nullable BuildAgent.BuildDetails buildDetails,
             @Nullable String styleGuide,
-            @Nullable String commitMessageFormat) {
+            @Nullable String commitMessageFormat,
+            boolean autoUpdateStyleGuide) {
         private static final Logger logger = LogManager.getLogger(SettingsData.class);
 
         /**
@@ -528,6 +530,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             BuildAgent.BuildDetails buildDetails = null;
             String styleGuide = null;
             String commitFormat = null;
+            boolean autoUpdateStyleGuide = false;
 
             if (project != null) {
                 var future = project.getBuildDetailsFuture();
@@ -537,9 +540,11 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
                 // If null, the caller (SettingsDialog) will handle the modal await logic
                 styleGuide = project.getStyleGuide();
                 commitFormat = project.getCommitMessageFormat();
+                autoUpdateStyleGuide = project.getAutoUpdateStyleGuide();
             }
 
-            return new SettingsData(jvmSettings, apiKey, balance, models, buildDetails, styleGuide, commitFormat);
+            return new SettingsData(
+                    jvmSettings, apiKey, balance, models, buildDetails, styleGuide, commitFormat, autoUpdateStyleGuide);
         }
 
         /**
