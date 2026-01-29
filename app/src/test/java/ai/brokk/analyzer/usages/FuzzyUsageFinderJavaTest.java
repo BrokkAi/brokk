@@ -435,6 +435,59 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
+    public void testAlternativesComputationForNestedClasses() throws Exception {
+        String outer1 = "public class Outer1 { public static class Inner { public void doWork() {} } }";
+        String outer2 = "public class Outer2 { public static class Inner { public void doWork() {} } }";
+        String user = """
+                public class User {
+                    public void use() {
+                        Outer1.Inner inner = new Outer1.Inner();
+                        inner.doWork();
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(outer1, "Outer1.java")
+                .addFileContents(outer2, "Outer2.java")
+                .addFileContents(user, "User.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            // Search for usages of Outer1$Inner.
+            // Under the current bug, identifier will be "Inner", but matchingCodeUnits filter uses
+            // cu.shortName().equals("Inner"). For Outer1.Inner, shortName is "Outer1.Inner" (or "Outer1$Inner"),
+            // so it won't match "Inner", resulting in isUnique = false but with 0 alternatives,
+            // or incorrect Ambiguous/Success classification.
+            var result = finder.findUsages("Outer1$Inner");
+            var either = result.toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure: " + either.getErrorMessage());
+            }
+
+            // The bug causes the finder to fail to find 'Outer2.Inner' as an alternative because
+            // "Outer2.Inner".equals("Inner") is false.
+            if (result instanceof FuzzyResult.Ambiguous ambiguous) {
+                var alternativeNames = ambiguous.candidateTargets().stream()
+                        .map(CodeUnit::fqName)
+                        .collect(Collectors.toSet());
+
+                assertTrue(
+                        alternativeNames.contains("Outer1.Inner"),
+                        "Expected Outer1.Inner in alternatives; actual: " + alternativeNames);
+                assertTrue(
+                        alternativeNames.contains("Outer2.Inner"),
+                        "Expected Outer2.Inner in alternatives (bug prevents this); actual: " + alternativeNames);
+            } else {
+                // If it returns Success, it means it thought it was unique, which is also a bug manifestation
+                // if there are actually multiple "Inner" classes in the project.
+                fail("Expected Ambiguous result with multiple Inner class alternatives, but got: " + result.getClass().getSimpleName());
+            }
+        }
+    }
+
+    @Test
     public void testUsageHitEqualityBasedOnPosition() {
         Path root = Path.of(".").toAbsolutePath().normalize();
         var file = new ProjectFile(root, Path.of("A.java"));
