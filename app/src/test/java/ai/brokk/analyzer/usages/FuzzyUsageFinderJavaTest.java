@@ -452,4 +452,69 @@ public class FuzzyUsageFinderJavaTest {
         hitSet.add(hit2);
         assertEquals(2, hitSet.size(), "Set should preserve both hits within the same enclosing unit");
     }
+
+    @Test
+    public void testPolymorphicMatchesIncludeNonOverridingSubclasses() throws Exception {
+        String animalContent =
+                """
+            public class Animal {
+                public void speak() {
+                    System.out.println("Animal speaks");
+                }
+            }
+            """;
+        String dogContent =
+                """
+            public class Dog extends Animal {
+                // Does NOT override speak() - inherits from Animal
+            }
+            """;
+        String catContent =
+                """
+            public class Cat extends Animal {
+                @Override
+                public void speak() {
+                    System.out.println("Meow");
+                }
+            }
+            """;
+        String callerContent =
+                """
+            public class Caller {
+                public void callDogSpeak(Dog dog) {
+                    dog.speak(); // This is actually Animal.speak via inheritance
+                }
+                public void callCatSpeak(Cat cat) {
+                    cat.speak(); // This is Cat.speak (override)
+                }
+            }
+            """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(animalContent, "Animal.java")
+                .addFileContents(dogContent, "Dog.java")
+                .addFileContents(catContent, "Cat.java")
+                .addFileContents(callerContent, "Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "Animal.speak";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var enclosingMethods =
+                    hits.stream().map(h -> h.enclosing().identifier()).collect(Collectors.toSet());
+
+            // Should find usage in callDogSpeak because Dog inherits speak() without overriding
+            // Dog should be detected as a polymorphic match
+            assertTrue(
+                    enclosingMethods.contains("callDogSpeak"),
+                    "Expected to find usage in callDogSpeak (Dog inherits speak without overriding); actual: "
+                            + enclosingMethods);
+        }
+    }
 }

@@ -6,7 +6,9 @@ import ai.brokk.Llm;
 import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.agents.RelevanceTask;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -16,6 +18,7 @@ import ai.brokk.tools.SearchTools;
 import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -178,10 +181,12 @@ public final class FuzzyUsageFinder {
             var tasks = new ArrayList<RelevanceTask>(groupedHits.size());
             var taskToHits = new ArrayList<List<UsageHit>>(groupedHits.size());
 
+            Collection<CodeUnit> polymorphicMatches = computePolymorphicMatches(target);
+
             for (var entry : groupedHits.entrySet()) {
                 var hitsInGroup = entry.getValue();
                 var prompt = UsagePrompt.build(
-                        hitsInGroup, target, alternatives, List.of(), analyzer, identifier, 8_000);
+                        hitsInGroup, target, alternatives, polymorphicMatches, analyzer, identifier, 8_000);
 
                 var task = new RelevanceTask(prompt.filterDescription(), prompt.promptText());
                 tasks.add(task);
@@ -341,6 +346,42 @@ public final class FuzzyUsageFinder {
 
     static Set<UsageHit> filterByConfidence(Set<UsageHit> allHits) {
         return allHits.stream().filter(h -> h.confidence() >= 0.1).collect(Collectors.toSet());
+    }
+
+    private Collection<CodeUnit> computePolymorphicMatches(CodeUnit target) {
+        if (target.kind() != CodeUnitType.FUNCTION) {
+            return List.of();
+        }
+
+        String className = CodeUnit.toClassname(target.fqName());
+        var classDefs = analyzer.getDefinitions(className);
+        var parentClassOpt = classDefs.stream().filter(CodeUnit::isClass).findFirst();
+
+        if (parentClassOpt.isEmpty()) {
+            return List.of();
+        }
+
+        var hierarchyProviderOpt = analyzer.as(TypeHierarchyProvider.class);
+        if (hierarchyProviderOpt.isEmpty()) {
+            return List.of();
+        }
+
+        TypeHierarchyProvider hierarchyProvider = hierarchyProviderOpt.get();
+        List<CodeUnit> descendants = hierarchyProvider.getDescendants(parentClassOpt.get());
+        List<CodeUnit> polymorphicMatches = new ArrayList<>();
+        String targetIdentifier = target.identifier();
+
+        for (CodeUnit descendant : descendants) {
+            boolean overrides = analyzer.getDirectChildren(descendant).stream()
+                    .anyMatch(child -> child.kind() == CodeUnitType.FUNCTION
+                            && child.identifier().equals(targetIdentifier));
+
+            if (!overrides) {
+                polymorphicMatches.add(descendant);
+            }
+        }
+
+        return polymorphicMatches;
     }
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {
