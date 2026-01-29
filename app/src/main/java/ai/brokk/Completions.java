@@ -104,7 +104,10 @@ public class Completions {
 
         return candidates.stream()
                 .map(cu -> {
-                    int baseScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
+                    int identifierScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
+                    int shortNameScore = (hierarchicalQuery || !cu.isClass()) ? Integer.MAX_VALUE : matcher.score(cu.shortName());
+                    int baseScore = Math.min(identifierScore, shortNameScore);
+
                     if (baseScore == Integer.MAX_VALUE) {
                         return new ScoredCodeUnit(cu, Integer.MAX_VALUE);
                     }

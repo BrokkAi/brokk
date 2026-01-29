@@ -57,8 +57,10 @@ public class CompletionsTest {
         var completions = Completions.completeSymbols("Re", mock);
         var values = toValues(completions);
 
-        assertEquals(1, values.size());
+        // Should match "a.b.Do.Re" (via identifier "Re") and "a.b.Do.Re.Sub" (via shortName "Do.Re.Sub")
+        assertEquals(2, values.size());
         assertTrue(values.contains("a.b.Do.Re"));
+        assertTrue(values.contains("a.b.Do.Re.Sub"));
     }
 
     @Test
@@ -80,9 +82,13 @@ public class CompletionsTest {
         var mock = createTestAnalyzer();
 
         var completions = Completions.completeSymbols("Do", mock);
-        assertEquals(1, completions.size());
+        // Should match classes "a.b.Do", "a.b.Do.Re", "a.b.Do.Re.Sub"
+        // But NOT match methods like "a.b.Do.foo" or "a.b.Do.bar"
+        assertEquals(3, completions.size());
         var shortValues = toShortValues(completions);
-        assertTrue(shortValues.contains("Do"));
+        assertTrue(shortValues.contains("Do"), "Should contain 'Do'");
+        assertTrue(shortValues.contains("Re"), "Should contain 'Re' (identifier of Do.Re matched via shortName)");
+        assertTrue(shortValues.contains("Sub"), "Should contain 'Sub' (identifier of Do.Re.Sub matched via shortName)");
     }
 
     @Test
