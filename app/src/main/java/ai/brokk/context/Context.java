@@ -1,5 +1,7 @@
 package ai.brokk.context;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import ai.brokk.Completions;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
@@ -220,8 +222,8 @@ public class Context {
             return false;
         }));
 
-        var supersededFragments = partitioned.get(true);
-        var keptExistingFragments = new ArrayList<>(partitioned.get(false));
+        var supersededFragments = castNonNull(partitioned.get(true));
+        var keptExistingFragments = new ArrayList<>(castNonNull(partitioned.get(false)));
 
         // 4. Calculate the ACTUAL new items to add.
         //    We filter 'uniqueInputs' to ensure we don't add something that already exists
@@ -1153,14 +1155,5 @@ public class Context {
                 cf.await(Duration.ofMillis(remainingMillis));
             }
         }
-    }
-
-    private static Set<ContextFragment> validateReadOnlyFragments(
-            Set<ContextFragment> readonly, List<ContextFragment> all) {
-        for (var cf : readonly) {
-            assert all.contains(cf);
-        }
-
-        return Set.copyOf(readonly);
     }
 }
