@@ -326,6 +326,19 @@ public class JavaAnalyzerTest {
                 CodeUnit.field(file, "", "D.field1"),
                 CodeUnit.field(file, "", "D.field2"));
         assertEquals(expected, classes);
+
+        // Verify identifier() returns innermost name for nested classes
+        var dSubOpt = classes.stream()
+                .filter(cu -> cu.fqName().equals("D.DSub"))
+                .findFirst();
+        assertTrue(dSubOpt.isPresent());
+        assertEquals("DSub", dSubOpt.get().identifier(), "Nested class identifier should be innermost name");
+
+        var dOpt = classes.stream()
+                .filter(cu -> cu.fqName().equals("D"))
+                .findFirst();
+        assertTrue(dOpt.isPresent());
+        assertEquals("D", dOpt.get().identifier(), "Top-level class identifier should equal shortName");
     }
 
     @Test
@@ -342,6 +355,14 @@ public class JavaAnalyzerTest {
                 // No fields in Packaged.java
                 );
         assertEquals(expected, declarations);
+
+        // Verify identifier() for packaged class
+        var fooOpt = declarations.stream()
+                .filter(cu -> cu.fqName().equals("io.github.jbellis.brokk.Foo"))
+                .findFirst();
+        assertTrue(fooOpt.isPresent());
+        assertEquals("Foo", fooOpt.get().shortName(), "Packaged class shortName should be simple name");
+        assertEquals("Foo", fooOpt.get().identifier(), "Packaged class identifier should be simple name");
     }
 
     @Test
@@ -367,6 +388,45 @@ public class JavaAnalyzerTest {
         assertEquals("D.field1", field1Def.get().fqName());
         assertFalse(field1Def.get().isClass());
         assertFalse(field1Def.get().isFunction());
+    }
+
+    @Test
+    public void testCodeUnitIdentifierAndShortName() {
+        // Simple class: D
+        var classDDef = analyzer.getDefinitions("D").stream().findFirst();
+        assertTrue(classDDef.isPresent(), "Should find definition for class 'D'");
+        assertEquals("D", classDDef.get().shortName(), "Simple class shortName should be just the class name");
+        assertEquals("D", classDDef.get().identifier(), "Simple class identifier should be the class name");
+
+        // Nested class: D.DSub (one level of nesting)
+        var classDSubDef = analyzer.getDefinitions("D.DSub").stream().findFirst();
+        assertTrue(classDSubDef.isPresent(), "Should find definition for nested class 'D.DSub'");
+        assertEquals("D.DSub", classDSubDef.get().shortName(), "Nested class shortName should include parent");
+        assertEquals("DSub", classDSubDef.get().identifier(), "Nested class identifier should be innermost name only");
+
+        // Deeply nested class: A.AInner.AInnerInner (two levels of nesting)
+        var classAInnerInnerDef = analyzer.getDefinitions("A.AInner.AInnerInner").stream().findFirst();
+        assertTrue(classAInnerInnerDef.isPresent(), "Should find definition for deeply nested class");
+        assertEquals(
+                "A.AInner.AInnerInner",
+                classAInnerInnerDef.get().shortName(),
+                "Deeply nested shortName should include full path");
+        assertEquals(
+                "AInnerInner",
+                classAInnerInnerDef.get().identifier(),
+                "Deeply nested identifier should be innermost name only");
+
+        // Static nested class: A.AInnerStatic
+        var classAInnerStaticDef = analyzer.getDefinitions("A.AInnerStatic").stream().findFirst();
+        assertTrue(classAInnerStaticDef.isPresent(), "Should find definition for static nested class");
+        assertEquals(
+                "A.AInnerStatic",
+                classAInnerStaticDef.get().shortName(),
+                "Static nested shortName should include parent");
+        assertEquals(
+                "AInnerStatic",
+                classAInnerStaticDef.get().identifier(),
+                "Static nested identifier should be innermost name only");
     }
 
     @Test
