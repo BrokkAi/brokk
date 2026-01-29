@@ -14,7 +14,9 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.SpinnerIconUtil;
+import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
@@ -55,6 +57,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -2289,8 +2292,8 @@ public class Chrome
         updateContextHistoryTable();
     }
 
-    private static final java.util.regex.Pattern URL_PATTERN =
-            java.util.regex.Pattern.compile("(https?://[\\S]+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_PATTERN =
+            Pattern.compile("(https?://[\\S]+)", Pattern.CASE_INSENSITIVE);
 
     @Override
     public void systemNotify(String message, String title, int messageType) {
@@ -2308,25 +2311,25 @@ public class Chrome
         }
 
         matcher.reset();
-        var panel = new javax.swing.JPanel(new ai.brokk.gui.components.WrapLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        var panel = new JPanel(new WrapLayout(FlowLayout.LEFT, 0, 0));
         panel.setOpaque(false);
 
         int lastEnd = 0;
         while (matcher.find()) {
             if (matcher.start() > lastEnd) {
                 String textBefore = message.substring(lastEnd, matcher.start());
-                panel.add(new javax.swing.JLabel(textBefore));
+                panel.add(new JLabel(textBefore));
             }
 
             String url = matcher.group(1);
-            panel.add(new ai.brokk.gui.components.BrowserLabel(url));
+            panel.add(new BrowserLabel(url));
 
             lastEnd = matcher.end();
         }
 
         if (lastEnd < message.length()) {
             String textAfter = message.substring(lastEnd);
-            panel.add(new javax.swing.JLabel(textAfter));
+            panel.add(new JLabel(textAfter));
         }
 
         return panel;

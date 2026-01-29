@@ -2736,7 +2736,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 float balance = serviceProvider.get().getUserBalance();
                 logger.debug("Checked balance: ${}", String.format("%.2f", balance));
 
-                if (balance < Service.MINIMUM_PAID_BALANCE) {
+                // TEMP: Force balance exhausted notification for testing
+                if (true) {
                     // Free-tier: reload models and warn once
                     reloadService();
                     if (!freeTierNotified) {
