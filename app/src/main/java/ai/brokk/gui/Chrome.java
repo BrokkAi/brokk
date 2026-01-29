@@ -16,7 +16,6 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.SpinnerIconUtil;
-import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
