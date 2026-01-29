@@ -291,9 +291,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     @Override
     protected SkeletonType refineSkeletonType(
-            String captureName, TSNode definitionNode, LanguageSyntaxProfile profile)
-    {
-        if (CaptureNames.TYPE_DEFINITION.equals(captureName) && definitionNode != null && !definitionNode.isNull()) {
+            String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
+        if (CaptureNames.TYPE_DEFINITION.equals(captureName) && !definitionNode.isNull()) {
             // definitionNode is the type_declaration; find its type_spec child
             for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
                 var child = definitionNode.getNamedChild(i);
