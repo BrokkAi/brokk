@@ -739,7 +739,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                     || type.equals(ANNOTATION)
                     || type.equals(CLASS_LITERAL)
                     || type.equals(IMPORT_DECLARATION)) {
-                return true;
+                break; // Continue to nearest declaration check
             }
 
             // If we are the 'name' child of a declaration, it's not a reference
@@ -762,6 +762,48 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 }
             }
             current = current.getParent();
+        }
+
+        // 3. Perform lexical scope analysis to filter out local variables and parameters
+        // Skip this if the current node is explicitly part of a member access (e.g., this.field or obj.field)
+        TSNode parent = node.getParent();
+        if (parent != null && !parent.isNull()) {
+            String pType = parent.getType();
+            if (pType.equals(FIELD_ACCESS)) {
+                // In tree-sitter-java, field_access has a "field" child for the member name
+                TSNode fieldNode = parent.getChildByFieldName("field");
+                if (fieldNode != null && !fieldNode.isNull() && fieldNode.getStartByte() == node.getStartByte()) {
+                    return true;
+                }
+            }
+            if (pType.equals(METHOD_INVOCATION)) {
+                // In tree-sitter-java, method_invocation has a "name" child for the method name
+                TSNode nameNode = parent.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == node.getStartByte()) {
+                    return true;
+                }
+            }
+        }
+
+        var sourceContentOpt = SourceContent.read(file);
+        if (sourceContentOpt.isPresent()) {
+            SourceContent sourceContent = sourceContentOpt.get();
+            String identifierName = sourceContent.substringFrom(node).strip();
+            if (!identifierName.isEmpty()) {
+                var declOpt = findNearestDeclaration(file, startByte, endByte, identifierName);
+                if (declOpt.isPresent()) {
+                    var kind = declOpt.get().kind();
+                    return switch (kind) {
+                        case PARAMETER,
+                                LOCAL_VARIABLE,
+                                CATCH_PARAMETER,
+                                FOR_LOOP_VARIABLE,
+                                RESOURCE_VARIABLE,
+                                PATTERN_VARIABLE -> false;
+                        default -> true;
+                    };
+                }
+            }
         }
 
         return true;

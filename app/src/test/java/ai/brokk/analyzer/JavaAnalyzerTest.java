@@ -1248,6 +1248,42 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testIsAccessExpressionLocalShadowing() throws IOException {
+        String content =
+                """
+        public class ShadowTest {
+            private String channel;
+            public ShadowTest(String channel) {
+                System.out.println(channel);      // Parameter access
+                System.out.println(this.channel); // Explicit field access
+            }
+            public void other(Object obj) {
+                String channel = "local";
+                System.out.println(channel);      // Local variable access
+            }
+        }
+        """;
+
+        try (var testProject = InlineTestProjectCreator.code(content, "ShadowTest.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "ShadowTest.java");
+
+            // Occurrence 0: private String channel (field declaration name)
+            assertIsAccessExpression(analyzer, file, content, "channel", 0, false);
+            // Occurrence 1: String channel (parameter declaration name)
+            assertIsAccessExpression(analyzer, file, content, "channel", 1, false);
+            // Occurrence 2: println(channel) -> resolves to parameter
+            assertIsAccessExpression(analyzer, file, content, "channel", 2, false);
+            // Occurrence 3: this.channel -> explicit field access
+            assertIsAccessExpression(analyzer, file, content, "channel", 3, true);
+            // Occurrence 4: String channel = "local" (local var declaration name)
+            assertIsAccessExpression(analyzer, file, content, "channel", 4, false);
+            // Occurrence 5: println(channel) -> resolves to local variable
+            assertIsAccessExpression(analyzer, file, content, "channel", 5, false);
+        }
+    }
+
+    @Test
     public void testSummaryFragmentSupportingFragmentsFiltersNestedAncestors() throws IOException {
         try (var project = InlineTestProjectCreator.code(
                         """
