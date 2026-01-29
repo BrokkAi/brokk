@@ -573,4 +573,66 @@ public class FuzzyUsageFinderJavaTest {
                             + enclosingMethods);
         }
     }
+
+    @Test
+    public void testPolymorphicMatchesIncludeTransitiveNonOverridingSubclasses() throws Exception {
+        String animalContent =
+                """
+            public class Animal {
+                public void speak() {
+                    System.out.println("Animal speaks");
+                }
+            }
+            """;
+        String mammalContent =
+                """
+            public class Mammal extends Animal {
+                // Inherits speak
+            }
+            """;
+        String dogContent =
+                """
+            public class Dog extends Mammal {
+                // Inherits speak via Mammal
+            }
+            """;
+        String callerContent =
+                """
+            public class Caller {
+                public void callMammalSpeak(Mammal m) {
+                    m.speak();
+                }
+                public void callDogSpeak(Dog d) {
+                    d.speak();
+                }
+            }
+            """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(animalContent, "Animal.java")
+                .addFileContents(mammalContent, "Mammal.java")
+                .addFileContents(dogContent, "Dog.java")
+                .addFileContents(callerContent, "Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "Animal.speak";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var enclosingMethods =
+                    hits.stream().map(h -> h.enclosing().identifier()).collect(Collectors.toSet());
+
+            assertTrue(
+                    enclosingMethods.contains("callMammalSpeak"),
+                    "Expected to find usage in callMammalSpeak; actual: " + enclosingMethods);
+            assertTrue(
+                    enclosingMethods.contains("callDogSpeak"),
+                    "Expected to find usage in callDogSpeak (transitive inheritance); actual: " + enclosingMethods);
+        }
+    }
 }
