@@ -2289,12 +2289,47 @@ public class Chrome
         updateContextHistoryTable();
     }
 
+    private static final java.util.regex.Pattern URL_PATTERN =
+            java.util.regex.Pattern.compile("(https?://[\\S]+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+
     @Override
     public void systemNotify(String message, String title, int messageType) {
         SwingUtilities.invokeLater(() -> {
+            Object dialogContent = buildMessageComponentWithLinks(message);
             //noinspection MagicConstant
-            JOptionPane.showMessageDialog(frame, message, title, messageType);
+            JOptionPane.showMessageDialog(frame, dialogContent, title, messageType);
         });
+    }
+
+    private Object buildMessageComponentWithLinks(String message) {
+        var matcher = URL_PATTERN.matcher(message);
+        if (!matcher.find()) {
+            return message;
+        }
+
+        matcher.reset();
+        var panel = new javax.swing.JPanel(new ai.brokk.gui.components.WrapLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        panel.setOpaque(false);
+
+        int lastEnd = 0;
+        while (matcher.find()) {
+            if (matcher.start() > lastEnd) {
+                String textBefore = message.substring(lastEnd, matcher.start());
+                panel.add(new javax.swing.JLabel(textBefore));
+            }
+
+            String url = matcher.group(1);
+            panel.add(new ai.brokk.gui.components.BrowserLabel(url));
+
+            lastEnd = matcher.end();
+        }
+
+        if (lastEnd < message.length()) {
+            String textAfter = message.substring(lastEnd);
+            panel.add(new javax.swing.JLabel(textAfter));
+        }
+
+        return panel;
     }
 
     @Override
