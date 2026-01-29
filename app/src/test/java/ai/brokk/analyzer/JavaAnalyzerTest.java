@@ -328,15 +328,12 @@ public class JavaAnalyzerTest {
         assertEquals(expected, classes);
 
         // Verify identifier() returns innermost name for nested classes
-        var dSubOpt = classes.stream()
-                .filter(cu -> cu.fqName().equals("D.DSub"))
-                .findFirst();
+        var dSubOpt =
+                classes.stream().filter(cu -> cu.fqName().equals("D.DSub")).findFirst();
         assertTrue(dSubOpt.isPresent());
         assertEquals("DSub", dSubOpt.get().identifier(), "Nested class identifier should be innermost name");
 
-        var dOpt = classes.stream()
-                .filter(cu -> cu.fqName().equals("D"))
-                .findFirst();
+        var dOpt = classes.stream().filter(cu -> cu.fqName().equals("D")).findFirst();
         assertTrue(dOpt.isPresent());
         assertEquals("D", dOpt.get().identifier(), "Top-level class identifier should equal shortName");
     }
@@ -405,7 +402,8 @@ public class JavaAnalyzerTest {
         assertEquals("DSub", classDSubDef.get().identifier(), "Nested class identifier should be innermost name only");
 
         // Deeply nested class: A.AInner.AInnerInner (two levels of nesting)
-        var classAInnerInnerDef = analyzer.getDefinitions("A.AInner.AInnerInner").stream().findFirst();
+        var classAInnerInnerDef =
+                analyzer.getDefinitions("A.AInner.AInnerInner").stream().findFirst();
         assertTrue(classAInnerInnerDef.isPresent(), "Should find definition for deeply nested class");
         assertEquals(
                 "A.AInner.AInnerInner",
@@ -417,7 +415,8 @@ public class JavaAnalyzerTest {
                 "Deeply nested identifier should be innermost name only");
 
         // Static nested class: A.AInnerStatic
-        var classAInnerStaticDef = analyzer.getDefinitions("A.AInnerStatic").stream().findFirst();
+        var classAInnerStaticDef =
+                analyzer.getDefinitions("A.AInnerStatic").stream().findFirst();
         assertTrue(classAInnerStaticDef.isPresent(), "Should find definition for static nested class");
         assertEquals(
                 "A.AInnerStatic",

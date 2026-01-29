@@ -438,7 +438,8 @@ public class FuzzyUsageFinderJavaTest {
     public void testAlternativesComputationForNestedClasses() throws Exception {
         String outer1 = "public class Outer1 { public static class Inner { public void doWork() {} } }";
         String outer2 = "public class Outer2 { public static class Inner { public void doWork() {} } }";
-        String user = """
+        String user =
+                """
                 public class User {
                     public void use() {
                         Outer1.Inner inner = new Outer1.Inner();
@@ -476,9 +477,7 @@ public class FuzzyUsageFinderJavaTest {
             var hits = either.getUsages();
             assertFalse(hits.isEmpty(), "Expected at least one usage hit for Outer1.Inner");
 
-            var files = hits.stream()
-                    .map(h -> h.file().getFileName())
-                    .collect(Collectors.toSet());
+            var files = hits.stream().map(h -> h.file().getFileName()).collect(Collectors.toSet());
             assertTrue(files.contains("User.java"), "Expected usage in User.java; actual: " + files);
         }
     }
@@ -489,7 +488,8 @@ public class FuzzyUsageFinderJavaTest {
         // This ensures the lastSep >= 0 branch in CodeUnit.identifier() doesn't regress
         // when lastSep is -1 (no '.' or '$' in the shortName)
         String fooContent = "public class Foo { public void doSomething() {} }";
-        String barContent = """
+        String barContent =
+                """
                 public class Bar {
                     private Foo foo;
                     public void useFoo() {
@@ -516,9 +516,7 @@ public class FuzzyUsageFinderJavaTest {
             var hits = either.getUsages();
             assertFalse(hits.isEmpty(), "Expected at least one usage hit for Foo");
 
-            var files = hits.stream()
-                    .map(h -> h.file().getFileName())
-                    .collect(Collectors.toSet());
+            var files = hits.stream().map(h -> h.file().getFileName()).collect(Collectors.toSet());
             assertTrue(files.contains("Bar.java"), "Expected usage in Bar.java; actual: " + files);
 
             // Verify we found usages in Bar's useFoo method
@@ -531,7 +529,8 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void testDeeplyNestedClassUsages() throws Exception {
-        String nestedSource = """
+        String nestedSource =
+                """
                 public class Outer {
                     public static class Middle {
                         public static class Inner {
@@ -541,7 +540,8 @@ public class FuzzyUsageFinderJavaTest {
                 }
                 """;
         String otherSource = "public class Other { public static class DecoyInner { public void otherMethod() {} } }";
-        String userSource = """
+        String userSource =
+                """
                 public class User {
                     public void use() {
                         Outer.Middle.Inner a = new Outer.Middle.Inner();
@@ -580,12 +580,10 @@ public class FuzzyUsageFinderJavaTest {
             // Since DecoyInner has a different identifier, it won't appear in our results
             for (var hit : userHits) {
                 // The enclosing method should be 'use' from User class
-                assertEquals("use", hit.enclosing().identifier(),
-                        "Expected hit to be within the 'use' method");
+                assertEquals("use", hit.enclosing().identifier(), "Expected hit to be within the 'use' method");
 
                 // Verify the snippet contains the target class name
-                assertTrue(hit.snippet().contains("Outer.Middle.Inner"),
-                        "Snippet should contain Outer.Middle.Inner");
+                assertTrue(hit.snippet().contains("Outer.Middle.Inner"), "Snippet should contain Outer.Middle.Inner");
             }
         }
     }
