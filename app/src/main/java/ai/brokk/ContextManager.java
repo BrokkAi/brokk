@@ -1400,13 +1400,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-            public boolean isTaskInProgress() {
-                    return isLlmTaskInProgress() || isTaskScopeInProgress();
-            }
+    public boolean isTaskInProgress() {
+        return isLlmTaskInProgress() || isTaskScopeInProgress();
+    }
 
-            public boolean isLlmTaskInProgress() {
-                    return userActions.isLlmTaskInProgress();
-            }
+    public boolean isLlmTaskInProgress() {
+        return userActions.isLlmTaskInProgress();
+    }
 
     /**
      * Returns true while a TaskScope is active, i.e. between io.setTaskInProgress(true) and io.setTaskInProgress(false).
