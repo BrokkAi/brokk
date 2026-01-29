@@ -147,12 +147,11 @@ export function evaluateSplit(
         };
     }
     
-    // No good split point in chunk, but we might need hard split
-    if (projectedLength > HARD_SPLIT_CHARS && !currentFenceState.insideFence) {
-        // Force split at start of new chunk (only if not inside fence)
+    // No good split point in chunk, but we need hard split (unconditional at threshold)
+    if (projectedLength > HARD_SPLIT_CHARS) {
         console.debug(
             '[splitStrategy] HARD SPLIT forced (no paragraph boundary found)',
-            { currentLength, projectedLength, HARD_SPLIT_CHARS }
+            { currentLength, projectedLength, HARD_SPLIT_CHARS, insideFence: currentFenceState.insideFence }
         );
         return {
             shouldSplit: true,
@@ -164,13 +163,7 @@ export function evaluateSplit(
         };
     }
     
-    // Can't split safely yet (inside fence or no good boundary)
-    if (projectedLength > HARD_SPLIT_CHARS && currentFenceState.insideFence) {
-        console.debug(
-            '[splitStrategy] SPLIT BLOCKED - inside code fence',
-            { currentLength, projectedLength, insideFence: currentFenceState.insideFence }
-        );
-    }
+    // Under hard threshold, no good boundary yet
     return {
         shouldSplit: false,
         textForCurrentBubble: '',

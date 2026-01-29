@@ -180,20 +180,25 @@ describe('evaluateSplit - hard split', () => {
 });
 
 describe('evaluateSplit - fence protection', () => {
-    test('blocks split when inside open fence even over SOFT_SPLIT_CHARS', () => {
+    test('blocks soft split when inside open fence over SOFT_SPLIT_CHARS', () => {
         const currentMarkdown = makeContent(SOFT_SPLIT_CHARS - 100) + '\n```\ncode';
         const newChunk = 'more code\n\nstill in fence';
         const result = evaluateSplit(currentMarkdown, newChunk, { insideFence: true });
 
+        // Soft split is blocked (no valid paragraph boundary outside fence)
+        // but we're under HARD_SPLIT_CHARS so no split occurs
         expect(result.shouldSplit).toBe(false);
     });
 
-    test('blocks hard split when inside fence over HARD_SPLIT_CHARS', () => {
+    test('hard split is unconditional even inside fence over HARD_SPLIT_CHARS', () => {
         const currentMarkdown = makeContent(HARD_SPLIT_CHARS - 100) + '\n```\ncode';
         const newChunk = makeContent(200);
         const result = evaluateSplit(currentMarkdown, newChunk, { insideFence: true });
 
-        expect(result.shouldSplit).toBe(false);
+        // Hard split fires unconditionally at threshold
+        expect(result.shouldSplit).toBe(true);
+        expect(result.textForCurrentBubble).toBe('');
+        expect(result.textForNewBubble).toBe(newChunk);
     });
 
     test('allows split after fence closes', () => {
@@ -279,13 +284,14 @@ describe('evaluateSplit - logging', () => {
         );
     });
 
-    test('logs SPLIT BLOCKED when inside fence', () => {
+    test('logs HARD SPLIT even when inside fence', () => {
         const currentMarkdown = makeContent(HARD_SPLIT_CHARS - 100);
         const newChunk = makeContent(200);
         evaluateSplit(currentMarkdown, newChunk, { insideFence: true });
 
+        // Hard split is unconditional, so it logs HARD SPLIT not SPLIT BLOCKED
         expect(debugSpy).toHaveBeenCalledWith(
-            expect.stringContaining('SPLIT BLOCKED'),
+            expect.stringContaining('HARD SPLIT'),
             expect.any(Object)
         );
     });
@@ -304,15 +310,26 @@ describe('evaluateSplit - fence state persistence across splits', () => {
         }
     });
 
-    test('long open fence (>16k) prevents split until closed', () => {
-        // Start with an open fence
+    test('long open fence (>16k but <32k) prevents soft split', () => {
+        // Start with an open fence, but under HARD_SPLIT_CHARS
         const currentMarkdown = '```\n' + makeContent(SOFT_SPLIT_CHARS + 5000);
         const newChunk = makeContent(1000) + '\n\nmore';
 
         const result = evaluateSplit(currentMarkdown, newChunk, { insideFence: true });
 
-        // Should not split because we're inside a fence
+        // Soft split blocked (inside fence), but under hard threshold so no split
         expect(result.shouldSplit).toBe(false);
+    });
+
+    test('very long open fence (>32k) triggers hard split unconditionally', () => {
+        // Start with an open fence, over HARD_SPLIT_CHARS
+        const currentMarkdown = '```\n' + makeContent(HARD_SPLIT_CHARS);
+        const newChunk = makeContent(1000);
+
+        const result = evaluateSplit(currentMarkdown, newChunk, { insideFence: true });
+
+        // Hard split fires unconditionally
+        expect(result.shouldSplit).toBe(true);
     });
 
     test('split allowed after fence closes in new chunk', () => {
