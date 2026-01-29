@@ -35,13 +35,16 @@ public final class JobDiagnosticsLoader {
     private JobDiagnosticsLoader() {}
 
     /**
-     * Load job timelines from a JobStore root and optional brokk log directory.
+     * Load job timelines from an optional JobStore root and optional brokk log directory.
      *
-     * @param jobStoreRoot Path to the JobStore root that contains a "jobs" directory.
+     * @param jobStoreRoot Path to the JobStore root that contains a "jobs" directory. May be null to indicate no JobStore is configured.
      * @param brokkLogDir  Path to Brokk logs directory (may be null), used for best-effort enrichment.
      * @return list of JobTimeline, empty list if none found or on errors.
      */
-    public static List<JobTimeline> load(Path jobStoreRoot, @Nullable Path brokkLogDir) {
+    public static List<JobTimeline> load(@Nullable Path jobStoreRoot, @Nullable Path brokkLogDir) {
+        if (jobStoreRoot == null) {
+            return List.of();
+        }
         Path jobsDir = jobStoreRoot.resolve("jobs");
         if (!Files.exists(jobsDir) || !Files.isDirectory(jobsDir)) {
             return List.of();
