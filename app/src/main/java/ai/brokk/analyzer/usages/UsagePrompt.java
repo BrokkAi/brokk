@@ -28,10 +28,19 @@ public record UsagePrompt(String filterDescription, String candidateText, String
             CodeUnit codeUnitTarget,
             Collection<CodeUnit> alternatives,
             Collection<CodeUnit> polymorphicMatches,
+            boolean hierarchySupported,
             IAnalyzer analyzer,
             String shortName,
             int maxTokens) {
-        return build(List.of(hit), codeUnitTarget, alternatives, polymorphicMatches, analyzer, shortName, maxTokens);
+        return build(
+                List.of(hit),
+                codeUnitTarget,
+                alternatives,
+                polymorphicMatches,
+                hierarchySupported,
+                analyzer,
+                shortName,
+                maxTokens);
     }
 
     /**
@@ -41,6 +50,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
      * @param codeUnitTarget the intended target code unit
      * @param alternatives other code units with the same short name that are not the target
      * @param polymorphicMatches subclasses that inherit the target method/field without overriding it
+     * @param hierarchySupported whether the analyzer supports type hierarchy resolution
      * @param analyzer used to retrieve import statements for the file containing the usage
      * @param shortName the short name being searched (e.g., "A.method2")
      * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
@@ -51,6 +61,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
             CodeUnit codeUnitTarget,
             Collection<CodeUnit> alternatives,
             Collection<CodeUnit> polymorphicMatches,
+            boolean hierarchySupported,
             IAnalyzer analyzer,
             String shortName,
             int maxTokens) {
@@ -64,12 +75,18 @@ public record UsagePrompt(String filterDescription, String candidateText, String
         final int maxChars = (maxTokens <= 0) ? Integer.MAX_VALUE : Math.max(512, maxTokens * 4);
         var sb = new StringBuilder(Math.min(maxChars, 32_000));
 
-        String polyInfo = polymorphicMatches.isEmpty()
-                ? ""
-                : "\nThe following subclasses inherit this method without overriding it, so calls on these types are also valid matches: %s"
-                        .formatted(polymorphicMatches.stream()
-                                .map(CodeUnit::fqName)
-                                .collect(Collectors.joining(", ")));
+        String polyInfo;
+        if (!hierarchySupported) {
+            polyInfo =
+                    "\nNote: type hierarchy information is not available for this language, so polymorphic usages cannot be detected.";
+        } else {
+            polyInfo = polymorphicMatches.isEmpty()
+                    ? ""
+                    : "\nThe following subclasses inherit this method without overriding it, so calls on these types are also valid matches: %s"
+                            .formatted(polymorphicMatches.stream()
+                                    .map(CodeUnit::fqName)
+                                    .collect(Collectors.joining(", ")));
+        }
 
         // Filter description for RelevanceClassifier.relevanceScore
         String filterDescription =
