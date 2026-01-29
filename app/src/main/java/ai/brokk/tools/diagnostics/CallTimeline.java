@@ -1,8 +1,9 @@
 package ai.brokk.tools.diagnostics;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import java.util.List;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * Represents a single LLM call or tool-invoking call within a job's timeline.
@@ -26,7 +27,7 @@ public record CallTimeline(
         @Nullable Integer completionTokenCount,
         @Nullable String reasoningContent,
         @Nullable String thoughtSignature,
-        List<ToolCallTimeline> tools,
+        @Nullable List<ToolCallTimeline> tools,
         @Nullable Integer attemptIndex,
         @Nullable String status) {
 
