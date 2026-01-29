@@ -97,13 +97,7 @@ public final class FuzzyUsageFinder {
      */
     private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) throws InterruptedException {
         // non-nested identifier
-        var shortName = target.identifier().replace("$", ".");
-        if (shortName.contains(".")) {
-            // shortName format is "Class.member" or "simpleFunction"
-            int lastDot = shortName.lastIndexOf('.');
-            shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
-        }
-        final String identifier = shortName;
+        final String identifier = target.identifier();
 
         // Determine language based on the target's source file extension
         Language lang = Languages.fromExtension(target.source().extension());
