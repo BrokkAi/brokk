@@ -192,6 +192,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Service reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
 
+    private final ScheduledExecutorService debouncedUpdatesExecutor =
+            Executors.newSingleThreadScheduledExecutor(ExecutorsUtil.createNamedThreadFactory("DebouncedUpdates"));
+
+    private volatile @Nullable ScheduledFuture<?> layoutUpdateFuture;
+
     // Publicly exposed flag for the exact TaskScope window
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
 
@@ -631,12 +636,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.updateWorkspace();
                 logger.debug("Workspace updated due to context file changes");
             }
+
+            // Handle AGENTS.md auto-update
+            if (project.getAutoUpdateStyleGuide()) {
+                scheduleDebouncedLayoutUpdate();
+            }
         });
 
         // Notify analyzer callbacks - they determine their own filtering
         for (var callback : analyzerCallbacks) {
             submitBackgroundTask("Update for FS changes", callback::onTrackedFileChange);
         }
+    }
+
+    private synchronized void scheduleDebouncedLayoutUpdate() {
+        if (layoutUpdateFuture != null && !layoutUpdateFuture.isDone()) {
+            layoutUpdateFuture.cancel(false);
+        }
+
+        layoutUpdateFuture = debouncedUpdatesExecutor.schedule(
+                () -> {
+                    try {
+                        var layout = project.getProjectLayoutSummary();
+                        project.saveProjectLayoutSummary(layout);
+                    } catch (Exception e) {
+                        logger.error("Error during auto-update of project layout in AGENTS.md", e);
+                    }
+                },
+                2,
+                TimeUnit.SECONDS);
     }
 
     @Override
@@ -1362,6 +1390,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             buildAgentFuture.cancel(true);
         }
 
+        if (layoutUpdateFuture != null) {
+            layoutUpdateFuture.cancel(false);
+        }
+
         // Close watchers before shutting down executors that may be used by them
         if (analyzerWrapper != null) {
             analyzerWrapper.close();
@@ -1375,7 +1407,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
 
-        return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, syncExecutorFuture)
+        var debouncedExecutorFuture = new CompletableFuture<Void>();
+        debouncedUpdatesExecutor.shutdown();
+        backgroundTasks.execute(() -> {
+            try {
+                debouncedUpdatesExecutor.awaitTermination(awaitMillis, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                debouncedExecutorFuture.complete(null);
+            }
+        });
+
+        return CompletableFuture.allOf(
+                        contextActionFuture,
+                        backgroundFuture,
+                        userActionsFuture,
+                        syncExecutorFuture,
+                        debouncedExecutorFuture)
                 .whenComplete((v, t) -> project.close());
     }
 
