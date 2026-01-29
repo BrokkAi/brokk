@@ -288,11 +288,18 @@ public class ContextAgent {
                 .collect(Collectors.toSet());
         List<ProjectFile> analyzedFiles =
                 candidates.stream().filter(analyzedFileSet::contains).sorted().toList();
-        List<ProjectFile> unAnalyzedFiles = candidates.stream()
-                .filter(f -> !analyzedFileSet.contains(f))
-                .sorted()
-                .toList();
-        logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
+        boolean skipUnanalyzed = "true".equalsIgnoreCase(System.getenv("BRK_SKIP_UNANALYZED"));
+        List<ProjectFile> unAnalyzedFiles = skipUnanalyzed
+                ? List.of()
+                : candidates.stream()
+                        .filter(f -> !analyzedFileSet.contains(f))
+                        .sorted()
+                        .toList();
+        logger.debug(
+                "Grouped candidates: analyzed={}, unAnalyzed={} (skipped={})",
+                analyzedFiles.size(),
+                unAnalyzedFiles.size(),
+                skipUnanalyzed);
 
         var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
 
