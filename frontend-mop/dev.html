@@ -35,6 +35,7 @@
     <span id="wrap-mode-status" style="margin-left:6px; color:#666;">(scroll)</span>
     <button onclick="showAllCodeblockCases()">Show All Code Block Cases</button>
     <button onclick="showStaticDocument()">Show Static Document</button>
+    <button onclick="streamSplitTest()">Split Test</button>
     <h3>Search Tools</h3>
     <input type="text" id="search-query-input" placeholder="Search query" style="width: 200px; margin-right: 5px;">
     <label><input type="checkbox" id="search-case-sensitive"> Case Sensitive</label>
@@ -1249,6 +1250,38 @@ function updateModeIndicators() {
 })();
 
 // Show a comprehensive sample covering all code block cases
+function streamSplitTest() {
+    window.brokk.clear();
+    simulateEvent('clear');
+
+    // Use the 'ai' variable which contains edit blocks (~8-10k chars)
+    // Repeat it 3 times with separators to exceed SOFT_SPLIT_CHARS (16k)
+    // This should trigger at least one split at a paragraph boundary
+    const repeatedContent = (ai + '\n\n---\n\n').repeat(3);
+
+    console.log('[Split Test] Starting stream of ~' + repeatedContent.length + ' chars');
+
+    // Use larger chunks (50 chars) for faster test, but small enough to see splits happen
+    const chunks = repeatedContent.match(/[\s\S]{1,50}/g) || [];
+    let index = 0;
+
+    const interval = setInterval(() => {
+        if (index < chunks.length) {
+            simulateEvent('chunk', {
+                text: chunks[index],
+                msgType: 'AI',
+                streaming: true,
+                meta: { isNewMessage: index === 0, isReasoning: false, isTerminal: false }
+            });
+            index++;
+        } else {
+            clearInterval(interval);
+            console.log('[Split Test] Completed streaming ~' + repeatedContent.length + ' chars');
+            console.log('[Split Test] Check if multiple bubbles were created due to splits');
+        }
+    }, 5); // Fast interval (5ms) to speed up the test
+}
+
 function showAllCodeblockCases() {
     const mode = getWrapMode();
     const content = `# Code Block Modes Demo
