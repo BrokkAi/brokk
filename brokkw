@@ -19,7 +19,6 @@ JVM_OPTS=(
     "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED"
     "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED"
     "--enable-native-access=ALL-UNNAMED"
-    "-Dbrokk.servicetiers=true"
     "-Dbrokk.architectshell=true"
     "-Dwatch.service.polling=true"
     "-Dbrokk.devmode=true"
