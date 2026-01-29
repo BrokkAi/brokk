@@ -20,8 +20,8 @@ class SummarizerPromptsTest {
         assertTrue(messages.get(0) instanceof SystemMessage);
         assertTrue(messages.get(1) instanceof UserMessage);
 
-        String systemText = messages.get(0).toString();
-        String userText = messages.get(1).toString();
+        String systemText = ((SystemMessage) messages.get(0)).text();
+        String userText = ((UserMessage) messages.get(1)).singleText();
 
         assertFalse(systemText.contains("WHY the changes were made"));
         assertTrue(userText.contains("<diff>\nsome diff content\n</diff>"));
@@ -36,12 +36,12 @@ class SummarizerPromptsTest {
                 SummarizerPrompts.instance.collectPrTitleAndDescriptionMessagesWithContext(diff, context);
 
         assertEquals(2, messages.size());
-        String systemText = messages.get(0).toString();
-        String userText = messages.get(1).toString();
+        String systemText = ((SystemMessage) messages.get(0)).text();
+        String userText = ((UserMessage) messages.get(1)).singleText();
 
         assertTrue(systemText.contains("Use the session context to understand the intent behind the changes"));
         assertTrue(systemText.contains("Focus on WHY the changes were made, not just WHAT changed"));
-        
+
         assertTrue(userText.contains("<diff>\nsome diff content\n</diff>"));
         assertTrue(userText.contains("<context>\nintent: fix bug\n</context>"));
     }
@@ -54,8 +54,8 @@ class SummarizerPromptsTest {
                 SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgsWithContext(commits, context);
 
         assertEquals(2, messages.size());
-        String systemText = messages.get(0).toString();
-        String userText = messages.get(1).toString();
+        String systemText = ((SystemMessage) messages.get(0)).text();
+        String userText = ((UserMessage) messages.get(1)).singleText();
 
         assertTrue(systemText.contains("WHY the changes were made"));
         assertTrue(userText.contains("<commits>\nfeat: add foo\n\nfix: bar\n</commits>"));
