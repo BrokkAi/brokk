@@ -245,7 +245,7 @@ public final class JobRunner {
         ISSUE_WRITER
     }
 
-    static Mode parseMode(JobSpec spec) {
+    public static Mode parseMode(JobSpec spec) {
         try {
             var tags = spec.tags();
             var raw = tags.getOrDefault("mode", "").trim();
