@@ -26,7 +26,6 @@ application {
     mainClass.set("ai.brokk.Brokk")
     applicationDefaultJvmArgs = buildList {
         // enable feature flags; JavaExec baseline supplies other args
-        add("-Dbrokk.servicetiers=true")
         add("-Dbrokk.architectshell=true")
         add("-Dwatch.service.polling=true")
         // JCEF requires these flags for native Chromium integration on macOS
