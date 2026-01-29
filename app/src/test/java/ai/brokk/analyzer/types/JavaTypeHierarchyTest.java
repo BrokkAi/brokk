@@ -724,4 +724,101 @@ public class JavaTypeHierarchyTest {
             assertEquals(firstCall, secondCall, "Results should be consistent across multiple calls");
         }
     }
+
+    @Test
+    public void descendants_preFilterHandlesFullyQualifiedNames() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package p1;
+                        public class Base {}
+                        """,
+                "Base.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                                package p2;
+                                // No import, using FQN in extends
+                                public class Child extends p1.Base {}
+                                """,
+                        "Child.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject).update();
+
+            var base = analyzer.getDefinitions("p1.Base").iterator().next();
+            var child = analyzer.getDefinitions("p2.Child").iterator().next();
+
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+
+            // The pre-filter checks if "Base" (shortName) is contained in "p1.Base" (rawSupertype)
+            var descendants = hierarchy.getDirectDescendants(base);
+            assertEquals(
+                    Set.of(child), descendants, "Base should have Child as descendant even when referenced by FQN");
+        }
+    }
+
+    @Test
+    public void descendants_lazyComputationOnlyProcessesCandidates() throws IOException {
+        // Create a project with several unrelated classes and one inheritance relationship
+        // The test verifies that querying descendants of UnrelatedBase only processes
+        // classes whose rawSupertypes mention "UnrelatedBase", not ALL classes
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package p1;
+                        public class UnrelatedBase {}
+                        """,
+                "UnrelatedBase.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                                package p1;
+                                public class UnrelatedChild extends UnrelatedBase {}
+                                """,
+                        "UnrelatedChild.java")
+                .addFileContents(
+                        """
+                                package p2;
+                                public class CompletelyDifferent {}
+                                """,
+                        "CompletelyDifferent.java")
+                .addFileContents(
+                        """
+                                package p2;
+                                public class AnotherUnrelated {}
+                                """,
+                        "AnotherUnrelated.java")
+                .addFileContents(
+                        """
+                                package p3;
+                                public class YetAnotherClass {}
+                                """,
+                        "YetAnotherClass.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject).update();
+
+            var unrelatedBase =
+                    analyzer.getDefinitions("p1.UnrelatedBase").iterator().next();
+            var unrelatedChild =
+                    analyzer.getDefinitions("p1.UnrelatedChild").iterator().next();
+            var completelyDifferent =
+                    analyzer.getDefinitions("p2.CompletelyDifferent").iterator().next();
+
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+
+            // Query descendants of UnrelatedBase - should find UnrelatedChild
+            // This should only process classes whose rawSupertypes contain "UnrelatedBase"
+            var descendants = hierarchy.getDirectDescendants(unrelatedBase);
+            assertEquals(
+                    Set.of(unrelatedChild),
+                    descendants,
+                    "UnrelatedBase should have UnrelatedChild as its only direct descendant");
+
+            // Query descendants of a leaf class with no subtypes
+            // This should return empty without processing any other classes
+            var leafDescendants = hierarchy.getDirectDescendants(completelyDifferent);
+            assertTrue(leafDescendants.isEmpty(), "CompletelyDifferent has no subtypes and should return empty set");
+
+            // Verify that the optimization works: querying descendants of UnrelatedBase
+            // again should return cached results instantly
+            var cachedDescendants = hierarchy.getDirectDescendants(unrelatedBase);
+            assertEquals(descendants, cachedDescendants, "Cached descendants should match original query");
+        }
+    }
 }

@@ -514,6 +514,55 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void roundTripAncestorTriggeredSubtypes(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                interface Base {}
+                class Child1 implements Base {}
+                class Child2 implements Base {}
+                """,
+                "src/main/java/com/example/Hierarchy.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            CodeUnit baseCu = analyzer.getDefinitions("com.example.Base").getFirst();
+            CodeUnit child1Cu = analyzer.getDefinitions("com.example.Child1").getFirst();
+            CodeUnit child2Cu = analyzer.getDefinitions("com.example.Child2").getFirst();
+
+            // 1. Trigger lazy supertype computation for the children.
+            // This also populates the reverse subtype index in the transient cache as a side-effect.
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            List<CodeUnit> parents1 = hierarchy.getDirectAncestors(child1Cu);
+            List<CodeUnit> parents2 = hierarchy.getDirectAncestors(child2Cu);
+
+            assertTrue(parents1.contains(baseCu));
+            assertTrue(parents2.contains(baseCu));
+
+            // 2. Snapshot the state and verify the reverse index (subtypes) was merged.
+            TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
+            Set<CodeUnit> subtypesInSnapshot = snapshot.typeHierarchyGraph().subtypesOf(baseCu);
+            assertTrue(subtypesInSnapshot.contains(child1Cu), "Snapshot should contain Child1 as subtype of Base");
+            assertTrue(subtypesInSnapshot.contains(child2Cu), "Snapshot should contain Child2 as subtype of Base");
+
+            // 3. Round-trip serialization
+            Path storage = tempDir.resolve("ancestor_test.smile.gz");
+            TreeSitterStateIO.save(snapshot, storage);
+
+            var loadedStateOpt = TreeSitterStateIO.load(storage);
+            assertTrue(loadedStateOpt.isPresent());
+            var loadedState = loadedStateOpt.get();
+
+            // 4. Verify reloaded state contains the subtype mappings
+            Set<CodeUnit> reloadedSubtypes = loadedState.typeHierarchyGraph().subtypesOf(baseCu);
+            assertTrue(reloadedSubtypes.contains(child1Cu));
+            assertTrue(reloadedSubtypes.contains(child2Cu));
+            assertEquals(2, reloadedSubtypes.size());
+        }
+    }
+
+    @Test
     void roundTripImportsAndReverseImports(@TempDir Path tempDir) throws Exception {
         var root = tempDir.resolve("root");
         Files.createDirectories(root);
