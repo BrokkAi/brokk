@@ -46,6 +46,44 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
     }
 
     /**
+     * Returns the set of subclasses/descendants that inherit the target function without overriding it.
+     * This is useful for finding usages of a method where calls on subclasses are also valid matches.
+     *
+     * @param target the target code unit (must be a FUNCTION)
+     * @param analyzer the analyzer used to resolve definitions and children
+     * @return a list of descendants that inherit the method, or an empty list if not a function or no hierarchy
+     */
+    default List<CodeUnit> getPolymorphicMatches(CodeUnit target, IAnalyzer analyzer) {
+        if (target.kind() != CodeUnitType.FUNCTION) {
+            return List.of();
+        }
+
+        String className = CodeUnit.toClassname(target.fqName());
+        var classDefs = analyzer.getDefinitions(className);
+        var parentClassOpt = classDefs.stream().filter(CodeUnit::isClass).findFirst();
+
+        if (parentClassOpt.isEmpty()) {
+            return List.of();
+        }
+
+        List<CodeUnit> descendants = this.getDescendants(parentClassOpt.get());
+        List<CodeUnit> polymorphicMatches = new ArrayList<>();
+        String targetIdentifier = target.identifier();
+
+        for (CodeUnit descendant : descendants) {
+            boolean overrides = analyzer.getDirectChildren(descendant).stream()
+                    .anyMatch(child -> child.kind() == CodeUnitType.FUNCTION
+                            && child.identifier().equals(targetIdentifier));
+
+            if (!overrides) {
+                polymorphicMatches.add(descendant);
+            }
+        }
+
+        return polymorphicMatches;
+    }
+
+    /**
      * Helper method to perform BFS traversal of a code unit hierarchy in either direction.
      *
      * @param cu the starting code unit

@@ -349,39 +349,9 @@ public final class FuzzyUsageFinder {
     }
 
     private Collection<CodeUnit> computePolymorphicMatches(CodeUnit target) {
-        if (target.kind() != CodeUnitType.FUNCTION) {
-            return List.of();
-        }
-
-        String className = CodeUnit.toClassname(target.fqName());
-        var classDefs = analyzer.getDefinitions(className);
-        var parentClassOpt = classDefs.stream().filter(CodeUnit::isClass).findFirst();
-
-        if (parentClassOpt.isEmpty()) {
-            return List.of();
-        }
-
-        var hierarchyProviderOpt = analyzer.as(TypeHierarchyProvider.class);
-        if (hierarchyProviderOpt.isEmpty()) {
-            return List.of();
-        }
-
-        TypeHierarchyProvider hierarchyProvider = hierarchyProviderOpt.get();
-        List<CodeUnit> descendants = hierarchyProvider.getDescendants(parentClassOpt.get());
-        List<CodeUnit> polymorphicMatches = new ArrayList<>();
-        String targetIdentifier = target.identifier();
-
-        for (CodeUnit descendant : descendants) {
-            boolean overrides = analyzer.getDirectChildren(descendant).stream()
-                    .anyMatch(child -> child.kind() == CodeUnitType.FUNCTION
-                            && child.identifier().equals(targetIdentifier));
-
-            if (!overrides) {
-                polymorphicMatches.add(descendant);
-            }
-        }
-
-        return polymorphicMatches;
+        return analyzer.as(TypeHierarchyProvider.class)
+                .map(provider -> provider.getPolymorphicMatches(target, analyzer))
+                .orElse(List.of());
     }
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {
