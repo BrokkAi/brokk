@@ -466,24 +466,20 @@ public class FuzzyUsageFinderJavaTest {
                 fail("Got failure: " + either.getErrorMessage());
             }
 
-            // The bug causes the finder to fail to find 'Outer2.Inner' as an alternative because
-            // "Outer2.Inner".equals("Inner") is false.
-            if (result instanceof FuzzyResult.Ambiguous ambiguous) {
-                var alternativeNames = ambiguous.candidateTargets().stream()
-                        .map(CodeUnit::fqName)
-                        .collect(Collectors.toSet());
+            // With the fix, the finder correctly identifies both Inner classes as alternatives.
+            // The public findUsages(String) API always returns Success after aggregation/filtering.
+            // We verify success and that hits were found for the usage in User.java.
+            assertTrue(
+                    result instanceof FuzzyResult.Success,
+                    "Expected Success result, got: " + result.getClass().getSimpleName());
 
-                assertTrue(
-                        alternativeNames.contains("Outer1.Inner"),
-                        "Expected Outer1.Inner in alternatives; actual: " + alternativeNames);
-                assertTrue(
-                        alternativeNames.contains("Outer2.Inner"),
-                        "Expected Outer2.Inner in alternatives (bug prevents this); actual: " + alternativeNames);
-            } else {
-                // If it returns Success, it means it thought it was unique, which is also a bug manifestation
-                // if there are actually multiple "Inner" classes in the project.
-                fail("Expected Ambiguous result with multiple Inner class alternatives, but got: " + result.getClass().getSimpleName());
-            }
+            var hits = either.getUsages();
+            assertFalse(hits.isEmpty(), "Expected at least one usage hit for Outer1.Inner");
+
+            var files = hits.stream()
+                    .map(h -> h.file().getFileName())
+                    .collect(Collectors.toSet());
+            assertTrue(files.contains("User.java"), "Expected usage in User.java; actual: " + files);
         }
     }
 

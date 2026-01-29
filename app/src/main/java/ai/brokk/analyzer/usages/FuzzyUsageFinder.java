@@ -108,10 +108,10 @@ public final class FuzzyUsageFinder {
                 .map(template -> template.replace("$ident", Pattern.quote(identifier)))
                 .collect(Collectors.toSet());
 
-        // Define pattern for matching code unit definitions with exact shortName (used to detect uniqueness)
+        // Define pattern for matching code unit definitions with exact identifier (used to detect uniqueness)
         var matchingCodeUnits =
                 analyzer.searchDefinitions("\\b%s\\b".formatted(Pattern.quote(identifier)), false).stream()
-                        .filter(cu -> cu.shortName().equals(identifier))
+                        .filter(cu -> cu.identifier().equals(identifier))
                         .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
 
