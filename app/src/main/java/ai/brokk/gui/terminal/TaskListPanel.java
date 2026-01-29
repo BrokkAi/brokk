@@ -1001,7 +1001,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void ensureCleanOrCommitThen(Runnable action) {
         assert SwingUtilities.isEventDispatchThread();
 
-        // Check for dirty files using GCT's cached count (fast, no repo call)
         var dirtyFiles = cm.getProject().getRepo().getModifiedProjectFiles();
         if (dirtyFiles.isEmpty()) {
             action.run();
@@ -1055,7 +1054,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         dialog.setVisible(true);
 
         if (choice[0] == 0) {
-            // Commit first, then proceed on success
             var commitDialog = new CommitDialog(
                     chrome.getFrame(),
                     chrome,
@@ -1064,10 +1062,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     commitResult -> SwingUtilities.invokeLater(action));
             commitDialog.setVisible(true);
         } else if (choice[0] == 1) {
-            // Continue without committing
             action.run();
-        } else {
-            // Cancel: do nothing
         }
     }
 
