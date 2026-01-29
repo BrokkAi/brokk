@@ -178,43 +178,6 @@ public interface IContextManager {
         });
     }
 
-    /**
-     * Submit a short-lived task that mutates the live context. Implementations that provide
-     * a specialized context-aware execution path (for example ContextManager) should override
-     * this. The default implementation prefers a concrete ContextManager when available and
-     * otherwise falls back to a background task submission.
-     */
-    default CompletableFuture<Void> submitContextTask(Runnable task) {
-        if (this instanceof ai.brokk.ContextManager cm) {
-            return cm.submitContextTask(task);
-        }
-        return submitBackgroundTask("ContextTask", task);
-    }
-
-    /**
-     * Returns true if an operation that should prevent interactive modifications to the live
-     * context (such as file drops) is currently in progress. The default implementation
-     * makes a best-effort check against the known ContextManager implementation.
-     */
-    default boolean isTaskInProgress() {
-        try {
-            if (this instanceof ai.brokk.ContextManager cm) {
-                return cm.isLlmTaskInProgress() || cm.isTaskScopeInProgress();
-            }
-        } catch (Throwable ignored) {
-            // conservative fallback
-        }
-        return false;
-    }
-
-    /**
-     * Backwards-compatible helper for callers that relied on a concrete ContextManager API.
-     * New code should prefer {@link #isTaskInProgress()}.
-     */
-    default boolean isLlmTaskInProgress() {
-        return isTaskInProgress();
-    }
-
     default Set<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
         var analyzer = getAnalyzerWrapper().getNonBlocking();
