@@ -66,6 +66,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             new JCheckBox("Automatically update local path dependencies");
     private final JCheckBox autoUpdateGitDependenciesCheckBox =
             new JCheckBox("Automatically update GitHub dependencies");
+    private final JCheckBox autoUpdateStyleGuideCheckBox =
+            new JCheckBox("Automatically update layout section of AGENTS.md");
 
     private final Set<Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
 
@@ -946,10 +948,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcAuto.insets = new Insets(2, 2, 0, 2);
         autoUpdatePanel.add(autoUpdateGitDependenciesCheckBox, gbcAuto);
 
+        gbcAuto.gridy++;
+        gbcAuto.insets = new Insets(2, 2, 0, 2);
+        autoUpdatePanel.add(autoUpdateStyleGuideCheckBox, gbcAuto);
+
         autoUpdateLocalDependenciesCheckBox.setToolTipText(
                 "Automatically refresh dependencies imported from local directories via the Dependencies panel.");
         autoUpdateGitDependenciesCheckBox.setToolTipText(
                 "Automatically refresh dependencies imported from GitHub repositories via the Dependencies panel.");
+        autoUpdateStyleGuideCheckBox.setToolTipText(
+                "Automatically update the auto-generated architecture and project layout section of the root AGENTS.md file.");
 
         var autoUpdateInfoLabel =
                 new JLabel("<html>Auto-update applies only to dependencies imported via the Dependencies panel "
@@ -1115,6 +1123,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Load auto-update dependency flags
         autoUpdateLocalDependenciesCheckBox.setSelected(project.getAutoUpdateLocalDependencies());
         autoUpdateGitDependenciesCheckBox.setSelected(project.getAutoUpdateGitDependencies());
+        autoUpdateStyleGuideCheckBox.setSelected(project.getAutoUpdateStyleGuide());
     }
 
     public boolean applySettings() {
@@ -1181,6 +1190,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Code Intelligence Tab - dependency auto-update flags
         project.setAutoUpdateLocalDependencies(autoUpdateLocalDependenciesCheckBox.isSelected());
         project.setAutoUpdateGitDependencies(autoUpdateGitDependenciesCheckBox.isSelected());
+        project.setAutoUpdateStyleGuide(autoUpdateStyleGuideCheckBox.isSelected());
 
         // Persist CI exclusions from Code Intelligence panel into BuildDetails BEFORE build panel applies its settings
         saveCiExclusions();

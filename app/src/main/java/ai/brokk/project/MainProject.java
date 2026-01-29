@@ -129,6 +129,7 @@ public final class MainProject extends AbstractProject {
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
     private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
     private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
+    private static final String AUTO_UPDATE_STYLE_GUIDE_KEY = "autoUpdateStyleGuide";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -693,6 +694,22 @@ public final class MainProject extends AbstractProject {
         }
         saveProjectProperties();
         notifyAutoUpdateGitDependenciesChanged();
+    }
+
+    @Override
+    public boolean getAutoUpdateStyleGuide() {
+        String value = projectProps.getProperty(AUTO_UPDATE_STYLE_GUIDE_KEY);
+        return value != null && Boolean.parseBoolean(value);
+    }
+
+    @Override
+    public void setAutoUpdateStyleGuide(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(AUTO_UPDATE_STYLE_GUIDE_KEY, "true");
+        } else {
+            projectProps.remove(AUTO_UPDATE_STYLE_GUIDE_KEY);
+        }
+        saveProjectProperties();
     }
 
     public long getRunCommandTimeoutSeconds() {

@@ -450,6 +450,19 @@ public interface IProject extends AutoCloseable {
     default void setAutoUpdateGitDependencies(boolean enabled) {}
 
     /**
+     * Whether this project should automatically update the architecture/layout section of AGENTS.md.
+     * Default is {@code false}.
+     */
+    default boolean getAutoUpdateStyleGuide() {
+        return false;
+    }
+
+    /**
+     * Configure whether this project should automatically update the architecture/layout section of AGENTS.md.
+     */
+    default void setAutoUpdateStyleGuide(boolean enabled) {}
+
+    /**
      * Returns all on-disk dependency directories (immediate children of the dependencies folder).
      */
     default Set<ProjectFile> getAllOnDiskDependencies() {

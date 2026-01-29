@@ -266,6 +266,16 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    public boolean getAutoUpdateStyleGuide() {
+        return parent.getAutoUpdateStyleGuide();
+    }
+
+    @Override
+    public void setAutoUpdateStyleGuide(boolean enabled) {
+        parent.setAutoUpdateStyleGuide(enabled);
+    }
+
+    @Override
     public AbstractService.ModelConfig getModelConfig(ModelProperties.ModelType modelType) {
         return parent.getModelConfig(modelType);
     }

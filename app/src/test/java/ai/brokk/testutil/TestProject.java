@@ -35,6 +35,7 @@ public class TestProject implements IProject {
 
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
+    private boolean autoUpdateStyleGuide = false;
     private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
     private @Nullable String jdk;
@@ -100,6 +101,16 @@ public class TestProject implements IProject {
     @Override
     public String getStyleGuide() {
         return styleGuide;
+    }
+
+    @Override
+    public boolean getAutoUpdateStyleGuide() {
+        return autoUpdateStyleGuide;
+    }
+
+    @Override
+    public void setAutoUpdateStyleGuide(boolean enabled) {
+        this.autoUpdateStyleGuide = enabled;
     }
 
     public void setExclusionPatterns(Set<String> patterns) {
