@@ -450,6 +450,14 @@ public interface IProject extends AutoCloseable {
     default void setAutoUpdateGitDependencies(boolean enabled) {}
 
     /**
+     * Returns a rendered summary of the project layout and a stable fingerprint.
+     */
+    @Blocking
+    default ai.brokk.util.ProjectLayoutSummary.LayoutResult getProjectLayoutSummary() {
+        return new ai.brokk.util.ProjectLayoutSummary(this).render();
+    }
+
+    /**
      * Whether this project should automatically update the architecture/layout section of AGENTS.md.
      * Default is {@code false}.
      */
