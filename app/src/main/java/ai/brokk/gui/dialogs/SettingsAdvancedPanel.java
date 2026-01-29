@@ -685,10 +685,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         var sorter = new TableRowSorter<>(quickModelsTableModel);
         sorter.setComparator(2, Comparator.comparingInt(Service.ReasoningLevel::ordinal));
-        boolean showServiceTiers = Boolean.getBoolean("brokk.servicetiers");
-        if (showServiceTiers) {
-            sorter.setComparator(3, Comparator.comparingInt(Service.ProcessingTier::ordinal));
-        }
+        sorter.setComparator(3, Comparator.comparingInt(Service.ProcessingTier::ordinal));
         quickModelsTable.setRowSorter(sorter);
 
         TableColumn aliasColumn = quickModelsTable.getColumnModel().getColumn(0);
@@ -705,16 +702,12 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         reasoningColumn.setCellRenderer(new ReasoningCellRenderer(service));
         reasoningColumn.setPreferredWidth(100);
 
-        if (showServiceTiers) {
-            TableColumn processingColumn = quickModelsTable.getColumnModel().getColumn(3);
-            var processingComboBoxEditor = new JComboBox<>(Service.ProcessingTier.values());
-            processingColumn.setCellEditor(
-                    new ProcessingTierCellEditor(processingComboBoxEditor, service, quickModelsTable));
-            processingColumn.setCellRenderer(new ProcessingTierCellRenderer(service));
-            processingColumn.setPreferredWidth(120);
-        } else {
-            quickModelsTable.removeColumn(quickModelsTable.getColumnModel().getColumn(3));
-        }
+        TableColumn processingColumn = quickModelsTable.getColumnModel().getColumn(3);
+        var processingComboBoxEditor = new JComboBox<>(Service.ProcessingTier.values());
+        processingColumn.setCellEditor(
+                new ProcessingTierCellEditor(processingComboBoxEditor, service, quickModelsTable));
+        processingColumn.setCellRenderer(new ProcessingTierCellRenderer(service));
+        processingColumn.setPreferredWidth(120);
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         var addButton = new MaterialButton();
