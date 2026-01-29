@@ -26,7 +26,7 @@ public class CompletionsTest {
         return candidates.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
     }
 
-    private static Set<String> toShortValues(List<CodeUnit> candidates) {
+    private static Set<String> toIdentifiers(List<CodeUnit> candidates) {
         return candidates.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
     }
 
@@ -85,10 +85,10 @@ public class CompletionsTest {
         // Should match classes "a.b.Do", "a.b.Do.Re", "a.b.Do.Re.Sub"
         // But NOT match methods like "a.b.Do.foo" or "a.b.Do.bar"
         assertEquals(3, completions.size());
-        var shortValues = toShortValues(completions);
-        assertTrue(shortValues.contains("Do"), "Should contain 'Do'");
-        assertTrue(shortValues.contains("Re"), "Should contain 'Re' (identifier of Do.Re matched via shortName)");
-        assertTrue(shortValues.contains("Sub"), "Should contain 'Sub' (identifier of Do.Re.Sub matched via shortName)");
+        var identifiers = toIdentifiers(completions);
+        assertTrue(identifiers.contains("Do"), "Should contain 'Do'");
+        assertTrue(identifiers.contains("Re"), "Should contain 'Re' (identifier of Do.Re matched via shortName)");
+        assertTrue(identifiers.contains("Sub"), "Should contain 'Sub' (identifier of Do.Re.Sub matched via shortName)");
     }
 
     @Test
