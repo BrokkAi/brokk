@@ -357,7 +357,7 @@ public class WorkspaceTools {
                   """)
     public String addMethodsToWorkspace(
             @P(
-                            "List of fully qualified method names (e.g., ['com.example.ClassA.method1', 'org.another.ClassB.processData']) to retrieve sources for. Must not be empty.")
+                            "List of fully qualified method names (e.g., ['com.example.ClassA.method1', 'org.another.ClassB.processData']) to retrieve sources for. Must not be empty. Must not include parameters (I will process all overloads).")
                     List<String> methodNames) {
         if (methodNames.isEmpty()) {
             return "Cannot add method sources: method names list is empty";
