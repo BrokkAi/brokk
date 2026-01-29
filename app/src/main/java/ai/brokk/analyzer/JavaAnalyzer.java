@@ -1024,6 +1024,246 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    public Optional<DeclarationInfo> findNearestDeclaration(
+            ProjectFile file, int startByte, int endByte, String identifierName) {
+        TSTree tree = treeOf(file);
+        if (tree == null) return Optional.empty();
+
+        TSNode root = tree.getRootNode();
+        if (root.isNull()) return Optional.empty();
+
+        TSNode node = root.getDescendantForByteRange(startByte, endByte);
+        if (node == null || node.isNull()) return Optional.empty();
+
+        var sourceContentOpt = SourceContent.read(file);
+        if (sourceContentOpt.isEmpty()) return Optional.empty();
+
+        return findNearestDeclarationFromNode(node, identifierName, sourceContentOpt.get());
+    }
+
+    /**
+     * Walks upward from startNode through enclosing scopes, checking for declarations
+     * with a matching identifier name. Returns the first match found.
+     */
+    private Optional<DeclarationInfo> findNearestDeclarationFromNode(
+            TSNode startNode, String identifierName, SourceContent sourceContent) {
+        TSNode current = startNode;
+
+        while (current != null && !current.isNull()) {
+            String nodeType = current.getType();
+
+            // Check method/constructor parameters
+            if (nodeType.equals(METHOD_DECLARATION) || nodeType.equals(CONSTRUCTOR_DECLARATION)) {
+                var paramResult = checkFormalParameters(current, identifierName, sourceContent);
+                if (paramResult.isPresent()) return paramResult;
+            }
+
+            // Check local variable declarations among preceding siblings
+            var localResult = checkPrecedingLocalVariables(current, identifierName, sourceContent);
+            if (localResult.isPresent()) return localResult;
+
+            // Check enhanced for loop variable
+            if (nodeType.equals(ENHANCED_FOR_STATEMENT)) {
+                var forResult = checkEnhancedForStatement(current, identifierName, sourceContent);
+                if (forResult.isPresent()) return forResult;
+            }
+
+            // Check catch formal parameter
+            if ("catch_clause".equals(nodeType)) {
+                // catch_formal_parameter is a direct named child, not accessed via field name
+                for (int i = 0; i < current.getNamedChildCount(); i++) {
+                    TSNode child = current.getNamedChild(i);
+                    if (child != null && !child.isNull() && CATCH_FORMAL_PARAMETER.equals(child.getType())) {
+                        var catchResult = checkCatchFormalParameter(child, identifierName, sourceContent);
+                        if (catchResult.isPresent()) return catchResult;
+                        break;
+                    }
+                }
+            }
+
+            // Check try-with-resources
+            if (nodeType.equals("try_with_resources_statement")) {
+                TSNode resourceSpec = current.getChildByFieldName("resources");
+                if (resourceSpec != null && !resourceSpec.isNull()) {
+                    var resourceResult = checkResourceSpecification(resourceSpec, identifierName, sourceContent);
+                    if (resourceResult.isPresent()) return resourceResult;
+                }
+            }
+
+            // Check lambda parameters
+            if (nodeType.equals(LAMBDA_EXPRESSION)) {
+                var lambdaResult = checkLambdaParameters(current, identifierName, sourceContent);
+                if (lambdaResult.isPresent()) return lambdaResult;
+            }
+
+            // Check instanceof pattern variable (Java 16+)
+            if (nodeType.equals(INSTANCEOF_EXPRESSION)) {
+                var patternResult = checkInstanceofPattern(current, identifierName, sourceContent);
+                if (patternResult.isPresent()) return patternResult;
+            }
+
+            current = current.getParent();
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkFormalParameters(
+            TSNode methodOrConstructor, String identifierName, SourceContent sourceContent) {
+        TSNode params = methodOrConstructor.getChildByFieldName("parameters");
+        if (params == null || params.isNull()) return Optional.empty();
+
+        for (int i = 0; i < params.getNamedChildCount(); i++) {
+            TSNode param = params.getNamedChild(i);
+            if (param != null && !param.isNull() && FORMAL_PARAMETER.equals(param.getType())) {
+                TSNode nameNode = param.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String name = sourceContent.substringFrom(nameNode).strip();
+                    if (identifierName.equals(name)) {
+                        return Optional.of(new DeclarationInfo(DeclarationKind.PARAMETER, name, null));
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkPrecedingLocalVariables(
+            TSNode current, String identifierName, SourceContent sourceContent) {
+        TSNode parent = current.getParent();
+        if (parent == null || parent.isNull()) return Optional.empty();
+
+        // Local variables are declared in local_variable_declaration nodes that are siblings
+        // to the current node's path.
+        for (int i = 0; i < parent.getNamedChildCount(); i++) {
+            TSNode sibling = parent.getNamedChild(i);
+            if (sibling.getEndByte() > current.getStartByte()) break;
+
+            if (LOCAL_VARIABLE_DECLARATION.equals(sibling.getType())) {
+                for (int j = 0; j < sibling.getNamedChildCount(); j++) {
+                    TSNode child = sibling.getNamedChild(j);
+                    if (VARIABLE_DECLARATOR.equals(child.getType())) {
+                        TSNode nameNode = child.getChildByFieldName("name");
+                        if (nameNode != null && !nameNode.isNull()) {
+                            String name = sourceContent.substringFrom(nameNode).strip();
+                            if (identifierName.equals(name)) {
+                                return Optional.of(new DeclarationInfo(DeclarationKind.LOCAL_VARIABLE, name, null));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkEnhancedForStatement(
+            TSNode enhancedFor, String identifierName, SourceContent sourceContent) {
+        // enhanced_for_statement has a "name" field for the loop variable
+        TSNode nameNode = enhancedFor.getChildByFieldName("name");
+        if (nameNode != null && !nameNode.isNull()) {
+            String name = sourceContent.substringFrom(nameNode).strip();
+            if (identifierName.equals(name)) {
+                return Optional.of(new DeclarationInfo(DeclarationKind.FOR_LOOP_VARIABLE, name, null));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkCatchFormalParameter(
+            TSNode catchParam, String identifierName, SourceContent sourceContent) {
+        TSNode nameNode = catchParam.getChildByFieldName("name");
+        if (nameNode != null && !nameNode.isNull()) {
+            String name = sourceContent.substringFrom(nameNode).strip();
+            if (identifierName.equals(name)) {
+                return Optional.of(new DeclarationInfo(DeclarationKind.CATCH_PARAMETER, name, null));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkResourceSpecification(
+            TSNode resourceSpec, String identifierName, SourceContent sourceContent) {
+        // resource_specification contains resource children
+        for (int i = 0; i < resourceSpec.getNamedChildCount(); i++) {
+            TSNode resource = resourceSpec.getNamedChild(i);
+            if (resource != null && !resource.isNull() && RESOURCE.equals(resource.getType())) {
+                TSNode nameNode = resource.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String name = sourceContent.substringFrom(nameNode).strip();
+                    if (identifierName.equals(name)) {
+                        return Optional.of(new DeclarationInfo(DeclarationKind.RESOURCE_VARIABLE, name, null));
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkLambdaParameters(
+            TSNode lambda, String identifierName, SourceContent sourceContent) {
+        TSNode params = lambda.getChildByFieldName("parameters");
+        if (params == null || params.isNull()) return Optional.empty();
+
+        String paramsType = params.getType();
+
+        // formal_parameters case (typed lambda: (String x) -> ...)
+        if (FORMAL_PARAMETERS.equals(paramsType)) {
+            for (int i = 0; i < params.getNamedChildCount(); i++) {
+                TSNode param = params.getNamedChild(i);
+                if (param != null && !param.isNull() && FORMAL_PARAMETER.equals(param.getType())) {
+                    TSNode nameNode = param.getChildByFieldName("name");
+                    if (nameNode != null && !nameNode.isNull()) {
+                        String name = sourceContent.substringFrom(nameNode).strip();
+                        if (identifierName.equals(name)) {
+                            return Optional.of(new DeclarationInfo(DeclarationKind.PARAMETER, name, null));
+                        }
+                    }
+                }
+            }
+        }
+
+        // inferred_parameters case (untyped lambda: (x, y) -> ...)
+        if (INFERRED_PARAMETERS.equals(paramsType)) {
+            for (int i = 0; i < params.getNamedChildCount(); i++) {
+                TSNode param = params.getNamedChild(i);
+                if (param != null && !param.isNull()) {
+                    String name = sourceContent.substringFrom(param).strip();
+                    if (identifierName.equals(name)) {
+                        return Optional.of(new DeclarationInfo(DeclarationKind.PARAMETER, name, null));
+                    }
+                }
+            }
+        }
+
+        // Single identifier parameter case (lambda: x -> ...)
+        if ("identifier".equals(paramsType)) {
+            String name = sourceContent.substringFrom(params).strip();
+            if (identifierName.equals(name)) {
+                return Optional.of(new DeclarationInfo(DeclarationKind.PARAMETER, name, null));
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkInstanceofPattern(
+            TSNode instanceofExpr, String identifierName, SourceContent sourceContent) {
+        // instanceof_expression may have a pattern child with a name field (Java 16+)
+        TSNode pattern = instanceofExpr.getChildByFieldName("pattern");
+        if (pattern != null && !pattern.isNull()) {
+            TSNode nameNode = pattern.getChildByFieldName("name");
+            if (nameNode != null && !nameNode.isNull()) {
+                String name = sourceContent.substringFrom(nameNode).strip();
+                if (identifierName.equals(name)) {
+                    return Optional.of(new DeclarationInfo(DeclarationKind.PATTERN_VARIABLE, name, null));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
     protected String extractPackageFromWildcard(String rawSnippet) {
         // e.g., "import internal.*;" -> "internal"
         // e.g., "import static org.junit.Assert.*;" -> "org.junit.Assert"

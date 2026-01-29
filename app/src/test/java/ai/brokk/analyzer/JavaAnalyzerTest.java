@@ -1286,4 +1286,240 @@ public class JavaAnalyzerTest {
             assertFalse(ids.contains("p.InnerBase"), "Should NOT contain nested class ancestor p.InnerBase");
         }
     }
+
+    @Test
+    public void testFindNearestDeclaration_ConstructorParameter() throws IOException {
+        String content =
+                """
+        public class CtrCryptoInputStream {
+            protected CtrCryptoInputStream(final ReadableByteChannel channel, final int bufferSize) {
+                this.doSomething(channel);
+            }
+        }
+        """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "CtrCryptoInputStream.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "CtrCryptoInputStream.java");
+
+            // Find the byte position of "channel" in "this.doSomething(channel)"
+            int charIdx = content.indexOf("doSomething(channel)") + "doSomething(".length();
+            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int endByte = startByte + "channel".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "channel");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'channel'");
+            assertEquals(IAnalyzer.DeclarationKind.PARAMETER, result.get().kind());
+            assertEquals("channel", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_LocalVariable() throws IOException {
+        String content =
+                """
+        public class Test {
+            public void method() {
+                String localVar = "hello";
+                System.out.println(localVar);
+            }
+        }
+        """;
+
+        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "localVar" in "println(localVar)"
+            int charIdx = content.indexOf("println(localVar)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int endByte = startByte + "localVar".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "localVar");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'localVar'");
+            assertEquals(IAnalyzer.DeclarationKind.LOCAL_VARIABLE, result.get().kind());
+            assertEquals("localVar", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_EnhancedForLoop() throws IOException {
+        String content =
+                """
+        import java.util.List;
+        public class Test {
+            public void method(List<String> items) {
+                for (String item : items) {
+                    System.out.println(item);
+                }
+            }
+        }
+        """;
+
+        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "item" in "println(item)"
+            int charIdx = content.indexOf("println(item)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int endByte = startByte + "item".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "item");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'item'");
+            assertEquals(IAnalyzer.DeclarationKind.FOR_LOOP_VARIABLE, result.get().kind());
+            assertEquals("item", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_CatchParameter() throws IOException {
+        String content =
+                """
+        public class Test {
+            public void method() {
+                try {
+                    throw new RuntimeException();
+                } catch (Exception ex) {
+                    System.out.println(ex);
+                }
+            }
+        }
+        """;
+
+        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "ex" in "println(ex)"
+            int charIdx = content.indexOf("println(ex)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int endByte = startByte + "ex".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "ex");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'ex'");
+            assertEquals(IAnalyzer.DeclarationKind.CATCH_PARAMETER, result.get().kind());
+            assertEquals("ex", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_TryWithResources() throws IOException {
+        String content =
+                """
+        import java.io.*;
+        public class Test {
+            public void method() throws IOException {
+                try (InputStream stream = new FileInputStream("test")) {
+                    stream.read();
+                }
+            }
+        }
+        """;
+
+        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "stream" in "stream.read()"
+            int charIdx = content.indexOf("stream.read()");
+            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int endByte = startByte + "stream".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "stream");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'stream'");
+            assertEquals(IAnalyzer.DeclarationKind.RESOURCE_VARIABLE, result.get().kind());
+            assertEquals("stream", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_LambdaParameter() throws IOException {
+        String content =
+                """
+        import java.util.List;
+        public class Test {
+            public void method(List<String> items) {
+                items.forEach(x -> System.out.println(x));
+            }
+        }
+        """;
+
+        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "x" in "println(x)"
+            int charIdx = content.indexOf("println(x)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int endByte = startByte + "x".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "x");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'x'");
+            assertEquals(IAnalyzer.DeclarationKind.PARAMETER, result.get().kind());
+            assertEquals("x", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_NotFound_ReturnsEmpty() throws IOException {
+        String content =
+                """
+        public class Test {
+            private String field;
+            public void method() {
+                System.out.println(field);
+            }
+        }
+        """;
+
+        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "field" in "println(field)"
+            int charIdx = content.indexOf("println(field)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int endByte = startByte + "field".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "field");
+
+            assertTrue(result.isEmpty(), "Should return empty for field access (not a local declaration)");
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_MethodParameter() throws IOException {
+        String content =
+                """
+        public class Test {
+            public void method(String param) {
+                System.out.println(param);
+            }
+        }
+        """;
+
+        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "param" in "println(param)"
+            int charIdx = content.indexOf("println(param)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int endByte = startByte + "param".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "param");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'param'");
+            assertEquals(IAnalyzer.DeclarationKind.PARAMETER, result.get().kind());
+            assertEquals("param", result.get().name());
+        }
+    }
 }
