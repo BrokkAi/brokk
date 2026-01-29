@@ -1399,6 +1399,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitSessionSyncIfActive();
     }
 
+    @Override
+    public boolean isTaskInProgress() {
+        return isLlmTaskInProgress() || isTaskScopeInProgress();
+    }
+
     public boolean isLlmTaskInProgress() {
         return userActions.isLlmTaskInProgress();
     }
