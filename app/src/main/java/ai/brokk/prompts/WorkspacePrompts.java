@@ -422,7 +422,7 @@ public final class WorkspacePrompts {
                     : cf;
             try {
                 var imageBytes = cf.imageBytes();
-                if (imageBytes != null) {
+                if (imageBytes != null && imageBytes.join() != null) { // 2nd null check is NOT gratuitous
                     var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytes.join()));
                     imageList.add(ImageContent.from(l4jImage));
                 }

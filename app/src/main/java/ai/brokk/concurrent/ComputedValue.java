@@ -2,6 +2,7 @@ package ai.brokk.concurrent;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
@@ -58,6 +59,15 @@ public final class ComputedValue<T> {
      */
     public static <T> ComputedValue<T> completed(@Nullable T value) {
         return completed("value", value);
+    }
+
+    /**
+     * Returns a new ComputedValue that is complete when all of the given ComputedValues are complete.
+     */
+    public static ComputedValue<Void> allOf(ComputedValue<?>... cvs) {
+        CompletableFuture<?>[] futures =
+                Arrays.stream(cvs).map(ComputedValue::future).toArray(CompletableFuture[]::new);
+        return new ComputedValue<>("allOf", LoggingFuture.allOf(futures));
     }
 
     /**

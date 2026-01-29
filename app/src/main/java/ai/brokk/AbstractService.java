@@ -793,7 +793,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return model;
         }
 
-        return new UnavailableStreamingModel();
+        return new OfflineStreamingModel();
     }
 
     public boolean hasSttModel() {
@@ -802,7 +802,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isOnline() {
         boolean hasUsableModel = modelLocations.keySet().stream().anyMatch(name -> !UNAVAILABLE.equals(name));
-        boolean quickestModelAvailable = !(quickestModel() instanceof UnavailableStreamingModel);
+        boolean quickestModelAvailable = !(quickestModel() instanceof OfflineStreamingModel);
         return hasUsableModel && quickestModelAvailable;
     }
 
@@ -820,8 +820,19 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     /** Unavailable StreamingChatModel stub. */
-    public static class UnavailableStreamingModel implements StreamingChatModel {
-        public UnavailableStreamingModel() {}
+    public static class OfflineStreamingModel implements StreamingChatModel {
+        private final OpenAiChatRequestParameters params;
+
+        public OfflineStreamingModel() {
+            this.params = OpenAiChatRequestParameters.builder()
+                    .modelName("offline_model")
+                    .build();
+        }
+
+        @Override
+        public OpenAiChatRequestParameters defaultRequestParameters() {
+            return params;
+        }
 
         public void generate(String userMessage, StreamingResponseHandler<AiMessage> handler) {
             handler.onComplete(new Response<>(new AiMessage(UNAVAILABLE)));
@@ -852,7 +863,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
         @Override
         public boolean equals(Object obj) {
-            return obj instanceof UnavailableStreamingModel;
+            return obj instanceof OfflineStreamingModel;
         }
     }
 }

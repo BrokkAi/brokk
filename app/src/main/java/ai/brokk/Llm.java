@@ -348,6 +348,9 @@ public class Llm {
         var cancelled = new AtomicBoolean(false);
         var lock = new ReentrantLock(); // Used by ifNotCancelled
 
+        var hasStartedNonReasoningOutput = new AtomicBoolean(false);
+        var loggedReasoningAfterContent = new AtomicBoolean(false);
+
         // Variables to store results from callbacks
         var accumulatedTextBuilder = new StringBuilder();
         var accumulatedReasoningBuilder = new StringBuilder();
@@ -381,6 +384,9 @@ public class Llm {
             @Override
             public void onPartialResponse(String token) {
                 ifNotCancelled.accept(() -> {
+                    if (!token.isEmpty()) {
+                        hasStartedNonReasoningOutput.set(true);
+                    }
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         if (addJsonFence && !fenceOpen.get()) {
@@ -399,6 +405,17 @@ public class Llm {
             @Override
             public void onReasoningResponse(String reasoningContent) {
                 ifNotCancelled.accept(() -> {
+                    if (hasStartedNonReasoningOutput.get()) {
+                        if (loggedReasoningAfterContent.compareAndSet(false, true)) {
+                            var svc = contextManager.getService();
+                            var modelConfig = Service.ModelConfig.from(model, svc);
+                            logger.warn(
+                                    "Stream switched from non-reasoning to reasoning; ignoring reasoning tokens. modelConfig={}",
+                                    modelConfig);
+                        }
+                        return;
+                    }
+
                     // Gate formatting to GPT-5 (and other variants like mini) only, and only after the first reasoning
                     // chunk
                     boolean isGpt5 = contextManager.getService().nameOf(model).startsWith(ModelProperties.GPT_5);

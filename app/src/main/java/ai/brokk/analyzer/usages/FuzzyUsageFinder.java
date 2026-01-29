@@ -51,7 +51,7 @@ public final class FuzzyUsageFinder {
     public static FuzzyUsageFinder create(IContextManager cm, @Nullable Predicate<ProjectFile> fileFilter) {
         var service = cm.getService();
         var model = service.getModel(ModelProperties.ModelType.USAGES);
-        var llm = model instanceof AbstractService.UnavailableStreamingModel
+        var llm = model instanceof AbstractService.OfflineStreamingModel
                 ? null
                 : new Llm(
                         model,

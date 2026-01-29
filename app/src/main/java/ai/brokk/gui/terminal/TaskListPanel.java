@@ -6,6 +6,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskResult;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
@@ -550,6 +551,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         refreshUi(true);
         cm.addContextListener(this);
+        cm.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
     }
 
     private void addTask() {
@@ -851,13 +853,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         boolean hasSelection = list.getSelectedIndex() >= 0;
-        boolean llmBusy = false;
-        try {
-            llmBusy = chrome.getContextManager().isLlmTaskInProgress();
-        } catch (Exception ex) {
-            logger.debug("Unable to query LLM busy state", ex);
-        }
-
         boolean selectionIncludesRunning = false;
         boolean selectionIncludesPending = false;
         int[] selIndices = list.getSelectedIndices();
@@ -891,36 +886,61 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         clearCompletedBtn.setEnabled(anyCompleted);
 
         boolean anyTasks = model.getSize() > 0;
-        if (llmBusy) {
-            goStopButton.setIcon(Icons.STOP);
-            goStopButton.setText(null);
-            goStopButton.setToolTipText("Cancel the current operation");
-            var stopBg = UIManager.getColor("Brokk.action_button_bg_stop");
-            if (stopBg == null) {
-                stopBg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
-            }
-            goStopButton.setBackground(stopBg);
-            goStopButton.setForeground(Color.WHITE);
-            goStopButton.setEnabled(true);
-        } else {
-            goStopButton.setIcon(Icons.FAST_FORWARD);
-            goStopButton.setText(null);
-            var defaultBg = UIManager.getColor("Brokk.action_button_bg_default");
-            if (defaultBg == null) {
-                defaultBg = UIManager.getColor("Button.default.background");
-            }
-            goStopButton.setBackground(defaultBg);
-            goStopButton.setForeground(Color.WHITE);
-            goStopButton.setEnabled(anyTasks && !queueActive);
-            if (!anyTasks) {
-                goStopButton.setToolTipText("Add a task to get started");
-            } else if (queueActive) {
-                goStopButton.setToolTipText("A task queue is already running");
-            } else {
-                goStopButton.setToolTipText("Run Architect on all tasks in order");
-            }
-        }
-        goStopButton.repaint();
+
+        LoggingFuture.runAsync(() -> {
+                    var service = chrome.getContextManager().getService();
+                    boolean serviceIsOnline = service.isOnline();
+
+                    boolean llmBusy = false;
+                    try {
+                        llmBusy = chrome.getContextManager().isLlmTaskInProgress();
+                    } catch (Exception ex) {
+                        logger.debug("Unable to query LLM busy state", ex);
+                    }
+
+                    if (!serviceIsOnline) {
+                        goStopButton.setIcon(null);
+                        goStopButton.setText("Offline");
+                        goStopButton.setToolTipText("LLM service is offline; please check your connection or key");
+                        goStopButton.setBackground(UIManager.getColor("Button.disabledBackground"));
+                        goStopButton.setForeground(UIManager.getColor("Button.disabledForeground"));
+                        goStopButton.setEnabled(false);
+                    } else if (llmBusy) {
+                        goStopButton.setIcon(Icons.STOP);
+                        goStopButton.setText(null);
+                        goStopButton.setToolTipText("Cancel the current operation");
+                        var stopBg = UIManager.getColor("Brokk.action_button_bg_stop");
+                        if (stopBg == null) {
+                            stopBg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
+                        }
+                        goStopButton.setBackground(stopBg);
+                        goStopButton.setForeground(Color.WHITE);
+                        goStopButton.setEnabled(true);
+                    } else {
+                        goStopButton.setIcon(Icons.FAST_FORWARD);
+                        goStopButton.setText(null);
+                        var defaultBg = UIManager.getColor("Brokk.action_button_bg_default");
+                        if (defaultBg == null) {
+                            defaultBg = UIManager.getColor("Button.default.background");
+                        }
+                        goStopButton.setBackground(defaultBg);
+                        goStopButton.setForeground(Color.WHITE);
+                        goStopButton.setEnabled(anyTasks && !queueActive);
+                        if (!anyTasks) {
+                            goStopButton.setToolTipText("Add a task to get started");
+                        } else if (queueActive) {
+                            goStopButton.setToolTipText("A task queue is already running");
+                        } else {
+                            goStopButton.setToolTipText("Run Architect on all tasks in order");
+                        }
+                    }
+                })
+                .whenComplete((result, ex) -> {
+                    if (ex != null) {
+                        logger.error("Unexpected exception while updating button states", ex);
+                    }
+                    goStopButton.repaint();
+                });
     }
 
     private void runArchitectOnSelected() {
