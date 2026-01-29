@@ -130,6 +130,7 @@ public final class MainProject extends AbstractProject {
     private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
     private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
     private static final String AUTO_UPDATE_STYLE_GUIDE_KEY = "autoUpdateStyleGuide";
+    private static final String LAST_LAYOUT_FINGERPRINT_KEY = "lastLayoutFingerprint";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -708,8 +709,45 @@ public final class MainProject extends AbstractProject {
             projectProps.setProperty(AUTO_UPDATE_STYLE_GUIDE_KEY, "true");
         } else {
             projectProps.remove(AUTO_UPDATE_STYLE_GUIDE_KEY);
+            projectProps.remove(LAST_LAYOUT_FINGERPRINT_KEY);
         }
         saveProjectProperties();
+    }
+
+    @Override
+    @Blocking
+    public void saveProjectLayoutSummary(ai.brokk.util.ProjectLayoutSummary.LayoutResult layout) {
+        String lastFingerprint = projectProps.getProperty(LAST_LAYOUT_FINGERPRINT_KEY);
+        if (layout.fingerprint().equals(lastFingerprint) && Files.exists(styleGuidePath)) {
+            return;
+        }
+
+        // We explicitly use styleGuidePath (AGENTS.md) for auto-updates.
+        String existing = "";
+        if (Files.exists(styleGuidePath)) {
+            try {
+                existing = Files.readString(styleGuidePath);
+            } catch (IOException e) {
+                logger.warn("Failed to read existing AGENTS.md for marker update: {}", e.getMessage());
+            }
+        }
+
+        if (existing.isBlank()) {
+            existing = "# Brokk Coding Guide\n\nThis file contains project-specific guidelines for AI agents.";
+        }
+
+        var updater = new ai.brokk.util.MarkerUpdater("LAYOUT");
+        String updated = updater.update(existing, layout.markdown());
+
+        try {
+            Files.createDirectories(styleGuidePath.getParent());
+            AtomicWrites.save(styleGuidePath, updated);
+            projectProps.setProperty(LAST_LAYOUT_FINGERPRINT_KEY, layout.fingerprint());
+            saveProjectProperties();
+            logger.info("Updated project layout section in AGENTS.md (fingerprint: {})", layout.fingerprint());
+        } catch (IOException e) {
+            logger.error("Error updating AGENTS.md: {}", e.getMessage());
+        }
     }
 
     public long getRunCommandTimeoutSeconds() {

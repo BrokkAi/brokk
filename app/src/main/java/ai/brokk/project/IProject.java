@@ -471,6 +471,12 @@ public interface IProject extends AutoCloseable {
     default void setAutoUpdateStyleGuide(boolean enabled) {}
 
     /**
+     * Updates the project style guide (AGENTS.md) with the provided layout result,
+     * using markers to preserve user content.
+     */
+    default void saveProjectLayoutSummary(ai.brokk.util.ProjectLayoutSummary.LayoutResult layout) {}
+
+    /**
      * Returns all on-disk dependency directories (immediate children of the dependencies folder).
      */
     default Set<ProjectFile> getAllOnDiskDependencies() {

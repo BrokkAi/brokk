@@ -276,6 +276,12 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    @Blocking
+    public void saveProjectLayoutSummary(ai.brokk.util.ProjectLayoutSummary.LayoutResult layout) {
+        parent.saveProjectLayoutSummary(layout);
+    }
+
+    @Override
     public AbstractService.ModelConfig getModelConfig(ModelProperties.ModelType modelType) {
         return parent.getModelConfig(modelType);
     }
