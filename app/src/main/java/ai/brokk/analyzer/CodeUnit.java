@@ -72,8 +72,9 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     /**
-     * Returns just the last symbol name component. For CLASS: simple class name (C, C$D). For FUNCTION/FIELD: member
-     * name (foo from a.b.C.foo). For MODULE: the shortName itself (e.g., "_module_").
+     * Returns just the last symbol name component. For CLASS: innermost class name (e.g., `D` from `Outer$D` or `Inner`
+     * from `Outer.Inner`). For FUNCTION/FIELD: member name (foo from a.b.C.foo). For MODULE: the shortName itself (e.g.,
+     * "_module_").
      *
      * @return just the last symbol name component.
      */
