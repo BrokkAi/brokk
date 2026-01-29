@@ -73,7 +73,8 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
         for (CodeUnit descendant : descendants) {
             boolean overrides = analyzer.getDirectChildren(descendant).stream()
                     .anyMatch(child -> child.kind() == CodeUnitType.FUNCTION
-                            && child.identifier().equals(targetIdentifier));
+                            && child.identifier().equals(targetIdentifier)
+                            && (target.signature() == null || target.signature().equals(child.signature())));
 
             if (!overrides) {
                 polymorphicMatches.add(descendant);
