@@ -34,7 +34,6 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
-import org.jetbrains.annotations.Nullable;
 
 public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Metadata metadata) {
     private static final Logger logger = LogManager.getLogger(ReviewScope.class);
@@ -216,7 +215,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
 
     @Blocking
     public static List<ContextFragments.StringFragment> extractSessionContext(
-            IContextManager cm, List<UUID> sessionIds, @Nullable Set<ProjectFile> editedFiles) {
+            IContextManager cm, List<UUID> sessionIds, Set<ProjectFile> editedFiles) {
         if (sessionIds.isEmpty()) {
             return List.of();
         }
@@ -260,8 +259,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
         List<String> fragmentHints = relevantContexts.stream()
                 .flatMap(Context::allFragments)
                 .filter(cf -> relevantFragmentsClasses.contains(cf.getClass())
-                        && !(editedFiles != null
-                                && cf instanceof ContextFragments.ProjectPathFragment ppf
+                        && !(cf instanceof ContextFragments.ProjectPathFragment ppf
                                 && editedFiles.contains(ppf.file())))
                 .map(cf -> cf.description().join())
                 .distinct()
