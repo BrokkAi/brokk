@@ -286,10 +286,4 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public static CodeUnit module(ProjectFile source, String packageName, String shortName) {
         return new CodeUnit(source, CodeUnitType.MODULE, packageName, shortName);
     }
-
-    // Helper records for parsing, made public for external access
-    public record Tuple2<T1, T2>(T1 _1, T2 _2) {}
-
-    // Package, className, identifier - used for language-specific parsing
-    public record Tuple3<T1, T2, T3>(T1 _1, T2 _2, T3 _3) {}
 }
