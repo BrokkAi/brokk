@@ -44,14 +44,15 @@ export function updateFenceState(currentInsideFence: boolean, newText: string): 
  */
 function findSafeParagraphBoundary(
     combinedText: string,
+    scanStartIndex: number,
     searchStartIndex: number,
-    minSplitIndex: number
+    minSplitIndex: number,
+    initialInsideFence: boolean
 ): number {
     // We need to ensure we're not inside a fence at the split point
-    // Scan from start, tracking fence state
-    let insideFence = false;
+    let insideFence = initialInsideFence;
     let lastSafeBoundary = -1;
-    let i = 0;
+    let i = scanStartIndex;
     
     while (i < combinedText.length - 1) {
         // Check for fence at start of line
@@ -114,11 +115,14 @@ export function evaluateSplit(
     // Search for boundary starting from where we exceeded soft limit
     const searchStart = Math.max(currentLength, SOFT_SPLIT_CHARS);
     
-    // Find a safe paragraph boundary
+    // Find a safe paragraph boundary. 
+    // We only need to scan the new chunk, starting from currentLength.
     const splitIndex = findSafeParagraphBoundary(
         combinedText,
+        currentLength,
         searchStart,
-        MIN_SPLIT_SIZE
+        MIN_SPLIT_SIZE,
+        currentFenceState.insideFence
     );
     
     if (splitIndex > currentLength) {
