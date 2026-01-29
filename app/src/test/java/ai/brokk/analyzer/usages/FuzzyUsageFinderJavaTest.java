@@ -484,6 +484,52 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
+    public void testFindUsagesSimpleNonNestedClass() throws Exception {
+        // Test that findUsages works correctly for simple non-nested classes
+        // This ensures the lastSep >= 0 branch in CodeUnit.identifier() doesn't regress
+        // when lastSep is -1 (no '.' or '$' in the shortName)
+        String fooContent = "public class Foo { public void doSomething() {} }";
+        String barContent = """
+                public class Bar {
+                    private Foo foo;
+                    public void useFoo() {
+                        foo = new Foo();
+                        foo.doSomething();
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(fooContent, "Foo.java")
+                .addFileContents(barContent, "Bar.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            // Search for usages of the simple class Foo (no nesting, so identifier() returns "Foo")
+            var result = finder.findUsages("Foo");
+            var either = result.toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure: " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            assertFalse(hits.isEmpty(), "Expected at least one usage hit for Foo");
+
+            var files = hits.stream()
+                    .map(h -> h.file().getFileName())
+                    .collect(Collectors.toSet());
+            assertTrue(files.contains("Bar.java"), "Expected usage in Bar.java; actual: " + files);
+
+            // Verify we found usages in Bar's useFoo method
+            var barHits = hits.stream()
+                    .filter(h -> h.file().getFileName().equals("Bar.java"))
+                    .toList();
+            assertFalse(barHits.isEmpty(), "Expected hits in Bar.java");
+        }
+    }
+
+    @Test
     public void testUsageHitEqualityBasedOnPosition() {
         Path root = Path.of(".").toAbsolutePath().normalize();
         var file = new ProjectFile(root, Path.of("A.java"));
