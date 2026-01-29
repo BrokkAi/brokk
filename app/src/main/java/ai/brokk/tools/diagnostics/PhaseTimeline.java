@@ -18,8 +18,4 @@ public record PhaseTimeline(
         @Nullable Long durationMs,
         List<String> callIds,
         @Nullable Map<String, Object> metrics) {
-
-    public PhaseTimeline {
-        if (callIds == null) callIds = List.of();
-    }
 }
