@@ -181,9 +181,12 @@ public final class FuzzyUsageFinder {
             var tasks = new ArrayList<RelevanceTask>(groupedHits.size());
             var taskToHits = new ArrayList<List<UsageHit>>(groupedHits.size());
 
-            Collection<CodeUnit> polymorphicMatches = computePolymorphicMatches(target);
+            var hierarchyProvider = analyzer.as(TypeHierarchyProvider.class);
+            Collection<CodeUnit> polymorphicMatches = hierarchyProvider
+                    .map(provider -> provider.getPolymorphicMatches(target, analyzer))
+                    .orElse(List.of());
 
-            boolean hierarchySupported = analyzer.as(TypeHierarchyProvider.class).isPresent();
+            boolean hierarchySupported = hierarchyProvider.isPresent();
             for (var entry : groupedHits.entrySet()) {
                 var hitsInGroup = entry.getValue();
                 var prompt = UsagePrompt.build(
@@ -354,12 +357,6 @@ public final class FuzzyUsageFinder {
 
     static Set<UsageHit> filterByConfidence(Set<UsageHit> allHits) {
         return allHits.stream().filter(h -> h.confidence() >= 0.1).collect(Collectors.toSet());
-    }
-
-    private Collection<CodeUnit> computePolymorphicMatches(CodeUnit target) {
-        return analyzer.as(TypeHierarchyProvider.class)
-                .map(provider -> provider.getPolymorphicMatches(target, analyzer))
-                .orElse(List.of());
     }
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {
