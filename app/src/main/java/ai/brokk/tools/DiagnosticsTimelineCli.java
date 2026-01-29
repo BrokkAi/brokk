@@ -46,11 +46,6 @@ public final class DiagnosticsTimelineCli {
     public static int runCli(String[] args) {
         try {
             var opts = parseArgs(args);
-            if (opts == null) {
-                printUsage(System.out);
-                return 0;
-            }
-
             Path projectRoot = Paths.get(opts.get("project-root"));
             Path jobstoreRoot = Paths.get(opts.get("jobstore-root"));
             @Nullable Path logDir = null;
@@ -67,7 +62,7 @@ public final class DiagnosticsTimelineCli {
                 // flatten calls
                 calls = parsedJobs.stream()
                         .filter(Objects::nonNull)
-                        .flatMap(j -> j.calls() == null ? StreamEmpty() : j.calls().stream())
+                        .flatMap(j -> j.calls().stream())
                         .collect(Collectors.toList());
             } catch (Exception e) {
                 System.err.println("WARN: Failed to parse LLM history from " + projectRoot + ": " + e.getMessage());
@@ -124,7 +119,6 @@ public final class DiagnosticsTimelineCli {
     }
 
     private static Map<String, String> parseArgs(String[] args) {
-        if (args == null) return null;
         var map = new HashMap<String, String>();
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
@@ -196,10 +190,5 @@ public final class DiagnosticsTimelineCli {
         out.println("Example:");
         out.println(
                 "  java ai.brokk.tools.DiagnosticsTimelineCli --project-root /path/to/repo --jobstore-root /var/lib/brokk/jobstore --output diagnostics.json");
-    }
-
-    // helper to provide an empty Stream when an object is null
-    private static <T> java.util.stream.Stream<T> StreamEmpty() {
-        return java.util.stream.Stream.empty();
     }
 }

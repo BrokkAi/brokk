@@ -14,6 +14,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -25,7 +27,7 @@ import org.jetbrains.annotations.Nullable;
  *   they instead result in null fields on the produced DTOs.
  */
 public final class LlmHistoryParser {
-
+    private static final Logger logger = LogManager.getLogger(LlmHistoryParser.class.getName());
     private static final ObjectMapper MAPPER =
             new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
@@ -77,10 +79,12 @@ public final class LlmHistoryParser {
                 } catch (Exception e) {
                     // Continue on errors per-task but log (can't use logger conveniently here)
                     // Swallow to maintain tolerant behavior
+                    logger.error("Failed to parse task directory at {}", taskDir, e);
                 }
             }
         } catch (IOException e) {
             // Unable to walk tree -> return what we have
+            logger.error("Failed to walk llm-history directory at {}", historyRoot, e);
         }
 
         return jobTimelines;
@@ -128,6 +132,7 @@ public final class LlmHistoryParser {
                 try {
                     taskBaseDateTime = LocalDateTime.parse(base, TASK_DIR_TS_FMT);
                 } catch (Exception ignored) {
+                    logger.debug("Failed to parse task directory timestamp from {}", base, ignored);
                 }
             }
 
@@ -194,6 +199,7 @@ public final class LlmHistoryParser {
                     }
                 } catch (IOException e) {
                     // ignore, leave fields null
+                    logger.debug("Failed to parse request file at {}", req, e);
                 }
 
                 // Parse log (choose first log file, if any)
@@ -250,7 +256,7 @@ public final class LlmHistoryParser {
                         }
                     }
                 } catch (IOException e) {
-                    // ignore
+                    logger.debug("Failed to parse log files for seq {} in {}", seq, taskDir, e);
                 }
 
                 // Determine model preference: request first, then header
@@ -286,10 +292,10 @@ public final class LlmHistoryParser {
                         callModelConfig,
                         null, // modelRole
                         promptRaw,
-                        promptRaw == null ? null : Boolean.FALSE,
+                        promptRaw == null ? null : false,
                         null, // promptTokenCount
                         completionText,
-                        completionText == null ? null : Boolean.FALSE,
+                        completionText == null ? null : false,
                         null, // completionTokenCount
                         reasoningContent,
                         null, // thoughtSignature
@@ -331,13 +337,15 @@ public final class LlmHistoryParser {
                     aggregates.isEmpty() ? Map.of() : aggregates);
             return jt;
         } catch (IOException e) {
+            // Unable to read directory -> skip
+            logger.error("Failed to read task directory at {}", taskDir, e);
             return null;
         }
     }
 
     @Nullable
     private static String extractTextFromMessageNode(JsonNode msg) {
-        if (msg == null || msg.isNull()) return null;
+        if (msg.isNull()) return null;
 
         // Common shapes: { "content": "text" } OR { "text": "..." } OR OpenAI: { "content": [ { "type":"text",
         // "text":"..." } ] }
@@ -376,7 +384,7 @@ public final class LlmHistoryParser {
 
     @Nullable
     private static String extractSection(String content, String sectionMarker) {
-        if (content == null || content.isBlank()) return null;
+        if (content.isBlank()) return null;
         int idx = content.indexOf(sectionMarker);
         if (idx == -1) return null;
         int start = idx + sectionMarker.length();
@@ -401,6 +409,7 @@ public final class LlmHistoryParser {
             LocalDateTime combined = LocalDateTime.of(base.toLocalDate(), fileTime);
             return combined.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         } catch (Exception e) {
+            logger.debug("Failed to compose epoch from base {} and time {}", base, hhmmss, e);
             return null;
         }
     }

@@ -10,9 +10,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -25,11 +25,9 @@ import org.jetbrains.annotations.Nullable;
  * - debug.log parsing is best-effort and will not fail the overall load if lines don't match.
  */
 public final class JobDiagnosticsLoader {
-
+    private static final Logger logger = LogManager.getLogger(JobDiagnosticsLoader.class);
     private static final ObjectMapper MAPPER =
             new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-    private static final Pattern JOB_DIR_NAME = Pattern.compile(".+"); // accept any directory name as job id
 
     private JobDiagnosticsLoader() {}
 
@@ -49,9 +47,6 @@ public final class JobDiagnosticsLoader {
             return List.of();
         }
 
-        // read debug logs (best-effort) to permit later enrichment (not required for current coarse phases)
-        List<String> debugLines = readDebugLogs(brokkLogDir);
-
         try {
             List<Path> jobDirs;
             try (var ds = Files.list(jobsDir)) {
@@ -61,10 +56,11 @@ public final class JobDiagnosticsLoader {
             var results = new ArrayList<JobTimeline>();
             for (Path jobDir : jobDirs) {
                 try {
-                    var jt = loadSingleJob(jobDir, debugLines);
+                    var jt = loadSingleJob(jobDir);
                     if (jt != null) results.add(jt);
                 } catch (Exception e) {
                     // tolerate per-job failures
+                    logger.warn("Failed to load job diagnostics for job dir: " + jobDir, e);
                 }
             }
             return results;
@@ -73,43 +69,8 @@ public final class JobDiagnosticsLoader {
         }
     }
 
-    private static List<String> readDebugLogs(@Nullable Path brokkLogDir) {
-        if (brokkLogDir == null) {
-            var home = System.getProperty("user.home");
-            if (home == null) return List.of();
-            brokkLogDir = Paths.get(home, ".brokk");
-        }
-        if (!Files.exists(brokkLogDir) || !Files.isDirectory(brokkLogDir)) {
-            return List.of();
-        }
-
-        try {
-            // match debug.log and rotated variants debug.log*
-            try (var stream = Files.list(brokkLogDir)) {
-                return stream.filter(Files::isRegularFile)
-                        .filter(p -> p.getFileName().toString().startsWith("debug.log"))
-                        .sorted()
-                        .flatMap(p -> {
-                            try {
-                                return Files.readAllLines(p, StandardCharsets.UTF_8).stream();
-                            } catch (IOException e) {
-                                return StreamEmpty();
-                            }
-                        })
-                        .collect(Collectors.toList());
-            }
-        } catch (IOException e) {
-            return List.of();
-        }
-    }
-
-    // helper to provide an empty Stream when an exception occurs (avoids adding new dependencies)
-    private static java.util.stream.Stream<String> StreamEmpty() {
-        return java.util.stream.Stream.empty();
-    }
-
     @Nullable
-    private static JobTimeline loadSingleJob(Path jobDir, List<String> debugLines) {
+    private static JobTimeline loadSingleJob(Path jobDir) {
         String jobId = jobDir.getFileName().toString();
 
         // Load meta.json
@@ -123,6 +84,7 @@ public final class JobDiagnosticsLoader {
             spec = MAPPER.readValue(meta.toFile(), JobSpec.class);
         } catch (IOException e) {
             // tolerate and skip job
+            logger.warn("Failed to read meta.json for job: " + jobId, e);
             return null;
         }
 
@@ -132,7 +94,8 @@ public final class JobDiagnosticsLoader {
         if (Files.exists(statusFile)) {
             try {
                 status = MAPPER.readValue(statusFile.toFile(), JobStatus.class);
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                logger.warn("Failed to read status.json for job: " + jobId, e);
             }
         }
 
@@ -147,17 +110,19 @@ public final class JobDiagnosticsLoader {
                     try {
                         JobEvent ev = MAPPER.readValue(line, JobEvent.class);
                         events.add(ev);
-                    } catch (IOException ignored) {
+                    } catch (IOException e) {
+                        logger.warn("Failed to parse event line for job: " + jobId + ", line: " + line, e);
                         // skip malformed event lines
                     }
                 }
                 events.sort(Comparator.comparingLong(JobEvent::seq));
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                logger.warn("Failed to read events.jsonl for job: " + jobId, e);
             }
         }
 
         // Build phases from events (simple heuristic)
-        List<PhaseTimeline> phases = buildPhasesFromEvents(jobId, events, status);
+        List<PhaseTimeline> phases = buildPhasesFromEvents(jobId, events);
 
         // Fallback: if no explicit phases found, create a single UNKNOWN phase that spans status window if available
         if (phases.isEmpty()) {
@@ -186,17 +151,19 @@ public final class JobDiagnosticsLoader {
         String modeStr = null;
         try {
             Object modeObj = JobRunner.parseMode(spec);
-            modeStr = modeObj == null ? null : modeObj.toString();
-        } catch (Exception ignored) {
+            modeStr = modeObj.toString();
+        } catch (Exception e) {
+            logger.warn("Failed to determine mode for job: " + jobId, e);
         }
 
         // Model selection: prefer plannerModel, then codeModel, then scanModel
         String modelName = null;
         try {
-            if (spec.plannerModel() != null && !spec.plannerModel().isBlank()) modelName = spec.plannerModel();
+            if (!spec.plannerModel().isBlank()) modelName = spec.plannerModel();
             else if (spec.codeModel() != null && !spec.codeModel().isBlank()) modelName = spec.codeModel();
             else if (spec.scanModel() != null && !spec.scanModel().isBlank()) modelName = spec.scanModel();
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logger.warn("Failed to determine model name for job: " + jobId, e);
         }
 
         JobTimeline.ModelConfig modelConfig =
@@ -216,7 +183,7 @@ public final class JobDiagnosticsLoader {
 
         Map<String, Object> aggregates = new HashMap<>();
         // include lastSeq if available in status metadata
-        if (status != null && status.metadata() != null && status.metadata().containsKey("lastSeq")) {
+        if (status != null && status.metadata().containsKey("lastSeq")) {
             aggregates.put("lastSeq", status.metadata().get("lastSeq"));
         }
 
@@ -247,13 +214,12 @@ public final class JobDiagnosticsLoader {
      *
      * The implementation creates simple PhaseTimeline entries by pairing start and end markers when possible.
      */
-    private static List<PhaseTimeline> buildPhasesFromEvents(
-            String jobId, List<JobEvent> events, @Nullable JobStatus status) {
+    private static List<PhaseTimeline> buildPhasesFromEvents(String jobId, List<JobEvent> events) {
         var builders = new ArrayList<PhaseBuilder>();
         var execBuilders = new LinkedHashMap<String, PhaseBuilder>(); // keyed by stage for execution grouping
         PhaseBuilder openScan = null;
         PhaseBuilder openReview = null;
-        AtomicInteger idSeq = new AtomicInteger(1);
+        int idSeq = 1;
 
         for (JobEvent ev : events) {
             if (ev == null) continue;
@@ -270,7 +236,7 @@ public final class JobDiagnosticsLoader {
                 if (lower.contains("brokk context engine") && lower.contains("analyzing")) {
                     // open scan
                     if (openScan == null) {
-                        openScan = new PhaseBuilder(jobId + "-scan-" + idSeq.getAndIncrement(), "SCAN", "Pre-scan", ts);
+                        openScan = new PhaseBuilder(jobId + "-scan-" + idSeq++, "SCAN", "Pre-scan", ts);
                     }
                     continue;
                 }
@@ -282,7 +248,7 @@ public final class JobDiagnosticsLoader {
                         openScan = null;
                     } else {
                         // create a short scan phase anchored at this timestamp
-                        var pb = new PhaseBuilder(jobId + "-scan-" + idSeq.getAndIncrement(), "SCAN", "Pre-scan", ts);
+                        var pb = new PhaseBuilder(jobId + "-scan-" + idSeq++, "SCAN", "Pre-scan", ts);
                         pb.endTime = ts;
                         builders.add(pb);
                     }
@@ -293,8 +259,7 @@ public final class JobDiagnosticsLoader {
                         || lower.contains("fetching pr refs")
                         || lower.contains("fetching pr refs from")) {
                     if (openReview == null) {
-                        openReview = new PhaseBuilder(
-                                jobId + "-review-" + idSeq.getAndIncrement(), "REVIEW", "PR Review", ts);
+                        openReview = new PhaseBuilder(jobId + "-review-" + idSeq++, "REVIEW", "PR Review", ts);
                     }
                     continue;
                 }
@@ -308,8 +273,7 @@ public final class JobDiagnosticsLoader {
                         builders.add(openReview);
                         openReview = null;
                     } else {
-                        var pb = new PhaseBuilder(
-                                jobId + "-review-" + idSeq.getAndIncrement(), "REVIEW", "PR Review", ts);
+                        var pb = new PhaseBuilder(jobId + "-review-" + idSeq++, "REVIEW", "PR Review", ts);
                         pb.endTime = ts;
                         builders.add(pb);
                     }
@@ -318,14 +282,13 @@ public final class JobDiagnosticsLoader {
 
                 // generic notifications that include "ISSUE_WRITER" or "ISSUE" hints
                 if (msg.contains("ISSUE_WRITER")
-                        || msg.toLowerCase().contains("issue_writer")
+                        || msg.toLowerCase(Locale.ROOT).contains("issue_writer")
                         || lower.contains("issue")) {
                     // create an informational phase (best-effort)
-                    var pb = new PhaseBuilder(jobId + "-issue-" + idSeq.getAndIncrement(), "ISSUE", "Issue Work", ts);
+                    var pb = new PhaseBuilder(jobId + "-issue-" + idSeq++, "ISSUE", "Issue Work", ts);
                     // do not auto-close; leave as single-point phase
                     pb.endTime = ts;
                     builders.add(pb);
-                    continue;
                 }
             } else if ("COMMAND_RESULT".equalsIgnoreCase(type)) {
                 Object data = ev.data();
@@ -335,7 +298,8 @@ public final class JobDiagnosticsLoader {
                         Object s = map.get("stage");
                         if (s != null) stage = s.toString();
                     }
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    logger.warn("Failed to extract stage from COMMAND_RESULT event for job: " + jobId, e);
                 }
 
                 if (stage != null) {
@@ -346,7 +310,7 @@ public final class JobDiagnosticsLoader {
                         // group by stage name
                         PhaseBuilder pb = execBuilders.get(lowerStage);
                         if (pb == null) {
-                            pb = new PhaseBuilder(jobId + "-exec-" + idSeq.getAndIncrement(), "EXECUTION", stage, ts);
+                            pb = new PhaseBuilder(jobId + "-exec-" + idSeq++, "EXECUTION", stage, ts);
                             execBuilders.put(lowerStage, pb);
                         }
                         // expand the end time to latest timestamp seen
@@ -354,10 +318,7 @@ public final class JobDiagnosticsLoader {
                     } else {
                         // other stage: add small anchored phase
                         var pb = new PhaseBuilder(
-                                jobId + "-" + stage + "-" + idSeq.getAndIncrement(),
-                                stage.toUpperCase(Locale.ROOT),
-                                stage,
-                                ts);
+                                jobId + "-" + stage + "-" + idSeq++, stage.toUpperCase(Locale.ROOT), stage, ts);
                         pb.endTime = ts;
                         builders.add(pb);
                     }

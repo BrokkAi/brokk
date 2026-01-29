@@ -37,8 +37,6 @@ public final class DiagnosticsAggregator {
      * @return DiagnosticsTimeline containing aggregated jobs with phases and calls assigned
      */
     public static DiagnosticsTimeline aggregate(List<CallTimeline> calls, List<JobTimeline> jobs) {
-        if (calls == null) calls = List.of();
-        if (jobs == null) jobs = List.of();
 
         // Ensure per-call duration is computed when possible and build mapping by callId
         Map<String, CallTimeline> normalizedCalls = new LinkedHashMap<>();
@@ -153,10 +151,8 @@ public final class DiagnosticsAggregator {
             // Build calls with jobId and phaseId populated (phaseId may be null)
             Map<String, String> callToPhase = new HashMap<>();
             for (PhaseTimeline p : finalPhases) {
-                if (p.callIds() != null) {
-                    for (String cid : p.callIds()) {
-                        callToPhase.put(cid, p.phaseId());
-                    }
+                for (String cid : p.callIds()) {
+                    callToPhase.put(cid, p.phaseId());
                 }
             }
 
@@ -211,9 +207,7 @@ public final class DiagnosticsAggregator {
             List<PhaseTimeline> phases = assignPhasesForJob(unknownJob, unassigned);
             Map<String, String> callToPhase = new HashMap<>();
             for (PhaseTimeline p : phases) {
-                if (p.callIds() != null) {
-                    for (String cid : p.callIds()) callToPhase.put(cid, p.phaseId());
-                }
+                for (String cid : p.callIds()) callToPhase.put(cid, p.phaseId());
             }
             List<CallTimeline> finalCalls = unassigned.stream()
                     .map(c -> new CallTimeline(
@@ -265,12 +259,10 @@ public final class DiagnosticsAggregator {
     private static Map<String, Object> computePhaseMetrics(List<CallTimeline> calls) {
         int totalCalls = calls.size();
         long totalDuration = 0L;
-        int durationCounted = 0;
         int totalToolCalls = 0;
         for (CallTimeline c : calls) {
             if (c.durationMs() != null) {
                 totalDuration += c.durationMs();
-                durationCounted++;
             }
             if (c.tools() != null) totalToolCalls += c.tools().size();
         }
@@ -299,7 +291,7 @@ public final class DiagnosticsAggregator {
         agg.put("avgReasoningDepth", avgReasoningDepth);
 
         // also include per-phase summaries if available
-        if (phases != null && !phases.isEmpty()) {
+        if (!phases.isEmpty()) {
             Map<String, Map<String, Object>> phaseSummaries = new LinkedHashMap<>();
             for (PhaseTimeline p : phases) {
                 phaseSummaries.put(p.phaseId(), p.metrics() == null ? Map.of() : p.metrics());
@@ -311,8 +303,7 @@ public final class DiagnosticsAggregator {
     }
 
     private static List<PhaseTimeline> assignPhasesForJob(JobTimeline job, List<CallTimeline> jobCalls) {
-        if (job == null) return List.of();
-        List<PhaseTimeline> explicit = job.phases() == null ? List.of() : job.phases();
+        List<PhaseTimeline> explicit = job.phases();
 
         // If explicit phases exist and have time windows, use them to bucket calls
         boolean hasExplicitTimeWindows = explicit.stream().anyMatch(p -> p.startTime() != null && p.endTime() != null);
@@ -433,12 +424,11 @@ public final class DiagnosticsAggregator {
         if (!explicit.isEmpty()) {
             // convert explicit phases to include call lists (no timing)
             List<PhaseTimeline> result = new ArrayList<>();
-            int idSeq = 1;
             for (PhaseTimeline p : explicit) {
                 List<String> ids = new ArrayList<>();
                 // best-effort: match by rough ordering -> if phase has no times, assign nothing
                 result.add(new PhaseTimeline(
-                        p.phaseId() == null ? (job.jobId() + "-phase-" + idSeq++) : p.phaseId(),
+                        p.phaseId(),
                         p.type(),
                         p.label(),
                         p.startTime(),

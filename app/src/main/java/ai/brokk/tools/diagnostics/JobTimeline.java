@@ -24,11 +24,6 @@ public record JobTimeline(
         List<CallTimeline> calls,
         @Nullable Map<String, Object> aggregates) {
 
-    public JobTimeline {
-        if (phases == null) phases = List.of();
-        if (calls == null) calls = List.of();
-    }
-
     /**
      * Lightweight DTO describing the resolved model for a call/job.
      */
