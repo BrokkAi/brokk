@@ -2305,31 +2305,55 @@ public class Chrome
     }
 
     private Object buildMessageComponentWithLinks(String message) {
-        var matcher = URL_PATTERN.matcher(message);
-        if (!matcher.find()) {
+        // Check if message contains any URLs
+        if (!URL_PATTERN.matcher(message).find()) {
             return message;
         }
 
-        matcher.reset();
-        var panel = new JPanel(new WrapLayout(FlowLayout.LEFT, 0, 0));
+        // Split by newlines and build a vertical panel
+        var lines = message.split("\n", -1);
+        var panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setOpaque(false);
 
-        int lastEnd = 0;
-        while (matcher.find()) {
-            if (matcher.start() > lastEnd) {
-                String textBefore = message.substring(lastEnd, matcher.start());
-                panel.add(new JLabel(textBefore));
+        for (String line : lines) {
+            if (line.isEmpty()) {
+                // Empty line = vertical spacing
+                panel.add(Box.createVerticalStrut(10));
+                continue;
             }
 
-            String url = matcher.group(1);
-            panel.add(new BrowserLabel(url));
+            var matcher = URL_PATTERN.matcher(line);
+            if (!matcher.find()) {
+                // No URL in this line - just a JLabel
+                var label = new JLabel(line);
+                label.setAlignmentX(Component.LEFT_ALIGNMENT);
+                panel.add(label);
+            } else {
+                // Line contains URL(s) - build horizontal panel
+                matcher.reset();
+                var linePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                linePanel.setOpaque(false);
+                linePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-            lastEnd = matcher.end();
-        }
+                int lastEnd = 0;
+                while (matcher.find()) {
+                    if (matcher.start() > lastEnd) {
+                        String textBefore = line.substring(lastEnd, matcher.start());
+                        linePanel.add(new JLabel(textBefore));
+                    }
+                    String url = matcher.group(1);
+                    linePanel.add(new BrowserLabel(url));
+                    lastEnd = matcher.end();
+                }
 
-        if (lastEnd < message.length()) {
-            String textAfter = message.substring(lastEnd);
-            panel.add(new JLabel(textAfter));
+                if (lastEnd < line.length()) {
+                    String textAfter = line.substring(lastEnd);
+                    linePanel.add(new JLabel(textAfter));
+                }
+
+                panel.add(linePanel);
+            }
         }
 
         return panel;
