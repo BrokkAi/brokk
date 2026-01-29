@@ -159,13 +159,22 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                         simpleName);
                 yield CodeUnit.fn(file, packageName, simpleName);
             }
-            case CaptureNames.TYPE_DEFINITION -> { // Covers struct_type and interface_type
-                log.trace(
-                        "Creating CLS CodeUnit for Go type: File='{}', Pkg='{}', Name='{}'",
-                        file.getFileName(),
-                        packageName,
-                        simpleName);
-                yield CodeUnit.cls(file, packageName, simpleName);
+            case CaptureNames.TYPE_DEFINITION -> {
+                if (skeletonType == SkeletonType.FIELD_LIKE) {
+                    log.trace(
+                            "Creating FIELD CodeUnit for Go type alias: File='{}', Pkg='{}', Name='{}'",
+                            file.getFileName(),
+                            packageName,
+                            simpleName);
+                    yield CodeUnit.field(file, packageName, "_module_." + simpleName);
+                } else {
+                    log.trace(
+                            "Creating CLS CodeUnit for Go type: File='{}', Pkg='{}', Name='{}'",
+                            file.getFileName(),
+                            packageName,
+                            simpleName);
+                    yield CodeUnit.cls(file, packageName, simpleName);
+                }
             }
             case CaptureNames.VARIABLE_DEFINITION, CaptureNames.CONSTANT_DEFINITION -> {
                 // For package-level variables/constants, classChain should be empty.
@@ -278,6 +287,29 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             signature = String.format("func %s%s%s%s", functionName, typeParamsText, paramsText, rt);
             return signature + " { " + bodyPlaceholder() + " }";
         }
+    }
+
+    @Override
+    protected SkeletonType refineSkeletonType(
+            String captureName, TSNode definitionNode, LanguageSyntaxProfile profile)
+    {
+        if (CaptureNames.TYPE_DEFINITION.equals(captureName) && definitionNode != null && !definitionNode.isNull()) {
+            // definitionNode is the type_declaration; find its type_spec child
+            for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
+                var child = definitionNode.getNamedChild(i);
+                if (TYPE_SPEC.equals(child.getType())) {
+                    var kindNode = child.getChildByFieldName("type");
+                    if (kindNode != null && !kindNode.isNull()) {
+                        String kindType = kindNode.getType();
+                        if (!STRUCT_TYPE.equals(kindType) && !INTERFACE_TYPE.equals(kindType)) {
+                            return SkeletonType.FIELD_LIKE;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        return super.refineSkeletonType(captureName, definitionNode, profile);
     }
 
     @Override

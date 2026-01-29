@@ -178,6 +178,7 @@ public class GoAnalyzerTest {
         CodeUnit expectedMethod_GetFieldA = CodeUnit.fn(pf, "declpkg", "MyStruct.GetFieldA");
         CodeUnit expectedStructFieldA = CodeUnit.field(pf, "declpkg", "MyStruct.FieldA");
         CodeUnit expectedInterfaceMethod_DoSomething = CodeUnit.fn(pf, "declpkg", "MyInterface.DoSomething");
+        CodeUnit expectedTypeAlias = CodeUnit.field(pf, "declpkg", "_module_.Uint32Map");
 
         assertTrue(
                 declarations.contains(expectedFunc),
@@ -233,11 +234,20 @@ public class GoAnalyzerTest {
                         + declarations.stream()
                                 .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
                                 .toList());
+        assertTrue(
+                declarations.contains(expectedTypeAlias),
+                "Declarations should contain type alias Uint32Map as FIELD_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertFalse(
+                declarations.contains(CodeUnit.cls(pf, "declpkg", "Uint32Map")),
+                "Type alias Uint32Map should NOT appear as CLASS_LIKE.");
 
         assertEquals(
-                9,
+                10,
                 declarations.size(),
-                "Expected 9 declarations in declarations.go. Found: "
+                "Expected 10 declarations in declarations.go. Found: "
                         + declarations.stream().map(CodeUnit::fqName).toList());
     }
 

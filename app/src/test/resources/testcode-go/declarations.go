@@ -20,4 +20,6 @@ func (s MyStruct) GetFieldA() int {
 	return s.FieldA
 }
 
+type Uint32Map map[uint32]struct{}
+
 func anotherFunc() {}
