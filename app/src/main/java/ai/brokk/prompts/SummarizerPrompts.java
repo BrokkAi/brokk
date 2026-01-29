@@ -6,6 +6,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.util.List;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 public class SummarizerPrompts {
     public static final SummarizerPrompts instance = new SummarizerPrompts() {};
@@ -162,19 +163,61 @@ public class SummarizerPrompts {
     }
 
     public List<ChatMessage> collectPrTitleAndDescriptionFromCommitMsgs(List<String> commitMsgs) {
+        return collectPrTitleAndDescriptionFromCommitMsgsWithContext(commitMsgs, null);
+    }
+
+    public List<ChatMessage> collectPrTitleAndDescriptionMessagesWithContext(
+            String diff, @Nullable String sessionContext) {
+        String systemMessage =
+                """
+                You are an expert software engineer writing clear pull-request titles and descriptions.
+
+                First, you may explain your thinking process about the changes.
+                Then call the suggestPrDetails tool with appropriate title and description.
+                %s
+                Guidelines for the description:
+                %s"""
+                        .formatted(
+                                (sessionContext != null && !sessionContext.isBlank())
+                                        ? "\nUse the session context to understand the intent behind the changes. Focus on WHY the changes were made, not just WHAT changed.\n"
+                                        : "",
+                                prDescriptionGuidance());
+
+        StringBuilder userContent = new StringBuilder();
+        userContent.append("<diff>\n").append(diff).append("\n</diff>");
+
+        if (sessionContext != null && !sessionContext.isBlank()) {
+            userContent.append("\n<context>\n").append(sessionContext).append("\n</context>");
+        }
+
+        return List.of(new SystemMessage(systemMessage), new UserMessage(userContent.toString()));
+    }
+
+    public List<ChatMessage> collectPrTitleAndDescriptionFromCommitMsgsWithContext(
+            List<String> commitMsgs, @Nullable String sessionContext) {
+        String systemMessage =
+                """
+                You are an expert software engineer writing clear pull-request titles and descriptions.
+
+                First, you may explain your thinking process about the changes.
+                Then call the suggestPrDetails tool with appropriate title and description.
+                %s
+                Guidelines for the description:
+                %s"""
+                        .formatted(
+                                (sessionContext != null && !sessionContext.isBlank())
+                                        ? "\nUse the session context to understand the intent behind the changes. Focus on WHY the changes were made, not just WHAT changed.\n"
+                                        : "",
+                                prDescriptionFromCommitsGuidance());
+
         String body = String.join("\n\n", commitMsgs);
+        StringBuilder userContent = new StringBuilder();
+        userContent.append("<commits>\n").append(body).append("\n</commits>");
 
-        return List.of(
-                new SystemMessage(
-                        """
-                    You are an expert software engineer writing clear pull-request titles and descriptions.
+        if (sessionContext != null && !sessionContext.isBlank()) {
+            userContent.append("\n<context>\n").append(sessionContext).append("\n</context>");
+        }
 
-                    First, you may explain your thinking process about the changes.
-                    Then call the suggestPrDetails tool with appropriate title and description.
-
-                    Guidelines for the description:
-                    %s"""
-                                .formatted(prDescriptionFromCommitsGuidance())),
-                new UserMessage("<commits>\n" + body + "\n</commits>"));
+        return List.of(new SystemMessage(systemMessage), new UserMessage(userContent.toString()));
     }
 }
