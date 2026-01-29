@@ -23,9 +23,6 @@ import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
-import org.treesitter.TSQuery;
-import org.treesitter.TSQueryCursor;
-import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
 
@@ -555,42 +552,19 @@ public class GoAnalyzerTest {
     }
 
     @Test
-    void testPackageQueryCapturesBothDefinitionAndName() {
-        String code = "package mypkg";
-        TSParser parser = new TSParser();
-        parser.setLanguage(GO_LANGUAGE);
-        TSTree tree = parser.parseString(null, code);
-        TSNode rootNode = tree.getRootNode();
+    void testPackageNameExtractedCorrectlyInFQNs() {
+        var pf = new ProjectFile(testProject.getRoot(), Path.of("mypkg", "mypkg.go"));
+        var declarations = analyzer.getDeclarations(pf);
 
-        // Use the query already loaded by the analyzer
-        TSQuery query = analyzer.getThreadLocalQuery();
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, rootNode);
-        TSQueryMatch match = new TSQueryMatch();
+        assertFalse(declarations.isEmpty(), "Should find declarations in mypkg.go");
 
-        boolean foundDefinition = false;
-        boolean foundName = false;
+        var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(fqns.contains("mypkg.MyFunc"), "Expected mypkg.MyFunc, got: " + fqns);
+        assertTrue(fqns.contains("mypkg.MyType"), "Expected mypkg.MyType, got: " + fqns);
 
-        while (cursor.nextMatch(match)) {
-            for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
-                String captureName = query.getCaptureNameForId(capture.getIndex());
-                if (CaptureNames.PACKAGE_DEFINITION.equals(captureName)) {
-                    foundDefinition = true;
-                    assertEquals("package_clause", capture.getNode().getType());
-                } else if (CaptureNames.PACKAGE_NAME.equals(captureName)) {
-                    foundName = true;
-                    assertEquals("package_identifier", capture.getNode().getType());
-                    assertEquals(
-                            "mypkg",
-                            SourceContent.of(code)
-                                    .substringFrom(capture.getNode())
-                                    .trim());
-                }
-            }
-        }
-
-        assertTrue(foundDefinition, "Should have captured @package.definition");
-        assertTrue(foundName, "Should have captured @package.name");
+        assertTrue(declarations.stream().noneMatch(cu -> cu.fqName().equals("mypkg")
+                                                          || cu.fqName().startsWith("package")),
+                   "Package clause should not appear as a CodeUnit: " + fqns);
     }
 
     @Test
