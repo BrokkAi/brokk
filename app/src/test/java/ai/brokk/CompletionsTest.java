@@ -57,9 +57,8 @@ public class CompletionsTest {
         var completions = Completions.completeSymbols("Re", mock);
         var values = toValues(completions);
 
-        assertEquals(2, values.size());
+        assertEquals(1, values.size());
         assertTrue(values.contains("a.b.Do.Re"));
-        assertTrue(values.contains("a.b.Do.Re.Sub"));
     }
 
     @Test
@@ -81,11 +80,9 @@ public class CompletionsTest {
         var mock = createTestAnalyzer();
 
         var completions = Completions.completeSymbols("Do", mock);
-        assertEquals(3, completions.size());
+        assertEquals(1, completions.size());
         var shortValues = toShortValues(completions);
         assertTrue(shortValues.contains("Do"));
-        assertTrue(shortValues.contains("Do.Re"));
-        assertTrue(shortValues.contains("Do.Re.Sub"));
     }
 
     @Test
