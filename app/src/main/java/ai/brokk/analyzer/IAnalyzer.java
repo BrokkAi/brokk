@@ -2,9 +2,9 @@ package ai.brokk.analyzer;
 
 import ai.brokk.project.IProject;
 import java.util.*;
-import org.jetbrains.annotations.Nullable;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Core analyzer interface providing code intelligence capabilities.

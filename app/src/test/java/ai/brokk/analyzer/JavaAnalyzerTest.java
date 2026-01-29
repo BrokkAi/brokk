@@ -1264,7 +1264,8 @@ public class JavaAnalyzerTest {
         }
         """;
 
-        try (var testProject = InlineTestProjectCreator.code(content, "ShadowTest.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "ShadowTest.java").build()) {
             JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "ShadowTest.java");
 
@@ -1334,8 +1335,8 @@ public class JavaAnalyzerTest {
         }
         """;
 
-        try (var testProject =
-                InlineTestProjectCreator.code(content, "CtrCryptoInputStream.java").build()) {
+        try (var testProject = InlineTestProjectCreator.code(content, "CtrCryptoInputStream.java")
+                .build()) {
             JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "CtrCryptoInputStream.java");
 
@@ -1364,7 +1365,8 @@ public class JavaAnalyzerTest {
         }
         """;
 
-        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
             JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
 
@@ -1395,7 +1397,8 @@ public class JavaAnalyzerTest {
         }
         """;
 
-        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
             JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
 
@@ -1407,7 +1410,8 @@ public class JavaAnalyzerTest {
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "item");
 
             assertTrue(result.isPresent(), "Should find declaration for 'item'");
-            assertEquals(IAnalyzer.DeclarationKind.FOR_LOOP_VARIABLE, result.get().kind());
+            assertEquals(
+                    IAnalyzer.DeclarationKind.FOR_LOOP_VARIABLE, result.get().kind());
             assertEquals("item", result.get().name());
         }
     }
@@ -1427,7 +1431,8 @@ public class JavaAnalyzerTest {
         }
         """;
 
-        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
             JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
 
@@ -1458,7 +1463,8 @@ public class JavaAnalyzerTest {
         }
         """;
 
-        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
             JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
 
@@ -1470,7 +1476,8 @@ public class JavaAnalyzerTest {
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "stream");
 
             assertTrue(result.isPresent(), "Should find declaration for 'stream'");
-            assertEquals(IAnalyzer.DeclarationKind.RESOURCE_VARIABLE, result.get().kind());
+            assertEquals(
+                    IAnalyzer.DeclarationKind.RESOURCE_VARIABLE, result.get().kind());
             assertEquals("stream", result.get().name());
         }
     }
@@ -1487,7 +1494,8 @@ public class JavaAnalyzerTest {
         }
         """;
 
-        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
             JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
 
@@ -1516,7 +1524,8 @@ public class JavaAnalyzerTest {
         }
         """;
 
-        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
             JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
 
@@ -1542,7 +1551,8 @@ public class JavaAnalyzerTest {
         }
         """;
 
-        try (var testProject = InlineTestProjectCreator.code(content, "Test.java").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
             JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
 
