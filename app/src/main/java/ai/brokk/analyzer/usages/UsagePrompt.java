@@ -27,10 +27,11 @@ public record UsagePrompt(String filterDescription, String candidateText, String
             UsageHit hit,
             CodeUnit codeUnitTarget,
             Collection<CodeUnit> alternatives,
+            Collection<CodeUnit> polymorphicMatches,
             IAnalyzer analyzer,
             String shortName,
             int maxTokens) {
-        return build(List.of(hit), codeUnitTarget, alternatives, analyzer, shortName, maxTokens);
+        return build(List.of(hit), codeUnitTarget, alternatives, polymorphicMatches, analyzer, shortName, maxTokens);
     }
 
     /**
@@ -39,6 +40,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
      * @param hits list of usage occurrences (must all share the same enclosing CodeUnit and file)
      * @param codeUnitTarget the intended target code unit
      * @param alternatives other code units with the same short name that are not the target
+     * @param polymorphicMatches subclasses that inherit the target method/field without overriding it
      * @param analyzer used to retrieve import statements for the file containing the usage
      * @param shortName the short name being searched (e.g., "A.method2")
      * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
@@ -48,6 +50,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
             List<UsageHit> hits,
             CodeUnit codeUnitTarget,
             Collection<CodeUnit> alternatives,
+            Collection<CodeUnit> polymorphicMatches,
             IAnalyzer analyzer,
             String shortName,
             int maxTokens) {
@@ -61,11 +64,18 @@ public record UsagePrompt(String filterDescription, String candidateText, String
         final int maxChars = (maxTokens <= 0) ? Integer.MAX_VALUE : Math.max(512, maxTokens * 4);
         var sb = new StringBuilder(Math.min(maxChars, 32_000));
 
+        String polyInfo = polymorphicMatches.isEmpty()
+                ? ""
+                : "\nThe following subclasses inherit this method without overriding it, so calls on these types are also valid matches: %s"
+                        .formatted(polymorphicMatches.stream()
+                                .map(CodeUnit::fqName)
+                                .collect(Collectors.joining(", ")));
+
         // Filter description for RelevanceClassifier.relevanceScore
         String filterDescription =
                 """
                 Determine if the candidate snippet represents a usage of the %s %s, and not another symbol with the same name.
-                Symbols with the same name (that we do NOT want to match) are: %s.
+                Symbols with the same name (that we do NOT want to match) are: %s.%s
                 Return a real number in [0.0, 1.0] representing your confidence that this snippet is referring to
                 %s."""
                         .formatted(
@@ -76,6 +86,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
                                         : alternatives.stream()
                                                 .map(CodeUnit::fqName)
                                                 .collect(Collectors.joining(", ")),
+                                polyInfo,
                                 codeUnitTarget.fqName());
 
         // Gather imports (best effort)
