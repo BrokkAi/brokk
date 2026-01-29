@@ -4,8 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -16,6 +14,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Parses a project's .brokk/llm-history layout (as written by ai.brokk.Llm) and
@@ -27,8 +26,8 @@ import java.util.stream.Stream;
  */
 public final class LlmHistoryParser {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    private static final ObjectMapper MAPPER =
+            new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     // Directory names
     private static final String BROKK_DIR = ".brokk";
@@ -39,8 +38,7 @@ public final class LlmHistoryParser {
     private static final Pattern REQUEST_FILE_PATTERN =
             Pattern.compile("^(\\d{2}-\\d{2}\\.\\d{2})\\s+(\\d+)-request\\.json$");
     // Example: "14-03.29 001-Response.log" -> timePrefix=14-03.29 seq=001
-    private static final Pattern LOG_FILE_PATTERN =
-            Pattern.compile("^(\\d{2}-\\d{2}\\.\\d{2})\\s+(\\d+)-.*\\.log$");
+    private static final Pattern LOG_FILE_PATTERN = Pattern.compile("^(\\d{2}-\\d{2}\\.\\d{2})\\s+(\\d+)-.*\\.log$");
 
     // Task directory timestamp prefix: "yyyy-MM-dd-HH-mm-ss ..."
     private static final Pattern TASK_DIR_TS_PREFIX = Pattern.compile("^(\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2})");
@@ -165,7 +163,8 @@ public final class LlmHistoryParser {
                             if (m.has("name") && m.get("name").isTextual()) {
                                 modelFromRequest = m.get("name").asText(null);
                             }
-                        } else if (root.has("parameters") && root.get("parameters").has("model")) {
+                        } else if (root.has("parameters")
+                                && root.get("parameters").has("model")) {
                             JsonNode m = root.get("parameters").get("model");
                             if (m.isTextual()) modelFromRequest = m.asText(null);
                         }
@@ -225,8 +224,11 @@ public final class LlmHistoryParser {
                                 if (arr.isArray()) {
                                     var list = new ArrayList<ToolCallTimeline>();
                                     for (JsonNode el : arr) {
-                                        String name = el.has("name") ? el.get("name").asText(null) : null;
-                                        String args = el.has("arguments") ? el.get("arguments").toString() : null;
+                                        String name =
+                                                el.has("name") ? el.get("name").asText(null) : null;
+                                        String args = el.has("arguments")
+                                                ? el.get("arguments").toString()
+                                                : null;
                                         var t = new ToolCallTimeline(
                                                 name == null ? "(unknown)" : name,
                                                 null,
@@ -270,7 +272,8 @@ public final class LlmHistoryParser {
 
                 // Build CallTimeline
                 String callId = taskDir.getFileName().toString() + "-" + seq;
-                JobTimeline.ModelConfig callModelConfig = chosenModel == null ? null : new JobTimeline.ModelConfig(chosenModel, null, null);
+                JobTimeline.ModelConfig callModelConfig =
+                        chosenModel == null ? null : new JobTimeline.ModelConfig(chosenModel, null, null);
 
                 CallTimeline ct = new CallTimeline(
                         callId,
@@ -292,8 +295,9 @@ public final class LlmHistoryParser {
                         null, // thoughtSignature
                         toolCalls,
                         Integer.parseInt(seq),
-                        (completionText == null && reasoningContent == null && toolCalls.isEmpty()) ? "UNKNOWN" : "COMPLETED"
-                );
+                        (completionText == null && reasoningContent == null && toolCalls.isEmpty())
+                                ? "UNKNOWN"
+                                : "COMPLETED");
 
                 calls.add(ct);
             }
@@ -307,7 +311,10 @@ public final class LlmHistoryParser {
             // Job-level timestamps: try to get from taskBaseDateTime if available
             Long jobStart = null;
             if (taskBaseDateTime != null) {
-                jobStart = taskBaseDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                jobStart = taskBaseDateTime
+                        .atZone(ZoneId.systemDefault())
+                        .toInstant()
+                        .toEpochMilli();
             }
 
             JobTimeline jt = new JobTimeline(
@@ -321,8 +328,7 @@ public final class LlmHistoryParser {
                     null,
                     List.of(), // phases - unknown
                     List.copyOf(calls),
-                    aggregates.isEmpty() ? Map.of() : aggregates
-            );
+                    aggregates.isEmpty() ? Map.of() : aggregates);
             return jt;
         } catch (IOException e) {
             return null;
@@ -333,7 +339,8 @@ public final class LlmHistoryParser {
     private static String extractTextFromMessageNode(JsonNode msg) {
         if (msg == null || msg.isNull()) return null;
 
-        // Common shapes: { "content": "text" } OR { "text": "..." } OR OpenAI: { "content": [ { "type":"text", "text":"..." } ] }
+        // Common shapes: { "content": "text" } OR { "text": "..." } OR OpenAI: { "content": [ { "type":"text",
+        // "text":"..." } ] }
         if (msg.has("content")) {
             JsonNode c = msg.get("content");
             if (c.isTextual()) {

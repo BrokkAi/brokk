@@ -3,14 +3,11 @@ package ai.brokk.tools;
 import ai.brokk.tools.diagnostics.CallTimeline;
 import ai.brokk.tools.diagnostics.DiagnosticsAggregator;
 import ai.brokk.tools.diagnostics.DiagnosticsTimeline;
+import ai.brokk.tools.diagnostics.JobDiagnosticsLoader;
 import ai.brokk.tools.diagnostics.JobTimeline;
 import ai.brokk.tools.diagnostics.LlmHistoryParser;
-import ai.brokk.tools.diagnostics.JobDiagnosticsLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import org.jetbrains.annotations.Nullable;
-
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -18,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * CLI entrypoint that builds a DiagnosticsTimeline from:
@@ -32,8 +30,8 @@ import java.util.stream.Collectors;
  *   --output PATH          (optional, defaults to ./diagnostics-timeline.json, or stdout when "-")
  */
 public final class DiagnosticsTimelineCli {
-    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules()
-            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    private static final ObjectMapper MAPPER =
+            new ObjectMapper().findAndRegisterModules().disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     private DiagnosticsTimelineCli() {}
 
@@ -189,12 +187,15 @@ public final class DiagnosticsTimelineCli {
     private static void printUsage(PrintStream out) {
         out.println("DiagnosticsTimelineCli");
         out.println("  --project-root PATH    Path to project root containing .brokk/llm-history (required)");
-        out.println("  --jobstore-root PATH   Path to headless JobStore root (contains jobs/ and idempotency/) (required)");
+        out.println(
+                "  --jobstore-root PATH   Path to headless JobStore root (contains jobs/ and idempotency/) (required)");
         out.println("  --log-dir PATH         Path to brokk log dir (default: $HOME/.brokk)");
-        out.println("  --output PATH| -       Output file path (default: ./diagnostics-timeline.json). Use - for stdout.");
+        out.println(
+                "  --output PATH| -       Output file path (default: ./diagnostics-timeline.json). Use - for stdout.");
         out.println();
         out.println("Example:");
-        out.println("  java ai.brokk.tools.DiagnosticsTimelineCli --project-root /path/to/repo --jobstore-root /var/lib/brokk/jobstore --output diagnostics.json");
+        out.println(
+                "  java ai.brokk.tools.DiagnosticsTimelineCli --project-root /path/to/repo --jobstore-root /var/lib/brokk/jobstore --output diagnostics.json");
     }
 
     // helper to provide an empty Stream when an object is null

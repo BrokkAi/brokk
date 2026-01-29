@@ -1,7 +1,5 @@
 package ai.brokk.tools.diagnostics;
 
-import org.jetbrains.annotations.Nullable;
-
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -72,13 +70,13 @@ public final class DiagnosticsAggregator {
                     c.thoughtSignature(),
                     c.tools(),
                     c.attemptIndex(),
-                    c.status()
-            );
+                    c.status());
             normalizedCalls.put(normalized.callId(), normalized);
         }
 
         // Index jobs by id for quick lookup
-        Map<String, JobTimeline> jobById = jobs.stream().collect(Collectors.toMap(JobTimeline::jobId, j -> j, (a, b) -> a, LinkedHashMap::new));
+        Map<String, JobTimeline> jobById =
+                jobs.stream().collect(Collectors.toMap(JobTimeline::jobId, j -> j, (a, b) -> a, LinkedHashMap::new));
 
         // Prepare assignment: callId -> assigned jobId (or null for unknown)
         Map<String, String> callToJob = new HashMap<>();
@@ -139,8 +137,7 @@ public final class DiagnosticsAggregator {
                 null,
                 List.of(),
                 List.of(),
-                Map.of()
-        );
+                Map.of());
 
         // Build aggregated JobTimelines with phase assignment and metrics
         List<JobTimeline> outJobs = new ArrayList<>();
@@ -163,31 +160,32 @@ public final class DiagnosticsAggregator {
                 }
             }
 
-            List<CallTimeline> finalCalls = jobCalls.stream().map(c -> {
-                String pid = callToPhase.get(c.callId());
-                return new CallTimeline(
-                        c.callId(),
-                        jobId,
-                        c.sessionId(),
-                        pid,
-                        c.startTime(),
-                        c.endTime(),
-                        c.durationMs(),
-                        c.model(),
-                        c.modelRole(),
-                        c.promptRaw(),
-                        c.promptTruncated(),
-                        c.promptTokenCount(),
-                        c.completionRaw(),
-                        c.completionTruncated(),
-                        c.completionTokenCount(),
-                        c.reasoningContent(),
-                        c.thoughtSignature(),
-                        c.tools(),
-                        c.attemptIndex(),
-                        c.status()
-                );
-            }).collect(Collectors.toList());
+            List<CallTimeline> finalCalls = jobCalls.stream()
+                    .map(c -> {
+                        String pid = callToPhase.get(c.callId());
+                        return new CallTimeline(
+                                c.callId(),
+                                jobId,
+                                c.sessionId(),
+                                pid,
+                                c.startTime(),
+                                c.endTime(),
+                                c.durationMs(),
+                                c.model(),
+                                c.modelRole(),
+                                c.promptRaw(),
+                                c.promptTruncated(),
+                                c.promptTokenCount(),
+                                c.completionRaw(),
+                                c.completionTruncated(),
+                                c.completionTokenCount(),
+                                c.reasoningContent(),
+                                c.thoughtSignature(),
+                                c.tools(),
+                                c.attemptIndex(),
+                                c.status());
+                    })
+                    .collect(Collectors.toList());
 
             // Compute job aggregates from phases/calls
             Map<String, Object> aggregates = computeJobAggregates(finalPhases, finalCalls);
@@ -203,8 +201,7 @@ public final class DiagnosticsAggregator {
                     src.reasoningOverrides(),
                     finalPhases,
                     finalCalls,
-                    aggregates
-            );
+                    aggregates);
 
             outJobs.add(aggregated);
         }
@@ -218,28 +215,29 @@ public final class DiagnosticsAggregator {
                     for (String cid : p.callIds()) callToPhase.put(cid, p.phaseId());
                 }
             }
-            List<CallTimeline> finalCalls = unassigned.stream().map(c -> new CallTimeline(
-                    c.callId(),
-                    UNKNOWN_JOB_ID,
-                    c.sessionId(),
-                    callToPhase.get(c.callId()),
-                    c.startTime(),
-                    c.endTime(),
-                    c.durationMs(),
-                    c.model(),
-                    c.modelRole(),
-                    c.promptRaw(),
-                    c.promptTruncated(),
-                    c.promptTokenCount(),
-                    c.completionRaw(),
-                    c.completionTruncated(),
-                    c.completionTokenCount(),
-                    c.reasoningContent(),
-                    c.thoughtSignature(),
-                    c.tools(),
-                    c.attemptIndex(),
-                    c.status()
-            )).collect(Collectors.toList());
+            List<CallTimeline> finalCalls = unassigned.stream()
+                    .map(c -> new CallTimeline(
+                            c.callId(),
+                            UNKNOWN_JOB_ID,
+                            c.sessionId(),
+                            callToPhase.get(c.callId()),
+                            c.startTime(),
+                            c.endTime(),
+                            c.durationMs(),
+                            c.model(),
+                            c.modelRole(),
+                            c.promptRaw(),
+                            c.promptTruncated(),
+                            c.promptTokenCount(),
+                            c.completionRaw(),
+                            c.completionTruncated(),
+                            c.completionTokenCount(),
+                            c.reasoningContent(),
+                            c.thoughtSignature(),
+                            c.tools(),
+                            c.attemptIndex(),
+                            c.status()))
+                    .collect(Collectors.toList());
 
             Map<String, Object> aggregates = computeJobAggregates(phases, finalCalls);
 
@@ -254,8 +252,7 @@ public final class DiagnosticsAggregator {
                     null,
                     phases,
                     finalCalls,
-                    aggregates
-            );
+                    aggregates);
             outJobs.add(aggregatedUnknown);
         }
 
@@ -331,8 +328,9 @@ public final class DiagnosticsAggregator {
                         callIds.add(c.callId());
                     }
                 }
-                Map<String, Object> metrics = computePhaseMetrics(
-                        jobCalls.stream().filter(cc -> callIds.contains(cc.callId())).collect(Collectors.toList()));
+                Map<String, Object> metrics = computePhaseMetrics(jobCalls.stream()
+                        .filter(cc -> callIds.contains(cc.callId()))
+                        .collect(Collectors.toList()));
                 PhaseTimeline np = new PhaseTimeline(
                         p.phaseId(),
                         p.type(),
@@ -341,8 +339,7 @@ public final class DiagnosticsAggregator {
                         p.endTime(),
                         p.durationMs(),
                         List.copyOf(callIds),
-                        metrics
-                );
+                        metrics);
                 result.add(np);
             }
             return result;
@@ -354,7 +351,8 @@ public final class DiagnosticsAggregator {
 
         if ("ASK".equals(mode)) {
             // For ASK: calls whose model.name equals job.modelConfig.name => PLANNING, others => SCAN
-            String planner = job.modelConfig() == null ? null : job.modelConfig().name();
+            String planner =
+                    job.modelConfig() == null ? null : job.modelConfig().name();
             List<CallTimeline> scanCalls = new ArrayList<>();
             List<CallTimeline> planningCalls = new ArrayList<>();
             for (CallTimeline c : jobCalls) {
@@ -367,30 +365,62 @@ public final class DiagnosticsAggregator {
             }
             int seq = 1;
             if (!scanCalls.isEmpty()) {
-                Long start = scanCalls.stream().map(CallTimeline::startTime).filter(Objects::nonNull).min(Long::compare).orElse(null);
-                Long end = scanCalls.stream().map(CallTimeline::endTime).filter(Objects::nonNull).max(Long::compare).orElse(null);
+                Long start = scanCalls.stream()
+                        .map(CallTimeline::startTime)
+                        .filter(Objects::nonNull)
+                        .min(Long::compare)
+                        .orElse(null);
+                Long end = scanCalls.stream()
+                        .map(CallTimeline::endTime)
+                        .filter(Objects::nonNull)
+                        .max(Long::compare)
+                        .orElse(null);
                 List<String> ids = scanCalls.stream().map(CallTimeline::callId).collect(Collectors.toList());
                 Map<String, Object> metrics = computePhaseMetrics(scanCalls);
-                PhaseTimeline p = new PhaseTimeline(job.jobId() + "-scan-" + seq++, "SCAN", "Pre-scan",
-                        start, end,
+                PhaseTimeline p = new PhaseTimeline(
+                        job.jobId() + "-scan-" + seq++,
+                        "SCAN",
+                        "Pre-scan",
+                        start,
+                        end,
                         (start != null && end != null) ? (end - start) : null,
-                        ids, metrics);
+                        ids,
+                        metrics);
                 built.add(p);
             }
             if (!planningCalls.isEmpty()) {
-                Long start = planningCalls.stream().map(CallTimeline::startTime).filter(Objects::nonNull).min(Long::compare).orElse(null);
-                Long end = planningCalls.stream().map(CallTimeline::endTime).filter(Objects::nonNull).max(Long::compare).orElse(null);
-                List<String> ids = planningCalls.stream().map(CallTimeline::callId).collect(Collectors.toList());
+                Long start = planningCalls.stream()
+                        .map(CallTimeline::startTime)
+                        .filter(Objects::nonNull)
+                        .min(Long::compare)
+                        .orElse(null);
+                Long end = planningCalls.stream()
+                        .map(CallTimeline::endTime)
+                        .filter(Objects::nonNull)
+                        .max(Long::compare)
+                        .orElse(null);
+                List<String> ids =
+                        planningCalls.stream().map(CallTimeline::callId).collect(Collectors.toList());
                 Map<String, Object> metrics = computePhaseMetrics(planningCalls);
-                PhaseTimeline p = new PhaseTimeline(job.jobId() + "-plan-" + seq++, "PLANNING", "Planning/Analysis",
-                        start, end,
+                PhaseTimeline p = new PhaseTimeline(
+                        job.jobId() + "-plan-" + seq++,
+                        "PLANNING",
+                        "Planning/Analysis",
+                        start,
+                        end,
                         (start != null && end != null) ? (end - start) : null,
-                        ids, metrics);
+                        ids,
+                        metrics);
                 built.add(p);
             }
             if (built.isEmpty()) {
                 // unknown fallback
-                PhaseTimeline p = new PhaseTimeline(job.jobId() + "-unknown", "UNKNOWN", "Unknown Phase", job.startTime(), job.endTime(),
+                PhaseTimeline p = new PhaseTimeline(
+                        job.jobId() + "-unknown",
+                        "UNKNOWN",
+                        "Unknown Phase",
+                        job.startTime(),
+                        job.endTime(),
                         (job.startTime() != null && job.endTime() != null) ? job.endTime() - job.startTime() : null,
                         jobCalls.stream().map(CallTimeline::callId).collect(Collectors.toList()),
                         computePhaseMetrics(jobCalls));
@@ -415,11 +445,15 @@ public final class DiagnosticsAggregator {
                         p.endTime(),
                         p.durationMs(),
                         List.copyOf(ids),
-                        Map.of()
-                ));
+                        Map.of()));
             }
             if (result.isEmpty()) {
-                PhaseTimeline p = new PhaseTimeline(job.jobId() + "-unknown", "UNKNOWN", "Unknown Phase", job.startTime(), job.endTime(),
+                PhaseTimeline p = new PhaseTimeline(
+                        job.jobId() + "-unknown",
+                        "UNKNOWN",
+                        "Unknown Phase",
+                        job.startTime(),
+                        job.endTime(),
                         (job.startTime() != null && job.endTime() != null) ? job.endTime() - job.startTime() : null,
                         jobCalls.stream().map(CallTimeline::callId).collect(Collectors.toList()),
                         computePhaseMetrics(jobCalls));
@@ -429,7 +463,12 @@ public final class DiagnosticsAggregator {
         }
 
         // No explicit phases and no special heuristics matched -> single UNKNOWN phase
-        PhaseTimeline p = new PhaseTimeline(job.jobId() + "-unknown", "UNKNOWN", "Unknown Phase", job.startTime(), job.endTime(),
+        PhaseTimeline p = new PhaseTimeline(
+                job.jobId() + "-unknown",
+                "UNKNOWN",
+                "Unknown Phase",
+                job.startTime(),
+                job.endTime(),
                 (job.startTime() != null && job.endTime() != null) ? job.endTime() - job.startTime() : null,
                 jobCalls.stream().map(CallTimeline::callId).collect(Collectors.toList()),
                 computePhaseMetrics(jobCalls));

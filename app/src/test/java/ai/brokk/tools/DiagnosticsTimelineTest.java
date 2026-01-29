@@ -1,13 +1,13 @@
 package ai.brokk.tools;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.tools.diagnostics.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Minimal unit test verifying Jackson serialization produces the intended sessions -> jobs -> phases -> calls -> tools
@@ -18,59 +18,58 @@ public class DiagnosticsTimelineTest {
     @Test
     void testSerializeMinimalTimeline() throws Exception {
         // Build a minimal tool call (some nullable fields intentionally left null)
-        ToolCallTimeline tool =
-                new ToolCallTimeline(
-                        "echo",               // toolName
-                        "CLI",                // toolType
-                        "call-1",             // requestedByCallId
-                        null,                 // startTime
-                        null,                 // endTime
-                        null,                 // durationMs
-                        true,                 // success
-                        null,                 // errorMessage
-                        "input-summary",      // inputSummary
-                        null);                // outputSummary
+        ToolCallTimeline tool = new ToolCallTimeline(
+                "echo", // toolName
+                "CLI", // toolType
+                "call-1", // requestedByCallId
+                null, // startTime
+                null, // endTime
+                null, // durationMs
+                true, // success
+                null, // errorMessage
+                "input-summary", // inputSummary
+                null); // outputSummary
 
         // Build a call with null timestamps and null token counts to assert null serialization
-        CallTimeline call =
-                new CallTimeline(
-                        "call-1",               // callId
-                        "job-1",                // jobId
-                        "session-1",            // sessionId
-                        "phase-1",              // phaseId
-                        null,                   // startTime
-                        null,                   // endTime
-                        null,                   // durationMs
-                        null,                   // model
-                        "assistant",            // modelRole
-                        "hello",                // promptRaw
-                        false,                  // promptTruncated
-                        null,                   // promptTokenCount (nullable)
-                        "world",                // completionRaw
-                        false,                  // completionTruncated
-                        null,                   // completionTokenCount (nullable)
-                        null,                   // reasoningContent
-                        null,                   // thoughtSignature
-                        List.of(tool),          // tools
-                        1,                      // attemptIndex
-                        "COMPLETED");           // status
+        CallTimeline call = new CallTimeline(
+                "call-1", // callId
+                "job-1", // jobId
+                "session-1", // sessionId
+                "phase-1", // phaseId
+                null, // startTime
+                null, // endTime
+                null, // durationMs
+                null, // model
+                "assistant", // modelRole
+                "hello", // promptRaw
+                false, // promptTruncated
+                null, // promptTokenCount (nullable)
+                "world", // completionRaw
+                false, // completionTruncated
+                null, // completionTokenCount (nullable)
+                null, // reasoningContent
+                null, // thoughtSignature
+                List.of(tool), // tools
+                1, // attemptIndex
+                "COMPLETED"); // status
 
         // One phase that references the call id
-        PhaseTimeline phase = new PhaseTimeline("phase-1", "PLANNING", "Planning Phase", null, null, null, List.of("call-1"), Map.of());
+        PhaseTimeline phase = new PhaseTimeline(
+                "phase-1", "PLANNING", "Planning Phase", null, null, null, List.of("call-1"), Map.of());
 
         // Job with some nullable fields
         JobTimeline job = new JobTimeline(
-                "job-1",                       // jobId
-                "ARCHITECT",                   // mode
-                Map.of("mode", "ARCHITECT"),   // tags
-                null,                          // startTime
-                null,                          // endTime
-                null,                          // durationMs
-                null,                          // modelConfig
-                null,                          // reasoningOverrides
-                List.of(phase),                // phases
-                List.of(call),                 // calls
-                Map.of());                     // aggregates
+                "job-1", // jobId
+                "ARCHITECT", // mode
+                Map.of("mode", "ARCHITECT"), // tags
+                null, // startTime
+                null, // endTime
+                null, // durationMs
+                null, // modelConfig
+                null, // reasoningOverrides
+                List.of(phase), // phases
+                List.of(call), // calls
+                Map.of()); // aggregates
 
         // Session containing the job
         SessionTimeline session = new SessionTimeline("session-1", "My Session", List.of(job));

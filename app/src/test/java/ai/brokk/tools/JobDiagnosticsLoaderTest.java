@@ -1,5 +1,7 @@
 package ai.brokk.tools;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStatus;
@@ -7,17 +9,12 @@ import ai.brokk.tools.diagnostics.JobDiagnosticsLoader;
 import ai.brokk.tools.diagnostics.JobTimeline;
 import ai.brokk.tools.diagnostics.PhaseTimeline;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Unit tests for JobDiagnosticsLoader.
@@ -53,16 +50,21 @@ public class JobDiagnosticsLoaderTest {
                 null,
                 0.7,
                 null,
-                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS
-        );
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
         MAPPER.writeValue(j1.resolve("meta.json").toFile(), spec1);
         JobStatus status1 = new JobStatus(job1, "COMPLETED", 1000L, 3000L, 100, null, null, Map.of("lastSeq", "2"));
         MAPPER.writeValue(j1.resolve("status.json").toFile(), status1);
 
         // events.jsonl with scan start and complete
-        String ev1 = MAPPER.writeValueAsString(new JobEvent(1, 1100L, "NOTIFICATION", "Brokk Context Engine: analyzing repository context..."));
-        String ev2 = MAPPER.writeValueAsString(new JobEvent(2, 1200L, "NOTIFICATION", "Brokk Context Engine: complete — contextual insights added to Workspace."));
-        Files.writeString(j1.resolve("events.jsonl"), ev1 + "\n" + ev2 + "\n", StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+        String ev1 = MAPPER.writeValueAsString(
+                new JobEvent(1, 1100L, "NOTIFICATION", "Brokk Context Engine: analyzing repository context..."));
+        String ev2 = MAPPER.writeValueAsString(new JobEvent(
+                2, 1200L, "NOTIFICATION", "Brokk Context Engine: complete — contextual insights added to Workspace."));
+        Files.writeString(
+                j1.resolve("events.jsonl"),
+                ev1 + "\n" + ev2 + "\n",
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE);
 
         // Job 2: command_result tests -> expect EXECUTION phase
         String job2 = "job-exec";
@@ -83,21 +85,25 @@ public class JobDiagnosticsLoaderTest {
                 null,
                 null,
                 null,
-                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS
-        );
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
         MAPPER.writeValue(j2.resolve("meta.json").toFile(), spec2);
         JobStatus status2 = new JobStatus(job2, "COMPLETED", 2000L, 5000L, 100, null, null, Map.of());
         MAPPER.writeValue(j2.resolve("status.json").toFile(), status2);
 
         // COMMAND_RESULT event for tests
         Map<String, Object> cmdData = Map.of(
-                "stage", "tests",
-                "command", "run-tests",
-                "attempt", 1,
-                "skipped", false,
-                "success", false,
-                "output", "failure"
-        );
+                "stage",
+                "tests",
+                "command",
+                "run-tests",
+                "attempt",
+                1,
+                "skipped",
+                false,
+                "success",
+                false,
+                "output",
+                "failure");
         String ev21 = MAPPER.writeValueAsString(new JobEvent(1, 2100L, "COMMAND_RESULT", cmdData));
         Files.writeString(j2.resolve("events.jsonl"), ev21 + "\n", StandardOpenOption.CREATE, StandardOpenOption.WRITE);
 
@@ -120,16 +126,23 @@ public class JobDiagnosticsLoaderTest {
                 null,
                 null,
                 null,
-                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS
-        );
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
         MAPPER.writeValue(j3.resolve("meta.json").toFile(), spec3);
         // no status, no events
 
         // Create a Brokk debug log with garbage lines to ensure parsing does not throw
         Path brokkDir = tempDir.resolve(".brokk");
         Files.createDirectories(brokkDir);
-        Files.writeString(brokkDir.resolve("debug.log"), "This is some unrelated log line\nAnother line\n", StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-        Files.writeString(brokkDir.resolve("debug.log.1"), "rotated log content\n", StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+        Files.writeString(
+                brokkDir.resolve("debug.log"),
+                "This is some unrelated log line\nAnother line\n",
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE);
+        Files.writeString(
+                brokkDir.resolve("debug.log.1"),
+                "rotated log content\n",
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE);
 
         // Run loader
         List<JobTimeline> jobs = JobDiagnosticsLoader.load(storeRoot, brokkDir);
@@ -149,7 +162,10 @@ public class JobDiagnosticsLoaderTest {
         // phases should contain a SCAN phase
         boolean hasScan = jt1.phases().stream().anyMatch(p -> "SCAN".equals(p.type()));
         assertTrue(hasScan);
-        PhaseTimeline scanPhase = jt1.phases().stream().filter(p -> "SCAN".equals(p.type())).findFirst().orElseThrow();
+        PhaseTimeline scanPhase = jt1.phases().stream()
+                .filter(p -> "SCAN".equals(p.type()))
+                .findFirst()
+                .orElseThrow();
         assertEquals(1100L, scanPhase.startTime());
         assertEquals(1200L, scanPhase.endTime());
 
@@ -162,7 +178,10 @@ public class JobDiagnosticsLoaderTest {
         // phases should contain EXECUTION for tests
         boolean hasExec = jt2.phases().stream().anyMatch(p -> "EXECUTION".equals(p.type()));
         assertTrue(hasExec);
-        PhaseTimeline exec = jt2.phases().stream().filter(p -> "EXECUTION".equals(p.type())).findFirst().orElseThrow();
+        PhaseTimeline exec = jt2.phases().stream()
+                .filter(p -> "EXECUTION".equals(p.type()))
+                .findFirst()
+                .orElseThrow();
         // execution phase anchored by COMMAND_RESULT timestamp
         assertEquals(2100L, exec.startTime());
 

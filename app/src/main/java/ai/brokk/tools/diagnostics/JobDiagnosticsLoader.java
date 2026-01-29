@@ -1,13 +1,11 @@
 package ai.brokk.tools.diagnostics;
 
 import ai.brokk.executor.jobs.JobEvent;
+import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStatus;
-import ai.brokk.executor.jobs.JobRunner;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -15,6 +13,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Loads job-level diagnostics from a JobStore directory and optional Brokk debug logs.
@@ -27,8 +26,8 @@ import java.util.stream.Collectors;
  */
 public final class JobDiagnosticsLoader {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    private static final ObjectMapper MAPPER =
+            new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private static final Pattern JOB_DIR_NAME = Pattern.compile(".+"); // accept any directory name as job id
 
@@ -87,8 +86,7 @@ public final class JobDiagnosticsLoader {
         try {
             // match debug.log and rotated variants debug.log*
             try (var stream = Files.list(brokkLogDir)) {
-                return stream
-                        .filter(Files::isRegularFile)
+                return stream.filter(Files::isRegularFile)
                         .filter(p -> p.getFileName().toString().startsWith("debug.log"))
                         .sorted()
                         .flatMap(p -> {
@@ -169,8 +167,15 @@ public final class JobDiagnosticsLoader {
                 start = status.startTime() > 0 ? status.startTime() : null;
                 end = status.endTime() > 0 ? status.endTime() : null;
             }
-            PhaseTimeline unknown = new PhaseTimeline(jobId + "-unknown", "UNKNOWN", "Unknown Phase", start, end,
-                    (start != null && end != null) ? (end - start) : null, List.of(), Map.of());
+            PhaseTimeline unknown = new PhaseTimeline(
+                    jobId + "-unknown",
+                    "UNKNOWN",
+                    "Unknown Phase",
+                    start,
+                    end,
+                    (start != null && end != null) ? (end - start) : null,
+                    List.of(),
+                    Map.of());
             phases = List.of(unknown);
         }
 
@@ -194,8 +199,8 @@ public final class JobDiagnosticsLoader {
         } catch (Exception ignored) {
         }
 
-        JobTimeline.ModelConfig modelConfig = modelName == null ? null
-                : new JobTimeline.ModelConfig(modelName, null, null);
+        JobTimeline.ModelConfig modelConfig =
+                modelName == null ? null : new JobTimeline.ModelConfig(modelName, null, null);
 
         JobTimeline.ReasoningOverrides reasoning = new JobTimeline.ReasoningOverrides(
                 spec.reasoningLevel(), spec.reasoningLevelCode(), spec.temperature(), spec.temperatureCode());
@@ -226,8 +231,7 @@ public final class JobDiagnosticsLoader {
                 reasoning,
                 phases,
                 List.of(), // calls not yet attached
-                aggregates.isEmpty() ? Map.of() : aggregates
-        );
+                aggregates.isEmpty() ? Map.of() : aggregates);
 
         return jt;
     }
@@ -243,7 +247,8 @@ public final class JobDiagnosticsLoader {
      *
      * The implementation creates simple PhaseTimeline entries by pairing start and end markers when possible.
      */
-    private static List<PhaseTimeline> buildPhasesFromEvents(String jobId, List<JobEvent> events, @Nullable JobStatus status) {
+    private static List<PhaseTimeline> buildPhasesFromEvents(
+            String jobId, List<JobEvent> events, @Nullable JobStatus status) {
         var builders = new ArrayList<PhaseBuilder>();
         var execBuilders = new LinkedHashMap<String, PhaseBuilder>(); // keyed by stage for execution grouping
         PhaseBuilder openScan = null;
@@ -284,21 +289,27 @@ public final class JobDiagnosticsLoader {
                     continue;
                 }
 
-                if (lower.contains("pr review") || lower.contains("fetching pr refs") || lower.contains("fetching pr refs from")) {
+                if (lower.contains("pr review")
+                        || lower.contains("fetching pr refs")
+                        || lower.contains("fetching pr refs from")) {
                     if (openReview == null) {
-                        openReview = new PhaseBuilder(jobId + "-review-" + idSeq.getAndIncrement(), "REVIEW", "PR Review", ts);
+                        openReview = new PhaseBuilder(
+                                jobId + "-review-" + idSeq.getAndIncrement(), "REVIEW", "PR Review", ts);
                     }
                     continue;
                 }
 
                 // some notifications explicitly mark review complete
-                if (lower.contains("review complete") || lower.contains("posted pr review") || lower.contains("created pull request")) {
+                if (lower.contains("review complete")
+                        || lower.contains("posted pr review")
+                        || lower.contains("created pull request")) {
                     if (openReview != null) {
                         openReview.endTime = ts;
                         builders.add(openReview);
                         openReview = null;
                     } else {
-                        var pb = new PhaseBuilder(jobId + "-review-" + idSeq.getAndIncrement(), "REVIEW", "PR Review", ts);
+                        var pb = new PhaseBuilder(
+                                jobId + "-review-" + idSeq.getAndIncrement(), "REVIEW", "PR Review", ts);
                         pb.endTime = ts;
                         builders.add(pb);
                     }
@@ -306,7 +317,9 @@ public final class JobDiagnosticsLoader {
                 }
 
                 // generic notifications that include "ISSUE_WRITER" or "ISSUE" hints
-                if (msg.contains("ISSUE_WRITER") || msg.toLowerCase().contains("issue_writer") || lower.contains("issue")) {
+                if (msg.contains("ISSUE_WRITER")
+                        || msg.toLowerCase().contains("issue_writer")
+                        || lower.contains("issue")) {
                     // create an informational phase (best-effort)
                     var pb = new PhaseBuilder(jobId + "-issue-" + idSeq.getAndIncrement(), "ISSUE", "Issue Work", ts);
                     // do not auto-close; leave as single-point phase
@@ -328,7 +341,8 @@ public final class JobDiagnosticsLoader {
                 if (stage != null) {
                     String lowerStage = stage.toLowerCase(Locale.ROOT);
                     // stages that correspond to execution/verification
-                    if (Set.of("tests", "lint", "verification", "review_fix", "fix_trigger").contains(lowerStage)) {
+                    if (Set.of("tests", "lint", "verification", "review_fix", "fix_trigger")
+                            .contains(lowerStage)) {
                         // group by stage name
                         PhaseBuilder pb = execBuilders.get(lowerStage);
                         if (pb == null) {
@@ -339,7 +353,11 @@ public final class JobDiagnosticsLoader {
                         pb.endTime = ts;
                     } else {
                         // other stage: add small anchored phase
-                        var pb = new PhaseBuilder(jobId + "-" + stage + "-" + idSeq.getAndIncrement(), stage.toUpperCase(Locale.ROOT), stage, ts);
+                        var pb = new PhaseBuilder(
+                                jobId + "-" + stage + "-" + idSeq.getAndIncrement(),
+                                stage.toUpperCase(Locale.ROOT),
+                                stage,
+                                ts);
                         pb.endTime = ts;
                         builders.add(pb);
                     }
@@ -364,16 +382,8 @@ public final class JobDiagnosticsLoader {
             if (b.startTime != null && b.endTime != null) {
                 dur = b.endTime - b.startTime;
             }
-            PhaseTimeline pt = new PhaseTimeline(
-                    b.phaseId,
-                    b.type,
-                    b.label,
-                    b.startTime,
-                    b.endTime,
-                    dur,
-                    List.of(),
-                    Map.of()
-            );
+            PhaseTimeline pt =
+                    new PhaseTimeline(b.phaseId, b.type, b.label, b.startTime, b.endTime, dur, List.of(), Map.of());
             out.add(pt);
         }
 

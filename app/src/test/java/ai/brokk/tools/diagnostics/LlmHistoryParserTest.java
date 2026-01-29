@@ -1,18 +1,15 @@
 package ai.brokk.tools.diagnostics;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Unit tests for LlmHistoryParser using synthetic llm-history files.
@@ -32,7 +29,8 @@ public class LlmHistoryParserTest {
 
         // Request file: time prefix "14-03.27" seq "001"
         String reqName = "14-03.27 001-request.json";
-        String requestJson = """
+        String requestJson =
+                """
                 {
                   "model": "gpt-5",
                   "messages": [
@@ -42,26 +40,28 @@ public class LlmHistoryParserTest {
                   ]
                 }
                 """;
-        Files.writeString(historyDir.resolve(reqName), requestJson, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+        Files.writeString(
+                historyDir.resolve(reqName), requestJson, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
 
         // Log file with sections
         String logName = "14-03.29 001-Response.log";
-        String logContent = """
+        String logContent =
+                """
                 # Request to gpt-5:
-                
+
                 some representation
-                
+
                 ## reasoningContent
                 This is the chain-of-thought reasoning captured.
-                
+
                 ## text
                 The answer produced by the model.
-                
+
                 ## toolExecutionRequests
                 [
                   { "name": "echo", "arguments": { "arg": "val" } }
                 ]
-                
+
                 ## metadata
                 {}
                 """;
@@ -102,7 +102,8 @@ public class LlmHistoryParserTest {
         assertEquals(1, call.tools().size());
         ToolCallTimeline t = call.tools().get(0);
         assertEquals("echo", t.toolName());
-        assertTrue(t.inputSummary().contains("\"arg\":\"val\"") || t.inputSummary().contains("arg"));
+        assertTrue(
+                t.inputSummary().contains("\"arg\":\"val\"") || t.inputSummary().contains("arg"));
 
         // Timestamps: start should be derived from task date + request time "14-03.27"
         assertNotNull(call.startTime());
@@ -124,9 +125,10 @@ public class LlmHistoryParserTest {
 
         // Create a log without expected sections or with malformed tool JSON
         String logName = "09-05.12 002-Err.log";
-        String badLog = """
+        String badLog =
+                """
                 # Request to some-model:
-                
+
                 ## text
                 partial output only
                 """;

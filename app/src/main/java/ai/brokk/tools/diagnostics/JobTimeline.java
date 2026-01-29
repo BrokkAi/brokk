@@ -33,10 +33,7 @@ public record JobTimeline(
      * Lightweight DTO describing the resolved model for a call/job.
      */
     @JsonInclude(JsonInclude.Include.ALWAYS)
-    public static record ModelConfig(
-            String name,
-            @Nullable String reasoning,
-            @Nullable String tier) {}
+    public static record ModelConfig(String name, @Nullable String reasoning, @Nullable String tier) {}
 
     /**
      * Job-level overrides for reasoning/temperature that may have been supplied.
