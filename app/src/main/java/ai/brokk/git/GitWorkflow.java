@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -241,18 +242,46 @@ public final class GitWorkflow {
      */
     public PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO streamingOutput)
             throws GitAPIException, InterruptedException {
+        return suggestPullRequestDetails(source, target, streamingOutput, List.of());
+    }
+
+    /**
+     * Suggests pull request title and description with streaming output using tool calling and session context.
+     *
+     * @param source The source branch name
+     * @param target The target branch name
+     * @param streamingOutput IConsoleIO for streaming output
+     * @param sessionIds List of session IDs to extract context from (may be empty)
+     * @throws GitAPIException if git operations fail
+     * @throws InterruptedException if the calling thread is interrupted during LLM request
+     */
+    public PrSuggestion suggestPullRequestDetails(
+            String source, String target, IConsoleIO streamingOutput, List<UUID> sessionIds)
+            throws GitAPIException, InterruptedException {
         var mergeBase = repo.getMergeBase(source, target);
         String diff = (mergeBase != null) ? repo.getDiff(mergeBase, source) : "";
 
         var service = cm.getService();
         var modelToUse = service.getScanModel();
 
+        String sessionContext = null;
+        if (!sessionIds.isEmpty()) {
+            var fragments = ai.brokk.agents.ReviewScope.extractSessionContext(cm, sessionIds, null);
+            if (!fragments.isEmpty()) {
+                sessionContext = fragments.stream()
+                        .map(f -> f.text().join())
+                        .filter(java.util.Objects::nonNull)
+                        .collect(java.util.stream.Collectors.joining("\n\n"));
+            }
+        }
+
         List<ChatMessage> messages;
         if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {
             var commitMessagesContent = repo.getCommitMessagesBetween(target, source);
-            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgsWithContext(
+                    commitMessagesContent, sessionContext);
         } else {
-            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessagesWithContext(diff, sessionContext);
         }
 
         // Register tool providers
