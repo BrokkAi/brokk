@@ -243,12 +243,11 @@ public class WorkspaceTools {
 
         // Apply removal and upsert DISCARDED_CONTEXT in the local context
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
-        var next =
+        context =
                 context.removeFragmentsByIds(droppedIds).withSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
-        context = next;
 
         logger.debug(
-                "dropWorkspaceFragments: dropped={}, protected={}, unknown={}, updatedDiscardedEntries={}",
+                "dropWorkspaceFragments: dropped={}, pinned={}, unknown={}, updatedDiscardedEntries={}",
                 droppedIds.size(),
                 protectedFragments.size(),
                 unknownIds.size(),
@@ -267,7 +266,7 @@ public class WorkspaceTools {
                     .map(ContextFragment::description)
                     .map(ComputedValue::join)
                     .collect(Collectors.joining(", "));
-            baseMsg += " Protected (not dropped): " + protectedDescriptions + ".";
+            baseMsg += " Pinned (not dropped): " + protectedDescriptions + ".";
         }
 
         if (!unknownIds.isEmpty()) {

@@ -89,13 +89,20 @@ public class Context {
             @Nullable ContextFragments.TaskFragment parsedOutput,
             Set<ContextFragment> markedReadonlyFragments,
             Set<ContextFragment> pinnedFragments) {
+        for (var cf : markedReadonlyFragments) {
+            assert fragments.contains(cf);
+        }
+        for (var cf : pinnedFragments) {
+            assert fragments.contains(cf);
+        }
+
         this.id = id;
         this.contextManager = contextManager;
         this.fragments = List.copyOf(fragments);
         this.taskHistory = List.copyOf(taskHistory);
         this.parsedOutput = parsedOutput;
-        this.markedReadonlyFragments = validateReadOnlyFragments(markedReadonlyFragments, fragments);
-        this.pinnedFragments = validatePinnedFragments(pinnedFragments, fragments);
+        this.markedReadonlyFragments = Set.copyOf(markedReadonlyFragments);
+        this.pinnedFragments = Set.copyOf(pinnedFragments);
     }
 
     public Context(
@@ -193,34 +200,33 @@ public class Context {
             }
         }
 
-        var uniqueInputs = expanded;
-
         // 2. Identify files that are being added as full PATH fragments.
         // These will "kill" any existing SKELETON fragments for the same files.
-        var incomingPathFiles = uniqueInputs.stream()
+        var incomingPathFiles = expanded.stream()
                 .filter(f -> f instanceof ContextFragments.PathFragment)
                 .map(f -> (ContextFragments.PathFragment) f)
                 .flatMap(pf -> pf.files().join().stream())
                 .collect(Collectors.toSet());
 
         // 3. Process the CURRENT fragments:
-        //    a) Remove SUMMARY fragments if they are superseded by incoming PATHS.
+        //    a) Identify SUMMARY fragments superseded by incoming PATHS.
         //    b) Keep everything else (we will deduplicate against new inputs in the next step).
-        var keptExistingFragments = this.fragments.stream()
-                .filter(f -> {
-                    if (f instanceof ContextFragments.SummaryFragment) {
-                        var skeletonFiles = f.files().join();
-                        // If the skeleton's files overlap with incoming full paths, drop the skeleton.
-                        return Collections.disjoint(skeletonFiles, incomingPathFiles);
-                    }
-                    return true;
-                })
-                .collect(Collectors.toCollection(ArrayList::new));
+        var partitioned = this.fragments.stream().collect(Collectors.partitioningBy(f -> {
+            if (f instanceof ContextFragments.SummaryFragment) {
+                var skeletonFiles = f.files().join();
+                // If the skeleton's files overlap with incoming full paths, drop the skeleton.
+                return !Collections.disjoint(skeletonFiles, incomingPathFiles);
+            }
+            return false;
+        }));
+
+        var supersededFragments = partitioned.get(true);
+        var keptExistingFragments = new ArrayList<>(partitioned.get(false));
 
         // 4. Calculate the ACTUAL new items to add.
         //    We filter 'uniqueInputs' to ensure we don't add something that already exists
         //    in the (cleaned) existing list.
-        var fragmentsToAdd = uniqueInputs.stream()
+        var fragmentsToAdd = expanded.stream()
                 .filter(input -> keptExistingFragments.stream().noneMatch(existing -> existing.hasSameSource(input)))
                 .toList();
 
@@ -231,7 +237,16 @@ public class Context {
         // 5. Merge
         keptExistingFragments.addAll(fragmentsToAdd);
 
-        return this.withFragments(keptExistingFragments);
+        // 6. Cleanup tracking for superseded fragments
+        var newReadOnly = this.markedReadonlyFragments.stream()
+                .filter(f -> !supersededFragments.contains(f))
+                .collect(Collectors.toSet());
+        var newPinned = this.pinnedFragments.stream()
+                .filter(f -> !supersededFragments.contains(f))
+                .collect(Collectors.toSet());
+
+        return new Context(
+                newContextId(), contextManager, keptExistingFragments, taskHistory, null, newReadOnly, newPinned);
     }
 
     @Blocking
@@ -241,17 +256,6 @@ public class Context {
 
     public Context addFragments(ContextFragment fragment) {
         return addFragments(List.of(fragment));
-    }
-
-    private Context withFragments(List<ContextFragment> newFragments) {
-        return new Context(
-                newContextId(),
-                contextManager,
-                newFragments,
-                taskHistory,
-                null,
-                this.markedReadonlyFragments,
-                this.pinnedFragments);
     }
 
     /**
@@ -1158,14 +1162,5 @@ public class Context {
         }
 
         return Set.copyOf(readonly);
-    }
-
-    private static Set<ContextFragment> validatePinnedFragments(
-            Set<ContextFragment> pinned, List<ContextFragment> all) {
-        for (var cf : pinned) {
-            assert all.contains(cf);
-        }
-
-        return Set.copyOf(pinned);
     }
 }
