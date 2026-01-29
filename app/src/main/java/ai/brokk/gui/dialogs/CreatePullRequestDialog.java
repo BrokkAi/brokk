@@ -988,8 +988,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             }
         }
 
-        currentSuggestPrDetailsWorker =
-                new SuggestPrDetailsWorker(sourceBranch, targetBranch, selectedSessionUuids);
+        currentSuggestPrDetailsWorker = new SuggestPrDetailsWorker(sourceBranch, targetBranch, selectedSessionUuids);
         currentSuggestPrDetailsWorker.execute();
     }
 }

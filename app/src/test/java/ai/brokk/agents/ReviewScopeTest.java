@@ -8,9 +8,9 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Set;
-import java.nio.file.Files;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.Test;
 
