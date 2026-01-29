@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import ai.brokk.project.IProject;
 import java.util.*;
+import org.jetbrains.annotations.Nullable;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -189,6 +190,33 @@ public interface IAnalyzer {
     default boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
         return true;
     }
+
+    /**
+     * Finds the nearest lexically-enclosing declaration for an identifier at the given position.
+     *
+     * @param file           the source file
+     * @param startByte      the start byte of the identifier
+     * @param endByte        the end byte of the identifier
+     * @param identifierName the name of the identifier to resolve
+     * @return information about the nearest declaration, or empty if not found
+     */
+    default Optional<DeclarationInfo> findNearestDeclaration(
+            ProjectFile file, int startByte, int endByte, String identifierName) {
+        return Optional.empty();
+    }
+
+    enum DeclarationKind {
+        PARAMETER,
+        LOCAL_VARIABLE,
+        FIELD,
+        CATCH_PARAMETER,
+        FOR_LOOP_VARIABLE,
+        PATTERN_VARIABLE,
+        RESOURCE_VARIABLE,
+        UNKNOWN
+    }
+
+    record DeclarationInfo(DeclarationKind kind, String name, @Nullable CodeUnit enclosingUnit) {}
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
