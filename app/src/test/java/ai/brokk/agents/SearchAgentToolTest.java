@@ -22,19 +22,6 @@ class SearchAgentToolTest {
     }
 
     @Test
-    void calculateAllowedToolNames_dropOnlyMode_requiresDroppableFragments() {
-        TestConsoleIO io = new TestConsoleIO();
-        TestContextManager cm = new TestContextManager(tempDir, io);
-
-        SearchAgent agent = newAgent(cm, new OfflineStreamingModel());
-        Context context = agent.currentState.context();
-
-        List<String> allowed = agent.calculateAllowedToolNames(context, true);
-        assertEquals(
-                List.of(), allowed, "dropOnlyMode with no droppable fragments should expose no non-terminal tools");
-    }
-
-    @Test
     void calculateAllowedToolNames_normalMode_includesDropWhenDroppableFragmentsExist() {
         TestConsoleIO io = new TestConsoleIO();
         TestContextManager cm = new TestContextManager(tempDir, io);

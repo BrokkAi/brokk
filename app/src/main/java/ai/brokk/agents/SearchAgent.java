@@ -451,16 +451,18 @@ public class SearchAgent {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
             case "askHuman" -> 2;
-            case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
-            case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
+            case "addFilesToWorkspace" -> 4;
+            case "addClassesToWorkspace", "addFileSummariesToWorkspace" -> 5;
+            case "addMethodsToWorkspace", "addClassSummariesToWorkspace" -> 6;
+            case "addSymbolUsagesToWorkspace" -> 15;
             case "searchSymbols",
                     "getSymbolLocations",
                     "getUsages",
                     "searchSubstrings",
                     "searchFilenames",
-                    "searchGitCommitMessages" -> 6;
-            case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimDirectory" -> 8;
+                    "searchGitCommitMessages" -> 20;
+            case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
+            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimDirectory" -> 40;
 
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;

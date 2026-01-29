@@ -284,7 +284,7 @@ public class SearchTools {
         }
 
         var cwsList = AnalyzerUtil.processUsages(getAnalyzer(), allUses);
-        var processedUsages = AnalyzerUtil.CodeWithSource.text(cwsList);
+        var processedUsages = AnalyzerUtil.CodeWithSource.text(getAnalyzer(), cwsList);
         return "Usages of " + String.join(", ", symbols) + ":\n\n" + processedUsages;
     }
 

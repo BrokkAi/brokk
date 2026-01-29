@@ -42,22 +42,16 @@ public class AnalyzerUtil {
         // Handle fields by showing their containing class skeleton
         var fieldUses = uses.stream().filter(CodeUnit::isField).sorted().toList();
         for (var field : fieldUses) {
-            // Get the parent class by parsing the fqName (e.g., "com.example.Class.field" -> "com.example.Class")
-            var fqName = field.fqName();
-            var lastDot = fqName.lastIndexOf('.');
-            if (lastDot > 0) {
-                var parentClassName = fqName.substring(0, lastDot);
-                var parentClasses = analyzer.getDefinitions(parentClassName);
-                if (!parentClasses.isEmpty()) {
-                    var parentClass = analyzer.sortDefinitions(parentClasses).getFirst();
-                    var skeletonHeader = analyzer.getSkeletonHeader(parentClass);
-                    skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, parentClass)));
-                } else if (!(analyzer instanceof DisabledAnalyzer)) {
-                    logger.warn("Unable to find parent class {} for field {}", parentClassName, field.fqName());
+            var parentOpt = analyzer.parentOf(field);
+            if (parentOpt.isEmpty()) {
+                if (!(analyzer instanceof DisabledAnalyzer)) {
+                    logger.warn("Unable to find parent class for field {}", field.fqName());
                 }
-            } else {
-                logger.warn("Unable to parse parent class from field fqName: {}", field.fqName());
+                continue;
             }
+
+            var parent = parentOpt.get();
+            analyzer.getSkeletonHeader(parent).ifPresent(header -> results.add(new CodeWithSource(header, parent)));
         }
 
         return results;
@@ -417,25 +411,24 @@ public class AnalyzerUtil {
     }
 
     public record CodeWithSource(String code, CodeUnit source) {
-        /** Format this single CodeWithSource instance into the same textual representation used for lists. */
-        public String text() {
-            return text(List.of(this));
+        public String text(IAnalyzer analyzer) {
+            return text(analyzer, List.of(this));
         }
 
         /**
-         * Formats a list of CodeWithSource parts into a human-readable usage summary. The summary will contain -
-         * "Method uses:" section grouped by containing class with <methods> blocks - "Type uses:" section with skeleton
-         * headers
+         * Same output format as {@link #text(IAnalyzer, List)}, but uses analyzer resolution for better accuracy.
          */
-        public static String text(List<CodeWithSource> parts) {
-            Map<String, List<String>> methodsByClass = new LinkedHashMap<>();
+        public static String text(IAnalyzer analyzer, List<CodeWithSource> parts) {
+            Map<CodeUnit, List<String>> methodsByOwner = new LinkedHashMap<>();
             List<CodeWithSource> classParts = new ArrayList<>();
 
             for (var cws : parts) {
                 var cu = cws.source();
                 if (cu.isFunction()) {
-                    String fqcn = CodeUnit.toClassname(cu.fqName());
-                    methodsByClass.computeIfAbsent(fqcn, k -> new ArrayList<>()).add(cws.code());
+                    var owner = analyzer.parentOf(cu).orElse(cu);
+                    methodsByOwner
+                            .computeIfAbsent(owner, k -> new ArrayList<>())
+                            .add(cws.code());
                 } else if (cu.isClass()) {
                     classParts.add(cws);
                 }
@@ -443,56 +436,33 @@ public class AnalyzerUtil {
 
             StringBuilder sb = new StringBuilder();
 
-            if (!methodsByClass.isEmpty()) {
-                for (var entry : methodsByClass.entrySet()) {
-                    var fqcn = entry.getKey();
-
-                    // Try to derive the file path from any representative CodeUnit for this class
-                    String file = "?";
-                    for (var cws : parts) {
-                        var cu = cws.source();
-                        if (cu.isFunction() && CodeUnit.toClassname(cu.fqName()).equals(fqcn)) {
-                            file = cu.source().toString();
-                            break;
-                        }
-                    }
-
+            if (!methodsByOwner.isEmpty()) {
+                for (var entry : methodsByOwner.entrySet()) {
+                    var owner = entry.getKey();
                     sb.append(
                             """
                             <methods class="%s" file="%s">
                             %s
                             </methods>
                             """
-                                    .formatted(fqcn, file, String.join("\n\n", entry.getValue())));
+                                    .formatted(
+                                            owner.fqName(),
+                                            owner.source().toString(),
+                                            String.join("\n\n", entry.getValue())));
                 }
             }
 
             if (!classParts.isEmpty()) {
-                // Group class parts by FQCN
-                Map<String, List<String>> classCodesByFqcn = new LinkedHashMap<>();
+                Map<CodeUnit, List<String>> classCodesByCu = new LinkedHashMap<>();
                 for (var cws : classParts) {
-                    // Each CodeWithSource in classParts represents a class CodeUnit
                     var cu = cws.source();
                     if (!cu.isClass()) continue;
-                    String fqcn = cu.fqName();
-                    classCodesByFqcn
-                            .computeIfAbsent(fqcn, k -> new ArrayList<>())
-                            .add(cws.code());
+                    classCodesByCu.computeIfAbsent(cu, k -> new ArrayList<>()).add(cws.code());
                 }
 
-                for (var entry : classCodesByFqcn.entrySet()) {
-                    var fqcn = entry.getKey();
+                for (var entry : classCodesByCu.entrySet()) {
+                    var cls = entry.getKey();
                     var codesForClass = entry.getValue();
-
-                    // Find the file path for this class.
-                    String file = "?";
-                    for (var cws : classParts) {
-                        var potentialCu = cws.source();
-                        if (potentialCu.isClass() && potentialCu.fqName().equals(fqcn)) {
-                            file = potentialCu.source().toString();
-                            break;
-                        }
-                    }
 
                     sb.append(
                             """
@@ -500,7 +470,7 @@ public class AnalyzerUtil {
                             %s
                             </class>
                             """
-                                    .formatted(file, String.join("\n\n", codesForClass)));
+                                    .formatted(cls.source().toString(), String.join("\n\n", codesForClass)));
                 }
             }
 

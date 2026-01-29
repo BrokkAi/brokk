@@ -13,6 +13,10 @@ import java.util.stream.Collectors;
  * String FQN, use {@link ai.brokk.AnalyzerUtil} convenience methods to convert and delegate.
  */
 public interface IAnalyzer {
+    // Common separators across languages to denote hierarchy or member access.
+    // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
+    Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
+
     /**
      * Record representing a code unit relevance result with a code unit and its score.
      */
@@ -123,6 +127,37 @@ public interface IAnalyzer {
      * @return SequencedSet of all matching CodeUnits in priority order (may be empty)
      */
     SequencedSet<CodeUnit> getDefinitions(String fqName);
+
+    /**
+     * Returns the enclosing class or module for the given CodeUnit.
+     * If cu is already a class or module, returns itself.
+     * If cu is a member (function, field), searches for the parent definition.
+     */
+    default Optional<CodeUnit> parentOf(CodeUnit cu) {
+        if (cu.isClass() || cu.isModule()) {
+            return Optional.of(cu);
+        }
+
+        String fqName = cu.fqName();
+        int lastIdx = -1;
+        // Find the last occurrence among any valid separators
+        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
+            int idx = fqName.lastIndexOf(sep);
+            if (idx > lastIdx) {
+                lastIdx = idx;
+            }
+        }
+
+        // Must find a separator, and it must not be the first character
+        if (lastIdx <= 0) {
+            return Optional.empty();
+        }
+
+        String candidateParent = fqName.substring(0, lastIdx);
+        return getDefinitions(candidateParent).stream()
+                .filter(parent -> parent.isClass() || parent.isModule())
+                .findFirst();
+    }
 
     /**
      * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.

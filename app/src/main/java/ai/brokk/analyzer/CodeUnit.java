@@ -52,15 +52,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this(source, kind, packageName, shortName, null);
     }
 
-    /** Return the FQCN corresponding to the given FQMN */
-    public static String toClassname(String fqMethodName) {
-        int lastDot = fqMethodName.lastIndexOf('.');
-        if (lastDot == -1) {
-            return fqMethodName;
-        }
-        return fqMethodName.substring(0, lastDot);
-    }
-
     /**
      * Returns the fully qualified name constructed from package and short name. For MODULE, shortName is often a fixed
      * placeholder like "_module_", so fqName becomes "packageName._module_".

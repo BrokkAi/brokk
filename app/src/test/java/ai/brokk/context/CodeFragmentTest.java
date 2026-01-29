@@ -180,6 +180,7 @@ public class CodeFragmentTest {
         CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
 
         analyzer.addDeclaration(method);
+        analyzer.addDeclaration(CodeUnit.cls(file, "com.example", "Example"));
         analyzer.setSource(method, "void run(List list) {}");
 
         List<String> allImports = List.of("import java.util.List;", "import java.util.Map;");
@@ -232,6 +233,7 @@ public class CodeFragmentTest {
         CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
 
         analyzer.addDeclaration(method);
+        analyzer.addDeclaration(CodeUnit.cls(file, "com.example", "Example"));
         analyzer.setSource(method, "void run() {}");
         List<String> imports = List.of("import java.util.List;");
         analyzer.setImportStatements(file, imports);

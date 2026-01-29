@@ -1322,7 +1322,7 @@ public class ContextFragments {
                         .toList();
                 List<AnalyzerUtil.CodeWithSource> parts = AnalyzerUtil.processUsages(
                         analyzer, uses.stream().map(UsageHit::enclosing).toList());
-                String formatted = AnalyzerUtil.CodeWithSource.text(parts);
+                String formatted = AnalyzerUtil.CodeWithSource.text(analyzer, parts);
                 text = formatted.isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : formatted;
                 sources =
                         parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
@@ -1440,7 +1440,7 @@ public class ContextFragments {
 
             var codeOpt = analyzer.getSource(unit, true);
             if (codeOpt.isPresent()) {
-                text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text(analyzer);
                 hasSourceCode = true;
 
                 Collection<String> imports = analyzer.as(ImportAnalysisProvider.class)

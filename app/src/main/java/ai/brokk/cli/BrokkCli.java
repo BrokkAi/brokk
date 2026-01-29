@@ -17,7 +17,6 @@ import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
@@ -29,6 +28,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.tools.WorkspaceTools;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -211,6 +211,7 @@ public final class BrokkCli implements Callable<Integer> {
         System.exit(exitCode);
     }
 
+    @SuppressWarnings("UnusedVariable")
     @Override
     @Blocking
     public Integer call() throws Exception {
@@ -451,6 +452,9 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Name Resolution and Context Building ---
 
+        // Resolve and add to context using WorkspaceTools
+        var tools = new WorkspaceTools(cm.liveContext());
+
         // Resolve files and classes
         var resolvedEditFiles = resolveFiles(editFiles, "editable file");
         var resolvedReadFiles = resolveFiles(readFiles, "read-only file");
@@ -465,55 +469,34 @@ public final class BrokkCli implements Callable<Integer> {
             return 1;
         }
 
-        // Build context
-        var analyzer = cm.getAnalyzer();
+        if (!resolvedEditFiles.isEmpty()) {
+            tools.addFilesToWorkspace(resolvedEditFiles);
+        }
 
-        if (!resolvedEditFiles.isEmpty())
-            cm.addFiles(resolvedEditFiles.stream().map(cm::toFile).toList());
-
-        // Add read-only files
-        var context = cm.liveContext();
         for (var readFile : resolvedReadFiles) {
             var pf = cm.toFile(readFile);
             var fragment = new ContextFragments.ProjectPathFragment(pf, cm);
-            context = context.addFragments(fragment);
-            context = context.setReadonly(fragment, true);
+            tools.setContext(tools.getContext().addFragments(fragment).setReadonly(fragment, true));
         }
 
-        if (!resolvedClasses.isEmpty()) context = Context.withAddedClasses(context, resolvedClasses, analyzer);
-        if (!resolvedSummaryClasses.isEmpty())
-            context = Context.withAddedClassSummaries(context, resolvedSummaryClasses);
-        if (!addSummaryFiles.isEmpty()) context = Context.withAddedFileSummaries(context, addSummaryFiles, project);
-        if (!addMethodSources.isEmpty()) context = Context.withAddedMethodSources(context, addMethodSources, analyzer);
-
-        // Add URLs (simple fragments)
+        if (!resolvedClasses.isEmpty()) tools.addClassesToWorkspace(resolvedClasses);
+        if (!resolvedSummaryClasses.isEmpty()) tools.addClassSummariesToWorkspace(resolvedSummaryClasses);
+        if (!addSummaryFiles.isEmpty()) tools.addFileSummariesToWorkspace(addSummaryFiles);
+        if (!addMethodSources.isEmpty()) tools.addMethodsToWorkspace(addMethodSources);
         for (var url : addUrls) {
-            try {
-                context = Context.withAddedUrlContent(context, url);
-            } catch (Exception e) {
-                logger.error("Failed to add URL content: {}", url, e);
-                System.err.println("Error adding URL " + url + ": " + e.getMessage());
-                return 1;
-            }
+            tools.addUrlContentsToWorkspace(url);
         }
-
-        // Add usages, callers, callees (simple fragment creation)
         for (var symbol : addUsages) {
-            var fragment = new ContextFragments.UsageFragment(cm, symbol);
-            context = context.addFragments(fragment);
+            tools.addSymbolUsagesToWorkspace(symbol);
         }
         for (var entry : addCallers.entrySet()) {
-            var fragment = new ContextFragments.UsageFragment(cm, entry.getKey());
-            context = context.addFragments(fragment);
+            tools.addSymbolUsagesToWorkspace(entry.getKey());
         }
         for (var entry : addCallees.entrySet()) {
-            var fragment = new ContextFragments.UsageFragment(cm, entry.getKey());
-            context = context.addFragments(fragment);
+            tools.addSymbolUsagesToWorkspace(entry.getKey());
         }
-
-        // Push accumulated context changes back to ContextManager
-        var finalContext = context;
-        cm.pushContext(ctx -> finalContext);
+        cm.pushContext(ctx -> tools.getContext());
+        var context = cm.liveContext();
 
         // --- Deep Scan ------------------------------------------------------
         boolean isStandaloneDeepScan = deepScan
