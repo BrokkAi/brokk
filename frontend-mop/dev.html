@@ -1257,7 +1257,7 @@ function streamSplitTest() {
     // Use the 'ai' variable which contains edit blocks (~8-10k chars)
     // Repeat it 3 times with separators to exceed SOFT_SPLIT_CHARS (16k)
     // This should trigger at least one split at a paragraph boundary
-    const repeatedContent = (ai + '\n\n---\n\n').repeat(3);
+    const repeatedContent = (contentAi + '\n\n---\n\n').repeat(5);
 
     console.log('[Split Test] Starting stream of ~' + repeatedContent.length + ' chars');
 
@@ -1279,7 +1279,7 @@ function streamSplitTest() {
             console.log('[Split Test] Completed streaming ~' + repeatedContent.length + ' chars');
             console.log('[Split Test] Check if multiple bubbles were created due to splits');
         }
-    }, 5); // Fast interval (5ms) to speed up the test
+    }, 50); // Fast interval (5ms) to speed up the test
 }
 
 function showAllCodeblockCases() {

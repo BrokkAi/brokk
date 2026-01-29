@@ -34,7 +34,11 @@ function countFenceToggles(text: string): number {
 export function updateFenceState(currentInsideFence: boolean, newText: string): boolean {
     const toggles = countFenceToggles(newText);
     // Odd number of toggles flips the state
-    return toggles % 2 === 1 ? !currentInsideFence : currentInsideFence;
+    const newCurrentInsideFence = toggles % 2 === 1 ? !currentInsideFence : currentInsideFence;
+    if (newCurrentInsideFence !== currentInsideFence) {
+        console.debug('[splitStrategy] FENCE STATE CHANGED', { currentInsideFence, newCurrentInsideFence });
+    }
+    return newCurrentInsideFence;
 }
 
 /**
@@ -128,6 +132,10 @@ export function evaluateSplit(
     if (splitIndex > currentLength) {
         // Split point is in the new chunk - split there
         const splitInChunk = splitIndex - currentLength;
+        console.debug(
+            '[splitStrategy] SOFT SPLIT at paragraph boundary',
+            { currentLength, splitIndex, splitInChunk, projectedLength }
+        );
         return {
             shouldSplit: true,
             textForCurrentBubble: newChunk.slice(0, splitInChunk),
@@ -142,6 +150,10 @@ export function evaluateSplit(
     // No good split point in chunk, but we might need hard split
     if (projectedLength > HARD_SPLIT_CHARS && !currentFenceState.insideFence) {
         // Force split at start of new chunk (only if not inside fence)
+        console.debug(
+            '[splitStrategy] HARD SPLIT forced (no paragraph boundary found)',
+            { currentLength, projectedLength, HARD_SPLIT_CHARS }
+        );
         return {
             shouldSplit: true,
             textForCurrentBubble: '',
@@ -153,6 +165,12 @@ export function evaluateSplit(
     }
     
     // Can't split safely yet (inside fence or no good boundary)
+    if (projectedLength > HARD_SPLIT_CHARS && currentFenceState.insideFence) {
+        console.debug(
+            '[splitStrategy] SPLIT BLOCKED - inside code fence',
+            { currentLength, projectedLength, insideFence: currentFenceState.insideFence }
+        );
+    }
     return {
         shouldSplit: false,
         textForCurrentBubble: '',
