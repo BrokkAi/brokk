@@ -171,6 +171,12 @@ public final class FuzzyUsageFinder {
                     .filter(cu -> !cu.fqName().equals(target.fqName()))
                     .collect(Collectors.toSet());
 
+            var hierarchyProvider = analyzer.as(TypeHierarchyProvider.class);
+            Collection<CodeUnit> polymorphicMatches = hierarchyProvider
+                    .map(provider -> provider.getPolymorphicMatches(target, analyzer))
+                    .orElse(List.of());
+            boolean hierarchySupported = hierarchyProvider.isPresent();
+
             // Group hits by enclosing CodeUnit to build one prompt per context.
             // Note: This is a design tradeoff: all hits within the same method/enclosing unit will receive
             // the same LLM-derived confidence score. While this saves tokens and latency, it may lack precision
@@ -181,12 +187,6 @@ public final class FuzzyUsageFinder {
             var tasks = new ArrayList<RelevanceTask>(groupedHits.size());
             var taskToHits = new ArrayList<List<UsageHit>>(groupedHits.size());
 
-            var hierarchyProvider = analyzer.as(TypeHierarchyProvider.class);
-            Collection<CodeUnit> polymorphicMatches = hierarchyProvider
-                    .map(provider -> provider.getPolymorphicMatches(target, analyzer))
-                    .orElse(List.of());
-
-            boolean hierarchySupported = hierarchyProvider.isPresent();
             for (var entry : groupedHits.entrySet()) {
                 var hitsInGroup = entry.getValue();
                 var prompt = UsagePrompt.build(
