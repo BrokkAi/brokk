@@ -51,6 +51,16 @@ public final class JavaTreeSitterNodeTypes {
     // Declaration context node types
     public static final String VARIABLE_DECLARATOR = "variable_declarator";
     public static final String FORMAL_PARAMETER = "formal_parameter";
+    public static final String LOCAL_VARIABLE_DECLARATION = "local_variable_declaration";
+    public static final String ENHANCED_FOR_STATEMENT = "enhanced_for_statement";
+    public static final String CATCH_FORMAL_PARAMETER = "catch_formal_parameter";
+    public static final String RESOURCE_SPECIFICATION = "resource_specification";
+    public static final String RESOURCE = "resource";
+    public static final String LAMBDA_EXPRESSION = "lambda_expression";
+    public static final String INFERRED_PARAMETERS = "inferred_parameters";
+    public static final String FORMAL_PARAMETERS = "formal_parameters";
+    public static final String INSTANCEOF_EXPRESSION = "instanceof_expression";
+    public static final String PATTERN = "pattern";
 
     private JavaTreeSitterNodeTypes() {}
 }
