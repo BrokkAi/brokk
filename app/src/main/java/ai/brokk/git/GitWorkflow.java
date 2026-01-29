@@ -266,7 +266,13 @@ public final class GitWorkflow {
 
         String sessionContext = null;
         if (!sessionIds.isEmpty()) {
-            var fragments = ai.brokk.agents.ReviewScope.extractSessionContext(cm, sessionIds, null);
+            // Compute edited files to exclude from "Sources Used" fragment hints
+            var changedFiles = repo.listFilesChangedBetweenBranches(target, source);
+            var editedFiles = changedFiles.stream()
+                    .map(GitRepo.ModifiedFile::file)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            var fragments = ai.brokk.agents.ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
             if (!fragments.isEmpty()) {
                 sessionContext = fragments.stream()
                         .map(f -> f.text().join())
