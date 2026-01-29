@@ -117,41 +117,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         TSQueryMatch match = new TSQueryMatch();
 
         while (cursor.nextMatch(match)) {
-            TSNode nameNodeFromCapture = null;
-            TSNode definitionNodeFromCapture = null;
-
             for (TSQueryCapture capture : match.getCaptures()) {
                 String captureName = query.getCaptureNameForId(capture.getIndex());
                 if (CaptureNames.PACKAGE_NAME.equals(captureName)) {
-                    nameNodeFromCapture = capture.getNode();
-                } else if (CaptureNames.PACKAGE_DEFINITION.equals(captureName)) {
-                    definitionNodeFromCapture = capture.getNode();
-                }
-            }
-
-            // Prefer the explicit .name capture
-            if (nameNodeFromCapture != null && !nameNodeFromCapture.isNull()) {
-                return sourceContent.substringFrom(nameNodeFromCapture).trim();
-            }
-
-            // Fallback to .definition capture logic
-            if (definitionNodeFromCapture != null && !definitionNodeFromCapture.isNull()) {
-                if (PACKAGE_IDENTIFIER.equals(definitionNodeFromCapture.getType())) {
-                    return sourceContent
-                            .substringFrom(definitionNodeFromCapture)
-                            .trim();
-                }
-                // If it's the package_clause, look for the package_identifier child
-                for (int i = 0; i < definitionNodeFromCapture.getNamedChildCount(); i++) {
-                    TSNode child = definitionNodeFromCapture.getNamedChild(i);
-                    if (PACKAGE_IDENTIFIER.equals(child.getType())) {
-                        return sourceContent.substringFrom(child).trim();
+                    TSNode node = capture.getNode();
+                    if (node != null && !node.isNull()) {
+                        return sourceContent.substringFrom(node).trim();
                     }
-                }
-                // Final fallback for parent nodes with 'name' field
-                TSNode nameField = definitionNodeFromCapture.getChildByFieldName("name");
-                if (nameField != null && !nameField.isNull()) {
-                    return sourceContent.substringFrom(nameField).trim();
                 }
             }
         }
@@ -430,11 +402,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         return Optional.empty();
-    }
-
-    @Override
-    protected Set<String> getIgnoredCaptures() {
-        return Set.of(CaptureNames.PACKAGE_DEFINITION);
     }
 
     @Override

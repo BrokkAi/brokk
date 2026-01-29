@@ -1,4 +1,4 @@
-(package_clause (package_identifier) @package.name) @package.definition
+(package_clause (package_identifier) @package.name)
 
 (import_declaration) @import.declaration
 

@@ -562,17 +562,11 @@ public class GoAnalyzerTest {
         assertTrue(fqns.contains("mypkg.MyFunc"), "Expected mypkg.MyFunc, got: " + fqns);
         assertTrue(fqns.contains("mypkg.MyType"), "Expected mypkg.MyType, got: " + fqns);
 
-        assertTrue(declarations.stream().noneMatch(cu -> cu.fqName().equals("mypkg")
-                                                          || cu.fqName().startsWith("package")),
-                   "Package clause should not appear as a CodeUnit: " + fqns);
-    }
-
-    @Test
-    void testGetIgnoredCaptures() {
-        Set<String> ignored = analyzer.getIgnoredCaptures();
         assertTrue(
-                ignored.contains(CaptureNames.PACKAGE_DEFINITION),
-                "GoAnalyzer should ignore package.definition to avoid noisy name extraction logs.");
+                declarations.stream()
+                        .noneMatch(
+                                cu -> cu.fqName().equals("mypkg") || cu.fqName().startsWith("package")),
+                "Package clause should not appear as a CodeUnit: " + fqns);
     }
 
     @Test
