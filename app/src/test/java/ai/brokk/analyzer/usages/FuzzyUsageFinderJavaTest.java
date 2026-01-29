@@ -530,6 +530,67 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
+    public void testDeeplyNestedClassUsages() throws Exception {
+        String nestedSource = """
+                public class Outer {
+                    public static class Middle {
+                        public static class Inner {
+                            public void targetMethod() {}
+                        }
+                    }
+                }
+                """;
+        String otherSource = "public class Other { public static class DecoyInner { public void otherMethod() {} } }";
+        String userSource = """
+                public class User {
+                    public void use() {
+                        Outer.Middle.Inner a = new Outer.Middle.Inner();
+                        Other.DecoyInner b = new Other.DecoyInner();
+                        a.targetMethod();
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(nestedSource, "Outer.java")
+                .addFileContents(otherSource, "Other.java")
+                .addFileContents(userSource, "User.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            // Search for the deeply nested class
+            var result = finder.findUsages("Outer$Middle$Inner");
+            var either = result.toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure: " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            // We expect usages in User.java for Outer.Middle.Inner
+            // The decoy class Other.DecoyInner has a different simple name, so it won't be matched
+            var userHits = hits.stream()
+                    .filter(h -> h.file().getFileName().equals("User.java"))
+                    .toList();
+
+            // Verify we found at least one hit for the deeply nested class
+            assertFalse(userHits.isEmpty(), "Expected hits for Outer.Middle.Inner in User.java");
+
+            // The key verification: hits should be for Inner, not DecoyInner
+            // Since DecoyInner has a different identifier, it won't appear in our results
+            for (var hit : userHits) {
+                // The enclosing method should be 'use' from User class
+                assertEquals("use", hit.enclosing().identifier(),
+                        "Expected hit to be within the 'use' method");
+
+                // Verify the snippet contains the target class name
+                assertTrue(hit.snippet().contains("Outer.Middle.Inner"),
+                        "Snippet should contain Outer.Middle.Inner");
+            }
+        }
+    }
+
+    @Test
     public void testUsageHitEqualityBasedOnPosition() {
         Path root = Path.of(".").toAbsolutePath().normalize();
         var file = new ProjectFile(root, Path.of("A.java"));
