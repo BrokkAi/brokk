@@ -1446,6 +1446,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     setMode(PanelMode.REVIEW);
                     emitReviewTabStateFromCached();
                     codeReviewPanel.displayReview(result.review(), result.context());
+                    chrome.notifyActionComplete("Guided Review is ready");
                     codeReviewPanel.setBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
                     revalidate();
