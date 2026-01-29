@@ -1193,7 +1193,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         // Clicking the Guided Review button (not the context menu) should prompt when a subset is selected.
-        String[] options = {"Review All Changes", "Only Selected Commits", "Cancel"};
+        String[] options = {"Review All Changes", "Review Selected Changes", "Cancel"};
         int choice = MaterialOptionPane.showOptionDialog(
                 chrome.getFrame(),
                 "Review all changes, or only the selected commits?",
