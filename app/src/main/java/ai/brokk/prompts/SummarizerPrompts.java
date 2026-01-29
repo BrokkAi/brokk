@@ -148,18 +148,7 @@ public class SummarizerPrompts {
     }
 
     public List<ChatMessage> collectPrTitleAndDescriptionMessages(String diff) {
-        return List.of(
-                new SystemMessage(
-                        """
-                    You are an expert software engineer writing clear pull-request titles and descriptions.
-
-                    First, you may explain your thinking process about the changes.
-                    Then call the suggestPrDetails tool with appropriate title and description.
-
-                    Guidelines for the description:
-                    %s"""
-                                .formatted(prDescriptionGuidance())),
-                new UserMessage("<diff>\n" + diff + "\n</diff>"));
+        return collectPrTitleAndDescriptionMessagesWithContext(diff, null);
     }
 
     public List<ChatMessage> collectPrTitleAndDescriptionFromCommitMsgs(List<String> commitMsgs) {
