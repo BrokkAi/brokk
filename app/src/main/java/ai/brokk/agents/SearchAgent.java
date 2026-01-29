@@ -230,10 +230,7 @@ public class SearchAgent {
         try {
             var tr = executeInternal();
             if (metrics instanceof SearchMetrics.Tracking) {
-                var json = metrics.toJson(
-                        goal,
-                        countTurns(tr.output().messages()),
-                        tr.stopDetails().reason() == TaskResult.StopReason.SUCCESS);
+                var json = metrics.toJson(goal, tr.stopDetails().reason() == TaskResult.StopReason.SUCCESS);
                 System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
             }
             return tr;
@@ -241,12 +238,6 @@ public class SearchAgent {
             logger.debug("Search interrupted", e);
             return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
-    }
-
-    private static int countTurns(List<ChatMessage> messages) {
-        return (int) messages.stream()
-                .filter(msg -> msg.type() == ChatMessageType.AI)
-                .count();
     }
 
     private boolean shouldAutomaticallyScan() {

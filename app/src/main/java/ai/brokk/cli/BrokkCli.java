@@ -620,7 +620,7 @@ public final class BrokkCli implements Callable<Integer> {
                         recommendations.success() ? TaskResult.StopReason.SUCCESS : TaskResult.StopReason.LLM_ERROR,
                         filesAddedPaths.size());
                 metrics.recordFinalWorkspaceFiles(filesAddedPaths);
-                var json = metrics.toJson(goalForScan, 0, recommendations.success());
+                var json = metrics.toJson(goalForScan, recommendations.success());
                 System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
             }
 
