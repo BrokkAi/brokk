@@ -9,7 +9,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.JOptionPane;
 import javax.swing.TransferHandler;
@@ -92,27 +91,7 @@ public final class FileDropHandlerFactory {
                     }
 
                     // If the provided IConsoleIO is a Chrome, preserve interactive size checks.
-                    // Test seam: if tests installed a ContextSizeGuard.TEST_CHECK_AND_CONFIRM hook,
-                    // prefer that path so unit tests can exercise the size-check flow without
-                    // constructing a full Chrome instance. This is only active when the seam is set.
-                    var testSeam = ContextSizeGuard.TEST_CHECK_AND_CONFIRM;
-                    if (testSeam != null) {
-                        testSeam.accept(projectFiles, decision -> {
-                            if (decision == ContextSizeGuard.Decision.ALLOW) {
-                                contextManager.submitContextTask(() -> contextManager.addFiles(projectFiles));
-                            } else if (decision == ContextSizeGuard.Decision.CANCELLED) {
-                                try {
-                                    io.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
-                                } catch (Exception ignored) {
-                                }
-                            } else if (decision == ContextSizeGuard.Decision.BLOCKED) {
-                                try {
-                                    io.toolError("File addition blocked due to context size", "Context Size Limit");
-                                } catch (Exception ignored) {
-                                }
-                            }
-                        });
-                    } else if (io instanceof Chrome chrome) {
+                    if (io instanceof Chrome chrome) {
                         ContextSizeGuard.checkAndConfirm(projectFiles, chrome, decision -> {
                             if (decision == ContextSizeGuard.Decision.ALLOW) {
                                 contextManager.submitContextTask(() -> contextManager.addFiles(projectFiles));

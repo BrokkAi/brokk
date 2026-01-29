@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import javax.swing.JOptionPane;
@@ -21,17 +20,9 @@ import org.apache.logging.log4j.Logger;
  * Guards against loading excessively large content into the context.
  * Estimates token count before loading and prompts the user for confirmation
  * if the estimate exceeds a threshold relative to the model's max input tokens.
- *
- * <p>Test seam: {@link #TEST_CHECK_AND_CONFIRM} can be set by tests to intercept calls to
- * checkAndConfirm. When non-null it will be invoked instead of performing the real async
- * size estimation and dialog flow. The seam accepts (files, onDecision) and must call the
- * provided onDecision consumer to continue the flow.
  */
 public final class ContextSizeGuard {
     private static final Logger logger = LogManager.getLogger(ContextSizeGuard.class);
-
-    // Test seam for unit tests to intercept/drive the decision flow without requiring a real Chrome.
-    /* package-private */ static volatile BiConsumer<Collection<ProjectFile>, Consumer<Decision>> TEST_CHECK_AND_CONFIRM = null;
 
     // Uses file size heuristic (~4 bytes/token) instead of actual tokenizer for speed.
     // Reading file contents to tokenize would defeat the purpose of a fast pre-flight check.
@@ -120,19 +111,6 @@ public final class ContextSizeGuard {
      * @param onDecision Called with the decision result
      */
     public static void checkAndConfirm(Collection<ProjectFile> files, Chrome chrome, Consumer<Decision> onDecision) {
-        // Test seam: short-circuit to test-provided hook if present.
-        var seam = TEST_CHECK_AND_CONFIRM;
-        if (seam != null) {
-            try {
-                seam.accept(files, onDecision);
-            } catch (Throwable th) {
-                logger.error("Test seam threw an exception", th);
-                // Fail-open in case the seam misbehaves.
-                onDecision.accept(Decision.ALLOW);
-            }
-            return;
-        }
-
         LoggingFuture.supplyAsync(() -> estimateTokens(files))
                 .thenAccept(estimate -> {
                     var contextManager = chrome.getContextManager();
