@@ -272,7 +272,7 @@ public final class GitWorkflow {
             var changedFiles = repo.listFilesChangedBetweenBranches(target, source);
             var editedFiles = changedFiles.stream()
                     .map(GitRepo.ModifiedFile::file)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet());
 
             var fragments = ai.brokk.agents.ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
             if (!fragments.isEmpty()) {
