@@ -25,8 +25,6 @@ import java.util.stream.Collectors;
 public class SearchPrompts {
     public static final SearchPrompts instance = new SearchPrompts();
 
-    private static final double WORKSPACE_CRITICAL = 0.80;
-
     private static final String WORKSPACE_CONTEXT_GUIDANCE =
             """
             Workspace context guidance:
@@ -91,9 +89,9 @@ public class SearchPrompts {
     }
 
     /**
-     * Result of building a prompt, including messages and whether beast mode should be engaged.
+     * Result of building a prompt.
      */
-    public record PromptResult(List<ChatMessage> messages, boolean engageBeastMode) {}
+    public record PromptResult(List<ChatMessage> messages) {}
 
     public String searchAgentIdentity() {
         return """
@@ -286,7 +284,7 @@ public class SearchPrompts {
     }
 
     /**
-     * Builds the prompt messages for SearchAgent and determines if beast mode should be engaged.
+     * Builds the prompt messages for SearchAgent.
      *
      * @param context the current context
      * @param model the model to use for token limit calculation
@@ -295,7 +293,7 @@ public class SearchPrompts {
      * @param objective the search objective
      * @param mcpTools the list of MCP tools available
      * @param sessionMessages the session-local conversation messages
-     * @return PromptResult containing the messages and whether beast mode should now be engaged
+     * @return PromptResult containing the messages
      */
     public PromptResult buildPrompt(
             Context context,
@@ -317,9 +315,6 @@ public class SearchPrompts {
         // Build workspace messages in insertion order with viewing policy applied
         var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
         var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
-
-        // Determine if beast mode should be engaged
-        boolean engageBeastMode = (inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit);
 
         var messages = new ArrayList<ChatMessage>();
 
@@ -362,16 +357,20 @@ public class SearchPrompts {
             if (pct > 90.0) {
                 warning =
                         """
+                                <workspace-size-warning>
                                 CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
                                 You MUST reduce Workspace size immediately before any further exploration.
                                 Replace full text with summaries and drop non-essential fragments first.
+                                </workspace-size-warning>
                                 """
                                 .formatted(pct, workspaceTokens, inputLimit);
             } else if (pct > 60.0) {
                 warning =
                         """
+                                <workspace-size-warning>
                                 NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
                                 Prefer summaries and prune aggressively before expanding further.
+                                </workspace-size-warning>
                                 """
                                 .formatted(pct, workspaceTokens, inputLimit);
             }
@@ -480,6 +479,7 @@ public class SearchPrompts {
                         %s
                         %s
 
+                        <tool-instructions>
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
                         Prune effectively to keep the Workspace focused on your goal:
@@ -502,10 +502,10 @@ public class SearchPrompts {
                         It is NOT your objective to write code.
 
                         %s
+                        </tool-instructions>
 
                         %s
 
-                        Reminder: here is a list of the full contents of the Workspace that you can refer to above:
                         %s
                         """
                         .formatted(
@@ -521,21 +521,8 @@ public class SearchPrompts {
                                 markdownReminder,
                                 WorkspacePrompts.formatToc(context, suppressed));
 
-        // Beast mode directive
-        if (engageBeastMode) {
-            directive = directive
-                    + """
-                    <beast-mode>
-                    The Workspace is full or execution was interrupted.
-                    Finalize now using the best available information.
-                    Prefer answer(String) when no code changes are needed.
-                    For code-change requests, use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire list (completed tasks will be dropped). Titles are summarized automatically from task text; pass task texts only. Otherwise use abortSearch with reasons.
-                    </beast-mode>
-                    """;
-        }
-
         messages.add(new UserMessage(directive));
-        return new PromptResult(messages, engageBeastMode);
+        return new PromptResult(messages);
     }
 
     public enum Terminal {

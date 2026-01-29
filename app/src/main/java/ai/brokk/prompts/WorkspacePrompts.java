@@ -100,11 +100,16 @@ public final class WorkspacePrompts {
             parts.add("  <workspace_build_status>(failing)</workspace_build_status>");
         }
 
+        boolean hasPins = ctx.getPinnedFragments().findAny().isPresent();
         return """
                <workspace_toc>
+               Here is a list of the full contents of the Workspace that you can refer to above.
+               %s
                %s
                </workspace_toc>"""
-                .formatted(String.join("\n", parts));
+                .formatted(
+                        hasPins ? "I have pinned some of them; these may not be dropped." : "",
+                        String.join("\n", parts));
     }
 
     /** Convenience overload for callers that don't control build-status visibility. */
@@ -125,7 +130,7 @@ public final class WorkspacePrompts {
             return List.of();
         }
 
-        var rendered = formatWithPolicy(ctx, allFragments, suppressedTypes);
+        var rendered = formatWithPolicy(allFragments, suppressedTypes);
         if (rendered.text.isEmpty() && rendered.images.isEmpty() && styleGuide.isBlank()) {
             return List.of();
         }
@@ -241,7 +246,7 @@ public final class WorkspacePrompts {
     private static List<ChatMessage> buildEditableAll(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var editableFragments =
                 ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
-        var editableTextFragments = formatWithPolicy(ctx, editableFragments, suppressedTypes).text;
+        var editableTextFragments = formatWithPolicy(editableFragments, suppressedTypes).text;
 
         boolean shouldShowBuild = !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS)
                 && ctx.getBuildFragment().isPresent();
@@ -302,7 +307,7 @@ public final class WorkspacePrompts {
                 .filter(f -> !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS) || f != buildFragment)
                 .toList();
 
-        var renderedReadOnly = renderReadOnlyFragments(ctx, readOnlyFragments, suppressedTypes);
+        var renderedReadOnly = renderReadOnlyFragments(readOnlyFragments, suppressedTypes);
 
         if (renderedReadOnly.text.isEmpty() && renderedReadOnly.images.isEmpty()) {
             return List.of();
@@ -352,12 +357,11 @@ public final class WorkspacePrompts {
      * - Summary fragments are combined into a single <api_summaries> block
      * - All images are collected and returned
      *
-     * @param ctx          the current context
      * @param readOnly     readonly fragments to render
      * @return RenderedContent with formatted text and images
      */
     private static RenderedContent renderReadOnlyFragments(
-            Context ctx, List<ContextFragment> readOnly, Set<SpecialTextType> suppressedTypes) {
+            List<ContextFragment> readOnly, Set<SpecialTextType> suppressedTypes) {
         var summaryFragments = readOnly.stream()
                 .filter(ContextFragments.SummaryFragment.class::isInstance)
                 .map(ContextFragments.SummaryFragment.class::cast)
@@ -367,7 +371,7 @@ public final class WorkspacePrompts {
                 .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                 .toList();
 
-        var renderedOther = formatWithPolicy(ctx, otherFragments, suppressedTypes);
+        var renderedOther = formatWithPolicy(otherFragments, suppressedTypes);
         var textBuilder = new StringBuilder(renderedOther.text);
 
         if (!summaryFragments.isEmpty()) {
@@ -389,7 +393,7 @@ public final class WorkspacePrompts {
     }
 
     private static RenderedContent formatWithPolicy(
-            Context ctx, List<ContextFragment> fragments, Set<SpecialTextType> suppressedTypes) {
+            List<ContextFragment> fragments, Set<SpecialTextType> suppressedTypes) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
@@ -401,17 +405,18 @@ public final class WorkspacePrompts {
                         continue;
                     }
                 }
-                String idOrPinned = ctx.isPinned(cf) ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(cf.id());
                 String formatted;
+                // don't integrate pinning here, leave that for the TOC. This keeps the earlier message contents
+                // stable for the prefix cache.
                 formatted =
                         """
-                                <fragment description="%s" %s>
+                                <fragment description="%s" fragmentid="%s">
                                 %s
                                 </fragment>
                                 """
                                 .formatted(
                                         cf.description().join(),
-                                        idOrPinned,
+                                        cf.id(),
                                         cf.text().join());
                 textBuilder.append(formatted).append("\n\n");
                 continue;

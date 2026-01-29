@@ -10,6 +10,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
@@ -31,6 +32,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -55,11 +57,15 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * SearchAgent: - Uses tools to curate Workspace context for follow-on coding. - Starts by
- * calling ContextAgent to add recommended fragments to the Workspace. - Adds every learning step to Context history (no
- * hidden state). - Summarizes very large tool outputs before recording them. - Enters "beast mode" to finalize with
- * existing info if interrupted or context is near full. - Never writes code or answers questions itself; it prepares
- * the Workspace for a later Code Agent run.
+ * SearchAgent:
+ * - Uses tools to curate Workspace context for follow-on coding.
+ * - Starts by calling ContextAgent to add recommended fragments to the Workspace.
+ * - Adds every learning step to Context history (no hidden state).
+ * - Summarizes very large tool outputs before recording them.
+ * - If the model exceeds its context limit, restores the last successful checkpoint and enters
+ *   {@code dropOnlyMode}, where the agent is constrained to cleanup-only actions (dropping fragments) until the
+ *   Workspace is under the limit (or, if nothing is droppable, only terminal tools are offered to end the search).
+ * - Never writes code or answers questions itself; it prepares the Workspace for a later Code Agent run.
  */
 public class SearchAgent {
     protected static final Logger logger = LogManager.getLogger(SearchAgent.class);
@@ -108,11 +114,18 @@ public class SearchAgent {
     // Local working context snapshot for this agent
     protected Context context;
 
+    protected record SearchState(Context context, List<ChatMessage> sessionMessages) {}
+
     // Session-local conversation for this agent
     protected final List<ChatMessage> sessionMessages = new ArrayList<>();
 
     // State toggles
-    protected boolean beastMode;
+    protected boolean dropOnlyMode;
+
+    protected final Set<ContextFragment> originalPinnedFragments;
+    protected final List<ContextFragment> droppedFragments = new ArrayList<>();
+    protected @Nullable SearchState checkpoint;
+    protected @Nullable Context lastTurnContext;
 
     @FunctionalInterface
     public interface TurnListener {
@@ -156,13 +169,14 @@ public class SearchAgent {
         var summarizeModel = cm.getService().getModel(ModelType.SCAN);
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal, TaskResult.Type.SUMMARIZE);
 
-        this.beastMode = false;
+        this.dropOnlyMode = false;
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
         this.context = initialContext;
+        this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.scanConfig = scanConfig;
         this.staticTools = initStaticTools(staticTools, cm.getProject(), mcpTools);
     }
@@ -253,150 +267,16 @@ public class SearchAgent {
             performAutoScan();
         }
 
+        @Nullable PendingTerminal pendingTerminal = null;
         while (true) {
-            wst.setContext(context);
-
-            var promptResult = SearchPrompts.instance.buildPrompt(
-                    context, model, taskMeta(), goal, getObjective(), mcpTools, sessionMessages);
-            var messages = promptResult.messages();
-
-            if (!beastMode && promptResult.engageBeastMode()) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Workspace is near the context limit; attempting finalization based on current knowledge");
-                beastMode = true;
+            var outcome = executeTurn(tr, wst, pendingTerminal);
+            if (outcome instanceof TurnOutcome.Final f) {
+                return f.result();
             }
-
-            var allowedToolNames = calculateAllowedToolNames();
-            var agentTerminalTools = calculateTerminalTools();
-
-            var allAllowed = new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size());
-            allAllowed.addAll(allowedToolNames);
-            allAllowed.addAll(agentTerminalTools);
-            var toolSpecs = tr.getTools(allAllowed);
-
-            metrics.startTurn();
-            long turnStartTime = System.currentTimeMillis();
-
-            io.showTransientMessage("Brokk Search is preparing the next actions…");
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
-
-            long llmTimeMs = System.currentTimeMillis() - turnStartTime;
-            var tokenUsage = result.metadata();
-            int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
-            int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
-            int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
-            int outputTokens = tokenUsage != null ? tokenUsage.outputTokens() : 0;
-            metrics.recordLlmCall(llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
-
-            if (result.error() != null) {
-                var details = TaskResult.StopDetails.fromResponse(result);
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details.explanation());
-                return errorResult(details, taskMeta());
-            }
-
-            var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
-            if (shouldAutomaticallyScan()
-                    && ai.toolExecutionRequests().stream().anyMatch(req -> isSearchTool(req.name()))) {
-                performAutoScan();
-                continue;
-            }
-
-            sessionMessages.add(new UserMessage("What tools do you want to use next?"));
-            sessionMessages.add(result.aiMessage());
-
-            if (!ai.hasToolExecutionRequests()) {
-                return errorResult(
-                        new TaskResult.StopDetails(
-                                TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."),
-                        taskMeta());
-            }
-
-            Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
-            boolean executedResearch = false;
-            boolean executedNonHygiene = false;
-            Context contextAtTurnStart = context;
-            try {
-                var sortedNonterminalCalls = ai.toolExecutionRequests().stream()
-                        .filter(req -> categorizeTool(req.name()) != ToolCategory.TERMINAL)
-                        .sorted(Comparator.comparingInt(this::priority))
-                        .toList();
-
-                for (var req : sortedNonterminalCalls) {
-                    ToolExecutionResult toolResult = executeTool(req, tr, wst);
-                    if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
-                        var details =
-                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
-                        return errorResult(details, taskMeta());
-                    }
-
-                    var display = toolResult.resultText();
-                    boolean summarize = toolResult.status() == ToolExecutionResult.Status.SUCCESS
-                            && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
-                            && shouldSummarize(req.name());
-                    ToolExecutionResult finalResult;
-                    if (summarize) {
-                        var reasoning = getArgumentsMap(req)
-                                .getOrDefault("reasoning", "")
-                                .toString();
-                        display = summarizeResult(goal, req, display, reasoning);
-                        finalResult = new ToolExecutionResult(req, toolResult.status(), display);
-                    } else {
-                        finalResult = toolResult;
-                    }
-
-                    sessionMessages.add(finalResult.toExecutionResultMessage());
-
-                    var category = categorizeTool(req.name());
-                    if (category != ToolCategory.WORKSPACE_HYGIENE) {
-                        executedNonHygiene = true;
-                    }
-                    if (category == ToolCategory.RESEARCH && !isWorkspaceTool(req, tr)) {
-                        executedResearch = true;
-                    }
-                }
-
-                var terminal = ai.toolExecutionRequests().stream()
-                        .filter(req -> categorizeTool(req.name()) == ToolCategory.TERMINAL)
-                        .min(Comparator.comparingInt(this::priority));
-
-                boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
-
-                if (terminal.isPresent() && contextSafeForTerminal && !executedResearch) {
-                    var termReq = terminal.get();
-                    var termExec = executeTool(termReq, tr, wst);
-                    sessionMessages.add(termExec.toExecutionResultMessage());
-
-                    if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
-                        return errorResult(
-                                new TaskResult.StopDetails(
-                                        TaskResult.StopReason.TOOL_ERROR,
-                                        "Terminal tool '" + termReq.name() + "' failed: " + termExec.resultText()),
-                                taskMeta());
-                    }
-
-                    if (termReq.name().equals("abortSearch")) {
-                        return errorResult(
-                                new TaskResult.StopDetails(
-                                        TaskResult.StopReason.LLM_ABORTED, "Aborted: " + termExec.resultText()),
-                                taskMeta());
-                    } else {
-                        return createResult(termReq.name(), goal);
-                    }
-                }
-
-                Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
-                Set<ProjectFile> added = new HashSet<>(filesAfterSet);
-                added.removeAll(filesBeforeSet);
-                if (!added.isEmpty() && scope != null) {
-                    scope.publish(context);
-                }
-            } finally {
-                endTurnAndRecordFileChanges(filesBeforeSet);
-                if (turnListener != null) {
-                    turnListener.turnFinished();
-                }
+            if (outcome instanceof TurnOutcome.Continue c) {
+                pendingTerminal = c.pendingTerminal();
+            } else {
+                throw new AssertionError("Unhandled TurnOutcome: " + outcome);
             }
         }
     }
@@ -406,6 +286,9 @@ public class SearchAgent {
     }
 
     protected List<String> calculateTerminalTools() {
+        if (dropOnlyMode && hasDroppableFragments()) {
+            return List.of();
+        }
         var terminals = new ArrayList<String>();
         terminals.add("workspaceComplete");
         terminals.add("abortSearch");
@@ -427,14 +310,22 @@ public class SearchAgent {
         wst.setContext(context);
         var result = registry.executeTool(req);
         if (isWorkspaceTool(req, registry)) {
+            updateDroppedHistory(context, wst.getContext());
             context = wst.getContext();
         }
         return result;
     }
 
+    private void updateDroppedHistory(Context oldContext, Context newContext) {
+        if (oldContext.equals(newContext)) return;
+
+        ContextDelta delta = ContextDelta.between(oldContext, newContext).join();
+        droppedFragments.addAll(delta.removedFragments());
+    }
+
     protected List<String> calculateAllowedToolNames() {
-        if (beastMode) {
-            return List.of();
+        if (dropOnlyMode) {
+            return hasDroppableFragments() ? List.of("dropWorkspaceFragments") : List.of();
         }
 
         var names = new ArrayList<String>(staticTools);
@@ -705,21 +596,20 @@ public class SearchAgent {
         metrics.recordFinalWorkspaceFragments(getWorkspaceFragments());
     }
 
-    private static boolean isWorkspaceFileFragment(ContextFragment f) {
-        return f.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                || f.getType() == ContextFragment.FragmentType.SKELETON;
-    }
-
-    protected Set<ProjectFile> getWorkspaceFileSet() {
+    protected static Set<ProjectFile> workspaceFiles(Context context) {
         try {
             context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
         return context.allFragments()
-                .filter(SearchAgent::isWorkspaceFileFragment)
+                .filter(f1 -> f1.getType().includeInProjectGuide())
                 .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
+    }
+
+    protected Set<ProjectFile> getWorkspaceFileSet() {
+        return workspaceFiles(context);
     }
 
     protected Set<String> toRelativePaths(Set<ProjectFile> files) {
@@ -733,7 +623,7 @@ public class SearchAgent {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
         return context.allFragments()
-                .filter(SearchAgent::isWorkspaceFileFragment)
+                .filter(f1 -> f1.getType().includeInProjectGuide())
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),
@@ -746,7 +636,416 @@ public class SearchAgent {
     }
 
     protected boolean hasDroppableFragments() {
-        return context.allFragments().anyMatch(f -> !context.isPinned(f));
+        return context.allFragments().anyMatch(f -> !originalPinnedFragments.contains(f));
+    }
+
+    private boolean isPinnedBySystem(ContextFragment cf) {
+        boolean isLearnedPin =
+                droppedFragments.stream().filter(cf::hasSameSource).count() >= 2;
+        return originalPinnedFragments.contains(cf) || isLearnedPin;
+    }
+
+    void resetPinsToOriginal() {
+        Context current = context;
+        for (ContextFragment f : current.allFragments().toList()) {
+            boolean shouldBePinned = isPinnedBySystem(f);
+            if (current.isPinned(f) != shouldBePinned) {
+                current = current.withPinned(f, shouldBePinned);
+            }
+        }
+        context = current;
+    }
+
+    void applyPinning() {
+        resetPinsToOriginal();
+        double convergenceScore = calculateConvergenceScore();
+        double cacheWeight = 1.0 - convergenceScore;
+        List<ContextFragment> fragments = context.allFragments().toList();
+        var fragmentsDelta = lastTurnContext == null
+                ? context.allFragments().toList()
+                : ContextDelta.between(lastTurnContext, context).join().addedFragments();
+
+        int[] tokenCounts = new int[fragments.size()];
+        for (int i = 0; i < fragments.size(); i++) {
+            tokenCounts[i] =
+                    Messages.getApproximateTokens(fragments.get(i).text().join());
+        }
+
+        long[] suffixSums = new long[fragments.size() + 1];
+        for (int i = fragments.size() - 1; i >= 0; i--) {
+            suffixSums[i] = suffixSums[i + 1] + tokenCounts[i];
+        }
+
+        if (logger.isDebugEnabled()) {
+            logger.debug(
+                    "applyInequalityPinning: convergenceScore={}, cacheWeight={}, fragments={}, originalPinned={}",
+                    convergenceScore,
+                    cacheWeight,
+                    fragments.size(),
+                    originalPinnedFragments.size());
+        }
+
+        Context next = context;
+        for (int i = 0; i < fragments.size(); i++) {
+            ContextFragment f = fragments.get(i);
+            if (isPinnedBySystem(f)) {
+                continue;
+            }
+
+            // Optimization 1: Fragments added in the previous turn should never be pinned
+            if (fragmentsDelta.contains(f)) {
+                continue;
+            }
+
+            double freedTokens = 0.9 * tokenCounts[i]; // hardcoding prefix cache cost = 10% of uncached token cost
+            double lostTokens = suffixSums[i + 1];
+
+            // Optimization 2: Only pin if the delta (lost - freed) is significant (> 10,000 tokens)
+            boolean pin = (cacheWeight * lostTokens) > freedTokens && (lostTokens - freedTokens) > 10_000;
+
+            if (logger.isDebugEnabled()) {
+                logger.debug(
+                        "applyInequalityPinning: idx={}, id={}, desc='{}', freedTokens={}, lostTokens={}, pin={}",
+                        i,
+                        f.id(),
+                        f.description().renderNowOr("(empty)"),
+                        freedTokens,
+                        lostTokens,
+                        pin);
+            }
+
+            if (pin) {
+                next = next.withPinned(f, true);
+            }
+        }
+        context = next;
+    }
+
+    /**
+     * Calculates a convergence score indicating how "settled" the workspace fragment set is.
+     *
+     * <p>The score is used to decide how aggressively to protect early workspace fragments
+     * from being dropped, in order to preserve LLM prefix cache efficiency. Dropping an early
+     * fragment invalidates the cached token prefix for all subsequent content, so we want to
+     * avoid such drops while the search is still actively exploring.
+     *
+     * <p>The score combines two signals:
+     * <ul>
+     *   <li><b>Stability</b> (Jaccard similarity): {@code |intersection| / |union|}. High stability
+     *       means the fragment set isn't changing much turn-to-turn.</li>
+     *   <li><b>Novelty</b>: {@code |added| / |union|}. High novelty means we're still discovering
+     *       new fragments (including deepening into already-known files).</li>
+     * </ul>
+     *
+     * <p>The final score is {@code stability * (1 - novelty)}:
+     * <ul>
+     *   <li>Returns values near <b>1.0</b> when the workspace is stable and no new fragments are
+     *       being added (converged state) — cache protection can be relaxed.</li>
+     *   <li>Returns values near <b>0.0</b> when the workspace is churning or new fragments are
+     *       being discovered (exploration state) — cache protection should be aggressive.</li>
+     * </ul>
+     *
+     * <p>This score feeds into {@link #applyPinning(double)}, which temporarily pins
+     * early fragments when {@code cacheWeight * lostTokens > freedTokens}, where
+     * {@code cacheWeight = 1 - convergenceScore}.
+     *
+     * @param prevIds the workspace fragment IDs from the previous turn, or null if this is the first turn
+     * @param currIds the workspace fragment IDs from the current turn
+     * @return a score in [0, 1] where higher values indicate greater convergence
+     */
+    double calculateConvergenceScore() {
+        if (lastTurnContext == null) {
+            return 1.0;
+        }
+
+        var currIds = context.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
+        var prevIds = lastTurnContext.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
+
+        Set<String> intersection = new HashSet<>(prevIds);
+        intersection.retainAll(currIds);
+
+        Set<String> union = new HashSet<>(prevIds);
+        union.addAll(currIds);
+
+        if (union.isEmpty()) return 1.0;
+
+        double stability = (double) intersection.size() / union.size();
+
+        Set<String> noveltySet = new HashSet<>(currIds);
+        noveltySet.removeAll(prevIds);
+        double novelty = (double) noveltySet.size() / union.size();
+
+        return stability * (1.0 - novelty);
+    }
+
+    private enum TurnMode {
+        NORMAL,
+        POST_TERMINAL_CLEANUP
+    }
+
+    private record PendingTerminal(ToolExecutionResult terminalExecution) {
+        public String toolName() {
+            return terminalExecution.toolName();
+        }
+
+        public String resultText() {
+            return terminalExecution.resultText();
+        }
+    }
+
+    private sealed interface TurnOutcome {
+        record Continue(@Nullable PendingTerminal pendingTerminal) implements TurnOutcome {}
+
+        record Final(TaskResult result) implements TurnOutcome {}
+    }
+
+    private record TurnPrompt(
+            List<ChatMessage> messages, List<ToolSpecification> toolSpecs, @Nullable UserMessage extraUserMessage) {}
+
+    private TurnPrompt preparePrompt(ToolRegistry tr, WorkspaceTools wst, TurnMode mode) throws InterruptedException {
+        wst.setContext(context);
+
+        if (mode == TurnMode.NORMAL) {
+            applyPinning();
+        } else {
+            resetPinsToOriginal();
+        }
+
+        var promptResult = SearchPrompts.instance.buildPrompt(
+                context, model, taskMeta(), goal, getObjective(), mcpTools, sessionMessages);
+        List<ChatMessage> messages = promptResult.messages();
+
+        if (mode == TurnMode.NORMAL && dropOnlyMode) {
+            resetPinsToOriginal();
+            messages = new ArrayList<>(messages);
+            if (hasDroppableFragments()) {
+                messages.add(
+                        new UserMessage(
+                                "The Workspace has exceeded the context limit. You MUST use 'dropWorkspaceFragments' to remove irrelevant or redundant fragments before you can continue."));
+            } else {
+                messages.add(
+                        new UserMessage(
+                                "The Workspace exceeded the context limit and was restored to the last successful checkpoint, but there are no droppable fragments remaining. You may only use terminal tools to finish (e.g., 'workspaceComplete') or stop ('abortSearch')."));
+            }
+        }
+
+        @Nullable UserMessage extraUserMessage = null;
+        List<String> allowedToolNames;
+        List<String> agentTerminalTools;
+
+        if (mode == TurnMode.POST_TERMINAL_CLEANUP) {
+            messages = new ArrayList<>(messages);
+            extraUserMessage = new UserMessage(
+                    "Search is complete. Please perform a final cleanup of the Workspace using 'dropWorkspaceFragments' to remove any remaining irrelevant information.");
+            messages.add(extraUserMessage);
+
+            allowedToolNames = hasDroppableFragments() ? List.of("dropWorkspaceFragments") : List.of();
+            agentTerminalTools = List.of();
+        } else {
+            allowedToolNames = calculateAllowedToolNames();
+            agentTerminalTools = calculateTerminalTools();
+        }
+
+        var allAllowed = new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size());
+        allAllowed.addAll(allowedToolNames);
+        allAllowed.addAll(agentTerminalTools);
+
+        var toolSpecs = tr.getTools(allAllowed);
+        return new TurnPrompt(messages, toolSpecs, extraUserMessage);
+    }
+
+    private TurnOutcome executeTurn(ToolRegistry tr, WorkspaceTools wst, @Nullable PendingTerminal pendingTerminal)
+            throws InterruptedException {
+        TurnMode mode = pendingTerminal == null ? TurnMode.NORMAL : TurnMode.POST_TERMINAL_CLEANUP;
+
+        if (mode == TurnMode.POST_TERMINAL_CLEANUP && !hasDroppableFragments()) {
+            return new TurnOutcome.Final(finalizePendingTerminal(Objects.requireNonNull(pendingTerminal)));
+        }
+
+        var prep = preparePrompt(tr, wst, mode);
+        Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
+        if (mode == TurnMode.NORMAL) {
+            // preparePrompt depends on lastTurnContext, so update lTC after that
+            lastTurnContext = context;
+        }
+
+        metrics.startTurn();
+        long turnStartTime = System.currentTimeMillis();
+        try {
+            io.showTransientMessage("Brokk Search is preparing the next actions…");
+            var result = llm.sendRequest(prep.messages(), new ToolContext(prep.toolSpecs(), ToolChoice.REQUIRED, tr));
+
+            long llmTimeMs = System.currentTimeMillis() - turnStartTime;
+            var tokenUsage = result.metadata();
+            int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
+            int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
+            int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
+            int outputTokens = tokenUsage != null ? tokenUsage.outputTokens() : 0;
+            metrics.recordLlmCall(llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
+
+            if (result.error() != null) {
+                var details = TaskResult.StopDetails.fromResponse(result);
+                if (details.reason() == TaskResult.StopReason.LLM_CONTEXT_SIZE && checkpoint != null) {
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Context limit exceeded. Restoring last successful checkpoint and entering recovery mode.");
+                    context = checkpoint.context();
+                    sessionMessages.clear();
+                    sessionMessages.addAll(checkpoint.sessionMessages());
+                    this.dropOnlyMode = true;
+                    return new TurnOutcome.Continue(pendingTerminal);
+                }
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details.explanation());
+                return new TurnOutcome.Final(errorResult(details, taskMeta()));
+            }
+
+            var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+            if (mode == TurnMode.NORMAL
+                    && shouldAutomaticallyScan()
+                    && ai.toolExecutionRequests().stream().anyMatch(req -> isSearchTool(req.name()))) {
+                performAutoScan();
+                return new TurnOutcome.Continue(null);
+            }
+
+            if (prep.extraUserMessage() != null) {
+                sessionMessages.add(prep.extraUserMessage());
+            }
+            sessionMessages.add(new UserMessage("What tools do you want to use next?"));
+            sessionMessages.add(result.aiMessage());
+
+            if (!ai.hasToolExecutionRequests()) {
+                return new TurnOutcome.Final(errorResult(
+                        new TaskResult.StopDetails(
+                                TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."),
+                        taskMeta()));
+            }
+
+            if (mode == TurnMode.POST_TERMINAL_CLEANUP) {
+                PendingTerminal pt = Objects.requireNonNull(pendingTerminal);
+
+                var unexpected = ai.toolExecutionRequests().stream()
+                        .filter(req -> !"dropWorkspaceFragments".equals(req.name()))
+                        .map(ToolExecutionRequest::name)
+                        .collect(Collectors.toSet());
+
+                if (!unexpected.isEmpty()) {
+                    return new TurnOutcome.Final(errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.TOOL_ERROR,
+                                    "Unexpected tool request(s) during post-terminal cleanup: " + unexpected),
+                            taskMeta()));
+                }
+
+                for (var req : ai.toolExecutionRequests()) {
+                    ToolExecutionResult toolResult = executeTool(req, tr, wst);
+                    sessionMessages.add(toolResult.toExecutionResultMessage());
+                    if (toolResult.status() != ToolExecutionResult.Status.SUCCESS) {
+                        return new TurnOutcome.Final(errorResult(
+                                new TaskResult.StopDetails(
+                                        TaskResult.StopReason.TOOL_ERROR,
+                                        "Cleanup tool '" + req.name() + "' failed: " + toolResult.resultText()),
+                                taskMeta()));
+                    }
+                }
+
+                dropOnlyMode = false;
+                return new TurnOutcome.Final(finalizePendingTerminal(pt));
+            }
+
+            boolean executedResearch = false;
+            boolean executedNonHygiene = false;
+            Context contextAtTurnStart = context;
+
+            var sortedNonterminalCalls = ai.toolExecutionRequests().stream()
+                    .filter(req -> categorizeTool(req.name()) != ToolCategory.TERMINAL)
+                    .sorted(Comparator.comparingInt(this::priority))
+                    .toList();
+
+            for (var req : sortedNonterminalCalls) {
+                ToolExecutionResult toolResult = executeTool(req, tr, wst);
+                if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
+                    var details = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
+                    return new TurnOutcome.Final(errorResult(details, taskMeta()));
+                }
+
+                var display = toolResult.resultText();
+                boolean summarize = toolResult.status() == ToolExecutionResult.Status.SUCCESS
+                        && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
+                        && shouldSummarize(req.name());
+                ToolExecutionResult finalResult;
+                if (summarize) {
+                    var reasoning =
+                            getArgumentsMap(req).getOrDefault("reasoning", "").toString();
+                    display = summarizeResult(goal, req, display, reasoning);
+                    finalResult = new ToolExecutionResult(req, toolResult.status(), display);
+                } else {
+                    finalResult = toolResult;
+                }
+
+                sessionMessages.add(finalResult.toExecutionResultMessage());
+
+                var category = categorizeTool(req.name());
+                if (category != ToolCategory.WORKSPACE_HYGIENE) {
+                    executedNonHygiene = true;
+                }
+                if (category == ToolCategory.RESEARCH && !isWorkspaceTool(req, tr)) {
+                    executedResearch = true;
+                }
+            }
+
+            var terminal = ai.toolExecutionRequests().stream()
+                    .filter(req -> categorizeTool(req.name()) == ToolCategory.TERMINAL)
+                    .min(Comparator.comparingInt(this::priority));
+
+            boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
+
+            if (terminal.isPresent() && contextSafeForTerminal && !executedResearch) {
+                var termReq = terminal.get();
+                var termExec = executeTool(termReq, tr, wst);
+                sessionMessages.add(termExec.toExecutionResultMessage());
+
+                if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
+                    return new TurnOutcome.Final(errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.TOOL_ERROR,
+                                    "Terminal tool '" + termReq.name() + "' failed: " + termExec.resultText()),
+                            taskMeta()));
+                }
+
+                resetPinsToOriginal();
+                return new TurnOutcome.Continue(new PendingTerminal(termExec));
+            }
+
+            Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
+            dropOnlyMode = false;
+
+            // Update checkpoint at the end of a successful NORMAL turn
+            checkpoint = new SearchState(context, List.copyOf(sessionMessages));
+
+            Set<ProjectFile> added = new HashSet<>(filesAfterSet);
+            added.removeAll(filesBeforeSet);
+            if (!added.isEmpty() && scope != null) {
+                scope.publish(context);
+            }
+
+            return new TurnOutcome.Continue(null);
+        } finally {
+            endTurnAndRecordFileChanges(filesBeforeSet);
+            if (turnListener != null) {
+                turnListener.turnFinished();
+            }
+        }
+    }
+
+    private TaskResult finalizePendingTerminal(PendingTerminal pendingTerminal) {
+        if ("abortSearch".equals(pendingTerminal.toolName())) {
+            return errorResult(
+                    new TaskResult.StopDetails(
+                            TaskResult.StopReason.LLM_ABORTED, "Aborted: " + pendingTerminal.resultText()),
+                    taskMeta());
+        }
+        return createResult(pendingTerminal.toolName(), goal);
     }
 
     protected boolean shouldSummarize(String toolName) {
