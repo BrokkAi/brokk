@@ -23,7 +23,7 @@ export interface SplitDecision {
  * Only counts fences at start of line.
  */
 function countFenceToggles(text: string): number {
-    const matches = text.match(/^(`{3,}|~{3,})/gm);
+    const matches = text.match(/^[ \t]*(`{3,}|~{3,})/gm);
     return matches ? matches.length : 0;
 }
 
@@ -58,7 +58,7 @@ function findSafeParagraphBoundary(
         // Check for fence at start of line
         if (i === 0 || combinedText[i - 1] === '\n') {
             const rest = combinedText.slice(i);
-            if (/^(`{3,}|~{3,})/.test(rest)) {
+            if (/^[ \t]*(`{3,}|~{3,})/.test(rest)) {
                 insideFence = !insideFence;
             }
         }
