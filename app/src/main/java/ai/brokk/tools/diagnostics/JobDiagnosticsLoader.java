@@ -379,7 +379,7 @@ public final class JobDiagnosticsLoader {
         var out = new ArrayList<PhaseTimeline>();
         for (PhaseBuilder b : builders) {
             Long dur = null;
-            if (b.startTime != null && b.endTime != null) {
+            if (b.endTime != null) {
                 dur = b.endTime - b.startTime;
             }
             PhaseTimeline pt =
@@ -398,10 +398,10 @@ public final class JobDiagnosticsLoader {
         final String phaseId;
         final String type;
         final String label;
-        Long startTime;
-        Long endTime;
+        final long startTime;
+        @Nullable Long endTime;
 
-        PhaseBuilder(String phaseId, String type, String label, Long startTime) {
+        PhaseBuilder(String phaseId, String type, String label, long startTime) {
             this.phaseId = phaseId;
             this.type = type;
             this.label = label;
