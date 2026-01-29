@@ -665,12 +665,14 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private class SuggestPrDetailsWorker extends ExceptionAwareSwingWorker<GitWorkflow.PrSuggestion, Void> {
         private final String sourceBranch;
         private final String targetBranch;
+        private final List<UUID> sessionIds;
         private final TextAreaConsoleIO streamingIO;
 
-        SuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
+        SuggestPrDetailsWorker(String sourceBranch, String targetBranch, List<UUID> sessionIds) {
             super(chrome);
             this.sourceBranch = sourceBranch;
             this.targetBranch = targetBranch;
+            this.sessionIds = List.copyOf(sessionIds);
 
             // Dialog takes responsibility for the title field UI while generation runs.
             SwingUtilities.invokeLater(() -> {
@@ -685,7 +687,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
         @Override
         protected GitWorkflow.PrSuggestion doInBackground() throws GitAPIException, InterruptedException {
-            return workflowService.suggestPullRequestDetails(sourceBranch, targetBranch, streamingIO);
+            return workflowService.suggestPullRequestDetails(sourceBranch, targetBranch, streamingIO, sessionIds);
         }
 
         @Override
@@ -977,7 +979,17 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             currentSuggestPrDetailsWorker.cancel(true);
         }
 
-        currentSuggestPrDetailsWorker = new SuggestPrDetailsWorker(sourceBranch, targetBranch);
+        // Capture session IDs on EDT
+        List<UUID> selectedSessionUuids = new ArrayList<>();
+        for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
+            if (Boolean.TRUE.equals(sessionsTableModel.getValueAt(i, 0))) {
+                UUID id = rowToSessionId.get(i);
+                if (id != null) selectedSessionUuids.add(id);
+            }
+        }
+
+        currentSuggestPrDetailsWorker =
+                new SuggestPrDetailsWorker(sourceBranch, targetBranch, selectedSessionUuids);
         currentSuggestPrDetailsWorker.execute();
     }
 }
