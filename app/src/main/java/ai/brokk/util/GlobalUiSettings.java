@@ -59,7 +59,6 @@ public final class GlobalUiSettings {
     private static final String KEY_VERTICAL_LAYOUT_LEFT_SPLIT = "verticalLayout.leftSplit";
     private static final String KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT = "verticalLayout.horizontalSplit";
     private static final String KEY_CLONE_DIRECTORY = "clone.lastDirectory";
-    private static final String KEY_SKIP_COMMIT_GATE_EZ_MODE = "ui.skipCommitGateEzMode";
     private static final String KEY_PREVIEW_DOCKED = "preview.docked";
     private static final String KEY_BUILD_DOCKED = "build.docked";
     private static final String KEY_REVIEW_DOCKED = "review.docked";
@@ -468,14 +467,6 @@ public final class GlobalUiSettings {
 
     public static void saveInstructionsTabInsertIndentation(boolean enabled) {
         setBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, enabled);
-    }
-
-    public static boolean isSkipCommitGateInEzMode() {
-        return getBoolean(KEY_SKIP_COMMIT_GATE_EZ_MODE, false);
-    }
-
-    public static void saveSkipCommitGateInEzMode(boolean skip) {
-        setBoolean(KEY_SKIP_COMMIT_GATE_EZ_MODE, skip);
     }
 
     // Vertical layout split positions (pixels)

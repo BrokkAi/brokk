@@ -58,7 +58,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     private final JSpinner memorySpinner = new JSpinner();
     private final JCheckBox instructionsTabInsertIndentationCheckbox =
             new JCheckBox("Tab inserts indentation in Instructions (Code-style)");
-    private final JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
     private final JLabel watchServiceImplLabel = new JLabel("File watcher implementation:");
     private final JComboBox<String> watchServiceImplCombo =
             new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
@@ -98,7 +97,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             MainProject.StartupOpenMode startupOpenMode,
             boolean persistPerProjectBounds,
             boolean instructionsTabInsertIndentation,
-            boolean skipCommitGateEzMode,
             List<Service.FavoriteModel> favoriteModels,
             @Nullable Service.FavoriteModel selectedCodeFavorite,
             @Nullable Service.FavoriteModel selectedPrimaryFavorite,
@@ -151,7 +149,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         boolean persistPerProject = persistPerProjectWindowCheckbox.isSelected();
         boolean instructionsIndent = instructionsTabInsertIndentationCheckbox.isSelected();
-        boolean skipEzGate = skipCommitGateEzCheckbox.isSelected();
 
         // Watch service implementation preference (no persistence here)
         String watchPrefSelected;
@@ -194,7 +191,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 startupMode,
                 persistPerProject,
                 instructionsIndent,
-                skipEzGate,
                 favoriteModels,
                 selectedCodeFavorite,
                 selectedPrimaryFavorite,
@@ -229,7 +225,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         // UI / instructions behavior
         GlobalUiSettings.savePersistPerProjectBounds(values.persistPerProjectBounds());
         GlobalUiSettings.saveInstructionsTabInsertIndentation(values.instructionsTabInsertIndentation());
-        GlobalUiSettings.saveSkipCommitGateInEzMode(values.skipCommitGateEzMode());
 
         // Notifications
         GlobalUiSettings.saveShowCostNotifications(values.showCostNotifications());
@@ -330,8 +325,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             memorySpinner.setValue(v);
         }
 
-        skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
-        skipCommitGateEzCheckbox.setVisible(true);
         boolean isDevMode = Boolean.getBoolean("brokk.devmode");
         watchServiceImplLabel.setVisible(isDevMode);
         watchServiceImplCombo.setVisible(isDevMode);
@@ -551,20 +544,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         panel.add(instructionsTabInsertIndentationCheckbox, gbc);
 
         gbc.insets = new Insets(10, 5, 2, 5);
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        panel.add(new JLabel("Interface:"), gbc);
-
-        skipCommitGateEzCheckbox.setToolTipText(
-                "When EZ mode is enabled, skip the commit confirmation gate before applying changes.");
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(skipCommitGateEzCheckbox, gbc);
-
         gbc.insets = new Insets(10, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = row;
