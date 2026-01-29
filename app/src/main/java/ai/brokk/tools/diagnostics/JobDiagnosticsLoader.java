@@ -399,7 +399,9 @@ public final class JobDiagnosticsLoader {
         final String type;
         final String label;
         final long startTime;
-        @Nullable Long endTime;
+
+        @Nullable
+        Long endTime;
 
         PhaseBuilder(String phaseId, String type, String label, long startTime) {
             this.phaseId = phaseId;

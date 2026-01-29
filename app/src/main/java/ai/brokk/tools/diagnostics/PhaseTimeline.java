@@ -17,5 +17,4 @@ public record PhaseTimeline(
         @Nullable Long endTime,
         @Nullable Long durationMs,
         List<String> callIds,
-        @Nullable Map<String, Object> metrics) {
-}
+        @Nullable Map<String, Object> metrics) {}
