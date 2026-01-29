@@ -181,6 +181,7 @@ public class GoAnalyzerTest {
         CodeUnit expectedUint32Map = CodeUnit.cls(pf, "declpkg", "Uint32Map");
         CodeUnit expectedStringAlias = CodeUnit.field(pf, "declpkg", "_module_.StringAlias");
         CodeUnit expectedMyInt = CodeUnit.cls(pf, "declpkg", "MyInt");
+        CodeUnit expectedMyIntString = CodeUnit.fn(pf, "declpkg", "MyInt.String");
 
         assertTrue(
                 declarations.contains(expectedFunc),
@@ -254,12 +255,32 @@ public class GoAnalyzerTest {
                         + declarations.stream()
                                 .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
                                 .toList());
+        assertTrue(
+                declarations.contains(expectedMyIntString),
+                "Declarations should contain method MyInt.String. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
         assertFalse(
                 declarations.contains(CodeUnit.field(pf, "declpkg", "_module_.Uint32Map")),
                 "Named type Uint32Map should NOT appear as FIELD_LIKE.");
 
+        // Verify skeleton structure differences
+        String uint32MapSkeleton = analyzer.getSkeleton(expectedUint32Map).orElse("");
+        String myIntSkeleton = analyzer.getSkeleton(expectedMyInt).orElse("");
+        String stringAliasSkeleton = analyzer.getSkeleton(expectedStringAlias).orElse("");
+
+        assertTrue(
+                uint32MapSkeleton.contains("{"), "CLASS_LIKE Uint32Map should have class-like structure (curly brace)");
+        assertTrue(myIntSkeleton.contains("{"), "CLASS_LIKE MyInt should have class-like structure (curly brace)");
+        assertFalse(stringAliasSkeleton.contains("{"), "FIELD_LIKE StringAlias should NOT have curly braces");
+
+        // Verify parenting
+        List<CodeUnit> myIntChildren = analyzer.getDirectChildren(expectedMyInt);
+        assertTrue(myIntChildren.contains(expectedMyIntString), "MyInt.String should be a child of MyInt");
+
         assertEquals(
-                12,
+                13,
                 declarations.size(),
                 "Expected 12 declarations in declarations.go. Found: "
                         + declarations.stream().map(CodeUnit::fqName).toList());
