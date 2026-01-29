@@ -2,7 +2,10 @@ package ai.brokk.agents;
 
 import ai.brokk.IContextManager;
 import ai.brokk.SessionManager;
+import ai.brokk.TaskResult;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
@@ -20,14 +23,18 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Metadata metadata) {
     private static final Logger logger = LogManager.getLogger(ReviewScope.class);
@@ -205,6 +212,81 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
         public ReviewLoadGitException(String message, GitAPIException e) {
             super(message, e);
         }
+    }
+
+    @Blocking
+    public static List<ContextFragments.StringFragment> extractSessionContext(
+            IContextManager cm, List<UUID> sessionIds, @Nullable Set<ProjectFile> editedFiles) {
+        if (sessionIds.isEmpty()) {
+            return List.of();
+        }
+
+        var sessionManager = cm.getProject().getSessionManager();
+        // We omit ARCHITECT task results because we kick off each task by giving it to the code agent, this is exactly
+        // the Architect's task description. If that fails, Architect will issue new instructions to the code agent,
+        // which we will also capture with Type.CODE. When architect succeeds, it just echos the original task again.
+        var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.BLITZFORGE);
+        var allContexts = sessionIds.stream()
+                .parallel()
+                .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
+                .filter(Objects::nonNull)
+                .flatMap(h -> h.getHistory().stream())
+                .toList();
+        var relevantContexts = allContexts.stream()
+                .filter(ctx -> !ctx.getTaskHistory().isEmpty())
+                .filter(ctx -> {
+                    var te = ctx.getTaskHistory().getLast();
+                    return te.meta() != null && relevantTypes.contains(te.meta().type());
+                })
+                .toList();
+
+        // Extract instructions
+        List<String> instructions = relevantContexts.stream()
+                .map(ctx -> ctx.getTaskHistory().getLast().log())
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(log -> log.id()))
+                .map(log -> log.description().join())
+                .filter(Objects::nonNull) // legacy entries can be null here
+                .filter(desc -> !desc.isBlank())
+                .distinct()
+                .toList();
+
+        // Extract context hints
+        // TODO allow git and usage fragments
+        var relevantFragmentsClasses = Set.of(
+                ContextFragments.ProjectPathFragment.class,
+                ContextFragments.CodeFragment.class,
+                ContextFragments.SummaryFragment.class);
+        List<String> fragmentHints = relevantContexts.stream()
+                .flatMap(Context::allFragments)
+                .filter(cf -> relevantFragmentsClasses.contains(cf.getClass())
+                        && !(editedFiles != null
+                                && cf instanceof ContextFragments.ProjectPathFragment ppf
+                                && editedFiles.contains(ppf.file())))
+                .map(cf -> cf.description().join())
+                .distinct()
+                .toList();
+
+        List<ContextFragments.StringFragment> results = new ArrayList<>();
+        if (!instructions.isEmpty()) {
+            String mergedInstructions =
+                    """
+                    These are the instructions given to the Code Agent to generate this patch, separated by `-----`.
+
+                    -----
+                    """
+                            + String.join("\n-----\n", instructions);
+            results.add(new ContextFragments.StringFragment(
+                    cm, mergedInstructions, "Patch Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
+        }
+
+        if (!fragmentHints.isEmpty()) {
+            String mergedHints = fragmentHints.stream().map(hint -> "- " + hint).collect(Collectors.joining("\n"));
+            results.add(new ContextFragments.StringFragment(
+                    cm, mergedHints, "Sources Used During Patch Creation", SyntaxConstants.SYNTAX_STYLE_NONE));
+        }
+
+        return results;
     }
 
     @Blocking
