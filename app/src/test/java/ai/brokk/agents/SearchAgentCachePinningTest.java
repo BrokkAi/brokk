@@ -42,16 +42,14 @@ class SearchAgentCachePinningTest {
                 ctx, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), SearchAgent.ScanConfig.disabled());
 
         // Turn 1: No lastTurnContext means score = 1.0 (cacheWeight = 0). Only original f1 should be pinned.
-        agent.lastTurnContext = null;
-        agent.resetPinsToOriginal();
-        agent.applyPinning();
-        assertTrue(agent.context.isPinned(f1));
-        assertFalse(agent.context.isPinned(f2));
-        assertFalse(agent.context.isPinned(f3));
+        Context pinned1 = agent.applyPinning(ctx, null);
+        assertTrue(pinned1.isPinned(f1));
+        assertFalse(pinned1.isPinned(f2));
+        assertFalse(pinned1.isPinned(f3));
 
         // Manually pin something non-original
-        agent.context = agent.context.withPinned(f3, true);
-        assertTrue(agent.context.isPinned(f3));
+        pinned1 = pinned1.withPinned(f3, true);
+        assertTrue(pinned1.isPinned(f3));
 
         // Turn 2: Force a state that leads to score < 1.0.
         // We use large strings to exceed the 10,000 token threshold (approx 4 chars per token)
@@ -64,7 +62,7 @@ class SearchAgentCachePinningTest {
         // Let's create a 'last turn' that is significantly different from 'current turn'.
         ContextFragment fluxF =
                 new ContextFragments.StringFragment(cm, "flux", "flux", SyntaxConstants.SYNTAX_STYLE_NONE);
-        agent.lastTurnContext = new Context(cm).addFragments(List.of(f1, bigF2, fluxF));
+        Context lastTurn = new Context(cm).addFragments(List.of(f1, bigF2, fluxF));
 
         // current context has {f1, bigF2, bigF3}.
         // intersection: {f1, bigF2}. size 2.
@@ -78,12 +76,13 @@ class SearchAgentCachePinningTest {
         // bigF2: lostTokens (bigF3) = 20000. freedTokens (0.9 * bigF2) = 9000.
         // (0.625 * 20000) = 12500.
         // 12500 > 9000 AND (20000 - 9000) > 10000. SHOULD PIN.
-        agent.context = new Context(cm).addFragments(List.of(f1, bigF2, bigF3)).withPinned(f1, true);
+        Context current =
+                new Context(cm).addFragments(List.of(f1, bigF2, bigF3)).withPinned(f1, true);
 
-        agent.applyPinning();
-        assertTrue(agent.context.isPinned(f1));
-        assertTrue(agent.context.isPinned(bigF2), "bigF2 should be pinned due to high cache loss in flux state");
-        assertFalse(agent.context.isPinned(bigF3));
+        Context pinned2 = agent.applyPinning(current, lastTurn);
+        assertTrue(pinned2.isPinned(f1));
+        assertTrue(pinned2.isPinned(bigF2), "bigF2 should be pinned due to high cache loss in flux state");
+        assertFalse(pinned2.isPinned(bigF3));
     }
 
     @Test
@@ -105,11 +104,36 @@ class SearchAgentCachePinningTest {
         // To ensure cacheWeight > 0, we need some churn.
         ContextFragment fluxF =
                 new ContextFragments.StringFragment(cm, "flux", "flux", SyntaxConstants.SYNTAX_STYLE_NONE);
-        agent.lastTurnContext = initialCtx.addFragments(fluxF);
+        Context lastTurn = initialCtx.addFragments(fluxF);
 
-        agent.applyPinning();
+        Context pinned = agent.applyPinning(ctx, lastTurn);
 
-        assertTrue(agent.context.isPinned(f1), "Old fragment with high cache loss should be pinned");
-        assertFalse(agent.context.isPinned(f2), "New fragment should never be pinned");
+        assertTrue(pinned.isPinned(f1), "Old fragment with high cache loss should be pinned");
+        assertFalse(pinned.isPinned(f2), "New fragment should never be pinned");
+    }
+
+    @Test
+    void testConvergenceScoreEdgeCases() {
+        var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
+        Context empty = new Context(cm);
+        SearchAgent agent = new SearchAgent(
+                empty,
+                "goal",
+                new OfflineStreamingModel(),
+                null,
+                new NoOpConsoleIO(),
+                SearchAgent.ScanConfig.disabled());
+
+        // Case 1: No last turn
+        assertTrue(agent.calculateConvergenceScore(empty, null) == 1.0);
+
+        // Case 2: Union is empty (both contexts empty)
+        assertTrue(agent.calculateConvergenceScore(empty, empty) == 1.0);
+
+        // Case 3: Identity (converged)
+        ContextFragment f1 =
+                new ContextFragments.StringFragment(cm, "content", "f1", SyntaxConstants.SYNTAX_STYLE_NONE);
+        Context ctx1 = empty.addFragments(f1);
+        assertTrue(agent.calculateConvergenceScore(ctx1, ctx1) == 1.0);
     }
 }

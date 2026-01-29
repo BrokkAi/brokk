@@ -295,7 +295,7 @@ public class SearchPrompts {
      * @param sessionMessages the session-local conversation messages
      * @return PromptResult containing the messages
      */
-    public PromptResult buildPrompt(
+    public List<ChatMessage> buildPrompt(
             Context context,
             StreamingChatModel model,
             TaskResult.TaskMeta taskMeta,
@@ -481,25 +481,29 @@ public class SearchPrompts {
 
                         <tool-instructions>
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
+                        When you have enough information to finalize (solve the problem or answer the question), do so; there
+                        are no bonus points for grooming the perfect Workspace.
 
-                        Prune effectively to keep the Workspace focused on your goal:
-                          - In parallel with new exploration, prune the Workspace by dropping less-relevant fragments.
-                            When you do, avoid spending a turn entirely on a dropWorkspaceFragments call; always decide what you need
-                            to do next *besides* pruning, and issue those calls together.
-                          - Replace large, partially-relevant file fragments with concise, goal-focused summaries (or targeted class/method fragments) and drop the originals.
-                          - The Discarded Context fragment provides a record of fragments you have seen and dropped;
-                            avoid re-adding this content unnecessarily.
-
+                        Pruning mandate (do this now):
+                          - In parallel with exploration, prune the Workspace
+                          - **MANDATORY** Drop irrelevant/noise fragments now with dropWorkspaceFragments
+                          - **MANDATORY** Reduce Workspace size: replace large fragments with smaller artifacts (addFileSummariesToWorkspace, addClassSummariesToWorkspace, addMethodsToWorkspace) if reasonable
+                          - When replacing fragments, drop the originals (dropWorkspaceFragments) - no superseded fragments!
+                          - Before re-adding content, check Discarded Context to avoid redoing work
+                          - You may not drop pinned fragments.
                         %s
 
                         Finalization options:
                         %s
 
-                        You can call multiple non-final tools in a single turn. Provide a list of separate tool calls,
-                        each with its own name and arguments (add summaries, drop fragments, etc).
-                        Final actions (answer, createOrReplaceTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
-                        If you include a final together with other tools, the final will be ignored for this turn.
-                        It is NOT your objective to write code.
+                        You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
+                        usefully do so.
+
+                        Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn,
+                        EXCEPT that you should also call dropWorkspaceFragments if any final cleanup is needed.
+                        If you include a terminal together with other tools, the terminal will be ignored for this turn.
+
+                        Remember: it is NOT your objective to write code.
 
                         %s
                         </tool-instructions>
@@ -522,7 +526,7 @@ public class SearchPrompts {
                                 WorkspacePrompts.formatToc(context, suppressed));
 
         messages.add(new UserMessage(directive));
-        return new PromptResult(messages);
+        return messages;
     }
 
     public enum Terminal {

@@ -12,7 +12,6 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
-import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
@@ -723,7 +722,7 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
-                    var agent = new LutzAgent(
+                    var agent = new SearchAgent(
                             cm.liveContext(),
                             requireNonNull(searchAnswerPrompt),
                             planModel,
@@ -774,7 +773,7 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
-                    var agent = new LutzAgent(
+                    var agent = new SearchAgent(
                             cm.liveContext(),
                             requireNonNull(lutzPrompt),
                             planModel,

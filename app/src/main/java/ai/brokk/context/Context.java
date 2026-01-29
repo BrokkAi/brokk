@@ -711,7 +711,7 @@ public class Context {
 
         var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
 
-        var sf = new ContextFragments.StringFragment(getContextManager(), content, desc, type.syntaxStyle());
+        var sf = type.create(getContextManager(), content);
 
         var newFragments = new ArrayList<>(afterClear.fragments);
         newFragments.add(sf);
