@@ -118,23 +118,16 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         while (cursor.nextMatch(match)) {
             for (TSQueryCapture capture : match.getCaptures()) {
-                if (CaptureNames.PACKAGE_DEFINITION.equals(query.getCaptureNameForId(capture.getIndex()))) {
-                    TSNode pkgNode = capture.getNode();
-                    if (pkgNode != null && !pkgNode.isNull()) {
-                        // In Go, the package identifier is often the node itself if it's a 'package_identifier'
-                        if (PACKAGE_IDENTIFIER.equals(pkgNode.getType())) {
-                            return sourceContent.substringFrom(pkgNode).trim();
-                        }
-                        // Fallback to 'name' field if the capture matched a parent node
-                        TSNode nameNode = pkgNode.getChildByFieldName("name");
-                        if (nameNode != null && !nameNode.isNull()) {
-                            return sourceContent.substringFrom(nameNode).trim();
-                        }
-                        return sourceContent.substringFrom(pkgNode).trim();
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                if (CaptureNames.PACKAGE_NAME.equals(captureName)) {
+                    TSNode node = capture.getNode();
+                    if (node != null && !node.isNull()) {
+                        return sourceContent.substringFrom(node).trim();
                     }
                 }
             }
         }
+
         log.warn("No package declaration found in Go file: {}", file);
         return "";
     }
@@ -409,12 +402,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         return Optional.empty();
-    }
-
-    @Override
-    protected Set<String> getIgnoredCaptures() {
-        log.trace("Stage 0: getIgnoredCaptures called. Returning empty set.");
-        return Set.of();
     }
 
     @Override
