@@ -448,7 +448,7 @@ public class WorkspaceTools {
             - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
 
             Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
-            `tasks` is a List<String> - if you have N tasks, output N list elements.
+            `tasks` is a List<TaskListEntry> - if you have N tasks, output N list elements.
             """;
 
     public record TaskListEntry(
