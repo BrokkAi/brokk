@@ -1,11 +1,13 @@
 package ai.brokk.gui.util;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
-import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.io.File;
@@ -16,14 +18,11 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 import javax.swing.JPanel;
 import javax.swing.TransferHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for FileDropHandlerFactory covering both non-Chrome (headless) and GUI-like paths.
@@ -56,7 +55,7 @@ class FileDropHandlerFactoryTest {
 
         @Override
         public DataFlavor[] getTransferDataFlavors() {
-            return new DataFlavor[] { DataFlavor.javaFileListFlavor };
+            return new DataFlavor[] {DataFlavor.javaFileListFlavor};
         }
 
         @Override
@@ -218,7 +217,8 @@ class FileDropHandlerFactoryTest {
         var cm = new DelegatingContextManager(base);
 
         // Install test seam that simulates the user cancelling the confirmation
-        ContextSizeGuard.TEST_CHECK_AND_CONFIRM = (files, onDecision) -> onDecision.accept(ContextSizeGuard.Decision.CANCELLED);
+        ContextSizeGuard.TEST_CHECK_AND_CONFIRM =
+                (files, onDecision) -> onDecision.accept(ContextSizeGuard.Decision.CANCELLED);
 
         var handler = FileDropHandlerFactory.createFileDropHandler(cm, io);
         var transferable = new SimpleTransferable(List.of(file.toFile()));
@@ -227,7 +227,9 @@ class FileDropHandlerFactoryTest {
         boolean ok = handler.importData(support);
 
         assertTrue(ok, "importData returns true even if user cancels the follow-up action (drop handled)");
-        assertTrue(ContextSizeGuard.TEST_CHECK_AND_CONFIRM != null, "ContextSizeGuard test seam should have been installed");
+        assertTrue(
+                ContextSizeGuard.TEST_CHECK_AND_CONFIRM != null,
+                "ContextSizeGuard test seam should have been installed");
         assertTrue(cm.getCaptured().isEmpty(), "Files should not be added when size-check cancels the operation");
     }
 }

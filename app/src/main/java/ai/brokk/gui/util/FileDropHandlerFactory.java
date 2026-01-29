@@ -1,7 +1,6 @@
 package ai.brokk.gui.util;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import java.awt.datatransfer.DataFlavor;
@@ -9,9 +8,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import javax.swing.JOptionPane;
 import javax.swing.TransferHandler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,7 +47,9 @@ public final class FileDropHandlerFactory {
                 if (contextManager.isLlmTaskInProgress()) {
                     // Prefer non-blocking notification for generic IConsoleIO implementations.
                     try {
-                        io.showNotification(IConsoleIO.NotificationRole.INFO, "Cannot add to workspace while an action is running.");
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Cannot add to workspace while an action is running.");
                     } catch (Exception ignored) {
                         // Best-effort: do not fail if the IO implementation mishandles notifications.
                     }

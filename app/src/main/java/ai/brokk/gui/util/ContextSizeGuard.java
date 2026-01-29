@@ -31,7 +31,8 @@ public final class ContextSizeGuard {
     private static final Logger logger = LogManager.getLogger(ContextSizeGuard.class);
 
     // Test seam for unit tests to intercept/drive the decision flow without requiring a real Chrome.
-    /* package-private */ static volatile BiConsumer<Collection<ProjectFile>, Consumer<Decision>> TEST_CHECK_AND_CONFIRM = null;
+    /* package-private */ static volatile BiConsumer<Collection<ProjectFile>, Consumer<Decision>>
+            TEST_CHECK_AND_CONFIRM = null;
 
     // Uses file size heuristic (~4 bytes/token) instead of actual tokenizer for speed.
     // Reading file contents to tokenize would defeat the purpose of a fast pre-flight check.
