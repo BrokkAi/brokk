@@ -147,7 +147,7 @@ export function evaluateSplit(
             textForCurrentBubble: '',
             textForNewBubble: newChunk,
             newFenceState: {
-                insideFence: updateFenceState(false, newChunk)
+                insideFence: updateFenceState(currentFenceState.insideFence, newChunk)
             }
         };
     }
