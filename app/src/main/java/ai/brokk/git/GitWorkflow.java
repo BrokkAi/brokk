@@ -22,9 +22,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -276,8 +278,8 @@ public final class GitWorkflow {
             if (!fragments.isEmpty()) {
                 sessionContext = fragments.stream()
                         .map(f -> f.text().join())
-                        .filter(java.util.Objects::nonNull)
-                        .collect(java.util.stream.Collectors.joining("\n\n"));
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.joining("\n\n"));
             }
         }
 
