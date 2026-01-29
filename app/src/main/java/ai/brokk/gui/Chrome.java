@@ -2292,7 +2292,7 @@ public class Chrome
     }
 
     private static final Pattern URL_PATTERN =
-            Pattern.compile("(https?://[\\S]+)", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("(https?://\\S+?(?=[,.?!:;\"']?(\\s|$)))", Pattern.CASE_INSENSITIVE);
 
     @Override
     public void systemNotify(String message, String title, int messageType) {
