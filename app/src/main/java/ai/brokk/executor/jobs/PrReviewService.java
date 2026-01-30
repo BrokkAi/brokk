@@ -38,13 +38,7 @@ public final class PrReviewService {
     }
 
     /** PR metadata extracted from GitHub API. */
-    public record PrDetails(String baseBranch, String headSha, String headRef, String title, String body) {
-        public PrDetails {
-            // Normalize nulls to empty strings to preserve non-null contract in callers
-            title = title == null ? "" : title;
-            body = body == null ? "" : body;
-        }
-    }
+    public record PrDetails(String baseBranch, String headSha, String headRef, String title, String body) {}
 
     /** Structured PR review response from LLM. */
     public record PrReviewResponse(String summaryMarkdown, List<InlineComment> comments) {
@@ -150,8 +144,10 @@ public final class PrReviewService {
         String baseBranch = pr.getBase().getRef();
         String headSha = pr.getHead().getSha();
         String headRef = pr.getHead().getRef();
-        String title = pr.getTitle();
-        String body = pr.getBody();
+        // Normalize title/body here (GitHub API may return null) so PrDetails instances created via
+        // fetchPrDetails preserve the non-null contract expected by callers without redundant checks
+        String title = Objects.requireNonNullElse(pr.getTitle(), "");
+        String body = Objects.requireNonNullElse(pr.getBody(), "");
         return new PrDetails(baseBranch, headSha, headRef, title, body);
     }
 
