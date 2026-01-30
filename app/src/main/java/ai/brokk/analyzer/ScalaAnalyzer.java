@@ -197,6 +197,14 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         return ClassNameExtractor.extractForScala(reference);
     }
 
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+        // Intentionally conservative: Scala permits term members (methods/vals) named the same as
+        // the class, so `Foo.Foo` can be either a constructor (normalized by createCodeUnit)
+        // or a real member. Without capture-name or AST context here, we cannot disambiguate safely.
+        return false;
+    }
+
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
     private static final Set<String> TEST_INFIX_KEYWORDS = Set.of("in", "should", "must", "can");
 
