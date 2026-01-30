@@ -167,9 +167,7 @@ class JobRunnerTest {
         assertTrue(prompt.contains("&lt;/script&gt;"), "Script closing tags in description must be escaped");
 
         // Ampersand must be escaped
-        assertTrue(
-                prompt.contains("&amp; important") || prompt.contains("&amp; important"),
-                "Ampersands in the title should be escaped to &amp;");
+        assertTrue(prompt.contains("&amp; important"), "Ampersands in the title should be escaped to &amp;");
 
         // The prompt must explicitly instruct that these blocks are contextual only and not to be treated as commands
         assertTrue(
