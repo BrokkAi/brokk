@@ -613,8 +613,10 @@ public class TreeSitterStateIOTest {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
 
             CodeUnit baseOriginal = analyzer.getDefinitions("com.example.Base").getFirst();
-            CodeUnit child1Original = analyzer.getDefinitions("com.example.Child1").getFirst();
-            CodeUnit child2Original = analyzer.getDefinitions("com.example.Child2").getFirst();
+            CodeUnit child1Original =
+                    analyzer.getDefinitions("com.example.Child1").getFirst();
+            CodeUnit child2Original =
+                    analyzer.getDefinitions("com.example.Child2").getFirst();
 
             // 1. Trigger ancestor computation for children to ensure state has SuperTypeInfo.Computed
             var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
@@ -653,10 +655,8 @@ public class TreeSitterStateIOTest {
                     loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseLoaded);
 
             assertEquals(2, descendants.size(), "Should find both descendants via supertype back-links");
-            assertTrue(
-                    descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child1")), "Missing Child1");
-            assertTrue(
-                    descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child2")), "Missing Child2");
+            assertTrue(descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child1")), "Missing Child1");
+            assertTrue(descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child2")), "Missing Child2");
         }
     }
 
