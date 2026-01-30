@@ -415,6 +415,9 @@ public class UsagePromptJavaTest {
         assertTrue(
                 desc.contains("part of the inheritance hierarchy for this method"),
                 "filterDescription should contain explanatory text for polymorphic matches");
+        assertTrue(
+                desc.contains("including via overrides"),
+                "filterDescription should mention that overrides are included");
     }
 
     @Test

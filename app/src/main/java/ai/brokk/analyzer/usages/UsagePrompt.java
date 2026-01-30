@@ -82,7 +82,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
         } else {
             polyInfo = polymorphicMatches.isEmpty()
                     ? ""
-                    : "\nThe following subclasses are part of the inheritance hierarchy for this method, so calls on these types are also valid matches: %s"
+                    : "\nThe following descendants are part of the inheritance hierarchy for this method; calls on these types may dispatch to the target method (including via overrides): %s"
                             .formatted(polymorphicMatches.stream()
                                     .map(CodeUnit::fqName)
                                     .collect(Collectors.joining(", ")));
