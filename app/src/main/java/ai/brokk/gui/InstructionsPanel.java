@@ -2263,9 +2263,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param oldText the original text to restore on undo (must be captured before any clearing)
      */
     private void setTextWithUndo(String newText, String oldText) {
-        // Skip no-op edits (e.g., when wand fails and restores original)
-        if (newText.equals(oldText)) {
-            // Still need to ensure undo listener is enabled (WandButton may have disabled it)
+        // Only skip if the current text matches what we are trying to set
+        if (newText.equals(instructionsArea.getText())) {
+            // Ensure undo listener is enabled (e.g. if WandButton disabled it before streaming)
             enableUndoListener();
             return;
         }
@@ -2277,6 +2277,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Re-enable undo listener for future user typing
         enableUndoListener();
+
+        // If the new text matches the original captured text (restoration case),
+        // we don't need to add an undoable edit as there is no semantic change.
+        if (newText.equals(oldText)) {
+            return;
+        }
 
         // Add a single edit representing the entire text replacement
         commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
