@@ -1479,20 +1479,9 @@ public final class PythonAnalyzerTest {
         }
     }
 
-    private static class ExposedPythonAnalyzer extends PythonAnalyzer {
-        ExposedPythonAnalyzer(TestProject project) {
-            super(project);
-        }
-
-        public boolean exposedIsConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
-            return super.isConstructor(candidate, enclosingClass);
-        }
-    }
-
     @Test
     void testIsConstructor() {
         assertNotNull(analyzer, "Analyzer should be initialized.");
-        ExposedPythonAnalyzer exposed = new ExposedPythonAnalyzer(project);
 
         CodeUnit classCU = analyzer.getDefinitions("documented.DocumentedClass").stream()
                 .findFirst()
@@ -1504,8 +1493,8 @@ public final class PythonAnalyzerTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertTrue(exposed.exposedIsConstructor(initCU, classCU), "__init__ should be a constructor");
-        assertFalse(exposed.exposedIsConstructor(otherMethodCU, classCU), "get_value should not be a constructor");
+        assertTrue(analyzer.isConstructor(initCU, classCU), "__init__ should be a constructor");
+        assertFalse(analyzer.isConstructor(otherMethodCU, classCU), "get_value should not be a constructor");
     }
 
     @Test
