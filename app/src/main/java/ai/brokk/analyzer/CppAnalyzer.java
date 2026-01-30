@@ -555,6 +555,15 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     @Override
+    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+        // In C++, a constructor is a function whose name matches the class name.
+        // We use identifier() to compare just the class/method name segment.
+        return candidate.isFunction()
+                && enclosingClass.isClass()
+                && candidate.identifier().equals(enclosingClass.identifier());
+    }
+
+    @Override
     public Set<CodeUnit> getDeclarations(ProjectFile file) {
         var baseDeclarations = super.getDeclarations(file);
         var mergedSkeletons = getSkeletons(file);
