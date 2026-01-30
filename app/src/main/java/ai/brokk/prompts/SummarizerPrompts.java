@@ -125,6 +125,19 @@ public class SummarizerPrompts {
                """;
     }
 
+    private String sessionContextGuidance() {
+        return """
+
+               The <context> below contains:
+               - "Patch Instructions": what the developer asked for - use this to explain WHY the changes were made
+               - "Sources Used During Patch Creation": files referenced during development (background only)
+
+               Focus on the developer's intent from Patch Instructions. Write descriptions that explain WHY, not just WHAT.
+               For example, instead of "Adds extractSessionContext method to ReviewScope", write
+               "Enables PR descriptions to include developer intent by extracting session context from overlapping sessions".
+               """;
+    }
+
     public List<ChatMessage> collectPrDescriptionMessages(String diff) {
         return List.of(
                 new SystemMessage(
@@ -167,9 +180,7 @@ public class SummarizerPrompts {
                 Guidelines for the description:
                 %s"""
                         .formatted(
-                                (sessionContext != null && !sessionContext.isBlank())
-                                        ? "\nUse the session context to understand the intent behind the changes. Focus on WHY the changes were made, not just WHAT changed.\n"
-                                        : "",
+                                (sessionContext != null && !sessionContext.isBlank()) ? sessionContextGuidance() : "",
                                 prDescriptionGuidance());
 
         StringBuilder userContent = new StringBuilder();
@@ -194,9 +205,7 @@ public class SummarizerPrompts {
                 Guidelines for the description:
                 %s"""
                         .formatted(
-                                (sessionContext != null && !sessionContext.isBlank())
-                                        ? "\nUse the session context to understand the intent behind the changes. Focus on WHY the changes were made, not just WHAT changed.\n"
-                                        : "",
+                                (sessionContext != null && !sessionContext.isBlank()) ? sessionContextGuidance() : "",
                                 prDescriptionFromCommitsGuidance());
 
         String body = String.join("\n\n", commitMsgs);

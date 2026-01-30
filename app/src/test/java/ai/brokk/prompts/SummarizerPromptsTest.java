@@ -39,8 +39,13 @@ class SummarizerPromptsTest {
         String systemText = ((SystemMessage) messages.get(0)).text();
         String userText = ((UserMessage) messages.get(1)).singleText();
 
-        assertTrue(systemText.contains("Use the session context to understand the intent behind the changes"));
-        assertTrue(systemText.contains("Focus on WHY the changes were made, not just WHAT changed"));
+        // Check that guidance explains context sections
+        assertTrue(systemText.contains("Patch Instructions"));
+        assertTrue(systemText.contains("what the developer asked for"));
+        assertTrue(systemText.contains("Sources Used During Patch Creation"));
+        // Check that guidance includes example transformation
+        assertTrue(systemText.contains("instead of"));
+        assertTrue(systemText.contains("explain WHY"));
 
         assertTrue(userText.contains("<diff>\nsome diff content\n</diff>"));
         assertTrue(userText.contains("<context>\nintent: fix bug\n</context>"));
@@ -57,7 +62,9 @@ class SummarizerPromptsTest {
         String systemText = ((SystemMessage) messages.get(0)).text();
         String userText = ((UserMessage) messages.get(1)).singleText();
 
-        assertTrue(systemText.contains("WHY the changes were made"));
+        // Check that guidance explains context sections and includes example
+        assertTrue(systemText.contains("Patch Instructions"));
+        assertTrue(systemText.contains("explain WHY"));
         assertTrue(userText.contains("<commits>\nfeat: add foo\n\nfix: bar\n</commits>"));
         assertTrue(userText.contains("<context>\nintent: cleanup\n</context>"));
     }

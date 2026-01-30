@@ -227,7 +227,7 @@ public final class GitWorkflow {
     @SuppressWarnings("unused")
     @Tool("Suggest pull request title and description based on the changes")
     public void suggestPrDetails(
-            @P("Brief PR title (12 words or fewer)") String title,
+            @P("Brief PR title (12 words or fewer, include intent)") String title,
             @P("PR description in markdown (75-150 words, focus on intent and key changes)") String description) {
         this.prTitle = title;
         this.prDescription = description;
