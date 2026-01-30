@@ -1659,6 +1659,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return getSkeletonTypeForCapture(captureName);
     }
 
+    protected TSNode adjustSourceRangeNode(TSNode definitionNode, String captureName) {
+        return definitionNode;
+    }
+
     /**
      * Translate a capture produced by the query into a {@link CodeUnit}. Return {@code null} to ignore this capture.
      *
@@ -2564,15 +2568,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     sigsForCu.add(signature);
                 }
             }
+            var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
             var originalRange = new Range(
-                    node.getStartByte(),
-                    node.getEndByte(),
-                    node.getStartPoint().getRow(),
-                    node.getEndPoint().getRow(),
-                    node.getStartByte());
+                    rangeNode.getStartByte(),
+                    rangeNode.getEndByte(),
+                    rangeNode.getStartPoint().getRow(),
+                    rangeNode.getEndPoint().getRow(),
+                    rangeNode.getStartByte());
 
-            var finalRange =
-                    (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(node, sourceContent) : originalRange;
+            var finalRange = (cu.isClass() || cu.isFunction())
+                    ? expandRangeWithComments(rangeNode, sourceContent)
+                    : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu);

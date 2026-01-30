@@ -182,6 +182,8 @@ public class GoAnalyzerTest {
         CodeUnit expectedStringAlias = CodeUnit.field(pf, "declpkg", "_module_.StringAlias");
         CodeUnit expectedMyInt = CodeUnit.cls(pf, "declpkg", "MyInt");
         CodeUnit expectedMyIntString = CodeUnit.fn(pf, "declpkg", "MyInt.String");
+        CodeUnit expectedGroupedNamedType = CodeUnit.cls(pf, "declpkg", "GroupedNamedType");
+        CodeUnit expectedGroupedAlias = CodeUnit.field(pf, "declpkg", "_module_.GroupedAlias");
 
         assertTrue(
                 declarations.contains(expectedFunc),
@@ -264,6 +266,21 @@ public class GoAnalyzerTest {
         assertFalse(
                 declarations.contains(CodeUnit.field(pf, "declpkg", "_module_.Uint32Map")),
                 "Named type Uint32Map should NOT appear as FIELD_LIKE.");
+        assertTrue(
+                declarations.contains(expectedGroupedNamedType),
+                "Declarations should contain grouped named type GroupedNamedType as CLASS_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedGroupedAlias),
+                "Declarations should contain grouped alias GroupedAlias as FIELD_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertFalse(
+                declarations.contains(CodeUnit.field(pf, "declpkg", "_module_.GroupedNamedType")),
+                "Grouped named type GroupedNamedType should NOT appear as FIELD_LIKE.");
 
         // Verify skeleton structure differences
         String uint32MapSkeleton = analyzer.getSkeleton(expectedUint32Map).orElse("");
@@ -284,9 +301,9 @@ public class GoAnalyzerTest {
         assertTrue(uint32MapChildren.isEmpty(), "Uint32Map (named type with no methods) should have zero children");
 
         assertEquals(
-                13,
+                15,
                 declarations.size(),
-                "Expected 13 declarations in declarations.go. Found: "
+                "Expected 15 declarations in declarations.go. Found: "
                         + declarations.stream().map(CodeUnit::fqName).toList());
     }
 

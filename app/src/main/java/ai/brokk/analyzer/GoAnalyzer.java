@@ -42,7 +42,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     private static final Pattern GO_COMMENT_PATTERN = Pattern.compile("//[^\r\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/");
 
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(TYPE_SPEC), // classLikeNodeTypes
+            Set.of(TYPE_SPEC, TYPE_ALIAS), // classLikeNodeTypes
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
@@ -290,20 +290,23 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
+    protected TSNode adjustSourceRangeNode(TSNode definitionNode, String captureName) {
+        if (CaptureNames.TYPE_DEFINITION.equals(captureName)) {
+            TSNode parent = definitionNode.getParent();
+            if (parent != null && !parent.isNull() && TYPE_DECLARATION.equals(parent.getType())) {
+                return parent;
+            }
+        }
+        return definitionNode;
+    }
+
+    @Override
     protected SkeletonType refineSkeletonType(
             String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
         if (CaptureNames.TYPE_DEFINITION.equals(captureName) && !definitionNode.isNull()) {
-            // definitionNode is the type_declaration
-            // True type aliases (type Foo = Bar) use type_alias nodes
-            // Named types (type Foo Bar) use type_spec nodes and can have methods
-            for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
-                var child = definitionNode.getNamedChild(i);
-                if (TYPE_ALIAS.equals(child.getType())) {
-                    // True alias syntax (type Foo = Bar) - cannot have methods
-                    return SkeletonType.FIELD_LIKE;
-                }
+            if (TYPE_ALIAS.equals(definitionNode.getType())) {
+                return SkeletonType.FIELD_LIKE;
             }
-            // type_spec nodes (named types) remain CLASS_LIKE as they can have methods
         }
         return super.refineSkeletonType(captureName, definitionNode, profile);
     }
@@ -315,61 +318,27 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             String exportPrefix,
             String signatureTextParam,
             String baseIndent) {
-        // classNode is the type_declaration node.
-        // We need to extract "type Name kind" (e.g., "type MyStruct struct").
-        // The signatureTextParam passed from TreeSitterAnalyzer might be too broad (containing the whole body).
-        TSNode typeSpecNode = null;
-        for (int i = 0; i < classNode.getNamedChildCount(); i++) {
-            TSNode child = classNode.getNamedChild(i);
-            if (TYPE_SPEC.equals(child.getType())) {
-                typeSpecNode = child;
-                break;
-            }
-        }
-
-        if (typeSpecNode == null || typeSpecNode.isNull()) {
-            log.warn(
-                    "renderClassHeader for Go: type_spec child not found in classNode (type_declaration {}). Falling back to potentially incorrect signatureTextParam.",
-                    sourceContent.substringFrom(classNode).lines().findFirst().orElse(""));
-            return signatureTextParam + " {";
-        }
-
-        TSNode nameNode = typeSpecNode.getChildByFieldName("name");
-        TSNode kindNode = typeSpecNode.getChildByFieldName("type"); // This is the struct_type or interface_type node
+        TSNode nameNode = classNode.getChildByFieldName("name");
+        TSNode kindNode = classNode.getChildByFieldName("type");
 
         if (nameNode == null || nameNode.isNull() || kindNode == null || kindNode.isNull()) {
             log.warn(
-                    "renderClassHeader for Go: name or kind node not found in type_spec for classNode {}. Falling back.",
+                    "renderClassHeader for Go: name or kind node not found in type_spec {}. Falling back.",
                     sourceContent.substringFrom(classNode).lines().findFirst().orElse(""));
             return signatureTextParam + " {";
         }
 
         String nameText = sourceContent.substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte());
-        String kindText;
         String kindNodeType = kindNode.getType();
 
         if (STRUCT_TYPE.equals(kindNodeType)) {
-            kindText = "struct";
+            return String.format("type %s struct {", nameText).strip();
         } else if (INTERFACE_TYPE.equals(kindNodeType)) {
-            kindText = "interface";
+            return String.format("type %s interface {", nameText).strip();
         } else {
-            // Named types like "type Encoding int" — render the full declaration as header
             String kindSource = sourceContent.substringFromBytes(kindNode.getStartByte(), kindNode.getEndByte());
             return String.format("type %s %s {", nameText, kindSource).strip();
         }
-
-        // Go visibility is by capitalization, exportPrefix is not used here.
-        String actualSignatureText =
-                String.format("type %s %s", nameText, kindText).strip();
-        log.trace(
-                "GoAnalyzer.renderClassHeader for node {}. Constructed signature: '{}'",
-                sourceContent
-                        .substringFromBytes(classNode.getStartByte(), classNode.getEndByte())
-                        .lines()
-                        .findFirst()
-                        .orElse(""),
-                actualSignatureText);
-        return actualSignatureText + " {";
     }
 
     @Override

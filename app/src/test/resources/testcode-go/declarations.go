@@ -26,4 +26,9 @@ type MyInt int             // Named type - should be CLASS_LIKE (can have method
 
 func (m MyInt) String() string { return "" }
 
+type (
+    GroupedNamedType map[string]int
+    GroupedAlias     = []byte
+)
+
 func anotherFunc() {}

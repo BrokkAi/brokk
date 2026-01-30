@@ -5,17 +5,17 @@
 (function_declaration
   name: (identifier) @function.name) @function.definition
 
-; Matches type declarations (named types and aliases)
+; Named types
 (type_declaration
-  [
-    (type_spec
-      name: (type_identifier) @type.name
-      type: (_) @type.kind)
-    (type_alias
-      name: (type_identifier) @type.name
-      type: (_) @type.kind)
-  ]
-) @type.definition
+  (type_spec
+    name: (type_identifier) @type.name
+    type: (_) @type.kind) @type.definition)
+
+; True type aliases
+(type_declaration
+  (type_alias
+    name: (type_identifier) @type.name
+    type: (_) @type.kind) @type.definition)
 
 (var_declaration
   (var_spec
