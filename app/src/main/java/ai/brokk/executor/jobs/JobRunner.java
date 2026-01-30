@@ -2627,6 +2627,180 @@ public final class JobRunner {
         return reviewAndParse.apply(diff);
     }
 
+    /**
+     * Minimal workflow facade used to make the PR-creation gating logic testable without forcing
+     * tests to subclass or instantiate the full GitWorkflow.
+     *
+     * Package-private so tests can implement fakes.
+     */
+    interface IssuePrWorkflow {
+        GitWorkflow.BranchDiff diffBetweenBranches(String oldBranch, String newBranch);
+
+        void performAutoCommit(String message);
+
+        GitWorkflow.PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO io);
+
+        java.net.URI createPullRequest(
+                String source, String target, String title, String body, @Nullable String githubToken);
+    }
+
+    /**
+     * Adapts a real GitWorkflow into the IssuePrWorkflow facade.
+     */
+    private static IssuePrWorkflow workflowAdapter(GitWorkflow gw) {
+        return new IssuePrWorkflow() {
+            @Override
+            public GitWorkflow.BranchDiff diffBetweenBranches(String oldBranch, String newBranch) {
+                try {
+                    return gw.diffBetweenBranches(oldBranch, newBranch);
+                } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
+                    throw new RuntimeException("diffBetweenBranches failed: " + e.getMessage(), e);
+                }
+            }
+
+            @Override
+            public void performAutoCommit(String message) {
+                try {
+                    // performAutoCommit returns Optional<CommitResult>; production code ignored result.
+                    gw.performAutoCommit(message);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("performAutoCommit interrupted", e);
+                }
+            }
+
+            @Override
+            public GitWorkflow.PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO io) {
+                try {
+                    return gw.suggestPullRequestDetails(source, target, io);
+                } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
+                    throw new RuntimeException("suggestPullRequestDetails failed: " + e.getMessage(), e);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("suggestPullRequestDetails interrupted", e);
+                }
+            }
+
+            @Override
+            public java.net.URI createPullRequest(
+                    String source, String target, String title, String body, @Nullable String githubToken) {
+                try {
+                    return gw.createPullRequest(source, target, title, body, githubToken);
+                } catch (Exception e) {
+                    throw new RuntimeException("createPullRequest failed: " + e.getMessage(), e);
+                }
+            }
+        };
+    }
+
+    /**
+     * Encapsulates the "commit -> diff -> maybe create PR" gating logic for ISSUE mode.
+     *
+     * This is package-private for unit tests to exercise the branch-diff-based PR gating without
+     * having to run the whole ISSUE path or interact with real GitHub/LLMs.
+     *
+     * Behavior mirrors the inlined production implementation:
+     * - performAutoCommit is invoked
+     * - diffBetweenBranches(old=targetBranch, new=issueBranchName) is computed
+     * - if diff has no commits AND no files, a NOTIFICATION event is appended and no PR is created
+     * - otherwise, suggestPullRequestDetails + createPullRequest are invoked
+     *
+     * Cancellation is observed via the provided AtomicBoolean; if cancelled before commit/diff or
+     * before creating the PR, the method returns without creating notifications/PRs.
+     *
+     * On failure to create PR when delivery is enabled, an IssueExecutionException is thrown.
+     */
+    static void maybeCreateIssuePrOrNotifyNoChanges(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            IssuePrWorkflow workflow,
+            String issueBranchName,
+            String targetBranch,
+            int issueNumber,
+            IssueService.IssueDetails details,
+            String githubToken,
+            AtomicBoolean cancelled) {
+
+        if (cancelled.get()) {
+            logger.info("ISSUE job {}: cancelled before PR creation gating", jobId);
+            return;
+        }
+
+        try {
+            // Commit any remaining changes before creating the PR.
+            workflow.performAutoCommit("Resolves #" + issueNumber + ": " + details.title());
+
+            if (cancelled.get()) {
+                logger.info("ISSUE job {}: cancelled after auto-commit; aborting PR creation", jobId);
+                return;
+            }
+
+            GitWorkflow.BranchDiff diff = workflow.diffBetweenBranches(targetBranch, issueBranchName);
+
+            if (cancelled.get()) {
+                logger.info("ISSUE job {}: cancelled after diff computation; aborting PR creation", jobId);
+                return;
+            }
+
+            boolean noCommits = diff.commits() == null || diff.commits().isEmpty();
+            boolean noFiles = diff.files() == null || diff.files().isEmpty();
+
+            if (noCommits && noFiles) {
+                String msg = "No pull request created: no changes detected between " + targetBranch + " and "
+                        + issueBranchName;
+                logger.info("ISSUE job {}: {}", jobId, msg);
+                try {
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                } catch (Throwable ignore) {
+                    // best-effort
+                }
+                try {
+                    store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
+                } catch (Exception e) {
+                    logger.warn("ISSUE job {}: Failed to append NOTIFICATION event: {}", jobId, e.getMessage(), e);
+                }
+                return;
+            }
+
+            // There are changes; suggest and create PR.
+            GitWorkflow.PrSuggestion suggestion = workflow.suggestPullRequestDetails(issueBranchName, targetBranch, io);
+            String prBody = IssueService.buildPrDescription(suggestion.description(), issueNumber);
+
+            java.net.URI prUri =
+                    workflow.createPullRequest(issueBranchName, targetBranch, suggestion.title(), prBody, githubToken);
+            String createdMsg = "Created Pull Request: " + prUri;
+            logger.info("ISSUE job {}: {}", jobId, createdMsg);
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, createdMsg);
+            } catch (Throwable ignore) {
+                // best-effort
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
+            } catch (Exception e) {
+                logger.warn(
+                        "ISSUE job {}: Failed to append PR created notification event: {}", jobId, e.getMessage(), e);
+            }
+
+        } catch (Exception e) {
+            logger.warn("ISSUE job {}: failed to create PR: {}", jobId, e.getMessage(), e);
+            try {
+                if (io != null) {
+                    io.toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
+                }
+            } catch (Throwable ignore) {
+                // best-effort
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Failed to create PR: " + e.getMessage()));
+            } catch (Exception ignore) {
+                // best-effort
+            }
+            throw new IssueExecutionException("Failed to create PR: " + e.getMessage(), e);
+        }
+    }
+
     List<PrReviewService.InlineComment> issueModeComputeInlineComments(
             String jobId,
             JobStore store,
