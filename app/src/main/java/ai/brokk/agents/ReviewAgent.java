@@ -56,6 +56,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -990,6 +991,35 @@ public class ReviewAgent {
                 .flatMap(fd -> Stream.of(fd.oldFile(), fd.newFile()))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        return ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
+
+        var sessionContext = ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
+        if (sessionContext.isEmpty()) {
+            return List.of();
+        }
+
+        var results = new ArrayList<ContextFragments.StringFragment>();
+
+        if (!sessionContext.patchInstructions().isEmpty()) {
+            String mergedInstructions =
+                    """
+                    These are the instructions given to the Code Agent to generate this patch, separated by `-----`.
+
+                    -----
+                    %s
+                    """
+                            .formatted(String.join("\n-----\n", sessionContext.patchInstructions()));
+            results.add(new ContextFragments.StringFragment(
+                    cm, mergedInstructions, "Patch Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
+        }
+
+        if (!sessionContext.sourceHints().isEmpty()) {
+            String mergedHints = sessionContext.sourceHints().stream()
+                    .map(hint -> "- " + hint)
+                    .collect(Collectors.joining("\n"));
+            results.add(new ContextFragments.StringFragment(
+                    cm, mergedHints, "Sources Used During Patch Creation", SyntaxConstants.SYNTAX_STYLE_NONE));
+        }
+
+        return List.copyOf(results);
     }
 }

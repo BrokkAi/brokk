@@ -31,11 +31,16 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 
 public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Metadata metadata) {
     private static final Logger logger = LogManager.getLogger(ReviewScope.class);
+
+    public record SessionContext(List<String> patchInstructions, List<String> sourceHints) {
+        public boolean isEmpty() {
+            return patchInstructions.isEmpty() && sourceHints.isEmpty();
+        }
+    }
 
     // sessionIds is left as UUID keys instead of materializing to ContextHistory, because we need to serialize
     // through json for Activity History
@@ -213,10 +218,10 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
     }
 
     @Blocking
-    public static List<ContextFragments.StringFragment> extractSessionContext(
+    public static SessionContext extractSessionContext(
             IContextManager cm, List<UUID> sessionIds, Set<ProjectFile> editedFiles) {
         if (sessionIds.isEmpty()) {
-            return List.of();
+            return new SessionContext(List.of(), List.of());
         }
 
         var sessionManager = cm.getProject().getSessionManager();
@@ -238,7 +243,6 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                 })
                 .toList();
 
-        // Extract instructions
         List<String> instructions = relevantContexts.stream()
                 .map(ctx -> ctx.getTaskHistory().getLast().log())
                 .filter(Objects::nonNull)
@@ -249,7 +253,6 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                 .distinct()
                 .toList();
 
-        // Extract context hints
         // TODO allow git and usage fragments
         var relevantFragmentsClasses = Set.of(
                 ContextFragments.ProjectPathFragment.class,
@@ -264,26 +267,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                 .distinct()
                 .toList();
 
-        List<ContextFragments.StringFragment> results = new ArrayList<>();
-        if (!instructions.isEmpty()) {
-            String mergedInstructions =
-                    """
-                    These are the instructions given to the Code Agent to generate this patch, separated by `-----`.
-
-                    -----
-                    """
-                            + String.join("\n-----\n", instructions);
-            results.add(new ContextFragments.StringFragment(
-                    cm, mergedInstructions, "Patch Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
-        }
-
-        if (!fragmentHints.isEmpty()) {
-            String mergedHints = fragmentHints.stream().map(hint -> "- " + hint).collect(Collectors.joining("\n"));
-            results.add(new ContextFragments.StringFragment(
-                    cm, mergedHints, "Sources Used During Patch Creation", SyntaxConstants.SYNTAX_STYLE_NONE));
-        }
-
-        return results;
+        return new SessionContext(instructions, fragmentHints);
     }
 
     @Blocking

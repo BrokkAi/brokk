@@ -120,7 +120,7 @@ class ReviewScopeTest {
     }
 
     @Test
-    void testExtractSessionContext_emptySessionIds_returnsEmptyList() throws IOException {
+    void testExtractSessionContext_emptySessionIds_returnsEmptyContext() throws IOException {
         var project = InlineTestProjectCreator.code("test\n", "test.txt").build();
         IContextManager cm = new TestContextManager(project);
 

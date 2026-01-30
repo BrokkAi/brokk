@@ -128,44 +128,13 @@ public class SummarizerPrompts {
     private String sessionContextGuidance() {
         return """
 
-               The <context> below contains:
+               The <context> below contain:
                - "Patch Instructions": what the developer asked for - use this to explain WHY the changes were made
-               - "Sources Used During Patch Creation": files referenced during development (background only)
 
                Focus on the developer's intent from Patch Instructions. Write descriptions that explain WHY, not just WHAT.
                For example, instead of "Adds extractSessionContext method to ReviewScope", write
                "Enables PR descriptions to include developer intent by extracting session context from overlapping sessions".
                """;
-    }
-
-    public List<ChatMessage> collectPrDescriptionMessages(String diff) {
-        return List.of(
-                new SystemMessage(
-                        """
-                    You are an expert software engineer writing clear pull-request descriptions.
-                    %s"""
-                                .formatted(prDescriptionGuidance())),
-                new UserMessage("<diff>\n" + diff + "\n</diff>"));
-    }
-
-    public List<ChatMessage> collectPrDescriptionFromCommitMsgs(List<String> commitMsgs) {
-        String body = String.join("\n\n", commitMsgs);
-
-        return List.of(
-                new SystemMessage(
-                        """
-                You are an expert software engineer writing clear pull-request descriptions.
-                %s"""
-                                .formatted(prDescriptionFromCommitsGuidance())),
-                new UserMessage("<commits>\n" + body + "\n</commits>"));
-    }
-
-    public List<ChatMessage> collectPrTitleAndDescriptionMessages(String diff) {
-        return collectPrTitleAndDescriptionMessagesWithContext(diff, null);
-    }
-
-    public List<ChatMessage> collectPrTitleAndDescriptionFromCommitMsgs(List<String> commitMsgs) {
-        return collectPrTitleAndDescriptionFromCommitMsgsWithContext(commitMsgs, null);
     }
 
     public List<ChatMessage> collectPrTitleAndDescriptionMessagesWithContext(

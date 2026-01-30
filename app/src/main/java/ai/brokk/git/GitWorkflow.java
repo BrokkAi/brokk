@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -277,12 +276,14 @@ public final class GitWorkflow {
             var editedFiles =
                     changedFiles.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toSet());
 
-            var fragments = ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
-            if (!fragments.isEmpty()) {
-                sessionContext = fragments.stream()
-                        .map(f -> f.text().join())
-                        .filter(Objects::nonNull)
-                        .collect(Collectors.joining("\n\n"));
+            var extracted = ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
+            if (!extracted.patchInstructions().isEmpty()) {
+                sessionContext =
+                        """
+                        Patch Instructions:
+                        %s
+                        """
+                                .formatted(String.join("\n-----\n", extracted.patchInstructions()));
             }
         }
 
