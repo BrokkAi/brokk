@@ -2694,8 +2694,8 @@ public final class JobRunner {
                 return;
             }
 
-            boolean noCommits = diff.commits() == null || diff.commits().isEmpty();
-            boolean noFiles = diff.files() == null || diff.files().isEmpty();
+            boolean noCommits = diff.commits().isEmpty();
+            boolean noFiles = diff.files().isEmpty();
 
             if (noCommits && noFiles) {
                 String msg = "No pull request created: no changes detected between " + targetBranch + " and "
@@ -2737,9 +2737,7 @@ public final class JobRunner {
         } catch (Exception e) {
             logger.warn("ISSUE job {}: failed to create PR: {}", jobId, e.getMessage(), e);
             try {
-                if (io != null) {
-                    io.toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
-                }
+                io.toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
             } catch (Throwable ignore) {
                 // best-effort
             }
