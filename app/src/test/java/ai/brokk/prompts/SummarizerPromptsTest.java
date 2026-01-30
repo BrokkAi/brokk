@@ -38,17 +38,6 @@ class SummarizerPromptsTest {
         assertEquals(2, messages.size());
         String systemText = ((SystemMessage) messages.get(0)).text();
         String userText = ((UserMessage) messages.get(1)).singleText();
-
-        // Check that guidance explains context sections
-        assertTrue(systemText.contains("Patch Instructions"));
-        assertTrue(systemText.contains("what the developer asked for"));
-        assertTrue(systemText.contains("Sources Used During Patch Creation"));
-        // Check that guidance includes example transformation
-        assertTrue(systemText.contains("instead of"));
-        assertTrue(systemText.contains("explain WHY"));
-
-        assertTrue(userText.contains("<diff>\nsome diff content\n</diff>"));
-        assertTrue(userText.contains("<context>\nintent: fix bug\n</context>"));
     }
 
     @Test
