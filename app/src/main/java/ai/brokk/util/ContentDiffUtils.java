@@ -1,7 +1,6 @@
 package ai.brokk.util;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
@@ -294,12 +293,11 @@ public class ContentDiffUtils {
         String newHeaderLine =
                 "@@ -" + newOldStart + "," + newOldLen + " +" + newNewStart + "," + newNewLen + " @@" + header.suffix();
 
-        int bodyStart = removeLeading;
         int bodyEndExclusive = body.size() - removeTrailing;
 
-        List<String> trimmed = new ArrayList<>(1 + (bodyEndExclusive - bodyStart));
+        List<String> trimmed = new ArrayList<>(1 + (bodyEndExclusive - removeLeading));
         trimmed.add(newHeaderLine);
-        trimmed.addAll(body.subList(bodyStart, bodyEndExclusive));
+        trimmed.addAll(body.subList(removeLeading, bodyEndExclusive));
         return trimmed;
     }
 
