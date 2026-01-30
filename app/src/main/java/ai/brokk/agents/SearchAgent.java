@@ -1089,10 +1089,12 @@ public class SearchAgent {
     }
 
     private boolean isPinnedBySystem(ContextFragment cf) {
+        boolean isSpecialPin = cf instanceof ContextFragments.StringFragment sf
+                && sf.specialType().map(st -> !st.droppable()).orElse(false);
         boolean isLearnedPin =
                 droppedFragments.stream().filter(cf::hasSameSource).count() >= 2;
         boolean isOriginalPin = originalPinnedFragments.stream().anyMatch(cf::hasSameSource);
-        return isOriginalPin || isLearnedPin;
+        return isSpecialPin || isOriginalPin || isLearnedPin;
     }
 
     Context resetPinsToOriginal(Context context) {
