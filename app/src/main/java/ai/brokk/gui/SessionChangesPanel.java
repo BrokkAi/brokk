@@ -844,9 +844,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         pullBtn.setVisible(true);
 
         boolean canPush = pushPull != null && pushPull.canPush();
-        pushBtn.setEnabled(canPush && !hasUncommittedChanges);
+        boolean hasLocalChanges = res.filesChanged() > 0 || hasUncommittedChanges;
+        pushBtn.setEnabled(canPush && !hasUncommittedChanges && hasLocalChanges);
         if (hasUncommittedChanges) {
             pushBtn.setToolTipText("Commit your uncommitted changes before pushing to the remote repository");
+        } else if (!hasLocalChanges) {
+            pushBtn.setToolTipText("No changes to push");
         } else if (!canPush) {
             pushBtn.setToolTipText("No local commits to push to the remote repository");
         } else {
@@ -865,7 +868,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean isPreviewMode = currentMode == PanelMode.PREVIEW;
         boolean showPR = isPreviewMode;
 
-        boolean prBtnEnabled = isPreviewMode && !hasUncommittedChanges;
+        boolean prBtnEnabled = isPreviewMode && !hasUncommittedChanges && hasLocalChanges;
         String prBtnTooltip;
 
         if (!isPreviewMode) {
@@ -874,6 +877,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } else if (hasUncommittedChanges) {
             prBtnEnabled = false;
             prBtnTooltip = "Commit your uncommitted changes before creating a pull request";
+        } else if (!hasLocalChanges) {
+            prBtnEnabled = false;
+            prBtnTooltip = "No changes to create a pull request";
         } else if (isDefaultBranch && res.filesChanged() == 0) {
             prBtnEnabled = false;
             prBtnTooltip = "No changes to create a pull request from the default branch";
