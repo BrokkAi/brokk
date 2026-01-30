@@ -1342,8 +1342,8 @@ public class JavaAnalyzerTest {
 
             // Find the byte position of "channel" in "this.doSomething(channel)"
             int charIdx = content.indexOf("doSomething(channel)") + "doSomething(".length();
-            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            int endByte = startByte + "channel".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "channel".getBytes(StandardCharsets.UTF_8).length;
 
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "channel");
 
@@ -1372,8 +1372,8 @@ public class JavaAnalyzerTest {
 
             // Find the byte position of "localVar" in "println(localVar)"
             int charIdx = content.indexOf("println(localVar)") + "println(".length();
-            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            int endByte = startByte + "localVar".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "localVar".getBytes(StandardCharsets.UTF_8).length;
 
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "localVar");
 
@@ -1404,8 +1404,8 @@ public class JavaAnalyzerTest {
 
             // Find the byte position of "item" in "println(item)"
             int charIdx = content.indexOf("println(item)") + "println(".length();
-            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            int endByte = startByte + "item".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "item".getBytes(StandardCharsets.UTF_8).length;
 
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "item");
 
@@ -1438,8 +1438,8 @@ public class JavaAnalyzerTest {
 
             // Find the byte position of "ex" in "println(ex)"
             int charIdx = content.indexOf("println(ex)") + "println(".length();
-            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            int endByte = startByte + "ex".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "ex".getBytes(StandardCharsets.UTF_8).length;
 
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "ex");
 
@@ -1470,8 +1470,8 @@ public class JavaAnalyzerTest {
 
             // Find the byte position of "stream" in "stream.read()"
             int charIdx = content.indexOf("stream.read()");
-            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            int endByte = startByte + "stream".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "stream".getBytes(StandardCharsets.UTF_8).length;
 
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "stream");
 
@@ -1501,8 +1501,8 @@ public class JavaAnalyzerTest {
 
             // Find the byte position of "x" in "println(x)"
             int charIdx = content.indexOf("println(x)") + "println(".length();
-            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            int endByte = startByte + "x".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "x".getBytes(StandardCharsets.UTF_8).length;
 
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "x");
 
@@ -1531,8 +1531,8 @@ public class JavaAnalyzerTest {
 
             // Find the byte position of "field" in "println(field)"
             int charIdx = content.indexOf("println(field)") + "println(".length();
-            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            int endByte = startByte + "field".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "field".getBytes(StandardCharsets.UTF_8).length;
 
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "field");
 
@@ -1558,8 +1558,8 @@ public class JavaAnalyzerTest {
 
             // Find the byte position of "param" in "println(param)"
             int charIdx = content.indexOf("println(param)") + "println(".length();
-            int startByte = content.substring(0, charIdx).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            int endByte = startByte + "param".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "param".getBytes(StandardCharsets.UTF_8).length;
 
             var result = analyzer.findNearestDeclaration(file, startByte, endByte, "param");
 
