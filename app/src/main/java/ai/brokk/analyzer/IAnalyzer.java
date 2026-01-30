@@ -4,6 +4,7 @@ import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Core analyzer interface providing code intelligence capabilities.
@@ -224,6 +225,52 @@ public interface IAnalyzer {
     default boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
         return true;
     }
+
+    /**
+     * Finds the nearest block-scoped declaration (parameter, local variable, etc.) for an identifier.
+     *
+     * <p>This method performs lexical scope analysis to determine if an identifier at the given
+     * position is shadowed by a local declaration. It searches upward through enclosing blocks,
+     * checking for parameters, local variables, catch parameters, for-loop variables, lambda
+     * parameters, pattern variables, and try-with-resources variables.
+     *
+     * <p><b>Important:</b> This method does NOT resolve class-level field declarations. If no
+     * block-scoped declaration shadows the identifier, this returns {@code Optional.empty()}.
+     * The identifier may still refer to a field, imported symbol, or external reference — callers
+     * must handle the empty case accordingly.
+     *
+     * <p>Primary use case: {@link #isAccessExpression} uses this to filter out local variable
+     * and parameter usages from field/member access detection.
+     *
+     * @param file           the source file
+     * @param startByte      the start byte of the identifier
+     * @param endByte        the end byte of the identifier
+     * @param identifierName the name of the identifier to resolve
+     * @return information about the nearest block-scoped declaration, or empty if none found
+     */
+    default Optional<DeclarationInfo> findNearestDeclaration(
+            ProjectFile file, int startByte, int endByte, String identifierName) {
+        return Optional.empty();
+    }
+
+    /**
+     * Kinds of declarations that can be found by {@link #findNearestDeclaration}.
+     *
+     * <p>Note: Not all kinds are returned by all language implementations.
+     */
+    enum DeclarationKind {
+        PARAMETER,
+        LOCAL_VARIABLE,
+        /** Reserved for future use; not currently returned by any analyzer implementation. */
+        FIELD,
+        CATCH_PARAMETER,
+        FOR_LOOP_VARIABLE,
+        PATTERN_VARIABLE,
+        RESOURCE_VARIABLE,
+        UNKNOWN
+    }
+
+    record DeclarationInfo(DeclarationKind kind, String name, @Nullable CodeUnit enclosingUnit) {}
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {

@@ -146,6 +146,13 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
     }
 
     @Override
+    public Optional<DeclarationInfo> findNearestDeclaration(
+            ProjectFile file, int startByte, int endByte, String identifierName) {
+        return delegateFor(file)
+                .flatMap(delegate -> delegate.findNearestDeclaration(file, startByte, endByte, identifierName));
+    }
+
+    @Override
     public IProject getProject() {
         return findFirst(analyzer -> Optional.of(analyzer.getProject())).orElseThrow();
     }
