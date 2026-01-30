@@ -1327,21 +1327,19 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass) {
         // In Java, constructors are functions whose identifier matches the enclosing class identifier.
         // CodeUnit.identifier() already returns the last symbol component, so this works for nested
         // constructors like "Outer.Inner.Inner" as well.
-        return candidate.isFunction() && candidate.identifier().equals(enclosingClass.identifier());
+        return candidate.isFunction() && enclosingClass != null && candidate.identifier().equals(enclosingClass.identifier());
     }
 
     @Override
-    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass) {
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
         // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
-        // We can't easily check the specific sub-kind from the CodeUnit alone, but the convention
-        // in this codebase is that CodeUnitType.CLASS covers all of them.
-        // However, based on the test failures, we should be conservative.
-        // If the class name looks like an interface or enum (often determined by its contents),
-        // we should ideally avoid it, but for now we'll rely on the parent logic.
+        if (!CaptureNames.CLASS_DEFINITION.equals(classCaptureName)) {
+            return null;
+        }
 
         // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
         // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)

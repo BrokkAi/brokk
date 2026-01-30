@@ -874,8 +874,8 @@ public class FuzzyUsageFinderJavaTest {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
             var finder = newFinder(inlineProject, inlineAnalyzer);
 
-            // Search for the implicit constructor. JavaAnalyzer synthesizes Foo.<init> for Foo.
-            var symbol = "Foo.<init>";
+            // Search for the implicit constructor. JavaAnalyzer synthesizes Foo.Foo for Foo.
+            var symbol = "Foo.Foo";
             var result = finder.findUsages(symbol);
             var either = result.toEither();
 

@@ -256,7 +256,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String captureName) {
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
         return null;
     }
 
