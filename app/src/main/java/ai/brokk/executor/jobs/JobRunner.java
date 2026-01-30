@@ -1929,8 +1929,8 @@ public final class JobRunner {
             return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
         };
 
-        String safeTitle = escapeForXmlBlock.apply(prTitle == null ? "" : prTitle);
-        String safeDescription = escapeForXmlBlock.apply(prDescription == null ? "" : prDescription);
+        String safeTitle = escapeForXmlBlock.apply(prTitle);
+        String safeDescription = escapeForXmlBlock.apply(prDescription);
 
         String prBlocks =
                 """
