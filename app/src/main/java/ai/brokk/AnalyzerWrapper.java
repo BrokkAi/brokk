@@ -218,7 +218,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             long count = idlePollTriggeredRebuilds.incrementAndGet();
             logger.debug("Idle-poll triggered external rebuild #{}", count);
             IAnalyzer.ProgressListener progressListener = listener::onProgress;
-            refresh(prev -> getLanguageHandle().createAnalyzer(project, progressListener));
+            refresh(prev -> project.getLanguageHandle().createAnalyzer(project, progressListener));
             externalRebuildRequested = false;
         }
     }
@@ -240,7 +240,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      */
     private IAnalyzer loadOrCreateAnalyzer() {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
-        Language langHandle = getLanguageHandle();
+        Language langHandle = project.getLanguageHandle();
         var projectLangs = project.getAnalyzerLanguages().stream()
                 .filter(l -> l != Languages.NONE)
                 .map(Language::name)
@@ -316,17 +316,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
         logger.debug("Analyzer load complete!");
         return analyzer;
-    }
-
-    /** Convenience overload that infers the language set from {@link #project}. */
-    private Language getLanguageHandle() {
-        var projectLangs = project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Languages.NONE)
-                .collect(Collectors.toUnmodifiableSet());
-        if (projectLangs.isEmpty()) {
-            return Languages.NONE;
-        }
-        return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
     }
 
     /** Get a human-readable description of the analyzer languages for logging. */
