@@ -1078,8 +1078,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         if (node == null || node.isNull()) return Optional.empty();
 
         var sourceContentOpt = SourceContent.read(file);
-        return sourceContentOpt.flatMap(
-                sourceContent -> findNearestDeclaration(node, identifierName, sourceContent));
+        return sourceContentOpt.flatMap(sourceContent -> findNearestDeclaration(node, identifierName, sourceContent));
     }
 
     private Optional<DeclarationInfo> findNearestDeclaration(
