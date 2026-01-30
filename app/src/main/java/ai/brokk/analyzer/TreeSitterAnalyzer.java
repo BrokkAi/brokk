@@ -2646,6 +2646,39 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localSourceRanges,
                 localChildren);
 
+        // Synthetic constructor injection: for each class-like CU, check if it needs an implicit constructor.
+        for (CodeUnit cu : localCuByFqName.values()) {
+            if (cu.isClass()) {
+                List<CodeUnit> kids = localChildren.getOrDefault(cu, List.of());
+                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> isConstructor(k, cu));
+
+                if (!hasExplicitConstructor) {
+                    CodeUnit implicit = createImplicitConstructor(cu);
+                    if (implicit != null) {
+                        // Attach to parent class
+                        localChildren.computeIfAbsent(cu, k -> new ArrayList<>()).add(implicit);
+
+                        // Register in local maps for snapshotting and symbol indexing
+                        localCuByFqName.putIfAbsent(implicit.fqName(), implicit);
+                        localHasBody.put(implicit, true); // Implicit constructors have an implicit body
+
+                        // Add to symbol index
+                        localCodeUnitsBySymbol
+                                .computeIfAbsent(implicit.identifier(), k -> new HashSet<>())
+                                .add(implicit);
+                        if (!implicit.shortName().equals(implicit.identifier())) {
+                            localCodeUnitsBySymbol
+                                    .computeIfAbsent(implicit.shortName(), k -> new HashSet<>())
+                                    .add(implicit);
+                        }
+
+                        // Do NOT add to localSignatures or localSourceRanges to avoid impacting skeleton output.
+                        log.trace("Synthesized implicit constructor for class {}", cu.fqName());
+                    }
+                }
+            }
+        }
+
         boolean containsTests = containsTestMarkers(tree, sourceContent);
 
         log.trace(
@@ -4446,5 +4479,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected boolean isNullNameExpectedForExtraction(String nodeType) {
         return false;
+    }
+
+    /**
+     * Determines if a CodeUnit is a constructor for the given enclosing class.
+     * Default implementation is false.
+     */
+    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+        return false;
+    }
+
+    /**
+     * Creates a synthetic implicit constructor for the given enclosing class.
+     * Default implementation returns null.
+     */
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass) {
+        return null;
     }
 }
