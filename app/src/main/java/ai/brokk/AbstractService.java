@@ -71,6 +71,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             String category, String feedbackText, boolean includeDebugLog, @Nullable File screenshotFile)
             throws IOException;
 
+    public boolean supportsPrefixCache(StreamingChatModel model) {
+        var location = model.defaultRequestParameters().modelName();
+        return (location.startsWith("openai") || location.startsWith("gemini") || location.startsWith("deepseek"));
+    }
+
     public interface Provider {
         AbstractService get();
 

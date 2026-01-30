@@ -1076,7 +1076,7 @@ public class SearchAgent {
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),
-                        f.description().renderNowOr("(empty)"),
+                        f.description().renderNowOr("(incomplete)"),
                         f.files().renderNowOr(Set.of()).stream()
                                 .map(pf -> pf.getRelPath().toString())
                                 .sorted()
@@ -1200,6 +1200,9 @@ public class SearchAgent {
      * @return a score in [0, 1] where higher values indicate greater convergence
      */
     double calculateConvergenceScore(Context context, @Nullable Context lastTurnContext) {
+        if (!cm.getService().supportsPrefixCache(model)) {
+            return 1.0;
+        }
         if (lastTurnContext == null) {
             return 1.0;
         }
