@@ -538,10 +538,6 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Convenience overload that infers the language set from {@link #project}.
-     *
-     */
     default Language getLanguageHandle() {
         var projectLangs = getAnalyzerLanguages().stream()
                 .filter(l -> l != Languages.NONE)
