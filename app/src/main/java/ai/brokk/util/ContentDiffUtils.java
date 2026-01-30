@@ -1,7 +1,6 @@
 package ai.brokk.util;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
