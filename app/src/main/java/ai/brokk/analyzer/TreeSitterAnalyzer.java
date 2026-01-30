@@ -276,19 +276,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 var visiting = recursionGuard.get();
                 visiting.add(k);
                 try {
-                    return computer.apply(k);
-                } finally {
-                    visiting.remove(k);
-                }
-            });
-        }
-
-        Set<CodeUnit> computeSubtypesIfAbsent(CodeUnit cu, Function<CodeUnit, Set<CodeUnit>> computer) {
-            return subtypeCache.computeIfAbsent(cu, k -> {
-                var visiting = recursionGuard.get();
-                visiting.add(k);
-                try {
-                    return computer.apply(k);
+                    List<CodeUnit> supertypes = computer.apply(k);
+                    // Update reverse index (subtypes) for each resolved ancestor.
+                    // We use compute to avoid "Recursive update" exceptions if this is called
+                    // during a performGetDirectDescendants scan.
+                    for (CodeUnit ancestor : supertypes) {
+                        subtypeCache.compute(ancestor, (addr, existing) -> {
+                            Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                            set.add(k);
+                            return set;
+                        });
+                    }
+                    return supertypes;
                 } finally {
                     visiting.remove(k);
                 }
@@ -841,7 +840,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     new HashMap<>(this.state.typeHierarchyGraph().subtypes());
 
             lazyHierarchy.forEachSupertype(superUpdates::put);
-            lazyHierarchy.forEachSubtype(subUpdates::put);
+            lazyHierarchy.forEachSubtype((cu, newSubtypes) -> {
+                subUpdates.compute(cu, (k, existing) -> {
+                    if (existing == null) return new HashSet<>(newSubtypes);
+                    var merged = new HashSet<>(existing);
+                    merged.addAll(newSubtypes);
+                    return merged;
+                });
+            });
 
             nextTypeHierarchyGraph = TypeHierarchyGraph.from(superUpdates, subUpdates);
         }
@@ -3522,7 +3528,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // 2. Check persistent state
         CodeUnitProperties props = codeUnitProperties(cu);
         if (props.superTypes() instanceof SuperTypeInfo.Computed computed) {
-            return computed.supertypes();
+            List<CodeUnit> supertypes = computed.supertypes();
+            // Ensure the reverse subtype index is populated in the transient cache
+            // if it hasn't been already, so that getDirectDescendants can find this child.
+            for (CodeUnit ancestor : supertypes) {
+                lazyHierarchy.subtypeCache.compute(ancestor, (addr, existing) -> {
+                    Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(cu);
+                    return set;
+                });
+            }
+            return supertypes;
         }
 
         // 3. Compute lazily (atomic per key)
@@ -3537,7 +3553,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return Set.of();
         }
 
-        // 1. Check lazy cache first
+        // 1. Check lazy cache first (populated as side-effect of supertype computation)
         Set<CodeUnit> cached = lazyHierarchy.getSubtypes(cu);
         if (cached != null) {
             return cached;
@@ -3549,21 +3565,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return persisted;
         }
 
-        // 3. Guard against recursion/cycles
-        if (lazyHierarchy.isComputing(cu)) {
-            log.trace("Recursive performGetDirectDescendants detected for {}", cu.fqName());
-            return Set.of();
+        // 3. Filter candidate classes by checking rawSupertypes text (cheap pre-filter)
+        String targetName = cu.shortName();
+        List<CodeUnit> candidates = this.state.codeUnitState().entrySet().stream()
+                .filter(entry -> entry.getKey().isClass())
+                .filter(entry -> entry.getValue().rawSupertypes().stream().anyMatch(raw -> raw.contains(targetName)))
+                .map(Map.Entry::getKey)
+                .toList();
+
+        // 4. Resolve ancestors for candidates to populate the reverse index (lazyHierarchy.subtypeCache)
+        for (CodeUnit candidate : candidates) {
+            performGetDirectAncestors(candidate);
         }
 
-        // 4. Compute lazily and populate cache
-        return lazyHierarchy.computeSubtypesIfAbsent(cu, k -> {
-            Set<CodeUnit> descendants = this.state.codeUnitState().keySet().stream()
-                    .filter(CodeUnit::isClass)
-                    .filter(candidateClass ->
-                            performGetDirectAncestors(candidateClass).contains(k))
-                    .collect(Collectors.toUnmodifiableSet());
-            return descendants;
-        });
+        // 5. Now check cache again - it should be populated from step 4
+        Set<CodeUnit> result = lazyHierarchy.getSubtypes(cu);
+        return result != null ? Set.copyOf(result) : Set.of();
     }
 
     /* ---------- file filtering helpers ---------- */
