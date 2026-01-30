@@ -63,14 +63,21 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     /**
-     * Returns just the last symbol name component. For CLASS: simple class name (C, C$D). For FUNCTION/FIELD: member
-     * name (foo from a.b.C.foo). For MODULE: the shortName itself (e.g., "_module_").
+     * Returns just the last symbol name component. For CLASS: innermost class name (e.g., `D` from `Outer$D` or `Inner`
+     * from `Outer.Inner`). For FUNCTION/FIELD: member name (foo from a.b.C.foo). For MODULE: the shortName itself (e.g.,
+     * "_module_").
      *
      * @return just the last symbol name component.
      */
     public String identifier() {
         return switch (kind) {
-            case CLASS -> shortName; // Simple class name, potentially including nesting (C, C$D)
+            case CLASS -> {
+                // Extract simple name from potentially nested class (e.g., "AInner" from "A.AInner" or "A$AInner")
+                int lastDot = shortName.lastIndexOf('.');
+                int lastDollar = shortName.lastIndexOf('$');
+                int lastSep = Math.max(lastDot, lastDollar);
+                yield lastSep >= 0 ? shortName.substring(lastSep + 1) : shortName;
+            }
             case MODULE -> shortName; // The module's own short name, e.g., "_module_"
             default -> { // FUNCTION or FIELD
                 // shortName format is "Class.member" or "simpleFunction"
