@@ -371,6 +371,9 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
 JSON
 ```
 
+Note on accounting (REVIEW jobs):
+- REVIEW jobs (and ISSUE jobs described below) run via the headless console and will typically produce LLM accounting totals. Those totals are emitted as a final durable event of type "ACCOUNTING" in the job events stream, and — as a best-effort convenience for callers — the executor may also persist per-job totals into the final JobStatus.metadata map (see "Job Status" below for the exact metadata keys).
+
 ### Key Characteristics of REVIEW Mode
 
 - **Full GitHub integration**: Fetches PR, computes diff, posts comments
@@ -654,9 +657,29 @@ JSON
       "progressPercent": 100,
       "result": null,
       "error": null,
-      "metadata": {}
-    }
-    ```
+      "metadata": {
+        "lastSeq": "12",
+        "totalInputTokens": "30",
+        "totalCachedInputTokens": "2",
+        "totalOutputTokens": "12",
+        "totalThinkingTokens": "3",
+        "totalTokens": "42",
+        "totalCostUsd": "0.112300"
+      }
+      }
+      ```
+
+      LLM accounting metadata (headless runs)
+      - For headless runs that use the HeadlessHttpConsole (for example REVIEW and ISSUE modes), the executor may populate JobStatus.metadata with aggregated LLM usage and cost totals. These keys are provided as strings because metadata is a Map<String,String>, but they represent numeric quantities:
+      - lastSeq — sequence number of the last job event (string)
+      - totalInputTokens — sum of all input tokens across the job (string form of int)
+      - totalCachedInputTokens — sum of cached input tokens across the job (string form of int)
+      - totalOutputTokens — sum of all output tokens across the job (string form of int)
+      - totalThinkingTokens — sum of all "thinking" tokens across the job (string form of int)
+      - totalTokens — input + output only (DOES NOT include thinking); string form of integer/long
+      - totalCostUsd — string form of the double total cost in USD (may be "NaN" if unknown)
+
+      These metadata keys are best-effort: if accounting could not be computed or the job did not run with the headless console, the keys may be absent.
   - Possible `state` values: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`
 
 - **`GET /v1/jobs/{jobId}/events`** - Get job events (supports polling)

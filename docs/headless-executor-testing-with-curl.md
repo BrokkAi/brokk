@@ -823,11 +823,38 @@ curl -sS "${BASE}/v1/jobs/<job-id>" \
   "progressPercent": 100,
   "result": null,
   "error": null,
-  "metadata": {}
+  "metadata": {
+    "lastSeq": "12",
+    "totalInputTokens": "30",
+    "totalCachedInputTokens": "2",
+    "totalOutputTokens": "12",
+    "totalThinkingTokens": "3",
+    "totalTokens": "42",
+    "totalCostUsd": "0.112300"
+  }
 }
 ```
 
 Possible `state` values: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`.
+
+LLM accounting events and metadata
+- Headless runs that use the headless console may emit a final durable event of type `ACCOUNTING` with a JSON payload containing aggregated totals. Example event in the events stream:
+
+```json
+{
+  "seq": 13,
+  "type": "ACCOUNTING",
+  "data": {
+    "inputTokens": 30,
+    "cachedInputTokens": 2,
+    "outputTokens": 12,
+    "thinkingTokens": 3,
+    "cost": 0.1123
+  }
+}
+```
+
+- If an ACCOUNTING event is not observed while streaming events, clients can fall back to `GET /v1/jobs/{jobId}` and read the job's `metadata` keys (see example above) such as `totalInputTokens` and `totalCostUsd`. Prefer the final `ACCOUNTING` event for precise per-job totals when streaming; use status metadata as a best-effort fallback when the event was missed.
 
 ## Job Events
 
