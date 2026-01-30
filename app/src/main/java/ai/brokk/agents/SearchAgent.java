@@ -1,5 +1,6 @@
 package ai.brokk.agents;
 
+import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -1200,9 +1201,10 @@ public class SearchAgent {
      * @return a score in [0, 1] where higher values indicate greater convergence
      */
     double calculateConvergenceScore(Context context, @Nullable Context lastTurnContext) {
-        if (!cm.getService().supportsPrefixCache(model)) {
+        if (!cm.getService().supportsPrefixCache(model) || model instanceof AbstractService.OfflineStreamingModel) {
             return 1.0;
         }
+
         if (lastTurnContext == null) {
             return 1.0;
         }

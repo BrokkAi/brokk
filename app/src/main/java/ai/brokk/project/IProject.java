@@ -538,11 +538,6 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Convenience overload that infers the language set from this project's configured analyzer
-     * languages (see {@link #getAnalyzerLanguages()}), excluding {@link ai.brokk.analyzer.Languages#NONE}.
-     * If the project has no configured languages this returns {@link ai.brokk.analyzer.Languages#NONE}.
-     */
     default Language getLanguageHandle() {
         var projectLangs = getAnalyzerLanguages().stream()
                 .filter(l -> l != Languages.NONE)

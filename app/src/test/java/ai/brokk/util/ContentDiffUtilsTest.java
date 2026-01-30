@@ -370,4 +370,30 @@ public class ContentDiffUtilsTest {
         assertTrue(diff.contains("-14") && diff.contains("+CH2"), "Diff should contain CH2 in same hunk");
         assertTrue(diff.contains("-51") && diff.contains("+CH3"), "Diff should contain CH3");
     }
+
+    @Test
+    void testComputeReviewDiffResultIgnoresWhitespaceOnlyChanges() {
+        String oldContent = "line1\nline2\n";
+        String newContent = " line1 \n\tline2  \n";
+
+        var result = computeReviewDiffResult(oldContent, newContent, "file", "file");
+
+        assertEquals("", result.diff());
+        assertEquals(0, result.added());
+        assertEquals(0, result.deleted());
+    }
+
+    @Test
+    void testComputeReviewDiffResultIgnoresWhitespaceNoiseButKeepsRealChanges() {
+        String oldContent = "a\nb\nc\n";
+        String newContent = " a \nB\nc \n";
+
+        var result = computeReviewDiffResult(oldContent, newContent, "file", "file");
+        String diff = result.diff();
+
+        assertEquals(1, result.added());
+        assertEquals(1, result.deleted());
+        assertTrue(diff.lines().noneMatch(l -> l.equals("-a") || l.equals("+ a ")));
+        assertTrue(ContentDiffUtils.parseUnifiedDiff(diff).isPresent(), "Diff should be parseable");
+    }
 }
