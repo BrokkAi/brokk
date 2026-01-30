@@ -1183,11 +1183,17 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         // to the current node's path.
         for (int i = 0; i < parent.getNamedChildCount(); i++) {
             TSNode sibling = parent.getNamedChild(i);
+            if (sibling == null || sibling.isNull()) {
+                continue;
+            }
             if (sibling.getEndByte() > current.getStartByte()) break;
 
             if (LOCAL_VARIABLE_DECLARATION.equals(sibling.getType())) {
                 for (int j = 0; j < sibling.getNamedChildCount(); j++) {
                     TSNode child = sibling.getNamedChild(j);
+                    if (child == null || child.isNull()) {
+                        continue;
+                    }
                     if (VARIABLE_DECLARATOR.equals(child.getType())) {
                         TSNode nameNode = child.getChildByFieldName("name");
                         if (nameNode != null && !nameNode.isNull()) {
