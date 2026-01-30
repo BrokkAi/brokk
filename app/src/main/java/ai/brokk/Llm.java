@@ -1536,24 +1536,44 @@ public class Llm {
                 int cached = usage.cachedInputTokens();
                 int uncached = Math.max(0, input - cached);
                 int output = usage.outputTokens();
+                int thinking = usage.thinkingTokens();
 
                 int totalTokens = Math.max(0, input) + Math.max(0, output);
                 int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
                 String tokenSummary = "%,d tokens / %d%% cached".formatted(totalTokens, cachedPct);
 
                 String message;
+                double computedCost = Double.NaN;
                 if (pricing.bands().isEmpty()) {
                     message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
                 } else {
-                    double cost = pricing.getCostFor(uncached, cached, output);
+                    computedCost = pricing.getCostFor(uncached, cached, output);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
-                    String costStr = df.format(cost);
+                    String costStr = df.format(computedCost);
                     message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
                 }
 
                 io.showNotification(IConsoleIO.NotificationRole.COST, message);
                 logger.debug("LLM cost: {}", message);
+
+                // Emit structured accounting payload so frontends or headless runners can aggregate usage.
+                // Reuse the numeric cost computed above to ensure the notification and the structured
+                // payload are consistent. If cost is unknown, pass NaN.
+                try {
+                    io.reportLlmUsage(
+                            new IConsoleIO.LlmUsagePayload(
+                                    input,
+                                    cached,
+                                    output,
+                                    thinking,
+                                    computedCost,
+                                    modelName,
+                                    tier == null ? null : tier.toString()));
+                } catch (Exception e) {
+                    // Shield reporting failures from impacting LLM result handling.
+                    logger.debug("Failed to report structured LLM usage to console IO", e);
+                }
             }
         }
     }
