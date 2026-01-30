@@ -8,7 +8,6 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
-import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
@@ -443,7 +442,7 @@ public final class JobRunner {
                                         // Phase 1: Use SearchAgent to generate a task list from the initial task
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
-                                            var searchAgent = new LutzAgent(
+                                            var searchAgent = new SearchAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
@@ -533,7 +532,7 @@ public final class JobRunner {
                                             // Optional pre-scan: resolve scan model similarly to SEARCH mode.
                                             if (spec.preScan()) {
                                                 // Construct agent only for potential pre-scan usage (no execute).
-                                                var searchAgent = new LutzAgent(
+                                                var searchAgent = new SearchAgent(
                                                         context,
                                                         spec.taskInput(),
                                                         Objects.requireNonNull(
@@ -722,7 +721,7 @@ public final class JobRunner {
 
                                             // SearchAgent now handles scanning internally via execute()
                                             var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
-                                            var searchAgent = new LutzAgent(
+                                            var searchAgent = new SearchAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
@@ -730,7 +729,8 @@ public final class JobRunner {
                                                     SearchPrompts.Objective.ANSWER_ONLY,
                                                     scope,
                                                     cm.getIo(),
-                                                    scanConfig);
+                                                    scanConfig,
+                                                    null);
                                             var result = searchAgent.execute();
                                             scope.append(result);
                                         }
@@ -844,7 +844,7 @@ public final class JobRunner {
                                                 var scanGoal =
                                                         "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
                                                                 + annotatedDiff + "\n```";
-                                                var searchAgent = new LutzAgent(
+                                                var searchAgent = new SearchAgent(
                                                         context,
                                                         scanGoal,
                                                         Objects.requireNonNull(
@@ -1016,7 +1016,7 @@ public final class JobRunner {
                                                                     "Issue body is brief; performing prompt enrichment..."));
                                                     try (var enrichmentScope =
                                                             cm.beginTaskUngrouped("Prompt Enrichment")) {
-                                                        var enrichmentAgent = new LutzAgent(
+                                                        var enrichmentAgent = new SearchAgent(
                                                                 cm.liveContext(),
                                                                 issueTaskPrompt,
                                                                 issuePlannerModel,
@@ -1053,7 +1053,7 @@ public final class JobRunner {
                                             String taskDescription = "Issue #" + issueNumber + ": " + details.title();
                                             try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
                                                 var context = cm.liveContext();
-                                                var searchAgent = new LutzAgent(
+                                                var searchAgent = new SearchAgent(
                                                         context,
                                                         issueTaskPrompt,
                                                         issuePlannerModel,
@@ -1179,7 +1179,7 @@ public final class JobRunner {
                                                                     try (var reviewFixScope = cm.beginTaskUngrouped(
                                                                             reviewFixTaskDescription)) {
                                                                         var liveCtx = cm.liveContext();
-                                                                        var reviewFixAgent = new LutzAgent(
+                                                                        var reviewFixAgent = new SearchAgent(
                                                                                 liveCtx,
                                                                                 reviewFixTaskDescription,
                                                                                 issuePlannerModel,
@@ -1539,7 +1539,7 @@ public final class JobRunner {
                                                     """
                                                             .formatted(spec.taskInput());
 
-                                            var agent = new LutzAgent(
+                                            var agent = new SearchAgent(
                                                     context,
                                                     goal,
                                                     model,

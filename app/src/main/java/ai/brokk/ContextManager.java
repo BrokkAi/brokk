@@ -1222,11 +1222,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .ifPresent(methodCu -> {
                         var methodSource = localAnalyzer.getSource(methodCu, true);
                         if (methodSource.isPresent()) {
-                            String className = CodeUnit.toClassname(methodFullName);
-                            localAnalyzer.getDefinitions(className).stream()
-                                    .findFirst()
-                                    .filter(CodeUnit::isClass)
-                                    .ifPresent(sources::add);
+                            localAnalyzer.parentOf(methodCu).ifPresent(sources::add);
                             content.append(methodFullName).append(":\n");
                             content.append(methodSource.get()).append("\n\n");
                         }
@@ -1397,6 +1393,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> syncSessionsAsync() {
         return submitSessionSyncIfActive();
+    }
+
+    @Override
+    public boolean isTaskInProgress() {
+        return isLlmTaskInProgress() || isTaskScopeInProgress();
     }
 
     public boolean isLlmTaskInProgress() {

@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import ai.brokk.difftool.ui.unified.UnifiedDiffGenerator;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.AbstractDelta;
@@ -59,7 +60,7 @@ public class ContentDiffUtils {
      */
     public static DiffComputationResult computeDiffResult(
             String oldContent, String newContent, @Nullable String oldName, @Nullable String newName) {
-        return computeDiffResult(oldContent, newContent, oldName, newName, 0);
+        return computeDiffResult(oldContent, newContent, oldName, newName, UnifiedDiffGenerator.STANDARD_CONTEXT_LINES);
     }
 
     /**

@@ -888,59 +888,50 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         boolean anyTasks = model.getSize() > 0;
 
         LoggingFuture.runAsync(() -> {
-                    var service = chrome.getContextManager().getService();
-                    boolean serviceIsOnline = service.isOnline();
+            var service = chrome.getContextManager().getService();
+            boolean serviceIsOnline = service.isOnline();
+            boolean llmBusy = chrome.getContextManager().isLlmTaskInProgress();
 
-                    boolean llmBusy = false;
-                    try {
-                        llmBusy = chrome.getContextManager().isLlmTaskInProgress();
-                    } catch (Exception ex) {
-                        logger.debug("Unable to query LLM busy state", ex);
+            SwingUtilities.invokeLater(() -> {
+                if (!serviceIsOnline) {
+                    goStopButton.setIcon(null);
+                    goStopButton.setText("Offline");
+                    goStopButton.setToolTipText("LLM service is offline; please check your connection or key");
+                    goStopButton.setBackground(UIManager.getColor("Button.disabledBackground"));
+                    goStopButton.setForeground(UIManager.getColor("Button.disabledForeground"));
+                    goStopButton.setEnabled(false);
+                } else if (llmBusy) {
+                    goStopButton.setIcon(Icons.STOP);
+                    goStopButton.setText(null);
+                    goStopButton.setToolTipText("Cancel the current operation");
+                    var stopBg = UIManager.getColor("Brokk.action_button_bg_stop");
+                    if (stopBg == null) {
+                        stopBg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
                     }
-
-                    if (!serviceIsOnline) {
-                        goStopButton.setIcon(null);
-                        goStopButton.setText("Offline");
-                        goStopButton.setToolTipText("LLM service is offline; please check your connection or key");
-                        goStopButton.setBackground(UIManager.getColor("Button.disabledBackground"));
-                        goStopButton.setForeground(UIManager.getColor("Button.disabledForeground"));
-                        goStopButton.setEnabled(false);
-                    } else if (llmBusy) {
-                        goStopButton.setIcon(Icons.STOP);
-                        goStopButton.setText(null);
-                        goStopButton.setToolTipText("Cancel the current operation");
-                        var stopBg = UIManager.getColor("Brokk.action_button_bg_stop");
-                        if (stopBg == null) {
-                            stopBg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
-                        }
-                        goStopButton.setBackground(stopBg);
-                        goStopButton.setForeground(Color.WHITE);
-                        goStopButton.setEnabled(true);
+                    goStopButton.setBackground(stopBg);
+                    goStopButton.setForeground(Color.WHITE);
+                    goStopButton.setEnabled(true);
+                } else {
+                    goStopButton.setIcon(Icons.FAST_FORWARD);
+                    goStopButton.setText(null);
+                    var defaultBg = UIManager.getColor("Brokk.action_button_bg_default");
+                    if (defaultBg == null) {
+                        defaultBg = UIManager.getColor("Button.default.background");
+                    }
+                    goStopButton.setBackground(defaultBg);
+                    goStopButton.setForeground(Color.WHITE);
+                    goStopButton.setEnabled(anyTasks && !queueActive);
+                    if (!anyTasks) {
+                        goStopButton.setToolTipText("Add a task to get started");
+                    } else if (queueActive) {
+                        goStopButton.setToolTipText("A task queue is already running");
                     } else {
-                        goStopButton.setIcon(Icons.FAST_FORWARD);
-                        goStopButton.setText(null);
-                        var defaultBg = UIManager.getColor("Brokk.action_button_bg_default");
-                        if (defaultBg == null) {
-                            defaultBg = UIManager.getColor("Button.default.background");
-                        }
-                        goStopButton.setBackground(defaultBg);
-                        goStopButton.setForeground(Color.WHITE);
-                        goStopButton.setEnabled(anyTasks && !queueActive);
-                        if (!anyTasks) {
-                            goStopButton.setToolTipText("Add a task to get started");
-                        } else if (queueActive) {
-                            goStopButton.setToolTipText("A task queue is already running");
-                        } else {
-                            goStopButton.setToolTipText("Run Architect on all tasks in order");
-                        }
+                        goStopButton.setToolTipText("Run Architect on all tasks in order");
                     }
-                })
-                .whenComplete((result, ex) -> {
-                    if (ex != null) {
-                        logger.error("Unexpected exception while updating button states", ex);
-                    }
-                    goStopButton.repaint();
-                });
+                }
+                goStopButton.repaint();
+            });
+        });
     }
 
     private void runArchitectOnSelected() {
@@ -1067,7 +1058,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void ensureCleanOrCommitThen(Runnable action) {
         assert SwingUtilities.isEventDispatchThread();
 
-        // Check for dirty files using GCT's cached count (fast, no repo call)
         var dirtyFiles = cm.getProject().getRepo().getModifiedProjectFiles();
         if (dirtyFiles.isEmpty()) {
             action.run();
@@ -1121,7 +1111,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         dialog.setVisible(true);
 
         if (choice[0] == 0) {
-            // Commit first, then proceed on success
             var commitDialog = new CommitDialog(
                     chrome.getFrame(),
                     chrome,
@@ -1130,10 +1119,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     commitResult -> SwingUtilities.invokeLater(action));
             commitDialog.setVisible(true);
         } else if (choice[0] == 1) {
-            // Continue without committing
             action.run();
-        } else {
-            // Cancel: do nothing
         }
     }
 

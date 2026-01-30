@@ -1039,7 +1039,7 @@ public class BrokkDiffPanel extends JPanel
 
                 String oldName = leftSource.title();
                 String newName = rightSource.title();
-                var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName, 0)
+                var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName)
                         .diff();
 
                 String detectedFilename = detectFilename(leftSource, rightSource);
