@@ -725,6 +725,11 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
+    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+        return candidate.isFunction() && "constructor".equals(candidate.identifier());
+    }
+
+    @Override
     protected Set<String> getIgnoredCaptures() {
         // e.g., @parameters, @return_type_node if they are only for context and not main definitions
         return Set.of(
