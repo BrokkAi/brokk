@@ -1017,7 +1017,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .copyAndRefresh();
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
-            SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
+            if (isHeadlessMode()) {
+                notifyContextListeners(newLive);
+            } else {
+                SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
+            }
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Reset workspace to historical state");
         });
@@ -1106,7 +1110,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .copyAndRefresh();
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
-            SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
+            if (isHeadlessMode()) {
+                notifyContextListeners(newLive);
+            } else {
+                SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
+            }
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Reset workspace and history to historical state");
         });
@@ -1203,20 +1211,26 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         } else {
             // Notify user of failed source capture
-            SwingUtilities.invokeLater(() -> {
+            if (isHeadlessMode()) {
                 io.systemNotify(
                         "Could not capture source code for: " + codeUnit.shortName()
                                 + "\n\nThis may be due to unsupported symbol type or missing source ranges.",
                         "Capture Source Failed",
                         JOptionPane.WARNING_MESSAGE);
-            });
+            } else {
+                SwingUtilities.invokeLater(() -> io.systemNotify(
+                        "Could not capture source code for: " + codeUnit.shortName()
+                                + "\n\nThis may be due to unsupported symbol type or missing source ranges.",
+                        "Capture Source Failed",
+                        JOptionPane.WARNING_MESSAGE));
+            }
         }
     }
 
     public void addCallersForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
             io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "No callers found for " + methodName + " (pre-check).");
+                    IConsoleIO.NotificationRole.INFO, "No callers found for " + methodName + ("."));
             return;
         }
         var fragment = new ContextFragments.UsageFragment(this, methodName);
@@ -1228,7 +1242,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public void calleesForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
             io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "No callees found for " + methodName + " (pre-check).");
+                    IConsoleIO.NotificationRole.INFO, "No callees found for " + methodName + ("."));
             return;
         }
         var fragment = new ContextFragments.UsageFragment(this, methodName);
@@ -1694,8 +1708,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private void contextPushed(Context context) {
         captureGitState(context);
-        // Ensure listeners are notified on the EDT
-        SwingUtilities.invokeLater(() -> notifyContextListeners(context));
+        // Ensure listeners are notified on the EDT when running GUI; in headless mode call directly.
+        if (isHeadlessMode()) {
+            notifyContextListeners(context);
+        } else {
+            SwingUtilities.invokeLater(() -> notifyContextListeners(context));
+        }
 
         // Defer save until TaskScope closes to ensure group mappings are captured
         if (!taskScopeInProgress.get()) {
@@ -1789,7 +1807,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.error("Failed to convert pasted image for summarization", e);
                 return "(Error processing image)";
             } finally {
-                SwingUtilities.invokeLater(io::postSummarize);
+                if (isHeadlessMode()) {
+                    io.postSummarize();
+                } else {
+                    SwingUtilities.invokeLater(io::postSummarize);
+                }
             }
         });
     }
@@ -1805,7 +1827,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Remove this task from the map
                 taskDescriptions.remove(task);
                 int remaining = taskDescriptions.size();
-                SwingUtilities.invokeLater(() -> {
+                if (isHeadlessMode()) {
                     if (remaining <= 0) {
                         io.backgroundOutput("");
                     } else if (remaining == 1) {
@@ -1817,7 +1839,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         io.backgroundOutput(
                                 "Tasks running: " + remaining, String.join("\n", taskDescriptions.values()));
                     }
-                });
+                } else {
+                    SwingUtilities.invokeLater(() -> {
+                        if (remaining <= 0) {
+                            io.backgroundOutput("");
+                        } else if (remaining == 1) {
+                            // Find the last remaining task description. If there's a race just end the spin
+                            var lastTaskDescription =
+                                    taskDescriptions.values().stream().findFirst().orElse("");
+                            io.backgroundOutput(lastTaskDescription);
+                        } else {
+                            io.backgroundOutput(
+                                    "Tasks running: " + remaining, String.join("\n", taskDescriptions.values()));
+                        }
+                    });
+                }
             }
         });
     }
@@ -1904,7 +1940,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 try {
                     serviceProvider.reinit(project);
                     // Notify registered listeners on the EDT so they can safely update Swing UI.
-                    SwingUtilities.invokeLater(() -> {
+                    if (isHeadlessMode()) {
                         for (var l : serviceReloadListeners) {
                             try {
                                 l.run();
@@ -1912,7 +1948,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                 logger.warn("Service reload listener threw exception", e);
                             }
                         }
-                    });
+                    } else {
+                        SwingUtilities.invokeLater(() -> {
+                            for (var l : serviceReloadListeners) {
+                                try {
+                                    l.run();
+                                } catch (Exception e) {
+                                    logger.warn("Service reload listener threw exception", e);
+                                }
+                            }
+                        });
+                    }
                 } finally {
                     isReloadingService.set(false);
                 }
@@ -2315,11 +2361,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Save once now that all group mappings are in place
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);
 
-            SwingUtilities.invokeLater(() -> {
-                // deferred cleanup
+            if (isHeadlessMode()) {
+                // deferred cleanup without Swing
                 taskScopeInProgress.set(false);
                 io.setTaskInProgress(false);
-            });
+            } else {
+                SwingUtilities.invokeLater(() -> {
+                    // deferred cleanup
+                    taskScopeInProgress.set(false);
+                    io.setTaskInProgress(false);
+                });
+            }
 
             if (compress) {
                 var finalCtx = contextHistory.replaceTop(ctx -> {
@@ -2793,8 +2845,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         %s
                         """
                                         .formatted(Service.TOP_UP_URL);
-                        SwingUtilities.invokeLater(
-                                () -> io.systemNotify(msg, "Balance Exhausted", JOptionPane.WARNING_MESSAGE));
+                        if (isHeadlessMode()) {
+                            io.systemNotify(msg, "Balance Exhausted", JOptionPane.WARNING_MESSAGE);
+                        } else {
+                            SwingUtilities.invokeLater(
+                                    () -> io.systemNotify(msg, "Balance Exhausted", JOptionPane.WARNING_MESSAGE));
+                        }
                     }
                 } else if (balance < Service.LOW_BALANCE_WARN_AT) {
                     // Low balance warning
@@ -2803,8 +2859,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         lowBalanceNotified = true;
                         var msg = "Low account balance: $%.2f.\nTop-up at %s to avoid interruptions."
                                 .formatted(balance, Service.TOP_UP_URL);
-                        SwingUtilities.invokeLater(
-                                () -> io.systemNotify(msg, "Low Balance Warning", JOptionPane.WARNING_MESSAGE));
+                        if (isHeadlessMode()) {
+                            io.systemNotify(msg, "Low Balance Warning", JOptionPane.WARNING_MESSAGE);
+                        } else {
+                            SwingUtilities.invokeLater(
+                                    () -> io.systemNotify(msg, "Low Balance Warning", JOptionPane.WARNING_MESSAGE));
+                        }
                     }
                 } else {
                     // Healthy balance – clear flags
@@ -2882,7 +2942,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return ctx.withHistory(compressedTaskEntries);
             }
         } finally {
-            SwingUtilities.invokeLater(io::enableHistoryPanel);
+            if (isHeadlessMode()) {
+                io.enableHistoryPanel();
+            } else {
+                SwingUtilities.invokeLater(io::enableHistoryPanel);
+            }
         }
     }
 
