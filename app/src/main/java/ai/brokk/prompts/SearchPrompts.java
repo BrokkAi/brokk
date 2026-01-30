@@ -28,12 +28,14 @@ public class SearchPrompts {
     private static final String WORKSPACE_CONTEXT_GUIDANCE =
             """
             Workspace context guidance:
-              - Use search tools FIRST to identify specific files/classes/methods.
-              - Prefer skimDirectory for directory exploration (what exists where); do not use add*ToWorkspace tools with globs/wildcards to explore directories.
-              - Then add only those specific items to Workspace (no globs, no wildcards, no bulk directory adds).
+              - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
+              - If you don't know where to find a piece of information, use search tools or skimDirectory to identify specific files/classes/methods instead of guessing.
+              - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
+                skimDirectory can help you narrow down your search, after which you should add only those specific items to the Workspace.
+            When to prefer the different content types:
               - Summaries: when you only need API signatures/types/constants.
               - Method sources: when you need implementation details for specific methods.
-              - Full sources: only when you need complete implementation details.
+              - Full sources: when you need complete implementation details.
             """
                     .stripIndent();
 
@@ -177,7 +179,6 @@ public class SearchPrompts {
                      - Workspace granularity (Prefer the smallest sufficient unit of context):
                          - Structure/types/navigation: class or file summary is usually sufficient.
                          - Behavior/implementation: method source > class source > full file.
-
                   2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
                      - Search tool selection:
                           Definitions / declarations only?
@@ -201,6 +202,8 @@ public class SearchPrompts {
                      and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
                      Note: Code Agent will also take care of creating new files, you only need to add existing files
                      to the Workspace.
+                  6) When you have enough information to finalize (solve the problem or answer the question), do so; there
+                     are no bonus points for grooming the perfect Workspace.
 
                 Working efficiently:
                   - Think before calling tools.
@@ -314,7 +317,8 @@ public class SearchPrompts {
 
         // Build workspace messages in insertion order with viewing policy applied
         var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
-        var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
+        // fudge factor for langchain4j's tokenizer undercounts most modern models
+        var workspaceTokens = 1.2 * Messages.getApproximateMessageTokens(workspaceMessages);
 
         var messages = new ArrayList<ChatMessage>();
 
@@ -353,7 +357,7 @@ public class SearchPrompts {
         // Workspace size warning and final instruction
         String warning = "";
         if (inputLimit > 0) {
-            double pct = (double) workspaceTokens / inputLimit * 100.0;
+            double pct = workspaceTokens / inputLimit * 100.0;
             if (pct > 90.0) {
                 warning =
                         """
@@ -480,8 +484,6 @@ public class SearchPrompts {
 
                         <tool-instructions>
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
-                        When you have enough information to finalize (solve the problem or answer the question), do so; there
-                        are no bonus points for grooming the perfect Workspace.
 
                         Pruning mandate (do this now):
                           - In parallel with exploration, prune the Workspace
