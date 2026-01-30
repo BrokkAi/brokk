@@ -63,6 +63,13 @@ public class Completions {
             dedup.put(cu.fqName(), cu);
         }
         for (CodeUnit cu : candidates) {
+            // We intentionally use shortName() (not identifier()) here because parent-class enrichment depends on
+            // seeing the nested path segments (e.g., "Chrome.AnalyzerStatusStrip" or "Do$Re$Sub") so we can detect
+            // when a completion result is a nested member under the queried parent name.
+            //
+            // CodeUnit.identifier() is designed for fuzzy matching and, for CLASS kinds, returns only the innermost
+            // name (e.g., "AnalyzerStatusStrip" from "Chrome.AnalyzerStatusStrip", or "Re" from "Do$Re"). That
+            // loses the prefix ("Chrome"/"Do") and would make separatorIdx always -1, preventing enrichment.
             String shortName = cu.shortName();
             int dotIdx = shortName.indexOf('.');
             int dollarIdx = shortName.indexOf('$');
