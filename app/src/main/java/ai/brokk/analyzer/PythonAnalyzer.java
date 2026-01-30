@@ -1156,6 +1156,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
+    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+        return candidate.isFunction() && "__init__".equals(candidate.identifier());
+    }
+
+    @Override
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
