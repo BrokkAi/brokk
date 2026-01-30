@@ -599,6 +599,68 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void descendantsRecoveredFromPersistedSupertypesEvenIfSubtypeGraphMissing() throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                interface Base {}
+                class Child1 implements Base {}
+                class Child2 implements Base {}
+                """,
+                "src/main/java/com/example/Hierarchy.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            CodeUnit baseOriginal = analyzer.getDefinitions("com.example.Base").getFirst();
+            CodeUnit child1Original = analyzer.getDefinitions("com.example.Child1").getFirst();
+            CodeUnit child2Original = analyzer.getDefinitions("com.example.Child2").getFirst();
+
+            // 1. Trigger ancestor computation for children to ensure state has SuperTypeInfo.Computed
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            hierarchy.getDirectAncestors(child1Original);
+            hierarchy.getDirectAncestors(child2Original);
+
+            // 2. Create a snapshot and convert to DTO
+            var snapshot = analyzer.snapshotState();
+            var dto = TreeSitterStateIO.toDto(snapshot);
+
+            // 3. Create a "legacy" DTO that omits the explicit subtype/supertype graph
+            // This simulates snapshots where hierarchy graphs were not persisted or were empty,
+            // but CodeUnitProperties.superTypes.supertypesComputed is still true.
+            var legacyDto = new TreeSitterStateIO.AnalyzerStateDto(
+                    dto.symbolIndex(),
+                    dto.codeUnitState(),
+                    dto.fileState(),
+                    dto.imports(),
+                    dto.reverseImports(),
+                    null, // supertypes graph omitted
+                    null, // subtypes graph omitted
+                    dto.symbolKeys(),
+                    dto.snapshotEpochNanos());
+
+            var legacyState = TreeSitterStateIO.fromDto(legacyDto);
+
+            // 4. Load analyzer from legacy state
+            JavaAnalyzer loaded = JavaAnalyzer.fromState(project, legacyState, IAnalyzer.ProgressListener.NOOP);
+
+            // 5. Resolve Base from the loaded analyzer
+            CodeUnit baseLoaded = loaded.getDefinitions("com.example.Base").getFirst();
+
+            // 6. Query descendants. Even though the subtypes graph was null/empty in the DTO,
+            // the analyzer should be able to recover them from the computed supertypes in CodeUnitProperties.
+            Set<CodeUnit> descendants =
+                    loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseLoaded);
+
+            assertEquals(2, descendants.size(), "Should find both descendants via supertype back-links");
+            assertTrue(
+                    descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child1")), "Missing Child1");
+            assertTrue(
+                    descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child2")), "Missing Child2");
+        }
+    }
+
+    @Test
     void deserializeLegacyStateWithComputedSupertypes(@TempDir Path tempDir) throws Exception {
         // Construct DTO components manually to simulate legacy structure
         var root = tempDir.toAbsolutePath().normalize();

@@ -3532,7 +3532,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // 2. Check persistent state
         CodeUnitProperties props = codeUnitProperties(cu);
         if (props.superTypes() instanceof SuperTypeInfo.Computed computed) {
-            return computed.supertypes();
+            List<CodeUnit> supertypes = computed.supertypes();
+            // Ensure the reverse subtype index is populated in the transient cache
+            // if it hasn't been already, so that getDirectDescendants can find this child.
+            for (CodeUnit ancestor : supertypes) {
+                lazyHierarchy.subtypeCache.compute(ancestor, (addr, existing) -> {
+                    Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(cu);
+                    return set;
+                });
+            }
+            return supertypes;
         }
 
         // 3. Compute lazily (atomic per key)
