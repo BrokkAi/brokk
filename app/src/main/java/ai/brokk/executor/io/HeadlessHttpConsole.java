@@ -2,6 +2,7 @@ package ai.brokk.executor.io;
 
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
+import ai.brokk.IConsoleIO;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
@@ -10,6 +11,7 @@ import ai.brokk.executor.jobs.JobStore;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.swing.JOptionPane;
@@ -28,6 +30,13 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
     private final JobStore jobStore;
     private final String jobId;
+
+    // Accumulated accounting totals for the job (updated via reportLlmUsage callbacks)
+    private int totalInputTokens = 0;
+    private int totalCachedInputTokens = 0;
+    private int totalOutputTokens = 0;
+    private int totalThinkingTokens = 0;
+    private double totalCost = 0.0;
 
     /**
      * Create a new HeadlessHttpConsole.
@@ -256,6 +265,62 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     public long getLastSeq() {
         return jobStore.getLastSeq(jobId);
+    }
+
+    // ============================================================================
+    // Accounting: accumulate totals across multiple reportLlmUsage callbacks
+    // ============================================================================
+
+    /**
+     * Called by Llm.logResult to report structured usage for a single completed LLM call.
+     * We accumulate sums internally so the JobRunner can read totals at job completion.
+     */
+    @Override
+    public void reportLlmUsage(IConsoleIO.LlmUsagePayload payload) {
+        if (payload == null) return;
+        // accumulate totals
+        totalInputTokens += Math.max(0, payload.inputTokens());
+        totalCachedInputTokens += Math.max(0, payload.cachedInputTokens());
+        totalOutputTokens += Math.max(0, payload.outputTokens());
+        totalThinkingTokens += Math.max(0, payload.thinkingTokens());
+        totalCost += Double.isNaN(payload.cost()) ? 0.0 : payload.cost();
+        // do not emit an event per callback; the caller can persist a final ACCOUNTING event at job end
+    }
+
+    /**
+     * Persist the accumulated accounting totals as a durable ACCOUNTING event. The payload is JSON-serializable
+     * with numeric fields for aggregated tokens and cost.
+     *
+     * This method is idempotent and may be called multiple times; it will append another ACCOUNTING event each call.
+     */
+    public void persistAccountingTotals() {
+        Map<String, Object> data = new HashMap<>();
+        data.put("inputTokens", totalInputTokens);
+        data.put("cachedInputTokens", totalCachedInputTokens);
+        data.put("outputTokens", totalOutputTokens);
+        data.put("thinkingTokens", totalThinkingTokens);
+        data.put("cost", totalCost);
+        appendEvent("ACCOUNTING", data);
+    }
+
+    public int getTotalInputTokens() {
+        return totalInputTokens;
+    }
+
+    public int getTotalCachedInputTokens() {
+        return totalCachedInputTokens;
+    }
+
+    public int getTotalOutputTokens() {
+        return totalOutputTokens;
+    }
+
+    public int getTotalThinkingTokens() {
+        return totalThinkingTokens;
+    }
+
+    public double getTotalCost() {
+        return totalCost;
     }
 
     // ============================================================================
