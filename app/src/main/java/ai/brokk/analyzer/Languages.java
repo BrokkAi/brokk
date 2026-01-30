@@ -71,7 +71,19 @@ public class Languages {
             return Language.super.getSearchPatterns(type);
         }
     };
-    public static final Language JAVA = new JavaLanguage();
+    public static final Language JAVA = new JavaLanguage() {
+        @Override
+        public Set<String> getSearchPatterns(CodeUnitType type) {
+            if (type == CodeUnitType.FUNCTION) {
+                return Set.of(
+                        "(?<![.])\\b$ident\\s*\\(", // function calls (not preceded by dot)
+                        "\\.$ident\\s*\\(", // method calls on objects
+                        "::\\s*$ident\\b" // method references like Foo::bar
+                );
+            }
+            return super.getSearchPatterns(type);
+        }
+    };
     public static final Language JAVASCRIPT = new Language() {
         private final Set<String> extensions = Set.of("js", "mjs", "cjs", "jsx");
 

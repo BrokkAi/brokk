@@ -105,23 +105,29 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
-        final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
-        var type =
-                switch (skeletonType) {
-                    case CLASS_LIKE -> CodeUnitType.CLASS;
-                    case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
-                    case FIELD_LIKE -> CodeUnitType.FIELD;
-                    case MODULE_STATEMENT -> CodeUnitType.MODULE;
-                    default -> {
-                        // This shouldn't be reached if captureConfiguration is exhaustive
-                        log.warn("Unhandled CodeUnitType for '{}'", skeletonType);
-                        yield CodeUnitType.CLASS;
-                    }
-                };
+        CodeUnitType type;
+        String shortName;
+
+        if (CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName)) {
+            type = CodeUnitType.FUNCTION;
+            String owner = classChain.isEmpty() ? simpleName : classChain;
+            shortName = owner + ".<init>";
+        } else {
+            type = switch (skeletonType) {
+                case CLASS_LIKE -> CodeUnitType.CLASS;
+                case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
+                case FIELD_LIKE -> CodeUnitType.FIELD;
+                case MODULE_STATEMENT -> CodeUnitType.MODULE;
+                default -> {
+                    log.warn("Unhandled CodeUnitType for '{}'", skeletonType);
+                    yield CodeUnitType.CLASS;
+                }
+            };
+            shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+        }
 
         // For modules, compute the parent package and short name from the full package string.
-        // simpleName contains the full package (e.g., "com.example.foo"), so split it.
         if (type == CodeUnitType.MODULE) {
             String fullPackage = simpleName;
             int lastDot = fullPackage.lastIndexOf('.');
@@ -402,9 +408,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
-        // Normalize generics/anon/location suffixes for both class and method lookups
-        var normalized = normalizeFullName(fqName);
-        return super.getDefinitions(normalized);
+        // TreeSitterAnalyzer.getDefinitions already calls normalizeFullName().
+        // Avoid double-normalization because our internal constructor token "<init>" contains angle brackets.
+        return super.getDefinitions(fqName);
     }
 
     /**
@@ -413,10 +419,20 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
      */
     public static String stripGenericTypeArguments(String name) {
         if (name.isEmpty()) return name;
+
         StringBuilder sb = new StringBuilder(name.length());
         int depth = 0;
+
         for (int i = 0; i < name.length(); i++) {
             char c = name.charAt(i);
+
+            // Preserve our internal constructor token "<init>" (used like C#) - it is not a generic argument.
+            if (c == '<' && depth == 0 && name.startsWith("<init>", i)) {
+                sb.append("<init>");
+                i += "<init>".length() - 1;
+                continue;
+            }
+
             if (c == '<') {
                 depth++;
                 continue;
@@ -429,6 +445,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 sb.append(c);
             }
         }
+
         return sb.toString();
     }
 
@@ -449,16 +466,33 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                     out.append(c == '$' ? '.' : c);
                 }
             }
-            return out.toString();
+            s = out.toString();
+        } else {
+            // No lambda marker; perform standard normalization:
+            // 1) Strip trailing numeric anonymous suffixes like $1 or $2 (optionally followed by :line(:col))
+            s = s.replaceFirst("\\$\\d+(?::\\d+(?::\\d+)?)?$", "");
+            // 2) Strip trailing location suffix like :line or :line:col (e.g., ":16" or ":328:16")
+            s = s.replaceFirst(":[0-9]+(?::[0-9]+)?$", "");
+            // 3) Replace subclass delimiters with dots
+            s = s.replace('$', '.');
         }
 
-        // No lambda marker; perform standard normalization:
-        // 1) Strip trailing numeric anonymous suffixes like $1 or $2 (optionally followed by :line(:col))
-        s = s.replaceFirst("\\$\\d+(?::\\d+(?::\\d+)?)?$", "");
-        // 2) Strip trailing location suffix like :line or :line:col (e.g., ":16" or ":328:16")
-        s = s.replaceFirst(":[0-9]+(?::[0-9]+)?$", "");
-        // 3) Replace subclass delimiters with dots
-        s = s.replace('$', '.');
+        // Handle constructor normalization: map Foo.Foo to Foo.<init>
+        // Check if the name ends with .SimpleName where SimpleName matches the preceding segment
+        int lastDot = s.lastIndexOf('.');
+        if (lastDot > 0) {
+            String suffix = s.substring(lastDot + 1);
+            if (!suffix.equals("<init>")) {
+                int prevDot = s.lastIndexOf('.', lastDot - 1);
+                String parentName = (prevDot >= 0) ? s.substring(prevDot + 1, lastDot) : s.substring(0, lastDot);
+
+                if (suffix.equals(parentName)) {
+                    // Potential constructor reference (e.g., com.pkg.Foo.Foo -> com.pkg.Foo.<init>)
+                    return s.substring(0, lastDot) + ".<init>";
+                }
+            }
+        }
+
         return s;
     }
 
@@ -1328,31 +1362,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
-        // In Java, constructors are functions whose identifier matches the enclosing class identifier.
-        // CodeUnit.identifier() already returns the last symbol component, so this works for nested
-        // constructors like "Outer.Inner.Inner" as well.
-        return candidate.isFunction() && candidate.identifier().equals(enclosingClass.identifier());
+        return candidate.isFunction() && "<init>".equals(candidate.identifier());
     }
 
     @Override
     protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass) {
-        // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
-        // We can't easily check the specific sub-kind from the CodeUnit alone, but the convention
-        // in this codebase is that CodeUnitType.CLASS covers all of them.
-        // However, based on the test failures, we should be conservative.
-        // If the class name looks like an interface or enum (often determined by its contents),
-        // we should ideally avoid it, but for now we'll rely on the parent logic.
-
-        // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
-        // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)
-        String constructorName = enclosingClass.identifier();
-        String shortName = enclosingClass.shortName() + "." + constructorName;
-
-        return new CodeUnit(
-                enclosingClass.source(),
-                CodeUnitType.FUNCTION,
-                enclosingClass.packageName(),
-                shortName);
+        String shortName = enclosingClass.shortName() + ".<init>";
+        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
     }
 
     @Override
