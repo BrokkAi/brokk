@@ -1479,6 +1479,35 @@ public final class PythonAnalyzerTest {
         }
     }
 
+    private static class ExposedPythonAnalyzer extends PythonAnalyzer {
+        ExposedPythonAnalyzer(TestProject project) {
+            super(project);
+        }
+
+        public boolean exposedIsConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+            return super.isConstructor(candidate, enclosingClass);
+        }
+    }
+
+    @Test
+    void testIsConstructor() {
+        assertNotNull(analyzer, "Analyzer should be initialized.");
+        ExposedPythonAnalyzer exposed = new ExposedPythonAnalyzer(project);
+
+        CodeUnit classCU = analyzer.getDefinitions("documented.DocumentedClass").stream()
+                .findFirst()
+                .orElseThrow();
+        CodeUnit initCU = analyzer.getDefinitions("documented.DocumentedClass.__init__").stream()
+                .findFirst()
+                .orElseThrow();
+        CodeUnit otherMethodCU = analyzer.getDefinitions("documented.DocumentedClass.get_value").stream()
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(exposed.exposedIsConstructor(initCU, classCU), "__init__ should be a constructor");
+        assertFalse(exposed.exposedIsConstructor(otherMethodCU, classCU), "get_value should not be a constructor");
+    }
+
     @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(project, analyzer);

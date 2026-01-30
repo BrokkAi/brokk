@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
 
-public final class PhpAnalyzer extends TreeSitterAnalyzer {
+public class PhpAnalyzer extends TreeSitterAnalyzer {
     // PHP_LANGUAGE field removed, createTSLanguage will provide new instances.
 
     private static final String NODE_TYPE_PHP_TAG = "php_tag";

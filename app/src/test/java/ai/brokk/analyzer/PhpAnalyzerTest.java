@@ -247,6 +247,35 @@ public class PhpAnalyzerTest {
         assertCodeContains(classSource, "public function getValue(): int {");
     }
 
+    private static class ExposedPhpAnalyzer extends PhpAnalyzer {
+        ExposedPhpAnalyzer(TestProject project) {
+            super(project);
+        }
+
+        public boolean exposedIsConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+            return super.isConstructor(candidate, enclosingClass);
+        }
+    }
+
+    @Test
+    void testIsConstructor() {
+        assertNotNull(analyzer, "Analyzer should be initialized.");
+        ExposedPhpAnalyzer exposed = new ExposedPhpAnalyzer(testProject);
+
+        CodeUnit classCU = analyzer.getDefinitions("My.Lib.Foo").stream()
+                .findFirst()
+                .orElseThrow();
+        CodeUnit constructCU = analyzer.getDefinitions("My.Lib.Foo.__construct").stream()
+                .findFirst()
+                .orElseThrow();
+        CodeUnit otherMethodCU = analyzer.getDefinitions("My.Lib.Foo.getValue").stream()
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(exposed.exposedIsConstructor(constructCU, classCU), "__construct should be a constructor");
+        assertFalse(exposed.exposedIsConstructor(otherMethodCU, classCU), "getValue should not be a constructor");
+    }
+
     @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
