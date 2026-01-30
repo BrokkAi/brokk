@@ -38,7 +38,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -1128,248 +1127,30 @@ public final class JobRunner {
                                                             fixTaskRunner);
                                                 }
 
-                                                // 5. ISSUE-mode review-bot: compute diff vs default branch and
-                                                // generate structured inline comments AFTER we have a passing build
-                                                // and BEFORE PR creation.
-                                                String targetBranch = gitHubAuth.getDefaultBranch();
-                                                var inlineComments = issueModeComputeInlineComments(
-                                                        jobId,
-                                                        store,
-                                                        gitRepo,
-                                                        context,
-                                                        issuePlannerModel,
-                                                        githubToken,
-                                                        targetBranch);
-                                                logger.info(
-                                                        "ISSUE job {} review-bot produced {} inline comment(s)",
-                                                        jobId,
-                                                        inlineComments.size());
-
-                                                // 6. Apply review-bot inline comments as serial code-fix tasks on the
-                                                // current issue branch.
-                                                if (inlineComments.isEmpty()) {
-                                                    try {
-                                                        store.appendEvent(
-                                                                jobId,
-                                                                JobEvent.of(
-                                                                        "NOTIFICATION",
-                                                                        "Review-bot: no inline comments to fix; skipping review-fix stage."));
-                                                    } catch (Exception e) {
-                                                        logger.warn(
-                                                                "Failed to append review-fix skip notification event for job {}: {}",
-                                                                jobId,
-                                                                e.getMessage(),
-                                                                e);
-                                                    }
-                                                } else {
-                                                    var total = inlineComments.size();
-                                                    var taskIndex = new AtomicInteger(0);
-                                                    var lastTaskDescription = new AtomicReference<String>("");
-
-                                                    Consumer<PrReviewService.InlineComment> reviewFixTaskRunner =
-                                                            comment -> {
-                                                                int idx = taskIndex.incrementAndGet();
-
-                                                                String path =
-                                                                        Objects.requireNonNullElse(comment.path(), "");
-                                                                int line = comment.line();
-
-                                                                String reviewFixTaskDescription = "Review-fix " + idx
-                                                                        + "/" + total + ": " + path + ":" + line;
-                                                                lastTaskDescription.set(reviewFixTaskDescription);
-
-                                                                String prompt = buildInlineCommentFixPrompt(comment);
-
-                                                                try {
-                                                                    try (var reviewFixScope = cm.beginTaskUngrouped(
-                                                                            reviewFixTaskDescription)) {
-                                                                        var liveCtx = cm.liveContext();
-                                                                        var reviewFixAgent = new SearchAgent(
-                                                                                liveCtx,
-                                                                                reviewFixTaskDescription,
-                                                                                issuePlannerModel,
-                                                                                SearchPrompts.Objective.LUTZ,
-                                                                                reviewFixScope);
-
-                                                                        try {
-                                                                            reviewFixAgent.callCodeAgent(prompt);
-                                                                        } catch (InterruptedException ie) {
-                                                                            Thread.currentThread()
-                                                                                    .interrupt();
-                                                                            throw new RuntimeException(ie);
-                                                                        }
-                                                                    }
-                                                                } catch (InterruptedException ie) {
-                                                                    Thread.currentThread()
-                                                                            .interrupt();
-                                                                    throw new RuntimeException(ie);
-                                                                } catch (RuntimeException re) {
-                                                                    if (re.getCause() instanceof InterruptedException) {
-                                                                        throw re;
-                                                                    }
-                                                                    logger.warn(
-                                                                            "ISSUE job {} review-fix task {}/{} failed for {}:{}: {}",
-                                                                            jobId,
-                                                                            idx,
-                                                                            total,
-                                                                            path,
-                                                                            line,
-                                                                            re.getMessage(),
-                                                                            re);
-                                                                    throw re;
-                                                                }
-                                                            };
-
-                                                    Runnable branchUpdateHook = () -> {
-                                                        int idx = taskIndex.get();
-                                                        if (idx <= 0) {
-                                                            return;
-                                                        }
-                                                        if (cancelled.get()) {
-                                                            return;
-                                                        }
-
-                                                        String reviewFixTaskDescription =
-                                                                Objects.requireNonNull(lastTaskDescription.get());
-
-                                                        try {
-                                                            new GitWorkflow(cm)
-                                                                    .performAutoCommit(reviewFixTaskDescription);
-                                                        } catch (InterruptedException ie) {
-                                                            Thread.currentThread()
-                                                                    .interrupt();
-                                                            throw new RuntimeException(ie);
-                                                        } catch (Exception e) {
-                                                            logger.warn(
-                                                                    "ISSUE job {} review-fix auto-commit fallback failed for task {}/{}: {}",
-                                                                    jobId,
-                                                                    idx,
-                                                                    total,
-                                                                    e.getMessage(),
-                                                                    e);
-                                                        }
-
-                                                        try {
-                                                            String pushMsg = new GitWorkflow(cm)
-                                                                    .push(issueBranchName, githubToken);
-                                                            try {
-                                                                store.appendEvent(
-                                                                        jobId,
-                                                                        JobEvent.of(
-                                                                                "NOTIFICATION",
-                                                                                "Review-fix push succeeded: "
-                                                                                        + pushMsg));
-                                                            } catch (Exception e) {
-                                                                logger.warn(
-                                                                        "Failed to append review-fix push success notification event for job {}: {}",
-                                                                        jobId,
-                                                                        e.getMessage(),
-                                                                        e);
-                                                            }
-                                                        } catch (Exception e) {
-                                                            logger.warn(
-                                                                    "ISSUE job {} review-fix push failed for task {}/{}: {}",
-                                                                    jobId,
-                                                                    idx,
-                                                                    total,
-                                                                    e.getMessage(),
-                                                                    e);
-                                                            try {
-                                                                store.appendEvent(
-                                                                        jobId,
-                                                                        JobEvent.of(
-                                                                                "NOTIFICATION",
-                                                                                "Review-fix push failed (continuing): "
-                                                                                        + (e.getMessage() == null
-                                                                                                ? e.getClass()
-                                                                                                        .getSimpleName()
-                                                                                                : e.getMessage())));
-                                                            } catch (Exception e2) {
-                                                                logger.warn(
-                                                                        "Failed to append review-fix push failure notification event for job {}: {}",
-                                                                        jobId,
-                                                                        e2.getMessage(),
-                                                                        e2);
-                                                            }
-                                                        }
-                                                    };
-
-                                                    Runnable finalVerificationPass = () -> {
-                                                        Function<String, String> commandRunner = cmd -> {
-                                                            try {
-                                                                return BuildAgent.runExplicitCommand(
-                                                                        cm, cmd, buildDetailsOverride);
-                                                            } catch (InterruptedException ie) {
-                                                                Thread.currentThread()
-                                                                        .interrupt();
-                                                                throw new RuntimeException(ie);
-                                                            }
-                                                        };
-
-                                                        runIssueModeTestLintRetryLoop(
-                                                                jobId,
-                                                                store,
-                                                                (console != null ? console : cm.getIo()),
-                                                                cancelled::get,
-                                                                (attempt, message) -> {
-                                                                    try {
-                                                                        store.appendEvent(
-                                                                                jobId,
-                                                                                JobEvent.of("NOTIFICATION", message));
-                                                                    } catch (IOException ioe) {
-                                                                        logger.warn(
-                                                                                "Failed to append final verification notification event for job {}: {}",
-                                                                                jobId,
-                                                                                ioe.getMessage(),
-                                                                                ioe);
-                                                                    }
-
-                                                                    try {
-                                                                        (console != null ? console : cm.getIo())
-                                                                                .showNotification(
-                                                                                        IConsoleIO.NotificationRole
-                                                                                                .INFO,
-                                                                                        message);
-                                                                    } catch (Throwable ignore) {
-                                                                        // best-effort only
-                                                                    }
-                                                                },
-                                                                commandRunner,
-                                                                out -> {
-                                                                    String prompt = "fix this build error:\n" + out;
-                                                                    try {
-                                                                        cm.executeTask(
-                                                                                TaskList.TaskItem.createFixTask(prompt),
-                                                                                issuePlannerModel,
-                                                                                issueCodeModel);
-                                                                    } catch (Exception e) {
-                                                                        logger.warn(
-                                                                                "Final fix attempt failed for job {}: {}",
-                                                                                jobId,
-                                                                                e.getMessage());
-                                                                    }
-                                                                },
-                                                                buildDetailsOverride,
-                                                                spec.effectiveMaxIssueFixAttempts());
-                                                    };
-
-                                                    runIssueReviewFixAttemptsWithCommandResultEvents(
+                                                // 5. Streamlined ISSUE path:
+                                                // After per-task single-fix verification gate(s) complete,
+                                                // skip the review-bot, inline-comment review-fix sequence, and
+                                                // the final tests/lint retry loop. Move directly to the
+                                                // pre-PR decision point below.
+                                                try {
+                                                    store.appendEvent(
                                                             jobId,
-                                                            store,
-                                                            (console != null ? console : cm.getIo()),
-                                                            cancelled::get,
-                                                            inlineComments,
-                                                            reviewFixTaskRunner,
-                                                            branchUpdateHook);
+                                                            JobEvent.of(
+                                                                    "NOTIFICATION",
+                                                                    "ISSUE mode: skipping review-bot and final verification; proceeding to pre-PR checks."));
+                                                } catch (Exception e) {
+                                                    logger.warn(
+                                                            "Failed to append notification about skipping review-bot/final verification for job {}: {}",
+                                                            jobId,
+                                                            e.getMessage(),
+                                                            e);
+                                                }
 
-                                                    if (cancelled.get()) {
-                                                        logger.info(
-                                                                "ISSUE job {} cancelled after review-fix; skipping final verification",
-                                                                jobId);
-                                                        return;
-                                                    }
-
-                                                    finalVerificationPass.run();
+                                                if (cancelled.get()) {
+                                                    logger.info(
+                                                            "ISSUE job {} cancelled after per-task verification; aborting before PR creation",
+                                                            jobId);
+                                                    return;
                                                 }
 
                                                 if (cancelled.get()) {
@@ -1393,6 +1174,17 @@ public final class JobRunner {
                                                         // GitWorkflow.
                                                         workflow.performAutoCommit(
                                                                 "Resolves #" + issueNumber + ": " + details.title());
+
+                                                        // Resolve the target branch: prefer explicit
+                                                        // spec.targetBranch(),
+                                                        // otherwise fall back to the repository default branch.
+                                                        String targetBranch = (spec.targetBranch() != null
+                                                                        && !spec.targetBranch()
+                                                                                .isBlank())
+                                                                ? spec.targetBranch()
+                                                                : ((GitRepo) cm.getProject()
+                                                                                .getRepo())
+                                                                        .getDefaultBranch();
 
                                                         var suggestion = workflow.suggestPullRequestDetails(
                                                                 issueBranchName, targetBranch, cm.getIo());
