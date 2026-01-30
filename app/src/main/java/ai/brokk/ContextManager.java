@@ -296,7 +296,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private void initializeCurrentSessionAndHistory(boolean forceNew) {
-        // load last active session, if present
+        // Core session selection/creation: determine which session id to load.
         var lastActiveSessionId = ((AbstractProject) project).getLastActiveSession();
         var sessionManager = project.getSessionManager();
         var sessions = sessionManager.listSessions();
@@ -312,14 +312,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
             sessionIdToLoad = lastActiveSessionId.get();
             logger.info("Resuming last active session {}", sessionIdToLoad);
         }
-        this.currentSessionId = sessionIdToLoad; // Set currentSessionId here
 
-        // load session contents
+        // Set the current session id (core state) before attempting to load history.
+        this.currentSessionId = sessionIdToLoad;
+
+        // Load session contents (core operation). This may return null when history is corrupted/unreadable.
         var loadedCH = sessionManager.loadHistoryAndRefresh(currentSessionId, this);
         if (loadedCH == null) {
             if (forceNew) {
+                // Create a fresh history for the new session
                 contextHistory = new ContextHistory(new Context(this));
             } else {
+                // Retry once by forcing a new session to avoid infinite recursion by preserving early exit semantics.
                 initializeCurrentSessionAndHistory(true);
                 return;
             }
@@ -327,10 +331,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
             contextHistory = loadedCH;
         }
 
-        // make it official
+        // Persist active session information (core) and perform post-activation steps that are non-GUI.
         updateActiveSession(currentSessionId);
 
+        // Finalize activation: run core migration and notify listeners/UI in a mode-safe way.
         finalizeSessionActivation(currentSessionId);
+
+        // Continue with optional migration/sync tasks.
         migrateToSessionsV3IfNeeded().thenRun(this::submitSessionSyncIfActive);
     }
 
@@ -1476,25 +1483,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private void finalizeSessionActivation(UUID sessionId) {
-        // Always migrate legacy Task List for the active session first, then notify UI.
+        // Core: Always migrate legacy Task List for the active session first.
         migrateLegacyTaskLists(sessionId);
 
-        // Notify listeners and UI. If running headless, notify synchronously to avoid Swing/EDT usage.
+        // Notify non-GUI listeners immediately so headless callers see the session as initialized.
+        // UI updates that require Swing/EDT are only dispatched when not running in headless mode.
+        // Note: notifyContextListeners is safe to call off-EDT as listeners are expected to handle non-blocking access.
+        notifyContextListeners(liveContext());
+        io.updateContextHistoryTable(liveContext());
+
         if (isHeadlessMode()) {
-            notifyContextListeners(liveContext());
-            io.updateContextHistoryTable(liveContext());
+            // In headless mode, avoid any Swing/AWT calls. HeadlessConsole/IO should be no-ops or
+            // appropriate for non-UI environments.
+            return;
+        }
+
+        // For GUI mode, perform UI-affecting operations on the EDT.
+        SwingUtilities.invokeLater(() -> {
+            // Some IO implementations (Chrome) may perform additional UI wiring when enabling actions.
             if (io instanceof Chrome) {
                 io.enableActionButtons();
             }
-        } else {
-            SwingUtilities.invokeLater(() -> {
-                notifyContextListeners(liveContext());
-                io.updateContextHistoryTable(liveContext());
-                if (io instanceof Chrome) {
-                    io.enableActionButtons();
-                }
-            });
-        }
+        });
     }
 
     @SuppressWarnings("deprecation")
