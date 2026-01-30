@@ -168,7 +168,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
         }
-        var favoriteModels = sanitizeFavorites(quickModelsTableModel.getFavorites());
+        var favoriteModels = quickModelsTableModel.getFavorites();
         if (favoriteModels.isEmpty()) {
             var currentCodeConfig = chrome.getProject().getMainProject().getModelConfig(ModelProperties.ModelType.CODE);
             favoriteModels = List.of(new Service.FavoriteModel("default", currentCodeConfig));
@@ -1025,45 +1025,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         SwingUtilities.updateComponentTreeUI(this);
     }
 
-    private record ModelCapabilities(
-            String label, boolean supportsReasoning, boolean supportsReasoningDisable, boolean supportsTier) {}
-
-    private static ModelCapabilities getModelCapabilities(@Nullable String modelName, AbstractService service) {
-        String label = modelName == null ? "this model" : modelName;
-        boolean supportsEffort = modelName != null && service.supportsReasoningEffort(modelName);
-        boolean supportsDisable = modelName != null && service.supportsReasoningDisable(modelName);
-        boolean supportsTier = modelName != null && service.supportsProcessingTier(modelName);
-        return new ModelCapabilities(label, supportsEffort, supportsDisable, supportsTier);
-    }
-
-    private List<Service.FavoriteModel> sanitizeFavorites(List<Service.FavoriteModel> favorites) {
-        var service = chrome.getContextManager().getService();
-        return favorites.stream()
-                .map(fm -> {
-                    var config = fm.config();
-                    var caps = getModelCapabilities(config.name(), service);
-                    Service.ReasoningLevel reasoning = config.reasoning();
-                    Service.ProcessingTier tier = config.tier();
-
-                    if (!caps.supportsReasoning()) {
-                        reasoning = Service.ReasoningLevel.DEFAULT;
-                    } else if (reasoning == Service.ReasoningLevel.DISABLE && !caps.supportsReasoningDisable()) {
-                        reasoning = Service.ReasoningLevel.DEFAULT;
-                    }
-
-                    if (!caps.supportsTier()) {
-                        tier = Service.ProcessingTier.DEFAULT;
-                    }
-
-                    if (reasoning == config.reasoning() && tier == config.tier()) {
-                        return fm;
-                    }
-                    return new Service.FavoriteModel(
-                            fm.alias(), new Service.ModelConfig(config.name(), reasoning, tier));
-                })
-                .toList();
-    }
-
     private static class FavoriteModelsTableModel extends AbstractTableModel {
         private List<Service.FavoriteModel> favorites;
         private final String[] columnNames = {"Alias", "Model Name", "Reasoning", "Processing Tier"};
@@ -1210,22 +1171,14 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                     (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            var caps = getModelCapabilities(modelName, service);
-
-            if (!caps.supportsReasoning()) {
+            if (modelName != null && !service.supportsReasoningEffort(modelName)) {
                 label.setText("Off");
                 label.setEnabled(false);
-                label.setToolTipText("Reasoning effort not supported by " + caps.label());
+                label.setToolTipText("Reasoning effort not supported by " + modelName);
             } else if (value instanceof Service.ReasoningLevel level) {
-                if (level == Service.ReasoningLevel.DISABLE && !caps.supportsReasoningDisable()) {
-                    label.setText(Service.ReasoningLevel.DEFAULT.toString());
-                    label.setEnabled(true);
-                    label.setToolTipText("Disable reasoning is not supported by " + caps.label() + "; defaulting.");
-                } else {
-                    label.setText(level.toString());
-                    label.setEnabled(true);
-                    label.setToolTipText("Select reasoning effort");
-                }
+                label.setText(level.toString());
+                label.setEnabled(true);
+                label.setToolTipText("Select reasoning effort");
             } else {
                 label.setText(value == null ? "" : value.toString());
                 label.setEnabled(true);
@@ -1264,27 +1217,13 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 JTable table, Object value, boolean isSelected, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            var caps = getModelCapabilities(modelName, service);
-
-            comboBox.removeAllItems();
-            if (caps.supportsReasoning()) {
-                for (Service.ReasoningLevel level : Service.ReasoningLevel.values()) {
-                    if (level == Service.ReasoningLevel.DISABLE && !caps.supportsReasoningDisable()) {
-                        continue;
-                    }
-                    comboBox.addItem(level);
-                }
-            } else {
-                comboBox.addItem(Service.ReasoningLevel.DEFAULT);
-            }
-
+            boolean supports = modelName != null && service.supportsReasoningEffort(modelName);
             Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
-            editorComponent.setEnabled(caps.supportsReasoning());
-            comboBox.setEnabled(caps.supportsReasoning());
-
-            if (!caps.supportsReasoning()) {
+            editorComponent.setEnabled(supports);
+            comboBox.setEnabled(supports);
+            if (!supports) {
                 comboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
-                comboBox.setToolTipText("Reasoning effort not supported by " + caps.label());
+                comboBox.setToolTipText("Reasoning effort not supported by " + modelName);
                 comboBox.setRenderer(new DefaultListCellRenderer() {
                     @Override
                     public Component getListCellRendererComponent(
@@ -1304,12 +1243,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             } else {
                 comboBox.setToolTipText("Select reasoning effort");
                 comboBox.setRenderer(new DefaultListCellRenderer());
-                if (value instanceof Service.ReasoningLevel lvl
-                        && (lvl != Service.ReasoningLevel.DISABLE || caps.supportsReasoningDisable())) {
-                    comboBox.setSelectedItem(lvl);
-                } else {
-                    comboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
-                }
+                comboBox.setSelectedItem(value);
             }
             return editorComponent;
         }
@@ -1320,30 +1254,14 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
                 String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-                var caps = getModelCapabilities(modelName, service);
-                return caps.supportsReasoning();
+                return modelName != null && service.supportsReasoningEffort(modelName);
             }
             return super.isCellEditable(anEvent);
         }
 
         @Override
         public Object getCellEditorValue() {
-            Object value = super.getCellEditorValue();
-            if (!comboBox.isEnabled()) {
-                return Service.ReasoningLevel.DEFAULT;
-            }
-            if (value instanceof Service.ReasoningLevel lvl && lvl == Service.ReasoningLevel.DISABLE) {
-                int row = table.getEditingRow();
-                if (row != -1) {
-                    int modelRow = table.convertRowIndexToModel(row);
-                    String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-                    var caps = getModelCapabilities(modelName, service);
-                    if (!caps.supportsReasoningDisable()) {
-                        return Service.ReasoningLevel.DEFAULT;
-                    }
-                }
-            }
-            return value;
+            return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ReasoningLevel.DEFAULT;
         }
     }
 
@@ -1361,11 +1279,10 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                     (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            var caps = getModelCapabilities(modelName, service);
-            if (!caps.supportsTier()) {
+            if (modelName != null && !service.supportsProcessingTier(modelName)) {
                 label.setText("Off");
                 label.setEnabled(false);
-                label.setToolTipText("Processing tiers not supported by " + caps.label());
+                label.setToolTipText("Processing tiers not supported by " + modelName);
             } else if (value instanceof Service.ProcessingTier tier) {
                 label.setText(tier.toString());
                 label.setEnabled(true);
@@ -1408,13 +1325,13 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 JTable table, Object value, boolean isSelected, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            var caps = getModelCapabilities(modelName, service);
+            boolean supports = modelName != null && service.supportsProcessingTier(modelName);
             Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
-            editorComponent.setEnabled(caps.supportsTier());
-            comboBox.setEnabled(caps.supportsTier());
-            if (!caps.supportsTier()) {
+            editorComponent.setEnabled(supports);
+            comboBox.setEnabled(supports);
+            if (!supports) {
                 comboBox.setSelectedItem(Service.ProcessingTier.DEFAULT);
-                comboBox.setToolTipText("Processing tiers not supported by " + caps.label());
+                comboBox.setToolTipText("Processing tiers not supported by " + modelName);
                 comboBox.setRenderer(new DefaultListCellRenderer() {
                     @Override
                     public Component getListCellRendererComponent(
@@ -1445,8 +1362,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
                 String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-                var caps = getModelCapabilities(modelName, service);
-                return caps.supportsTier();
+                return modelName != null && service.supportsProcessingTier(modelName);
             }
             return super.isCellEditable(anEvent);
         }
