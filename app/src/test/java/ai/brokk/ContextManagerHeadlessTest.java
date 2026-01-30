@@ -1,12 +1,11 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.project.MainProject;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import java.nio.file.Path;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests that ContextManager can be initialized in headless mode without touching Swing/EDT.
