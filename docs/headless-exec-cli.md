@@ -226,6 +226,17 @@ Characteristics:
 - **Uses Planner Model**: Utilizes the `--planner-model` for analyzing the diff and generating review feedback.
 - **Context Aware**: Analyzes the specific changes introduced in the PR compared to the base branch.
 
+CLI Accounting Output:
+- For REVIEW (and ISSUE) jobs the CLI will attempt to surface LLM accounting totals at job completion. If the executor emits a final ACCOUNTING event during the job, the CLI prints a concise summary such as:
+  Accounting totals: input=30 (cached=2) output=12 thinking=3 total=42 cost=$0.112300
+- If the ACCOUNTING event was not observed in the event stream, the CLI will attempt to read the job's final status metadata and summarize any totals found under:
+  - totalInputTokens
+  - totalCachedInputTokens
+  - totalOutputTokens
+  - totalThinkingTokens
+  - totalTokens
+  - totalCostUsd
+
 **Required for REVIEW mode:**
 - `--github-token`: A valid GitHub PAT with repository access.
 - `--repo-owner`: The owner of the repository.

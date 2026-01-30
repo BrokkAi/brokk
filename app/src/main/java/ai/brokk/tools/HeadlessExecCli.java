@@ -425,6 +425,13 @@ public class HeadlessExecCli {
                         .header("Authorization", "Bearer " + authToken)
                         .build();
 
+                // Track any ACCOUNTING event payload received during streaming so we can print a concise summary
+                int streamedAccountingInputTokens = -1;
+                int streamedAccountingCachedInputTokens = -1;
+                int streamedAccountingOutputTokens = -1;
+                int streamedAccountingThinkingTokens = -1;
+                double streamedAccountingCost = Double.NaN;
+
                 try (var eventsResponse = httpClient.newCall(eventsRequest).execute()) {
                     if (eventsResponse.code() == 200 && eventsResponse.body() != null) {
                         var eventsJson = mapper.readTree(eventsResponse.body().string());
@@ -441,6 +448,33 @@ public class HeadlessExecCli {
                                 var dataNode = event.get("data");
 
                                 String type = typeNode != null && !typeNode.isNull() ? typeNode.asText() : "event";
+
+                                // If we received a structured ACCOUNTING event, capture totals for later summary
+                                if ("ACCOUNTING".equals(type) && dataNode != null && dataNode.isObject()) {
+                                    try {
+                                        if (dataNode.has("inputTokens") && dataNode.get("inputTokens").canConvertToInt()) {
+                                            streamedAccountingInputTokens = dataNode.get("inputTokens").asInt();
+                                        }
+                                        if (dataNode.has("cachedInputTokens") && dataNode.get("cachedInputTokens").canConvertToInt()) {
+                                            streamedAccountingCachedInputTokens = dataNode.get("cachedInputTokens").asInt();
+                                        }
+                                        if (dataNode.has("outputTokens") && dataNode.get("outputTokens").canConvertToInt()) {
+                                            streamedAccountingOutputTokens = dataNode.get("outputTokens").asInt();
+                                        }
+                                        if (dataNode.has("thinkingTokens") && dataNode.get("thinkingTokens").canConvertToInt()) {
+                                            streamedAccountingThinkingTokens = dataNode.get("thinkingTokens").asInt();
+                                        }
+                                        if (dataNode.has("cost")) {
+                                            try {
+                                                streamedAccountingCost = dataNode.get("cost").asDouble();
+                                            } catch (Exception ignored) {
+                                                // leave as NaN
+                                            }
+                                        }
+                                    } catch (Exception ignored) {
+                                        // best-effort parsing only
+                                    }
+                                }
 
                                 String dataText = "";
                                 if (dataNode == null || dataNode.isNull()) {
@@ -480,18 +514,65 @@ public class HeadlessExecCli {
                     }
                 }
 
-                // Check if terminal state
+                // If we reached a terminal job state, attempt to print accounting summary:
                 if (jobState != null) {
                     if ("COMPLETED".equals(jobState)) {
                         logger.info("Job completed successfully");
+                        // Try to print any streamed ACCOUNTING event captured above
+                        try {
+                            // If we captured an ACCOUNTING event while streaming, prefer that.
+                            // Otherwise, fetch final status metadata and summarize totals if present.
+                            if (streamedAccountingInputTokens >= 0) {
+                                printAccountingSummary(
+                                        streamedAccountingInputTokens,
+                                        streamedAccountingCachedInputTokens,
+                                        streamedAccountingOutputTokens,
+                                        streamedAccountingThinkingTokens,
+                                        streamedAccountingCost);
+                            } else {
+                                // Fetch status metadata to try to find totals persisted at job end
+                                printAccountingSummaryFromStatus(baseUrl, jobId, authToken);
+                            }
+                        } catch (Exception e) {
+                            logger.debug("Failed to print accounting summary: {}", e.getMessage(), e);
+                        }
                         return 0;
                     } else if ("FAILED".equals(jobState)) {
                         logger.error("Job failed");
                         System.err.println("ERROR: Job failed");
+                        // attempt accounting summary on failure too
+                        try {
+                            if (streamedAccountingInputTokens >= 0) {
+                                printAccountingSummary(
+                                        streamedAccountingInputTokens,
+                                        streamedAccountingCachedInputTokens,
+                                        streamedAccountingOutputTokens,
+                                        streamedAccountingThinkingTokens,
+                                        streamedAccountingCost);
+                            } else {
+                                printAccountingSummaryFromStatus(baseUrl, jobId, authToken);
+                            }
+                        } catch (Exception e) {
+                            logger.debug("Failed to print accounting summary: {}", e.getMessage(), e);
+                        }
                         return 1;
                     } else if ("CANCELLED".equals(jobState)) {
                         logger.info("Job cancelled");
                         System.err.println("Job cancelled");
+                        try {
+                            if (streamedAccountingInputTokens >= 0) {
+                                printAccountingSummary(
+                                        streamedAccountingInputTokens,
+                                        streamedAccountingCachedInputTokens,
+                                        streamedAccountingOutputTokens,
+                                        streamedAccountingThinkingTokens,
+                                        streamedAccountingCost);
+                            } else {
+                                printAccountingSummaryFromStatus(baseUrl, jobId, authToken);
+                            }
+                        } catch (Exception e) {
+                            logger.debug("Failed to print accounting summary: {}", e.getMessage(), e);
+                        }
                         return 2;
                     }
                 }
@@ -512,6 +593,72 @@ public class HeadlessExecCli {
 
         System.err.println("ERROR: Job streaming timeout");
         return 1;
+    }
+
+    /**
+     * Print accounting totals to stdout in a human-readable one-line summary.
+     */
+    private void printAccountingSummary(
+            int inputTokens,
+            int cachedInputTokens,
+            int outputTokens,
+            int thinkingTokens,
+            double cost) {
+        long totalTokens = Math.max(0L, (long) inputTokens) + Math.max(0L, (long) outputTokens);
+        String costStr = Double.isNaN(cost) ? "unknown" : String.format("$%.6f", cost);
+        System.out.println(
+                String.format(
+                        "Accounting totals: input=%d (cached=%d) output=%d thinking=%d total=%d cost=%s",
+                        inputTokens, cachedInputTokens, outputTokens, thinkingTokens, totalTokens, costStr));
+        System.out.flush();
+    }
+
+    /**
+     * Fetch job status and print accounting totals from status.metadata() if present.
+     */
+    private void printAccountingSummaryFromStatus(String baseUrl, String jobId, String authToken) {
+        try {
+            var statusRequest = new Request.Builder()
+                    .url(baseUrl + "/v1/jobs/" + jobId)
+                    .get()
+                    .header("Authorization", "Bearer " + authToken)
+                    .build();
+
+            try (var statusResponse = httpClient.newCall(statusRequest).execute()) {
+                if (statusResponse.code() == 200 && statusResponse.body() != null) {
+                    var statusJson = mapper.readTree(statusResponse.body().string());
+                    var metadata = statusJson.get("metadata");
+                    if (metadata != null && metadata.isObject()) {
+                        int input = metadata.has("totalInputTokens") ? metadata.get("totalInputTokens").asInt(0) : -1;
+                        int cached = metadata.has("totalCachedInputTokens")
+                                ? metadata.get("totalCachedInputTokens").asInt(0)
+                                : -1;
+                        int output = metadata.has("totalOutputTokens")
+                                ? metadata.get("totalOutputTokens").asInt(0)
+                                : -1;
+                        int thinking = metadata.has("totalThinkingTokens")
+                                ? metadata.get("totalThinkingTokens").asInt(0)
+                                : -1;
+                        double cost = metadata.has("totalCostUsd")
+                                ? Double.parseDouble(metadata.get("totalCostUsd").asText("NaN"))
+                                : Double.NaN;
+
+                        if (input >= 0 || output >= 0 || !Double.isNaN(cost)) {
+                            printAccountingSummary(
+                                    Math.max(0, input),
+                                    Math.max(0, cached),
+                                    Math.max(0, output),
+                                    Math.max(0, thinking),
+                                    cost);
+                        } else {
+                            // nothing to print
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to fetch job status for accounting summary: {}", e.getMessage(), e);
+        }
     }
 
     /**
@@ -615,8 +762,8 @@ public class HeadlessExecCli {
         System.out.println("  --temperature VALUE      Job-level temperature override (optional)");
         System.out.println("  --temperature-code VALUE Job-level code temperature override (optional)");
         System.out.println("  --token TOKEN            Auth token (default: random UUID)");
-        System.out.println("  --auto-commit            Enable auto-commit of changes");
-        System.out.println("  --auto-compress          Enable auto-compress of context");
+        System.out.println("  --auto-commit            Enable automatic git commits after task completion");
+        System.out.println("  --auto-compress          Enable automatic context compression to reduce token usage");
         System.out.println("  --help                   Show this help message");
         System.out.println();
         System.out.println(
