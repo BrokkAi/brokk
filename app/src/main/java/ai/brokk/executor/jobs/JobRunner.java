@@ -1654,10 +1654,7 @@ public final class JobRunner {
                         current = current.completed(null);
                         logger.info("Job {} completed successfully", jobId);
                     }
-                    if (console != null) {
-                        long lastSeq = console.getLastSeq();
-                        current = current.withMetadata("lastSeq", Long.toString(lastSeq));
-                    }
+                    current = withHeadlessTotals(current, console);
                     store.updateStatus(jobId, current);
                 }
 
@@ -1678,10 +1675,7 @@ public final class JobRunner {
                             s = JobStatus.queued(jobId);
                         }
                         s = s.cancelled();
-                        if (console != null) {
-                            long lastSeq = console.getLastSeq();
-                            s = s.withMetadata("lastSeq", Long.toString(lastSeq));
-                        }
+                        s = withHeadlessTotals(s, console);
                         store.updateStatus(jobId, s);
                     } catch (Exception e2) {
                         logger.warn("Failed to persist CANCELLED status for job {}", jobId, e2);
@@ -1709,10 +1703,7 @@ public final class JobRunner {
                             s = JobStatus.queued(jobId);
                         }
                         s = s.failed(errorMessage);
-                        if (console != null) {
-                            long lastSeq = console.getLastSeq();
-                            s = s.withMetadata("lastSeq", Long.toString(lastSeq));
-                        }
+                        s = withHeadlessTotals(s, console);
                         store.updateStatus(jobId, s);
                     } catch (Exception e2) {
                         logger.warn("Failed to persist FAILED status for job {}", jobId, e2);
@@ -2048,6 +2039,50 @@ public final class JobRunner {
             return throwable.getClass().getSimpleName();
         }
         return throwable.getClass().getSimpleName() + ": " + message;
+    }
+
+    /**
+     * If a HeadlessHttpConsole is in use, persist its accumulated totals into the status metadata.
+     *
+     * Best-effort: if console is null we return the provided status unchanged. Otherwise we always set
+     * "lastSeq" and the following keys (as strings):
+     *  - totalInputTokens
+     *  - totalCachedInputTokens
+     *  - totalOutputTokens
+     *  - totalThinkingTokens
+     *  - totalTokens (input + output, do NOT include thinking)
+     *  - totalCostUsd (Double.toString of cost)
+     */
+    private static JobStatus withHeadlessTotals(JobStatus status, @Nullable HeadlessHttpConsole console) {
+        if (console == null) {
+            return status;
+        }
+        JobStatus out = status;
+        // lastSeq
+        try {
+            long lastSeq = console.getLastSeq();
+            out = out.withMetadata("lastSeq", Long.toString(lastSeq));
+        } catch (Throwable ignore) {
+            // best-effort; do not fail
+        }
+
+        try {
+            int input = console.getTotalInputTokens();
+            int cached = console.getTotalCachedInputTokens();
+            int output = console.getTotalOutputTokens();
+            int thinking = console.getTotalThinkingTokens();
+            double cost = console.getTotalCost();
+
+            out = out.withMetadata("totalInputTokens", String.valueOf(input));
+            out = out.withMetadata("totalCachedInputTokens", String.valueOf(cached));
+            out = out.withMetadata("totalOutputTokens", String.valueOf(output));
+            out = out.withMetadata("totalThinkingTokens", String.valueOf(thinking));
+            out = out.withMetadata("totalTokens", String.valueOf((long) input + (long) output));
+            out = out.withMetadata("totalCostUsd", Double.toString(cost));
+        } catch (Throwable ignore) {
+            // best-effort only
+        }
+        return out;
     }
 
     static void cleanupIssueBranch(
