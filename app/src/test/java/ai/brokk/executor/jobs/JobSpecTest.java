@@ -142,6 +142,7 @@ class JobSpecTest {
                 null,
                 null,
                 null,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         // tags() must never be null; canonical constructor should normalize to empty immutable map.
@@ -172,9 +173,29 @@ class JobSpecTest {
                 null,
                 null,
                 null,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         // Should not throw and default to true when no tag is provided.
         assertTrue(JobRunner.issueDeliveryEnabled(spec));
+    }
+
+    @Test
+    void testSkipVerification_DefaultsToFalse() {
+        var spec = JobSpec.of("task", "model");
+        assertFalse(spec.skipVerification());
+    }
+
+    @Test
+    void testOfIssue_DefaultSkipVerificationFalse() {
+        var spec = JobSpec.ofIssue("planner", null, "token", "owner", "repo", 123, null);
+        assertFalse(spec.skipVerification());
+    }
+
+    @Test
+    void testOfIssue_CanSetSkipVerificationTrue() {
+        var spec = JobSpec.ofIssue(
+                "planner", null, "token", "owner", "repo", 123, null, JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, true);
+        assertTrue(spec.skipVerification());
     }
 }

@@ -50,6 +50,7 @@ public class JobDiagnosticsLoaderTest {
                 null,
                 0.7,
                 null,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
         MAPPER.writeValue(j1.resolve("meta.json").toFile(), spec1);
         JobStatus status1 = new JobStatus(job1, "COMPLETED", 1000L, 3000L, 100, null, null, Map.of("lastSeq", "2"));
@@ -85,6 +86,7 @@ public class JobDiagnosticsLoaderTest {
                 null,
                 null,
                 null,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
         MAPPER.writeValue(j2.resolve("meta.json").toFile(), spec2);
         JobStatus status2 = new JobStatus(job2, "COMPLETED", 2000L, 5000L, 100, null, null, Map.of());
@@ -126,6 +128,7 @@ public class JobDiagnosticsLoaderTest {
                 null,
                 null,
                 null,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
         MAPPER.writeValue(j3.resolve("meta.json").toFile(), spec3);
         // no status, no events
