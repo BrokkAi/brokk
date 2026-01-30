@@ -95,7 +95,7 @@ public class ContentDiffUtils {
         var oldLines = toLines(oldContent);
         var newLines = toLines(newContent);
 
-        Patch<String> patch = DiffUtils.diff(oldLines, newLines);
+        Patch<String> patch = DiffUtils.diff(oldLines, newLines, ContentDiffUtils::reviewLinesEqualIgnoringWhitespace);
         if (patch.getDeltas().isEmpty()) {
             return new DiffComputationResult("", 0, 0);
         }
@@ -539,6 +539,17 @@ public class ContentDiffUtils {
         }
 
         return String.join("\n", result);
+    }
+
+    private static boolean reviewLinesEqualIgnoringWhitespace(String a, String b) {
+        return stripAllWhitespace(a).equals(stripAllWhitespace(b));
+    }
+
+    private static String stripAllWhitespace(String s) {
+        return s.chars()
+                .filter(ch -> !Character.isWhitespace(ch))
+                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
+                .toString();
     }
 
     /**
