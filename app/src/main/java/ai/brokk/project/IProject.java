@@ -539,7 +539,7 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
-     * Convenience overload that infers the language set from {@link #project}.
+     * Convenience overload that infers the language set from the current project configuration.
      *
      */
     default Language getLanguageHandle() {
