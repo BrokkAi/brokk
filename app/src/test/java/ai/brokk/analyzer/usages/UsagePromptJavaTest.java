@@ -413,7 +413,7 @@ public class UsagePromptJavaTest {
         assertTrue(desc.contains("SubA1"), "filterDescription should contain first polymorphic match");
         assertTrue(desc.contains("SubA2"), "filterDescription should contain second polymorphic match");
         assertTrue(
-                desc.contains("inherit this method without overriding it"),
+                desc.contains("part of the inheritance hierarchy for this method"),
                 "filterDescription should contain explanatory text for polymorphic matches");
     }
 

@@ -49,7 +49,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
      * @param hits list of usage occurrences (must all share the same enclosing CodeUnit and file)
      * @param codeUnitTarget the intended target code unit
      * @param alternatives other code units with the same short name that are not the target
-     * @param polymorphicMatches subclasses that inherit the target method/field without overriding it
+     * @param polymorphicMatches subclasses of the declaring class for the target method/field
      * @param hierarchySupported whether the analyzer supports type hierarchy resolution
      * @param analyzer used to retrieve import statements for the file containing the usage
      * @param shortName the short name being searched (e.g., "A.method2")
@@ -82,7 +82,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
         } else {
             polyInfo = polymorphicMatches.isEmpty()
                     ? ""
-                    : "\nThe following subclasses inherit this method without overriding it, so calls on these types are also valid matches: %s"
+                    : "\nThe following subclasses are part of the inheritance hierarchy for this method, so calls on these types are also valid matches: %s"
                             .formatted(polymorphicMatches.stream()
                                     .map(CodeUnit::fqName)
                                     .collect(Collectors.joining(", ")));

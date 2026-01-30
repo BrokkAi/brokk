@@ -46,12 +46,13 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
     }
 
     /**
-     * Returns the set of subclasses/descendants that inherit the target function without overriding it.
-     * This is useful for finding usages of a method where calls on subclasses are also valid matches.
+     * Returns the set of subclasses/descendants for the class declaring the target function.
+     * This is useful for finding usages of a method where calls on subclasses are also valid matches,
+     * following IntelliJ-style usage semantics where overrides are included.
      *
      * @param target the target code unit (must be a FUNCTION)
      * @param analyzer the analyzer used to resolve definitions and children
-     * @return a list of descendants that inherit the method, or an empty list if not a function or no hierarchy
+     * @return a list of descendants for the declaring class, or an empty list if not a function or no hierarchy
      */
     default List<CodeUnit> getPolymorphicMatches(CodeUnit target, IAnalyzer analyzer) {
         if (target.kind() != CodeUnitType.FUNCTION) {
@@ -66,22 +67,7 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
             return List.of();
         }
 
-        List<CodeUnit> descendants = this.getDescendants(parentClassOpt.get());
-        List<CodeUnit> polymorphicMatches = new ArrayList<>();
-        String targetIdentifier = target.identifier();
-
-        for (CodeUnit descendant : descendants) {
-            boolean overrides = analyzer.getDirectChildren(descendant).stream()
-                    .anyMatch(child -> child.kind() == CodeUnitType.FUNCTION
-                            && child.identifier().equals(targetIdentifier)
-                            && (target.signature() == null || target.signature().equals(child.signature())));
-
-            if (!overrides) {
-                polymorphicMatches.add(descendant);
-            }
-        }
-
-        return polymorphicMatches;
+        return this.getDescendants(parentClassOpt.get());
     }
 
     /**
