@@ -790,7 +790,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             SourceContent sourceContent = sourceContentOpt.get();
             String identifierName = sourceContent.substringFrom(node).strip();
             if (!identifierName.isEmpty()) {
-                var declOpt = findNearestDeclaration(file, startByte, endByte, identifierName);
+                var declOpt = findNearestDeclaration(node, identifierName, sourceContent);
                 if (declOpt.isPresent()) {
                     var kind = declOpt.get().kind();
                     return switch (kind) {
@@ -1078,9 +1078,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         if (node == null || node.isNull()) return Optional.empty();
 
         var sourceContentOpt = SourceContent.read(file);
-        if (sourceContentOpt.isEmpty()) return Optional.empty();
+        return sourceContentOpt.flatMap(
+                sourceContent -> findNearestDeclaration(node, identifierName, sourceContent));
+    }
 
-        return findNearestDeclarationFromNode(node, identifierName, sourceContentOpt.get());
+    private Optional<DeclarationInfo> findNearestDeclaration(
+            TSNode node, String identifierName, SourceContent sourceContent) {
+        return findNearestDeclarationFromNode(node, identifierName, sourceContent);
     }
 
     /**
