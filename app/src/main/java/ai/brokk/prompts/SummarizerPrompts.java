@@ -6,6 +6,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.util.List;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 public class SummarizerPrompts {
     public static final SummarizerPrompts instance = new SummarizerPrompts() {};
@@ -124,57 +125,66 @@ public class SummarizerPrompts {
                """;
     }
 
-    public List<ChatMessage> collectPrDescriptionMessages(String diff) {
-        return List.of(
-                new SystemMessage(
-                        """
-                    You are an expert software engineer writing clear pull-request descriptions.
-                    %s"""
-                                .formatted(prDescriptionGuidance())),
-                new UserMessage("<diff>\n" + diff + "\n</diff>"));
+    private String sessionContextGuidance() {
+        return """
+
+               The <context> below contain:
+               - "Patch Instructions": what the developer asked for - use this to explain WHY the changes were made
+
+               Focus on the developer's intent from Patch Instructions. Write descriptions that explain WHY, not just WHAT.
+               For example, instead of "Adds extractSessionContext method to ReviewScope", write
+               "Enables PR descriptions to include developer intent by extracting session context from overlapping sessions".
+               """;
     }
 
-    public List<ChatMessage> collectPrDescriptionFromCommitMsgs(List<String> commitMsgs) {
-        String body = String.join("\n\n", commitMsgs);
+    public List<ChatMessage> collectPrTitleAndDescriptionMessagesWithContext(
+            String diff, @Nullable String sessionContext) {
+        String systemMessage =
+                """
+                You are an expert software engineer writing clear pull-request titles and descriptions.
 
-        return List.of(
-                new SystemMessage(
-                        """
-                You are an expert software engineer writing clear pull-request descriptions.
+                First, you may explain your thinking process about the changes.
+                Then call the suggestPrDetails tool with appropriate title and description.
+                %s
+                Guidelines for the description:
                 %s"""
-                                .formatted(prDescriptionFromCommitsGuidance())),
-                new UserMessage("<commits>\n" + body + "\n</commits>"));
+                        .formatted(
+                                (sessionContext != null && !sessionContext.isBlank()) ? sessionContextGuidance() : "",
+                                prDescriptionGuidance());
+
+        StringBuilder userContent = new StringBuilder();
+        userContent.append("<diff>\n").append(diff).append("\n</diff>");
+
+        if (sessionContext != null && !sessionContext.isBlank()) {
+            userContent.append("\n<context>\n").append(sessionContext).append("\n</context>");
+        }
+
+        return List.of(new SystemMessage(systemMessage), new UserMessage(userContent.toString()));
     }
 
-    public List<ChatMessage> collectPrTitleAndDescriptionMessages(String diff) {
-        return List.of(
-                new SystemMessage(
-                        """
-                    You are an expert software engineer writing clear pull-request titles and descriptions.
+    public List<ChatMessage> collectPrTitleAndDescriptionFromCommitMsgsWithContext(
+            List<String> commitMsgs, @Nullable String sessionContext) {
+        String systemMessage =
+                """
+                You are an expert software engineer writing clear pull-request titles and descriptions.
 
-                    First, you may explain your thinking process about the changes.
-                    Then call the suggestPrDetails tool with appropriate title and description.
+                First, you may explain your thinking process about the changes.
+                Then call the suggestPrDetails tool with appropriate title and description.
+                %s
+                Guidelines for the description:
+                %s"""
+                        .formatted(
+                                (sessionContext != null && !sessionContext.isBlank()) ? sessionContextGuidance() : "",
+                                prDescriptionFromCommitsGuidance());
 
-                    Guidelines for the description:
-                    %s"""
-                                .formatted(prDescriptionGuidance())),
-                new UserMessage("<diff>\n" + diff + "\n</diff>"));
-    }
-
-    public List<ChatMessage> collectPrTitleAndDescriptionFromCommitMsgs(List<String> commitMsgs) {
         String body = String.join("\n\n", commitMsgs);
+        StringBuilder userContent = new StringBuilder();
+        userContent.append("<commits>\n").append(body).append("\n</commits>");
 
-        return List.of(
-                new SystemMessage(
-                        """
-                    You are an expert software engineer writing clear pull-request titles and descriptions.
+        if (sessionContext != null && !sessionContext.isBlank()) {
+            userContent.append("\n<context>\n").append(sessionContext).append("\n</context>");
+        }
 
-                    First, you may explain your thinking process about the changes.
-                    Then call the suggestPrDetails tool with appropriate title and description.
-
-                    Guidelines for the description:
-                    %s"""
-                                .formatted(prDescriptionFromCommitsGuidance())),
-                new UserMessage("<commits>\n" + body + "\n</commits>"));
+        return List.of(new SystemMessage(systemMessage), new UserMessage(userContent.toString()));
     }
 }

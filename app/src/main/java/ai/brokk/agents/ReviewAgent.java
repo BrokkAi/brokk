@@ -39,7 +39,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -988,78 +987,39 @@ public class ReviewAgent {
 
     @Blocking
     private List<ContextFragments.StringFragment> extractSessionContext(List<UUID> sessionIds) {
-        if (sessionIds.isEmpty()) {
-            return List.of();
-        }
-
-        var sessionManager = cm.getProject().getSessionManager();
-        // We omit ARCHITECT task results because we kick of each task by giving it to the code agent, this is exactly
-        // the Architect's task description. If that fails, Architect will issue new instructions to the code agent,
-        // which we will also capture with Type.CODE. When architect succeeds, it just echos the original task again.
-        var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.BLITZFORGE);
-        var allContexts = sessionIds.stream()
-                .parallel()
-                .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
-                .filter(Objects::nonNull)
-                .flatMap(h -> h.getHistory().stream())
-                .toList();
-        var relevantContexts = allContexts.stream()
-                .filter(ctx -> !ctx.getTaskHistory().isEmpty())
-                .filter(ctx -> {
-                    var te = ctx.getTaskHistory().getLast();
-                    return te.meta() != null && relevantTypes.contains(te.meta().type());
-                })
-                .toList();
-
-        // Extract instructions
-        List<String> instructions = relevantContexts.stream()
-                .map(ctx -> ctx.getTaskHistory().getLast().log())
-                .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(log -> log.id()))
-                .map(log -> log.description().join())
-                .filter(Objects::nonNull) // legacy entries can be null here
-                .filter(desc -> !desc.isBlank())
-                .distinct()
-                .toList();
-
-        // Extract context hints
         Set<ProjectFile> editedFiles = changes.perFileChanges().stream()
                 .flatMap(fd -> Stream.of(fd.oldFile(), fd.newFile()))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        // TODO allow git and usage fragments
-        var relevantFragmentsClasses = Set.of(
-                ContextFragments.ProjectPathFragment.class,
-                ContextFragments.CodeFragment.class,
-                ContextFragments.SummaryFragment.class);
-        List<String> fragmentHints = relevantContexts.stream()
-                .flatMap(Context::allFragments)
-                .filter(cf -> relevantFragmentsClasses.contains(cf.getClass())
-                        && !(cf instanceof ContextFragments.ProjectPathFragment ppf
-                                && editedFiles.contains(ppf.file())))
-                .map(cf -> cf.description().join())
-                .distinct()
-                .toList();
 
-        List<ContextFragments.StringFragment> results = new ArrayList<>();
-        if (!instructions.isEmpty()) {
+        var sessionContext = ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
+        if (sessionContext.isEmpty()) {
+            return List.of();
+        }
+
+        var results = new ArrayList<ContextFragments.StringFragment>();
+
+        if (!sessionContext.patchInstructions().isEmpty()) {
             String mergedInstructions =
                     """
                     These are the instructions given to the Code Agent to generate this patch, separated by `-----`.
 
                     -----
+                    %s
                     """
-                            + String.join("\n-----\n", instructions);
+                            .formatted(String.join("\n-----\n", sessionContext.patchInstructions()));
             results.add(new ContextFragments.StringFragment(
                     cm, mergedInstructions, "Patch Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
         }
 
-        if (!fragmentHints.isEmpty()) {
-            String mergedHints = fragmentHints.stream().map(hint -> "- " + hint).collect(Collectors.joining("\n"));
+        if (!sessionContext.sourceHints().isEmpty()) {
+            String mergedHints = sessionContext.sourceHints().stream()
+                    .map(hint -> "- " + hint)
+                    .collect(Collectors.joining("\n"));
             results.add(new ContextFragments.StringFragment(
                     cm, mergedHints, "Sources Used During Patch Creation", SyntaxConstants.SYNTAX_STYLE_NONE));
         }
 
-        return results;
+        return List.copyOf(results);
     }
 }
