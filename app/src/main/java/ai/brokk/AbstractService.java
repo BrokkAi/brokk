@@ -546,22 +546,25 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return null;
         }
 
-        var params = OpenAiChatRequestParameters.builder();
+        var kp = parseKey(MainProject.getBrokkKey());
 
+        var params = OpenAiChatRequestParameters.builder();
         String baseUrl = MainProject.getProxyUrl();
+        var split = config.name.split("/", -1);
+        var shortName = split[split.length - 1];
         var builder = OpenAiStreamingChatModel.builder()
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .serviceTier(config.tier)
+                .promptCacheKey(shortName + kp.userId())
                 .timeout(Duration.ofSeconds(
                         config.tier == ProcessingTier.FLEX
                                 ? FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
                                 : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
         params = params.maxCompletionTokens(getMaxOutputTokens(location));
 
-        var kp = parseKey(MainProject.getBrokkKey());
         builder = builder.apiKey(kp.token()).customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
         params = params.user(kp.userId().toString());
 
