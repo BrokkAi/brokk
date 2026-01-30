@@ -102,7 +102,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                         yield CodeUnit.fn(file, packageName, finalShortName);
                     }
                     case CaptureNames.CONSTRUCTOR_DEFINITION -> {
-                        String finalShortName = classChain + ".<init>";
+                        String finalShortName = classChain + "." + simpleName;
                         yield CodeUnit.fn(file, packageName, finalShortName);
                     }
                     case CaptureNames.FIELD_DEFINITION -> {
@@ -250,9 +250,9 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
-        // C# constructors are emitted as FUNCTION units with shortName ending in ".<init>"
-        // CodeUnit.identifier() returns the segment after the last '.', which will be "<init>"
-        return candidate.isFunction() && "<init>".equals(candidate.identifier());
+        return candidate.isFunction()
+                && enclosingClass != null
+                && candidate.identifier().equals(enclosingClass.identifier());
     }
 
     @Override
