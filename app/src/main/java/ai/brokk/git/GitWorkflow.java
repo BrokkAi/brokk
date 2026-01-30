@@ -6,6 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
+import ai.brokk.agents.ReviewScope;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CommitPrompts;
@@ -30,6 +31,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -242,6 +244,7 @@ public final class GitWorkflow {
      * @throws GitAPIException if git operations fail
      * @throws InterruptedException if the calling thread is interrupted during LLM request
      */
+    @Blocking
     public PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO streamingOutput)
             throws GitAPIException, InterruptedException {
         return suggestPullRequestDetails(source, target, streamingOutput, List.of());
@@ -257,6 +260,7 @@ public final class GitWorkflow {
      * @throws GitAPIException if git operations fail
      * @throws InterruptedException if the calling thread is interrupted during LLM request
      */
+    @Blocking
     public PrSuggestion suggestPullRequestDetails(
             String source, String target, IConsoleIO streamingOutput, List<UUID> sessionIds)
             throws GitAPIException, InterruptedException {
@@ -273,7 +277,7 @@ public final class GitWorkflow {
             var editedFiles =
                     changedFiles.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toSet());
 
-            var fragments = ai.brokk.agents.ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
+            var fragments = ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
             if (!fragments.isEmpty()) {
                 sessionContext = fragments.stream()
                         .map(f -> f.text().join())
