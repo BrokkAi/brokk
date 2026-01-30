@@ -1498,21 +1498,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Core: Always migrate legacy Task List for the active session first.
         migrateLegacyTaskLists(sessionId);
 
-        // Notify non-GUI listeners immediately so headless callers see the session as initialized.
-        // UI updates that require Swing/EDT are only dispatched when not running in headless mode.
-        // Note: notifyContextListeners is safe to call off-EDT as listeners are expected to handle non-blocking access.
-        notifyContextListeners(liveContext());
-        io.updateContextHistoryTable(liveContext());
-
         if (isHeadlessMode()) {
-            // In headless mode, avoid any Swing/AWT calls. HeadlessConsole/IO should be no-ops or
-            // appropriate for non-UI environments.
+            // Non-GUI/headless: safe to run directly on the current thread.
+            var ctx = liveContext();
+            notifyContextListeners(ctx);
+            io.updateContextHistoryTable(ctx);
             return;
         }
 
-        // For GUI mode, perform UI-affecting operations on the EDT.
+        // GUI mode: run all UI-affecting operations on the EDT to preserve Swing thread-safety
+        // and the previous contract that listeners/history-table updates occur on the EDT.
         SwingUtilities.invokeLater(() -> {
-            // Some IO implementations (Chrome) may perform additional UI wiring when enabling actions.
+            var ctx = liveContext();
+            notifyContextListeners(ctx);
+            io.updateContextHistoryTable(ctx);
             if (io instanceof Chrome) {
                 io.enableActionButtons();
             }
