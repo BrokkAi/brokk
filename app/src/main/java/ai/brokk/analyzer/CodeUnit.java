@@ -81,7 +81,8 @@ public class CodeUnit implements Comparable<CodeUnit> {
             case MODULE -> shortName; // The module's own short name, e.g., "_module_"
             default -> { // FUNCTION or FIELD
                 // shortName format is "Class.member" or "simpleFunction"
-                // For constructors, shortName is "Class.<init>", so identifier is the class name
+                // For C# constructors, shortName is "Class.<init>", so identifier is the class name
+                // Java constructors use "Class.Class" format and don't need special handling
                 if (shortName.endsWith(".<init>")) {
                     int lastDot = shortName.lastIndexOf('.');
                     if (lastDot >= 0) {
