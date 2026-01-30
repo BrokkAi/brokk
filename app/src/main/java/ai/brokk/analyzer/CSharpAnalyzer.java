@@ -256,6 +256,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String captureName) {
+        return null;
+    }
+
+    @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         TSQuery query = getThreadLocalQuery();
         TSQueryCursor cursor = new TSQueryCursor();

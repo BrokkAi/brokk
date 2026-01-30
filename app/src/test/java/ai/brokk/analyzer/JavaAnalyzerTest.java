@@ -100,7 +100,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void extractMethodSourceConstructor() {
-        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "B.B", true); // TODO: Should we handle <init>?
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "B.<init>", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
 
@@ -741,13 +741,14 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testDefinitionAndSourcesWithNormalizedConstructorNames() {
-        // Based on log example: Type.Type for constructor (and possibly with generics on the type)
+        // Based on log example: Type.<init> for constructor (and possibly with generics on the type)
+        // Note: B has an explicit constructor, so it should resolve via B.<init>
         assertTrue(
-                AnalyzerUtil.getSource(analyzer, "B<B>.B", true).isPresent(),
+                AnalyzerUtil.getSource(analyzer, "B<B>.<init>", true).isPresent(),
                 "Constructor lookup with generics on the type should normalize and resolve");
 
         // Also ensure plain constructor lookup works (control)
-        assertTrue(AnalyzerUtil.getSource(analyzer, "B.B", true).isPresent(), "Constructor lookup should resolve");
+        assertTrue(AnalyzerUtil.getSource(analyzer, "B.<init>", true).isPresent(), "Constructor lookup should resolve");
     }
 
     @Test
@@ -869,12 +870,9 @@ public class JavaAnalyzerTest {
 
             var analyzer = new JavaAnalyzer(testProject);
 
-            var definitions = analyzer.getDefinitions("Foo.Foo");
-            assertFalse(definitions.isEmpty(), "Implicit constructor Foo.Foo should be resolvable");
-
-            boolean foundFunction = definitions.stream()
-                    .anyMatch(cu -> cu.kind() == CodeUnitType.FUNCTION);
-            assertTrue(foundFunction, "At least one definition for Foo.Foo should be a FUNCTION");
+            // Implicit constructors use the <init> naming convention to avoid collision with methods
+            var definitions = analyzer.getDefinitions("Foo.<init>");
+            assertTrue(definitions.stream().anyMatch(cu -> cu.kind() == CodeUnitType.FUNCTION), "Implicit constructor Foo.<init> should be resolvable");
         }
     }
 
@@ -936,15 +934,44 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testMethodNamedSameAsClassAmbiguity() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                "public class Foo { void Foo() {} }", "Foo.java").build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // The explicit method 'void Foo()' should be resolvable via Foo.Foo
+            var methodDefinitions = analyzer.getDefinitions("Foo.Foo");
+            assertEquals(1, methodDefinitions.size(), "Should find exactly one method named Foo.Foo");
+            assertTrue(methodDefinitions.iterator().next().isFunction(), "Foo.Foo should be a function");
+
+            // Verify that we can get the source for the real method
+            var sourceOpt = AnalyzerUtil.getSource(analyzer, "Foo.Foo", true);
+            assertTrue(sourceOpt.isPresent(), "Should be able to get source for method Foo.Foo");
+            assertCodeContains(sourceOpt.get(), "void Foo() {}");
+
+            // The implicit constructor uses <init> naming convention to avoid collision
+            var ctorDefinitions = analyzer.getDefinitions("Foo.<init>");
+            assertFalse(ctorDefinitions.isEmpty(), "Should find implicit constructor Foo.<init>");
+            assertTrue(ctorDefinitions.iterator().next().isFunction(), "Foo.<init> should be a function");
+
+            // Verify the implicit constructor has no source (it's synthetic)
+            var ctorSourceOpt = AnalyzerUtil.getSource(analyzer, "Foo.<init>", true);
+            assertTrue(ctorSourceOpt.isEmpty(), "Implicit constructor should have no source");
+        }
+    }
+
+    @Test
     public void implicitConstructor_returnsEmptySource() throws IOException {
         try (var testProject = InlineTestProjectCreator.code("public class Foo {}", "Foo.java").build()) {
 
             var analyzer = new JavaAnalyzer(testProject);
 
-            var constructorCu = analyzer.getDefinitions("Foo.Foo").stream()
+            // Implicit constructors use <init> naming convention
+            var constructorCu = analyzer.getDefinitions("Foo.<init>").stream()
                     .filter(cu -> cu.kind() == CodeUnitType.FUNCTION)
                     .findFirst()
-                    .orElseThrow();
+                    .get();
 
             // Assert direct analyzer methods return empty for synthetic/implicit units
             assertTrue(
@@ -956,7 +983,7 @@ public class JavaAnalyzerTest {
 
             // Assert AnalyzerUtil helper also behaves correctly
             assertTrue(
-                    AnalyzerUtil.getSource(analyzer, "Foo.Foo", true).isEmpty(),
+                    AnalyzerUtil.getSource(analyzer, "Foo.<init>", true).isEmpty(),
                     "AnalyzerUtil.getSource should return empty for implicit constructor");
         }
     }
