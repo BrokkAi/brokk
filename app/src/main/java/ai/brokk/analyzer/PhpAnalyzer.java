@@ -423,4 +423,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPhp(reference);
     }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+        return candidate.isFunction() && "__construct".equals(candidate.identifier());
+    }
 }
