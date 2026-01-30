@@ -136,12 +136,17 @@ public class CompletionsTest {
 
             IAnalyzer analyzer = new JavaAnalyzer(testProject);
 
+            // Query "Chrome" should match AnalyzerStatusStrip via shortName "Chrome.AnalyzerStatusStrip"
+            // And then enrich with "ai.brokk.gui.Chrome"
             List<CodeUnit> results = Completions.completeSymbols("Chrome", analyzer);
             var fqns = results.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
             assertTrue(
                     fqns.contains("ai.brokk.gui.Chrome"),
-                    "Autocomplete should include the parent class FQN when query equals the short name");
+                    "Autocomplete should include the parent class FQN when query equals the short name prefix of a nested class");
+            assertTrue(
+                    fqns.contains("ai.brokk.gui.Chrome.AnalyzerStatusStrip"),
+                    "Autocomplete should also include the nested class that triggered the enrichment");
         }
     }
 
@@ -162,12 +167,13 @@ public class CompletionsTest {
 
             IAnalyzer analyzer = new JavaAnalyzer(testProject);
 
+            // Query "Chrome" matches method shortNames like "Chrome.analyze"
             List<CodeUnit> results = Completions.completeSymbols("Chrome", analyzer);
             var fqns = results.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
             assertTrue(
                     fqns.contains("ai.brokk.gui.Chrome"),
-                    "Autocomplete should include the parent class FQN for short-name query when only methods are present");
+                    "Autocomplete should include the parent class FQN for short-name query when only methods match the prefix");
         }
     }
 
@@ -187,12 +193,13 @@ public class CompletionsTest {
 
             IAnalyzer analyzer = new JavaAnalyzer(testProject);
 
+            // Query "Chrome" matches field shortNames like "Chrome.VERSION"
             List<CodeUnit> results = Completions.completeSymbols("Chrome", analyzer);
             var fqns = results.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
             assertTrue(
                     fqns.contains("ai.brokk.gui.Chrome"),
-                    "Autocomplete should include the parent class FQN for short-name query when only fields are present");
+                    "Autocomplete should include the parent class FQN for short-name query when only fields match the prefix");
         }
     }
 }
