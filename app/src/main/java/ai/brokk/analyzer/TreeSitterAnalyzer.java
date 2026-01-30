@@ -2170,6 +2170,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         Map<CodeUnit, List<String>> localRawSupertypes = new HashMap<>();
         Map<String, Set<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>();
+        Map<CodeUnit, String> localCaptureNames = new HashMap<>();
         List<ImportInfo> localImportInfos = new ArrayList<>();
         Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
 
@@ -2572,6 +2573,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu);
+            localCaptureNames.put(cu, primaryCaptureName);
             localChildren.putIfAbsent(cu, new ArrayList<>());
 
             boolean attachedToParent = false;
@@ -2656,7 +2658,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 boolean hasExplicitConstructor = kids.stream().anyMatch(k -> isConstructor(k, cu));
 
                 if (!hasExplicitConstructor) {
-                    CodeUnit implicit = createImplicitConstructor(cu);
+                    String captureName = localCaptureNames.getOrDefault(cu, "");
+                    CodeUnit implicit = createImplicitConstructor(cu, captureName);
                     if (implicit != null) {
                         // Register in symbol index for resolution
                         localCodeUnitsBySymbol
@@ -4497,7 +4500,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Creates a synthetic implicit constructor for the given enclosing class.
      * Default implementation returns null.
      */
-    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass) {
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String captureName) {
         return null;
     }
 }

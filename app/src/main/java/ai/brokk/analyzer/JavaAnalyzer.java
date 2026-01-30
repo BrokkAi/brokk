@@ -1335,13 +1335,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass) {
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String captureName) {
         // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
-        // We can't easily check the specific sub-kind from the CodeUnit alone, but the convention
-        // in this codebase is that CodeUnitType.CLASS covers all of them.
-        // However, based on the test failures, we should be conservative.
-        // If the class name looks like an interface or enum (often determined by its contents),
-        // we should ideally avoid it, but for now we'll rely on the parent logic.
+        if (!CaptureNames.CLASS_DEFINITION.equals(captureName)) {
+            return null;
+        }
 
         // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
         // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)
