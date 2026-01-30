@@ -3574,7 +3574,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // 5. Now check cache again - it should be populated from step 4
         Set<CodeUnit> result = lazyHierarchy.getSubtypes(cu);
-        return result != null ? result : Set.of();
+        return result != null ? Set.copyOf(result) : Set.of();
     }
 
     /* ---------- file filtering helpers ---------- */
