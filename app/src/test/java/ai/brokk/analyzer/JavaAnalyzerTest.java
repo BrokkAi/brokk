@@ -879,6 +879,32 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void implicitConstructor_returnsEmptySource() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code("public class Foo {}", "Foo.java").build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            var constructorCu = analyzer.getDefinitions("Foo.Foo").stream()
+                    .filter(cu -> cu.kind() == CodeUnitType.FUNCTION)
+                    .findFirst()
+                    .orElseThrow();
+
+            // Assert direct analyzer methods return empty for synthetic/implicit units
+            assertTrue(
+                    analyzer.getSources(constructorCu, true).isEmpty(),
+                    "Implicit constructor should have no source blocks");
+            assertTrue(
+                    analyzer.getSource(constructorCu, true).isEmpty(),
+                    "Implicit constructor source should be empty Optional");
+
+            // Assert AnalyzerUtil helper also behaves correctly
+            assertTrue(
+                    AnalyzerUtil.getSource(analyzer, "Foo.Foo", true).isEmpty(),
+                    "AnalyzerUtil.getSource should return empty for implicit constructor");
+        }
+    }
+
+    @Test
     public void moduleCodeUnitAggregatesChildrenAcrossFiles_excludesNested() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
