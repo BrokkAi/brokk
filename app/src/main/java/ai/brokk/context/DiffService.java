@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.CommitInfo;
@@ -406,6 +407,21 @@ public final class DiffService {
                         String newName =
                                 fd.newFile() == null ? null : fd.newFile().toString();
                         return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
+                                .diff();
+                    })
+                    .collect(Collectors.joining("\n\n"));
+        }
+
+        @NotNull
+        public String toReviewDiff(IAnalyzer analyzer) {
+            return perFileChanges().stream()
+                    .map(fd -> {
+                        String oldName =
+                                fd.oldFile() == null ? null : fd.oldFile().toString();
+                        String newName =
+                                fd.newFile() == null ? null : fd.newFile().toString();
+                        return ContentDiffUtils.computeReviewDiffResult(
+                                        analyzer, fd.newFile(), fd.oldText(), fd.newText(), oldName, newName)
                                 .diff();
                     })
                     .collect(Collectors.joining("\n\n"));

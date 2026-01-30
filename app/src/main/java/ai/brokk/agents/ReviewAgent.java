@@ -137,7 +137,7 @@ public class ReviewAgent {
         long startTime = System.currentTimeMillis();
 
         // Prepare the initial context with the diff pinned
-        String diff = changes.toDiff();
+        String diff = changes.toReviewDiff(cm.getAnalyzer());
         var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
 
         try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {
