@@ -539,8 +539,9 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
-     * Convenience overload that infers the language set from {@link #project}.
-     *
+     * Convenience overload that infers the language set from this project's configured analyzer
+     * languages (see {@link #getAnalyzerLanguages()}), excluding {@link ai.brokk.analyzer.Languages#NONE}.
+     * If the project has no configured languages this returns {@link ai.brokk.analyzer.Languages#NONE}.
      */
     default Language getLanguageHandle() {
         var projectLangs = getAnalyzerLanguages().stream()
