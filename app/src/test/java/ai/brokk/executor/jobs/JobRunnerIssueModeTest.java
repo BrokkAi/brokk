@@ -163,6 +163,7 @@ class JobRunnerIssueModeTest {
                 null,
                 null,
                 null,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
         assertFalse(JobRunner.issueDeliveryEnabled(spec), "issue_delivery=none should disable PR creation");
     }
