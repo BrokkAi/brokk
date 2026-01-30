@@ -1058,7 +1058,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                     if (reasoning == config.reasoning() && tier == config.tier()) {
                         return fm;
                     }
-                    return new Service.FavoriteModel(fm.alias(), new Service.ModelConfig(config.name(), reasoning, tier));
+                    return new Service.FavoriteModel(
+                            fm.alias(), new Service.ModelConfig(config.name(), reasoning, tier));
                 })
                 .toList();
     }
@@ -1319,7 +1320,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
                 String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-                return modelName != null && service.supportsReasoningEffort(modelName);
+                var caps = getModelCapabilities(modelName, service);
+                return caps.supportsReasoning();
             }
             return super.isCellEditable(anEvent);
         }
@@ -1443,7 +1445,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
                 String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-                return modelName != null && service.supportsProcessingTier(modelName);
+                var caps = getModelCapabilities(modelName, service);
+                return caps.supportsTier();
             }
             return super.isCellEditable(anEvent);
         }
