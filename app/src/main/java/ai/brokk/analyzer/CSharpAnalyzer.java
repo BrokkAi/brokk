@@ -249,6 +249,13 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+        // C# constructors are emitted as FUNCTION units with shortName ending in ".<init>"
+        // CodeUnit.identifier() returns the segment after the last '.', which will be "<init>"
+        return candidate.isFunction() && "<init>".equals(candidate.identifier());
+    }
+
+    @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         TSQuery query = getThreadLocalQuery();
         TSQueryCursor cursor = new TSQueryCursor();
