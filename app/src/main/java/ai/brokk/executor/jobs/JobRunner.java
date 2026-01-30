@@ -1079,6 +1079,29 @@ public final class JobRunner {
                                                     // Execute task with ArchitectAgent
                                                     cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
+                                                    // If skipVerification is enabled for this job, bypass per-task
+                                                    // verification.
+                                                    if (spec.skipVerification()) {
+                                                        // Emit a best-effort notification/event so quick-mode runs are
+                                                        // traceable.
+                                                        try {
+                                                            String msg =
+                                                                    "Per-task verification skipped due to skipVerification=true";
+                                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
+                                                            if (console != null) {
+                                                                console.showNotification(
+                                                                        IConsoleIO.NotificationRole.INFO, msg);
+                                                            } else {
+                                                                cm.getIo()
+                                                                        .showNotification(
+                                                                                IConsoleIO.NotificationRole.INFO, msg);
+                                                            }
+                                                        } catch (Exception ignore) {
+                                                            // best-effort only
+                                                        }
+                                                        continue;
+                                                    }
+
                                                     // Per-task verification: enforce single-fix semantics via helper.
                                                     Supplier<String> verificationRunner = () -> {
                                                         try {
