@@ -250,9 +250,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
-        return candidate.isFunction()
-                && enclosingClass != null
-                && candidate.identifier().equals(enclosingClass.identifier());
+        return candidate.isFunction() && candidate.identifier().equals(enclosingClass.identifier());
     }
 
     @Override

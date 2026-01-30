@@ -447,7 +447,8 @@ public class ScalaAnalyzerTest {
             assertTrue(classes.iterator().next().isClass());
 
             // Method/Constructor collision:
-            // ScalaAnalyzer.createCodeUnit normalizes both primary constructors and methods named after the class to Foo.Foo.
+            // ScalaAnalyzer.createCodeUnit normalizes both primary constructors and methods named after the class to
+            // Foo.Foo.
             var methods = analyzer.getDefinitions("ai.brokk.Foo.Foo");
 
             // We assert that the size is 1 to document that the analyzer currently collapses these definitions

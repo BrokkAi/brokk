@@ -1331,7 +1331,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         // In Java, constructors are functions whose identifier matches the enclosing class identifier.
         // CodeUnit.identifier() already returns the last symbol component, so this works for nested
         // constructors like "Outer.Inner.Inner" as well.
-        return candidate.isFunction() && enclosingClass != null && candidate.identifier().equals(enclosingClass.identifier());
+        return candidate.isFunction()
+                && enclosingClass != null
+                && candidate.identifier().equals(enclosingClass.identifier());
     }
 
     @Override
@@ -1346,11 +1348,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         String constructorName = enclosingClass.identifier();
         String shortName = enclosingClass.shortName() + "." + constructorName;
 
-        return new CodeUnit(
-                enclosingClass.source(),
-                CodeUnitType.FUNCTION,
-                enclosingClass.packageName(),
-                shortName);
+        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
     }
 
     @Override

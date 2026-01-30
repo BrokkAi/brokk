@@ -251,9 +251,8 @@ public class PhpAnalyzerTest {
     void testIsConstructor() {
         assertNotNull(analyzer, "Analyzer should be initialized.");
 
-        CodeUnit classCU = analyzer.getDefinitions("My.Lib.Foo").stream()
-                .findFirst()
-                .orElseThrow();
+        CodeUnit classCU =
+                analyzer.getDefinitions("My.Lib.Foo").stream().findFirst().orElseThrow();
         CodeUnit constructCU = analyzer.getDefinitions("My.Lib.Foo.__construct").stream()
                 .findFirst()
                 .orElseThrow();

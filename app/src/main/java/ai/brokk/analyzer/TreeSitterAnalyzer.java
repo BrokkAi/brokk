@@ -2147,8 +2147,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return project;
     }
 
-    private record CuMetadata(CodeUnit cu, String captureName) {}
-
     private FileAnalysisResult analyzeFileContent(
             ProjectFile file,
             byte[] fileBytes,
@@ -2681,7 +2679,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
                         // Fully integrate into the state:
                         // 1. Attach as child of the class
-                        localChildren.computeIfAbsent(cu, k -> new ArrayList<>()).add(implicit);
+                        localChildren
+                                .computeIfAbsent(cu, k -> new ArrayList<>())
+                                .add(implicit);
                         // 2. Ensure entries exist for the synthetic unit itself to force inclusion in unionKeys
                         localChildren.putIfAbsent(implicit, new ArrayList<>());
                         localSourceRanges.putIfAbsent(implicit, new ArrayList<>());
