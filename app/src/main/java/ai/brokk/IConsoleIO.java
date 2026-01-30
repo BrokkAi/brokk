@@ -9,6 +9,10 @@ import java.awt.*;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * Console abstraction used by headless and GUI frontends. Default implementations are no-ops so adding methods is safe
+ * for existing implementations.
+ */
 public interface IConsoleIO {
     default void actionComplete() {}
 
@@ -71,6 +75,32 @@ public interface IConsoleIO {
     }
 
     void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta);
+
+    /**
+     * Structured payload describing LLM usage in a machine-readable way. The shape is intentionally minimal to
+     * support summation across multiple calls: inputTokens, cachedInputTokens, outputTokens, thinkingTokens,
+     * cost (USD), and modelName. Tier is optional and may be null.
+     *
+     * Implementations may override this to collect accounting data; default is a no-op to preserve compatibility.
+     */
+    record LlmUsagePayload(
+            int inputTokens,
+            int cachedInputTokens,
+            int outputTokens,
+            int thinkingTokens,
+            double cost,
+            String modelName,
+            @Nullable String modelTier) {}
+
+    /**
+     * Reports a machine-readable LLM usage event. The payload is suitable for summing totals across multiple calls.
+     * Default implementation is a no-op so existing consoles are unaffected.
+     *
+     * @param payload usage/cost metadata for a single completed LLM call
+     */
+    default void reportLlmUsage(LlmUsagePayload payload) {
+        // no-op by default to preserve source compatibility
+    }
 
     /**
      * default implementation just forwards to systemOutput but the Chrome GUI implementation wraps JOptionPane;
