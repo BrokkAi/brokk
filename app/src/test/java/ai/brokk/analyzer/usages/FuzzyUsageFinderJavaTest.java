@@ -608,6 +608,189 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
+    public void testPolymorphicMatchesIncludeNonOverridingSubclasses() throws Exception {
+        String animalContent =
+                """
+            public class Animal {
+                public void speak() {
+                    System.out.println("Animal speaks");
+                }
+            }
+            """;
+        String dogContent =
+                """
+            public class Dog extends Animal {
+                // Does NOT override speak() - inherits from Animal
+            }
+            """;
+        String catContent =
+                """
+            public class Cat extends Animal {
+                @Override
+                public void speak() {
+                    System.out.println("Meow");
+                }
+            }
+            """;
+        String callerContent =
+                """
+            public class Caller {
+                public void callDogSpeak(Dog dog) {
+                    dog.speak(); // This is actually Animal.speak via inheritance
+                }
+                public void callCatSpeak(Cat cat) {
+                    cat.speak(); // This is Cat.speak (override)
+                }
+            }
+            """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(animalContent, "Animal.java")
+                .addFileContents(dogContent, "Dog.java")
+                .addFileContents(catContent, "Cat.java")
+                .addFileContents(callerContent, "Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "Animal.speak";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var enclosingMethods =
+                    hits.stream().map(h -> h.enclosing().identifier()).collect(Collectors.toSet());
+
+            // Should find usage in callDogSpeak because Dog inherits speak() without overriding
+            // Dog should be detected as a polymorphic match
+            assertTrue(
+                    enclosingMethods.contains("callDogSpeak"),
+                    "Expected to find usage in callDogSpeak (Dog inherits speak without overriding); actual: "
+                            + enclosingMethods);
+        }
+    }
+
+    @Test
+    public void testOverloadedMethodDoesNotBlockPolymorphicMatch() throws Exception {
+        String animalContent =
+                """
+            public class Animal {
+                public void speak() {
+                    System.out.println("Animal speaks");
+                }
+            }
+            """;
+        String dogContent =
+                """
+            public class Dog extends Animal {
+                // Has an OVERLOAD with different signature, but does NOT override speak()
+                public void speak(String message) {
+                    System.out.println("Dog says: " + message);
+                }
+            }
+            """;
+        String callerContent =
+                """
+            public class Caller {
+                public void callDogSpeak(Dog dog) {
+                    dog.speak(); // This calls Animal.speak() via inheritance (not the overload)
+                }
+            }
+            """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(animalContent, "Animal.java")
+                .addFileContents(dogContent, "Dog.java")
+                .addFileContents(callerContent, "Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "Animal.speak";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var enclosingMethods =
+                    hits.stream().map(h -> h.enclosing().identifier()).collect(Collectors.toSet());
+
+            // Dog.speak(String) is an OVERLOAD, not an override of Animal.speak()
+            // So Dog should still be a polymorphic match for Animal.speak()
+            // and calls to dog.speak() should be found as usages
+            assertTrue(
+                    enclosingMethods.contains("callDogSpeak"),
+                    "Expected to find usage in callDogSpeak (Dog has overload speak(String) but inherits speak()); actual: "
+                            + enclosingMethods);
+        }
+    }
+
+    @Test
+    public void testPolymorphicMatchesIncludeTransitiveNonOverridingSubclasses() throws Exception {
+        String animalContent =
+                """
+            public class Animal {
+                public void speak() {
+                    System.out.println("Animal speaks");
+                }
+            }
+            """;
+        String mammalContent =
+                """
+            public class Mammal extends Animal {
+                // Inherits speak
+            }
+            """;
+        String dogContent =
+                """
+            public class Dog extends Mammal {
+                // Inherits speak via Mammal
+            }
+            """;
+        String callerContent =
+                """
+            public class Caller {
+                public void callMammalSpeak(Mammal m) {
+                    m.speak();
+                }
+                public void callDogSpeak(Dog d) {
+                    d.speak();
+                }
+            }
+            """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(animalContent, "Animal.java")
+                .addFileContents(mammalContent, "Mammal.java")
+                .addFileContents(dogContent, "Dog.java")
+                .addFileContents(callerContent, "Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "Animal.speak";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var enclosingMethods =
+                    hits.stream().map(h -> h.enclosing().identifier()).collect(Collectors.toSet());
+
+            assertTrue(
+                    enclosingMethods.contains("callMammalSpeak"),
+                    "Expected to find usage in callMammalSpeak; actual: " + enclosingMethods);
+            assertTrue(
+                    enclosingMethods.contains("callDogSpeak"),
+                    "Expected to find usage in callDogSpeak (transitive inheritance); actual: " + enclosingMethods);
+        }
+    }
+
+    @Test
     public void testFieldUsageExcludesConstructorParameter() throws Exception {
         String channelHolderSource =
                 """

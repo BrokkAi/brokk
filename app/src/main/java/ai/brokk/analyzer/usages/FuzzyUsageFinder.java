@@ -10,12 +10,14 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -162,6 +164,12 @@ public final class FuzzyUsageFinder {
                     .filter(cu -> !cu.fqName().equals(target.fqName()))
                     .collect(Collectors.toSet());
 
+            var hierarchyProvider = analyzer.as(TypeHierarchyProvider.class);
+            Collection<CodeUnit> polymorphicMatches = hierarchyProvider
+                    .map(provider -> provider.getPolymorphicMatches(target, analyzer))
+                    .orElse(List.of());
+            boolean hierarchySupported = hierarchyProvider.isPresent();
+
             // Group hits by enclosing CodeUnit to build one prompt per context.
             // Note: This is a design tradeoff: all hits within the same method/enclosing unit will receive
             // the same LLM-derived confidence score. While this saves tokens and latency, it may lack precision
@@ -174,7 +182,15 @@ public final class FuzzyUsageFinder {
 
             for (var entry : groupedHits.entrySet()) {
                 var hitsInGroup = entry.getValue();
-                var prompt = UsagePrompt.build(hitsInGroup, target, alternatives, analyzer, identifier, 8_000);
+                var prompt = UsagePrompt.build(
+                        hitsInGroup,
+                        target,
+                        alternatives,
+                        polymorphicMatches,
+                        hierarchySupported,
+                        analyzer,
+                        identifier,
+                        8_000);
 
                 var task = new RelevanceTask(prompt.filterDescription(), prompt.promptText());
                 tasks.add(task);
