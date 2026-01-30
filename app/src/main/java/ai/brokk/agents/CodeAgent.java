@@ -334,7 +334,7 @@ public class CodeAgent {
             } catch (ExecutionException e) {
                 throw new RuntimeException(e);
             }
-            context = context.copyAndRefresh(es.changedFiles(), "CodeAgent Changes");
+            context = context.copyAndRefresh(es.changedFiles());
 
             if (applyOutcome instanceof Step.Retry retryApply) {
                 cs = retryApply.cs();

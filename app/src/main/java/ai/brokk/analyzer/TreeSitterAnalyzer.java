@@ -68,10 +68,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private static final Semaphore IO_FD_SEMAPHORE = new Semaphore(Math.max(8, IO_VT_CAP), true);
     private static final int MAX_IO_READ_RETRIES = 6; // exponential backoff attempts for EMFILE
 
-    // Common separators across languages to denote hierarchy or member access.
-    // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
-    private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
-
     // Progress listeners for reporting parsing progress to UI
     private final ProgressListener progressListener;
 

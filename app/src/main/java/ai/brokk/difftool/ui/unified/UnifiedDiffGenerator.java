@@ -14,7 +14,7 @@ import org.apache.logging.log4j.Logger;
 /** Generates unified diff documents from buffer sources with support for both standard and full context modes. */
 public class UnifiedDiffGenerator {
     private static final Logger logger = LogManager.getLogger(UnifiedDiffGenerator.class);
-    private static final int STANDARD_CONTEXT_LINES = 3;
+    public static final int STANDARD_CONTEXT_LINES = 3;
 
     /**
      * Generate a unified diff document from a JMDiffNode (preferred method). This uses the pre-processed diff

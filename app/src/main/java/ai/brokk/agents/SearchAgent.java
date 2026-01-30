@@ -10,15 +10,20 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.git.GitWorkflow;
+import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.McpPrompts;
 import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.prompts.SearchPrompts.Terminal;
+import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -31,6 +36,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -55,14 +61,18 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * SearchAgent: - Uses tools to curate Workspace context for follow-on coding. - Starts by
- * calling ContextAgent to add recommended fragments to the Workspace. - Adds every learning step to Context history (no
- * hidden state). - Summarizes very large tool outputs before recording them. - Enters "beast mode" to finalize with
- * existing info if interrupted or context is near full. - Never writes code or answers questions itself; it prepares
- * the Workspace for a later Code Agent run.
+ * SearchAgent:
+ * - Uses tools to curate Workspace context for follow-on coding.
+ * - Starts by calling ContextAgent to add recommended fragments to the Workspace.
+ * - Adds every learning step to Context history (no hidden state).
+ * - Summarizes very large tool outputs before recording them.
+ * - If the model exceeds its context limit, restores the last successful checkpoint and enters
+ *   {@code dropOnlyMode}, where the agent is constrained to cleanup-only actions (dropping fragments) until the
+ *   Workspace is under the limit.
+ * - Never writes code or answers questions itself; it prepares the Workspace for a later Code Agent run.
  */
 public class SearchAgent {
-    protected static final Logger logger = LogManager.getLogger(SearchAgent.class);
+    private static final Logger logger = LogManager.getLogger(SearchAgent.class);
 
     /**
      * Configuration for automatic context scanning behavior.
@@ -89,41 +99,29 @@ public class SearchAgent {
         }
     }
 
-    protected static final int SUMMARIZE_THRESHOLD = 1_000;
+    private static final int SUMMARIZE_THRESHOLD = 1_000;
 
-    protected final IContextManager cm;
-    protected final StreamingChatModel model;
-    protected final ContextManager.@Nullable TaskScope scope;
-    protected final Llm llm;
-    protected final Llm summarizer;
-    protected final IConsoleIO io;
-    protected final String goal;
-    protected final List<McpPrompts.McpTool> mcpTools;
-    protected final List<String> staticTools;
-    protected final SearchMetrics metrics;
-    protected final ScanConfig scanConfig;
-    protected boolean scanPerformed;
-    protected boolean contextPruned;
+    private final IContextManager cm;
+    private final StreamingChatModel model;
+    private final ContextManager.@Nullable TaskScope scope;
+    private final Llm llm;
+    private final Llm summarizer;
+    private final IConsoleIO io;
+    private final String goal;
+    private final List<McpPrompts.McpTool> mcpTools;
+    private final List<String> staticTools;
+    private final SearchMetrics metrics;
+    private final ScanConfig scanConfig;
+    private boolean scanPerformed;
+    private boolean contextPruned;
 
-    // Local working context snapshot for this agent
-    protected Context context;
+    private final SearchPrompts.Objective objective;
 
-    // Session-local conversation for this agent
-    protected final List<ChatMessage> sessionMessages = new ArrayList<>();
+    SearchState currentState;
+    private @Nullable SearchState checkpointState;
 
-    // State toggles
-    protected boolean beastMode;
-
-    @FunctionalInterface
-    public interface TurnListener {
-        void turnFinished();
-    }
-
-    private @Nullable TurnListener turnListener;
-
-    public void setTurnListener(@Nullable TurnListener listener) {
-        this.turnListener = listener;
-    }
+    private final Set<ContextFragment> originalPinnedFragments;
+    private final List<ContextFragment> droppedFragments = new ArrayList<>();
 
     public SearchAgent(
             Context initialContext,
@@ -139,6 +137,35 @@ public class SearchAgent {
             Context initialContext,
             String goal,
             StreamingChatModel model,
+            SearchPrompts.Objective objective,
+            ContextManager.TaskScope scope) {
+        this(
+                initialContext,
+                goal,
+                model,
+                objective,
+                scope,
+                initialContext.getContextManager().getIo(),
+                ScanConfig.defaults(),
+                null);
+    }
+
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            ContextManager.TaskScope scope,
+            IConsoleIO io,
+            ScanConfig scanConfig,
+            @Nullable List<String> staticTools) {
+        this(initialContext, goal, model, SearchPrompts.Objective.WORKSPACE_ONLY, scope, io, scanConfig, staticTools);
+    }
+
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            SearchPrompts.Objective objective,
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig,
@@ -156,15 +183,16 @@ public class SearchAgent {
         var summarizeModel = cm.getService().getModel(ModelType.SCAN);
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal, TaskResult.Type.SUMMARIZE);
 
-        this.beastMode = false;
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
-        this.context = initialContext;
+        this.currentState = SearchState.initial(initialContext);
+        this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.scanConfig = scanConfig;
         this.staticTools = initStaticTools(staticTools, cm.getProject(), mcpTools);
+        this.objective = objective;
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -244,176 +272,115 @@ public class SearchAgent {
         return scanConfig.autoScan() && !scanPerformed;
     }
 
-    protected TaskResult executeInternal() throws InterruptedException {
-        var wst = new WorkspaceTools(context);
-        var tr = createToolRegistry(wst);
-
+    private TaskResult executeInternal() throws InterruptedException {
         pruneContext();
-        if (shouldAutomaticallyScan() && context.isFileContentEmpty()) {
+        if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
             performAutoScan();
         }
 
+        boolean dropOnlyMode = false;
+        @Nullable PendingTerminal pendingTerminal = null;
+
         while (true) {
-            wst.setContext(context);
+            Context contextAtTurnStart = currentState.context();
 
-            var promptResult = SearchPrompts.instance.buildPrompt(
-                    context, model, taskMeta(), goal, getObjective(), mcpTools, sessionMessages);
-            var messages = promptResult.messages();
-
-            if (!beastMode && promptResult.engageBeastMode()) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Workspace is near the context limit; attempting finalization based on current knowledge");
-                beastMode = true;
+            if (pendingTerminal != null) {
+                assert dropOnlyMode;
+                assert hasDroppableFragments(contextAtTurnStart);
             }
 
-            var allowedToolNames = calculateAllowedToolNames();
-            var agentTerminalTools = calculateTerminalTools();
+            var sta = new SingleTurnAgent(this, currentState, dropOnlyMode, pendingTerminal);
+            var outcome = sta.executeTurn();
 
-            var allAllowed = new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size());
-            allAllowed.addAll(allowedToolNames);
-            allAllowed.addAll(agentTerminalTools);
-            var toolSpecs = tr.getTools(allAllowed);
-
-            metrics.startTurn();
-            long turnStartTime = System.currentTimeMillis();
-
-            io.showTransientMessage("Brokk Search is preparing the next actions…");
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
-
-            long llmTimeMs = System.currentTimeMillis() - turnStartTime;
-            var tokenUsage = result.metadata();
-            int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
-            int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
-            int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
-            int outputTokens = tokenUsage != null ? tokenUsage.outputTokens() : 0;
-            metrics.recordLlmCall(llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
-
-            if (result.error() != null) {
-                var details = TaskResult.StopDetails.fromResponse(result);
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details.explanation());
-                return errorResult(details, taskMeta());
-            }
-
-            var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
-            if (shouldAutomaticallyScan()
-                    && ai.toolExecutionRequests().stream().anyMatch(req -> isSearchTool(req.name()))) {
-                performAutoScan();
-                continue;
-            }
-
-            sessionMessages.add(new UserMessage("What tools do you want to use next?"));
-            sessionMessages.add(result.aiMessage());
-
-            if (!ai.hasToolExecutionRequests()) {
-                return errorResult(
-                        new TaskResult.StopDetails(
-                                TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."),
-                        taskMeta());
-            }
-
-            Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
-            boolean executedResearch = false;
-            boolean executedNonHygiene = false;
-            Context contextAtTurnStart = context;
-            try {
-                var sortedNonterminalCalls = ai.toolExecutionRequests().stream()
-                        .filter(req -> categorizeTool(req.name()) != ToolCategory.TERMINAL)
-                        .sorted(Comparator.comparingInt(this::priority))
-                        .toList();
-
-                for (var req : sortedNonterminalCalls) {
-                    ToolExecutionResult toolResult = executeTool(req, tr, wst);
-                    if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
-                        var details =
-                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
-                        return errorResult(details, taskMeta());
-                    }
-
-                    var display = toolResult.resultText();
-                    boolean summarize = toolResult.status() == ToolExecutionResult.Status.SUCCESS
-                            && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
-                            && shouldSummarize(req.name());
-                    ToolExecutionResult finalResult;
-                    if (summarize) {
-                        var reasoning = getArgumentsMap(req)
-                                .getOrDefault("reasoning", "")
-                                .toString();
-                        display = summarizeResult(goal, req, display, reasoning);
-                        finalResult = new ToolExecutionResult(req, toolResult.status(), display);
-                    } else {
-                        finalResult = toolResult;
-                    }
-
-                    sessionMessages.add(finalResult.toExecutionResultMessage());
-
-                    var category = categorizeTool(req.name());
-                    if (category != ToolCategory.WORKSPACE_HYGIENE) {
-                        executedNonHygiene = true;
-                    }
-                    if (category == ToolCategory.RESEARCH && !isWorkspaceTool(req, tr)) {
-                        executedResearch = true;
-                    }
+            switch (outcome) {
+                case TurnOutcome.Final f -> {
+                    return f.result();
                 }
+                case TurnOutcome.Overflow overflow -> {
+                    assert pendingTerminal == null;
+                    assert checkpointState != null;
 
-                var terminal = ai.toolExecutionRequests().stream()
-                        .filter(req -> categorizeTool(req.name()) == ToolCategory.TERMINAL)
-                        .min(Comparator.comparingInt(this::priority));
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Context limit exceeded. Restoring last successful checkpoint and entering recovery mode.");
 
-                boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
+                    currentState = Objects.requireNonNull(checkpointState);
 
-                if (terminal.isPresent() && contextSafeForTerminal && !executedResearch) {
-                    var termReq = terminal.get();
-                    var termExec = executeTool(termReq, tr, wst);
-                    sessionMessages.add(termExec.toExecutionResultMessage());
-
-                    if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
+                    if (!hasDroppableFragments(currentState.context())) {
                         return errorResult(
                                 new TaskResult.StopDetails(
-                                        TaskResult.StopReason.TOOL_ERROR,
-                                        "Terminal tool '" + termReq.name() + "' failed: " + termExec.resultText()),
-                                taskMeta());
+                                        TaskResult.StopReason.LLM_CONTEXT_SIZE,
+                                        "Context limit exceeded, but no fragments are droppable after restoring to the last checkpoint; cannot recover by pruning."),
+                                taskMeta(),
+                                currentState.context());
                     }
 
-                    if (termReq.name().equals("abortSearch")) {
-                        return errorResult(
-                                new TaskResult.StopDetails(
-                                        TaskResult.StopReason.LLM_ABORTED, "Aborted: " + termExec.resultText()),
-                                taskMeta());
-                    } else {
-                        return createResult(termReq.name(), goal);
-                    }
+                    dropOnlyMode = true;
                 }
-
-                Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
-                Set<ProjectFile> added = new HashSet<>(filesAfterSet);
-                added.removeAll(filesBeforeSet);
-                if (!added.isEmpty() && scope != null) {
-                    scope.publish(context);
+                case TurnOutcome.AutoScan autoScan -> {
+                    assert !dropOnlyMode;
+                    performAutoScan();
                 }
-            } finally {
-                endTurnAndRecordFileChanges(filesBeforeSet);
-                if (turnListener != null) {
-                    turnListener.turnFinished();
+                case TurnOutcome.Continue c -> {
+                    currentState =
+                            new SearchState(c.contextAfterTurn(), c.sessionMessagesAfterTurn(), contextAtTurnStart);
+                    checkpointState = currentState;
+                    dropOnlyMode = false;
                 }
+                case TurnOutcome.PendingTerminal pt -> {
+                    currentState = new SearchState(
+                            pt.contextAfterTurn(), pt.sessionMessagesAfterTurn(), currentState.lastTurnContext());
+                    pendingTerminal = pt.pendingTerminal();
+                    dropOnlyMode = true;
+                }
+                default -> throw new AssertionError("Unexpected outcome " + outcome);
             }
         }
     }
 
-    protected ToolRegistry createToolRegistry(WorkspaceTools wst) {
-        return cm.getToolRegistry().builder().register(wst).register(this).build();
+    private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider) {
+        var builder = cm.getToolRegistry().builder().register(wst).register(toolProvider);
+        if (DependencyTools.isSupported(cm.getProject())) {
+            builder.register(new DependencyTools(cm));
+        }
+        return builder.build();
     }
 
-    protected List<String> calculateTerminalTools() {
+    private List<String> calculateTerminalTools(Context context, boolean dropOnlyMode) {
+        if (dropOnlyMode) {
+            assert hasDroppableFragments(context);
+            return List.of();
+        }
+
         var terminals = new ArrayList<String>();
-        terminals.add("workspaceComplete");
+        var allowed = objective.terminals();
+
+        if (allowed.contains(Terminal.ISSUE_JSON)) {
+            terminals.add("issueWriterOutput");
+            terminals.add("abortSearch");
+            return terminals;
+        }
+
+        if (allowed.contains(Terminal.ANSWER)) {
+            terminals.add("answer");
+            terminals.add("askForClarification");
+        }
+        if (allowed.contains(Terminal.WORKSPACE)) {
+            terminals.add("workspaceComplete");
+        }
+        if (allowed.contains(Terminal.TASK_LIST)) {
+            terminals.add("createOrReplaceTaskList");
+        }
+        if (allowed.contains(Terminal.CODE)) {
+            terminals.add("callCodeAgent");
+        }
+
         terminals.add("abortSearch");
         return terminals;
     }
 
-    protected void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet) {
-        Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
+    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet, Context contextAfterTurn) {
+        Set<ProjectFile> filesAfterSet = workspaceFiles(contextAfterTurn);
         Set<ProjectFile> added = new HashSet<>(filesAfterSet);
         added.removeAll(filesBeforeSet);
         metrics.recordFilesAdded(added.size());
@@ -421,37 +388,44 @@ public class SearchAgent {
         metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
-    protected ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
-            throws InterruptedException {
-        metrics.recordToolCall(req.name());
-        wst.setContext(context);
-        var result = registry.executeTool(req);
-        if (isWorkspaceTool(req, registry)) {
-            context = wst.getContext();
-        }
-        return result;
+    private void updateDroppedHistory(Context oldContext, Context newContext) {
+        if (oldContext.equals(newContext)) return;
+
+        ContextDelta delta = ContextDelta.between(oldContext, newContext).join();
+        droppedFragments.addAll(delta.removedFragments());
     }
 
-    protected List<String> calculateAllowedToolNames() {
-        if (beastMode) {
-            return List.of();
+    List<String> calculateAllowedToolNames(Context context, boolean dropOnlyMode) {
+        if (dropOnlyMode) {
+            assert hasDroppableFragments(context); // caller should have verified
+            return List.of("dropWorkspaceFragments");
         }
 
-        var names = new ArrayList<String>(staticTools);
-        if (hasDroppableFragments()) {
+        var names = new ArrayList<>(staticTools);
+        if (hasDroppableFragments(context)) {
             names.add("dropWorkspaceFragments");
+        }
+
+        if (io instanceof Chrome && objective != SearchPrompts.Objective.TASKS_ONLY) {
+            if (!names.contains("askHuman")) {
+                names.add("askHuman");
+            }
+        }
+
+        if (DependencyTools.isSupported(cm.getProject())) {
+            names.add("importDependency");
         }
 
         return names;
     }
 
-    protected enum ToolCategory {
+    enum ToolCategory {
         TERMINAL,
         WORKSPACE_HYGIENE,
         RESEARCH
     }
 
-    protected ToolCategory categorizeTool(String toolName) {
+    ToolCategory categorizeTool(String toolName) {
         return switch (toolName) {
             case "answer",
                     "askForClarification",
@@ -464,7 +438,7 @@ public class SearchAgent {
         };
     }
 
-    protected boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
+    private boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
         try {
             var vi = tr.validateTool(request);
             return vi.instance() instanceof WorkspaceTools;
@@ -473,20 +447,22 @@ public class SearchAgent {
         }
     }
 
-    protected int priority(String toolName) {
+    private int priority(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
             case "askHuman" -> 2;
-            case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
-            case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
+            case "addFilesToWorkspace" -> 4;
+            case "addClassesToWorkspace", "addFileSummariesToWorkspace" -> 5;
+            case "addMethodsToWorkspace", "addClassSummariesToWorkspace" -> 6;
+            case "addSymbolUsagesToWorkspace" -> 15;
             case "searchSymbols",
                     "getSymbolLocations",
                     "getUsages",
                     "searchSubstrings",
                     "searchFilenames",
-                    "searchGitCommitMessages" -> 6;
-            case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimDirectory" -> 8;
+                    "searchGitCommitMessages" -> 20;
+            case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
+            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimDirectory" -> 40;
 
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
@@ -496,23 +472,25 @@ public class SearchAgent {
         };
     }
 
-    protected int priority(ToolExecutionRequest req) {
+    private int priority(ToolExecutionRequest req) {
         return priority(req.name());
     }
 
     public Context pruneContext() throws InterruptedException {
-        if (contextPruned || !hasDroppableFragments()) {
+        Context context = currentState.context();
+        if (contextPruned || !hasDroppableFragments(context)) {
             return context;
         }
 
         var scanModel = getScanModel();
         var wst = new WorkspaceTools(context);
-        var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
+        var toolProvider = new SingleTurnAgent(this, currentState, false, null);
+        var tr = createToolRegistry(wst, toolProvider);
 
         var messages = SearchPrompts.instance.buildPruningPrompt(context, goal);
         var toolNames = new ArrayList<String>();
         toolNames.add("performedInitialReview");
-        if (hasDroppableFragments()) {
+        if (hasDroppableFragments(context)) {
             toolNames.add("dropWorkspaceFragments");
         }
         var toolSpecs = tr.getTools(toolNames);
@@ -522,32 +500,36 @@ public class SearchAgent {
         var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal, TaskResult.Type.SEARCH).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
+
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         if (result.error() != null || result.isEmpty()) {
-            return context;
+            return currentState.context();
         }
 
         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
         for (var req : ai.toolExecutionRequests()) {
-            executeTool(req, tr, wst);
+            toolProvider.executeTool(req);
         }
 
+        currentState = currentState.withContext(toolProvider.context);
         contextPruned = true;
-        return context;
+        return currentState.context();
     }
 
-    protected void performAutoScan() throws InterruptedException {
+    private void performAutoScan() throws InterruptedException {
         scanContext();
         scanPerformed = true;
     }
 
-    protected SearchPrompts.Objective getObjective() {
-        return SearchPrompts.Objective.WORKSPACE_ONLY;
+    private SearchPrompts.Objective getObjective() {
+        return objective;
     }
 
     public Context scanContext() throws InterruptedException {
+        Context context = currentState.context();
+
         StreamingChatModel scanModel = getScanModel();
-        Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
+        Set<ProjectFile> filesBeforeScan = workspaceFiles(context);
 
         var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
         io.llmOutput(
@@ -572,7 +554,8 @@ public class SearchAgent {
                         "Summary of ContextAgent Findings",
                         SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
-                addToWorkspace(recommendation);
+                context = context.addFragments(recommendation.fragments());
+                emitContextAddedExplanation(recommendation.fragments());
                 io.llmOutput(
                         "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
                         ChatMessageType.AI,
@@ -582,31 +565,48 @@ public class SearchAgent {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
         }
 
-        Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
+        Set<ProjectFile> filesAfterScan = workspaceFiles(context);
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
 
-        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
+        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta, context);
         context = (scanConfig.appendToScope() && scope != null)
                 ? scope.append(contextAgentResult)
                 : contextAgentResult.context();
 
-        return context;
+        currentState = currentState.withContext(context);
+        return currentState.context();
     }
 
-    protected StreamingChatModel getScanModel() {
+    private StreamingChatModel getScanModel() {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    protected boolean isSearchTool(String toolName) {
+    private boolean isSearchTool(String toolName) {
         return toolName.startsWith("search");
     }
 
+    /**
+     * Invokes the Code Agent to implement instructions using the current SearchState.
+     * This is intended for internal/legacy callers and does not advance the SearchAgent's turn loop.
+     */
     @Blocking
-    public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
-        context = context.addFragments(recommendationResult.fragments());
-        emitContextAddedExplanation(recommendationResult.fragments());
+    public TaskResult callCodeAgent(String instructions) throws InterruptedException {
+        if (scope == null) {
+            return errorResult(new TaskResult.StopDetails(
+                    TaskResult.StopReason.TOOL_ERROR, "Cannot call Code Agent without a Task Scope."));
+        }
+
+        ArchitectAgent architect = new ArchitectAgent(
+                cm,
+                cm.getService().getModel(ModelType.ARCHITECT),
+                cm.getCodeModel(),
+                instructions,
+                scope,
+                currentState.context());
+
+        return architect.execute();
     }
 
     private void emitContextAddedExplanation(List<ContextFragment> fragments) {
@@ -628,112 +628,451 @@ public class SearchAgent {
         io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
     }
 
-    @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
-    public String performedInitialReview() {
-        return "Initial review complete; workspace is well-curated.";
-    }
+    // public for ToolRegistry
+    public static final class SingleTurnAgent {
+        private final SearchAgent agent;
+        private final boolean dropOnlyMode;
+        private final @Nullable PendingTerminal pendingTerminal;
 
-    @Tool(
-            "Signal that the Workspace now contains all the information necessary to accomplish the goal. Call this when you have finished gathering and pruning context.")
-    public String workspaceComplete() {
-        return "Workspace marked complete for the current goal.";
-    }
+        private Context context; // mutable
+        private final @Nullable Context lastTurnContext;
+        private final List<ChatMessage> sessionMessages;
 
-    @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
-    public String abortSearch(
-            @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
-        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
-        return explanation;
-    }
+        private final WorkspaceTools wst;
+        private final ToolRegistry tr;
 
-    @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
-    public String callMcpTool(
-            @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
-            @P("A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
-                    @Nullable
-                    Map<String, Object> arguments) {
-        Map<String, Object> args = Objects.requireNonNullElseGet(arguments, HashMap::new);
-        var mcpToolOptional =
-                mcpTools.stream().filter(t -> t.toolName().equals(toolName)).findFirst();
+        private SingleTurnAgent(
+                SearchAgent agent,
+                SearchState stateAtTurnStart,
+                boolean dropOnlyMode,
+                @Nullable PendingTerminal pendingTerminal) {
+            this.agent = agent;
+            this.dropOnlyMode = dropOnlyMode;
+            this.pendingTerminal = pendingTerminal;
 
-        if (mcpToolOptional.isEmpty()) {
-            return "Error: MCP tool '" + toolName + "' not found in configuration.";
+            this.context = stateAtTurnStart.context();
+            this.lastTurnContext = stateAtTurnStart.lastTurnContext();
+            this.sessionMessages = new ArrayList<>(stateAtTurnStart.sessionMessages());
+
+            this.wst = new WorkspaceTools(context);
+            this.tr = agent.createToolRegistry(wst, this);
         }
 
-        var server = mcpToolOptional.get().server();
-        try {
-            var result =
-                    McpUtils.callTool(server, toolName, args, cm.getProject().getRoot());
-            return McpPrompts.mcpToolPreamble() + "\n\n" + "MCP tool '" + toolName + "' output:\n" + result;
-        } catch (IOException | RuntimeException e) {
-            return "Error calling MCP tool '" + toolName + "': " + e.getMessage();
+        private TurnOutcome executeTurn() throws InterruptedException {
+            assert pendingTerminal == null || agent.hasDroppableFragments(context);
+
+            var prep = preparePrompt();
+
+            Set<ProjectFile> filesBeforeSet = agent.workspaceFiles(context);
+
+            agent.metrics.startTurn();
+            long turnStartTime = System.currentTimeMillis();
+            try {
+                agent.io.showTransientMessage("Brokk Search is preparing the next actions…");
+                var result = agent.llm.sendRequest(
+                        prep.messages(), new ToolContext(prep.toolSpecs(), ToolChoice.REQUIRED, tr));
+
+                long llmTimeMs = System.currentTimeMillis() - turnStartTime;
+                var tokenUsage = result.metadata();
+                int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
+                int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
+                int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
+                int outputTokens = tokenUsage != null ? tokenUsage.outputTokens() : 0;
+                agent.metrics.recordLlmCall(llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
+
+                if (result.error() != null) {
+                    var details = TaskResult.StopDetails.fromResponse(result);
+                    if (details.reason() == TaskResult.StopReason.LLM_CONTEXT_SIZE && agent.checkpointState != null) {
+                        assert pendingTerminal == null;
+                        return TurnOutcome.Overflow.INSTANCE;
+                    }
+                    agent.io.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details.explanation());
+                    return new TurnOutcome.Final(agent.errorResult(details, agent.taskMeta(), context));
+                }
+
+                var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+
+                if (agent.shouldAutomaticallyScan()
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.isSearchTool(req.name()))) {
+                    assert pendingTerminal == null;
+                    return TurnOutcome.AutoScan.INSTANCE;
+                }
+
+                if (prep.extraUserMessage() != null) {
+                    sessionMessages.add(prep.extraUserMessage());
+                }
+                sessionMessages.add(new UserMessage("What tools do you want to use next?"));
+                sessionMessages.add(result.aiMessage());
+
+                if (!ai.hasToolExecutionRequests()) {
+                    return new TurnOutcome.Final(agent.errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."),
+                            agent.taskMeta(),
+                            context));
+                }
+
+                var orderedRequests = ai.toolExecutionRequests().stream()
+                        .sorted(Comparator.comparingInt(agent::priority))
+                        .toList();
+
+                if (pendingTerminal != null) {
+                    orderedRequests = orderedRequests.stream()
+                            .filter(req -> "dropWorkspaceFragments".equals(req.name()))
+                            .toList();
+                }
+
+                @Nullable ToolExecutionRequest terminalRequest = null;
+                List<ToolExecutionRequest> primaryCalls;
+
+                if (pendingTerminal == null) {
+                    terminalRequest = orderedRequests.stream()
+                            .filter(req -> agent.categorizeTool(req.name()) == ToolCategory.TERMINAL)
+                            .findFirst()
+                            .orElse(null);
+
+                    primaryCalls = orderedRequests.stream()
+                            .filter(req -> agent.categorizeTool(req.name()) != ToolCategory.TERMINAL)
+                            .toList();
+                } else {
+                    primaryCalls = orderedRequests;
+                }
+
+                Set<ToolCategory> categoriesSeen = new HashSet<>();
+                Context contextAtTurnStart = context;
+
+                for (var req : primaryCalls) {
+                    ToolExecutionResult toolResult = executeTool(req);
+                    if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
+                        var details =
+                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
+                        return new TurnOutcome.Final(agent.errorResult(details, agent.taskMeta(), context));
+                    }
+
+                    ToolExecutionResult finalResult = toolResult;
+                    if (pendingTerminal == null) {
+                        var display = toolResult.resultText();
+                        boolean summarize = toolResult.status() == ToolExecutionResult.Status.SUCCESS
+                                && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
+                                && agent.shouldSummarize(req.name());
+
+                        if (summarize) {
+                            var reasoning = SearchAgent.getArgumentsMap(req)
+                                    .getOrDefault("reasoning", "")
+                                    .toString();
+                            display = agent.summarizeResult(agent.goal, req, display, reasoning);
+                            finalResult = new ToolExecutionResult(req, toolResult.status(), display);
+                        }
+                    }
+
+                    sessionMessages.add(finalResult.toExecutionResultMessage());
+                    categoriesSeen.add(agent.categorizeTool(req.name()));
+                }
+
+                if (pendingTerminal != null) {
+                    return new TurnOutcome.Final(
+                            agent.finalizePendingTerminal(Objects.requireNonNull(pendingTerminal), context));
+                }
+
+                // if the agent ran a search, but also called a terminal, we'll let the terminal take priority
+                boolean executedNonHygiene = categoriesSeen.stream().anyMatch(c -> c != ToolCategory.WORKSPACE_HYGIENE);
+                boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
+                if (terminalRequest != null && contextSafeForTerminal) {
+                    var termExec = executeTool(terminalRequest);
+                    sessionMessages.add(termExec.toExecutionResultMessage());
+
+                    if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
+                        return new TurnOutcome.Final(agent.errorResult(
+                                new TaskResult.StopDetails(
+                                        TaskResult.StopReason.TOOL_ERROR,
+                                        "Terminal tool '" + terminalRequest.name() + "' failed: "
+                                                + termExec.resultText()),
+                                agent.taskMeta(),
+                                context));
+                    }
+
+                    context = agent.resetPinsToOriginal(context);
+                    var pending = new PendingTerminal(termExec);
+                    // take an extra turn to drop fragments after making the terminal decision ONLY IF
+                    // - we didn't already drop this turn, AND
+                    // - there's a bunch of autopinned fragments that could have been stopping a drop this turn
+                    // ... in short, we trust the agent to drop appropriately, but if it maybe wanted to drop
+                    // but couldn't, we give it a final opportunity to do so.
+                    boolean worthDropping = context.allFragments()
+                                    .filter(f -> context.isPinned(f) && !agent.isPinnedBySystem(f))
+                                    .mapToLong(f -> Messages.getApproximateTokens(
+                                            f.text().join()))
+                                    .sum()
+                            > 20_000;
+                    if (worthDropping && !categoriesSeen.contains(ToolCategory.WORKSPACE_HYGIENE)) {
+                        return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
+                    }
+                    return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
+                }
+
+                Set<ProjectFile> filesAfterSet = agent.workspaceFiles(context);
+
+                Set<ProjectFile> added = new HashSet<>(filesAfterSet);
+                added.removeAll(filesBeforeSet);
+                if (!added.isEmpty() && agent.scope != null) {
+                    agent.scope.publish(context);
+                }
+
+                return new TurnOutcome.Continue(context, List.copyOf(sessionMessages));
+            } finally {
+                agent.endTurnAndRecordFileChanges(filesBeforeSet, context);
+            }
+        }
+
+        private TurnPrompt preparePrompt() throws InterruptedException {
+            wst.setContext(context);
+
+            var messages = SearchPrompts.instance.buildPrompt(
+                    context,
+                    agent.model,
+                    agent.taskMeta(),
+                    agent.goal,
+                    agent.getObjective(),
+                    agent.mcpTools,
+                    sessionMessages);
+
+            if (dropOnlyMode) {
+                context = agent.resetPinsToOriginal(context);
+                messages = new ArrayList<>(messages);
+
+                assert agent.hasDroppableFragments(context);
+                messages.add(
+                        new UserMessage(
+                                "The Workspace has exceeded the context limit. You MUST use 'dropWorkspaceFragments' to remove irrelevant or redundant fragments before you can continue."));
+            } else {
+                context = agent.applyPinning(context, lastTurnContext);
+            }
+
+            @Nullable UserMessage extraUserMessage = null;
+
+            List<String> allowedToolNames;
+            List<String> agentTerminalTools;
+
+            if (pendingTerminal == null) {
+                allowedToolNames = agent.calculateAllowedToolNames(context, dropOnlyMode);
+                agentTerminalTools = agent.calculateTerminalTools(context, dropOnlyMode);
+            } else {
+                messages = new ArrayList<>(messages);
+                extraUserMessage = new UserMessage(
+                        "Search is complete. Please perform a final cleanup of the Workspace using 'dropWorkspaceFragments' to remove any remaining irrelevant information.");
+                messages.add(extraUserMessage);
+
+                allowedToolNames = agent.hasDroppableFragments(context) ? List.of("dropWorkspaceFragments") : List.of();
+                agentTerminalTools = List.of();
+            }
+
+            var allAllowed = new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size());
+            allAllowed.addAll(allowedToolNames);
+            allAllowed.addAll(agentTerminalTools);
+
+            var toolSpecs = tr.getTools(allAllowed);
+            return new TurnPrompt(messages, toolSpecs, extraUserMessage);
+        }
+
+        private ToolExecutionResult executeTool(ToolExecutionRequest req) throws InterruptedException {
+            agent.metrics.recordToolCall(req.name());
+            wst.setContext(context);
+
+            var result = tr.executeTool(req);
+            if (agent.isWorkspaceTool(req, tr)) {
+                agent.updateDroppedHistory(context, wst.getContext());
+                context = wst.getContext();
+            }
+            return result;
+        }
+
+        @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
+        @SuppressWarnings("UnusedMethod")
+        public String performedInitialReview() {
+            return "Initial review complete; workspace is well-curated.";
+        }
+
+        @Tool(
+                "Signal that the Workspace now contains all the information necessary to accomplish the goal. Call this when you have finished gathering and pruning context.")
+        @SuppressWarnings("UnusedMethod")
+        public String workspaceComplete() {
+            return "Workspace marked complete for the current goal.";
+        }
+
+        @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
+        @SuppressWarnings("UnusedMethod")
+        public String abortSearch(
+                @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
+            agent.io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+            return explanation;
+        }
+
+        @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
+        @SuppressWarnings("UnusedMethod")
+        public String callMcpTool(
+                @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
+                @P(
+                                "A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
+                        @Nullable
+                        Map<String, Object> arguments) {
+            Map<String, Object> args = Objects.requireNonNullElseGet(arguments, HashMap::new);
+            var mcpToolOptional = agent.mcpTools.stream()
+                    .filter(t -> t.toolName().equals(toolName))
+                    .findFirst();
+
+            if (mcpToolOptional.isEmpty()) {
+                return "Error: MCP tool '" + toolName + "' not found in configuration.";
+            }
+
+            var server = mcpToolOptional.get().server();
+            try {
+                var result = McpUtils.callTool(
+                        server, toolName, args, agent.cm.getProject().getRoot());
+                return McpPrompts.mcpToolPreamble() + "\n\n" + "MCP tool '" + toolName + "' output:\n" + result;
+            } catch (IOException | RuntimeException e) {
+                return "Error calling MCP tool '" + toolName + "': " + e.getMessage();
+            }
+        }
+
+        @Tool("Provide a final answer to a purely informational request. Use this when no code changes are required.")
+        @SuppressWarnings("UnusedMethod")
+        public String answer(
+                @P(
+                                "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
+                        String explanation) {
+            agent.io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
+            return explanation;
+        }
+
+        @Tool(
+                "Ask the human for clarification when the goal is unclear or necessary information cannot be found. Outputs the provided question to the user and stops.")
+        @SuppressWarnings("UnusedMethod")
+        public String askForClarification(
+                @P("A concise question or clarification request for the human user.") String queryForUser) {
+            agent.io.llmOutput(queryForUser, ChatMessageType.AI, LlmOutputMeta.newMessage());
+            return queryForUser;
+        }
+
+        @Tool(
+                "Issue Writer final output. Provide EXACTLY the JSON string. No markdown fences, no preamble, no additional text.")
+        @SuppressWarnings("UnusedMethod")
+        public String issueWriterOutput(@P("A single JSON object string.") String json) {
+            agent.io.llmOutput(json, ChatMessageType.AI, LlmOutputMeta.newMessage());
+            return json;
+        }
+
+        @Tool(
+                "Invoke the Code Agent to implement the current goal in a single shot using your provided instructions. Provide complete, self-contained instructions; only the Workspace and your instructions are visible to the Code Agent.")
+        @SuppressWarnings("UnusedMethod")
+        public String callCodeAgent(
+                @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
+                        String instructions)
+                throws InterruptedException, ToolRegistry.FatalLlmException {
+            if (agent.scope == null) {
+                throw new ToolRegistry.FatalLlmException("Cannot call Code Agent without a valid Task Scope.");
+            }
+
+            var searchResult = agent.createResult("Search: " + agent.goal, agent.goal, context);
+            context = agent.scope.append(searchResult);
+
+            logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
+
+            var architect = new ArchitectAgent(
+                    agent.cm,
+                    agent.cm.getService().getModel(ModelType.ARCHITECT),
+                    agent.cm.getCodeModel(),
+                    instructions,
+                    agent.scope,
+                    context);
+
+            var result = architect.execute();
+            var stopDetails = result.stopDetails();
+            var reason = stopDetails.reason();
+            context = agent.scope.append(result);
+
+            if (reason == TaskResult.StopReason.SUCCESS) {
+                new GitWorkflow(agent.cm).performAutoCommit(instructions);
+                logger.debug("SearchAgent.callCodeAgent finished successfully");
+                return "CodeAgent finished with a successful build!";
+            }
+
+            if (reason == TaskResult.StopReason.INTERRUPTED) {
+                throw new InterruptedException();
+            }
+            if (reason == TaskResult.StopReason.LLM_ERROR) {
+                agent.io.llmOutput(
+                        "# Code Agent\n\nFatal LLM error during CodeAgent execution.",
+                        ChatMessageType.AI,
+                        LlmOutputMeta.newMessage());
+                logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
+                throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
+            }
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.INTERNAL_ERROR, stopDetails.explanation());
         }
     }
 
-    protected TaskResult createResult(String action, String goal) {
-        return createResult(action, goal, taskMeta());
+    private TaskResult createResult(String action, String goal, Context context) {
+        return createResult(action, goal, taskMeta(), context);
     }
 
-    protected TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta) {
+    private TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta, Context context) {
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
-        recordFinalWorkspaceState();
-        metrics.recordOutcome(stopDetails.reason(), getWorkspaceFileSet().size());
+        recordFinalWorkspaceState(context);
+        metrics.recordOutcome(stopDetails.reason(), workspaceFiles(context).size());
 
         return new TaskResult(action, fragment, context, stopDetails, meta);
     }
 
-    protected TaskResult errorResult(TaskResult.StopDetails details) {
-        return errorResult(details, null);
+    private TaskResult errorResult(TaskResult.StopDetails details) {
+        return errorResult(details, null, currentState.context());
     }
 
-    protected TaskResult errorResult(TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta) {
+    private TaskResult errorResult(
+            TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta, Context context) {
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
-        recordFinalWorkspaceState();
-        metrics.recordOutcome(details.reason(), getWorkspaceFileSet().size());
+        recordFinalWorkspaceState(context);
+        metrics.recordOutcome(details.reason(), workspaceFiles(context).size());
 
         return new TaskResult(action, fragment, context, details, meta);
     }
 
-    protected void recordFinalWorkspaceState() {
-        metrics.recordFinalWorkspaceFiles(toRelativePaths(getWorkspaceFileSet()));
-        metrics.recordFinalWorkspaceFragments(getWorkspaceFragments());
+    private void recordFinalWorkspaceState(Context context) {
+        metrics.recordFinalWorkspaceFiles(toRelativePaths(workspaceFiles(context)));
+        metrics.recordFinalWorkspaceFragments(getWorkspaceFragments(context));
     }
 
-    private static boolean isWorkspaceFileFragment(ContextFragment f) {
-        return f.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                || f.getType() == ContextFragment.FragmentType.SKELETON;
-    }
-
-    protected Set<ProjectFile> getWorkspaceFileSet() {
+    private Set<ProjectFile> workspaceFiles(Context context) {
         try {
             context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
         return context.allFragments()
-                .filter(SearchAgent::isWorkspaceFileFragment)
+                .filter(f1 -> f1.getType().includeInProjectGuide())
                 .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
     }
 
-    protected Set<String> toRelativePaths(Set<ProjectFile> files) {
+    private Set<String> toRelativePaths(Set<ProjectFile> files) {
         return files.stream().map(pf -> pf.getRelPath().toString()).collect(Collectors.toSet());
     }
 
-    protected List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
+    private List<SearchMetrics.FragmentInfo> getWorkspaceFragments(Context context) {
         try {
             context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
         return context.allFragments()
-                .filter(SearchAgent::isWorkspaceFileFragment)
+                .filter(f1 -> f1.getType().includeInProjectGuide())
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),
@@ -745,11 +1084,191 @@ public class SearchAgent {
                 .toList();
     }
 
-    protected boolean hasDroppableFragments() {
-        return context.allFragments().anyMatch(f -> !context.isPinned(f));
+    boolean hasDroppableFragments(Context context) {
+        return context.allFragments().anyMatch(f -> !originalPinnedFragments.contains(f));
     }
 
-    protected boolean shouldSummarize(String toolName) {
+    private boolean isPinnedBySystem(ContextFragment cf) {
+        boolean isLearnedPin =
+                droppedFragments.stream().filter(cf::hasSameSource).count() >= 2;
+        boolean isOriginalPin = originalPinnedFragments.stream().anyMatch(cf::hasSameSource);
+        return isOriginalPin || isLearnedPin;
+    }
+
+    Context resetPinsToOriginal(Context context) {
+        Context current = context;
+        for (ContextFragment f : current.allFragments().toList()) {
+            boolean shouldBePinned = isPinnedBySystem(f);
+            if (current.isPinned(f) != shouldBePinned) {
+                current = current.withPinned(f, shouldBePinned);
+            }
+        }
+        return current;
+    }
+
+    Context applyPinning(Context context, @Nullable Context lastTurnContext) {
+        context = resetPinsToOriginal(context);
+
+        double convergenceScore = calculateConvergenceScore(context, lastTurnContext);
+        double cacheWeight = 1.0 - convergenceScore;
+
+        List<ContextFragment> fragments = context.allFragments().toList();
+        var fragmentsDelta = lastTurnContext == null
+                ? context.allFragments().toList()
+                : ContextDelta.between(lastTurnContext, context).join().addedFragments();
+
+        int[] tokenCounts = new int[fragments.size()];
+        for (int i = 0; i < fragments.size(); i++) {
+            tokenCounts[i] =
+                    Messages.getApproximateTokens(fragments.get(i).text().join());
+        }
+
+        long[] suffixSums = new long[fragments.size() + 1];
+        for (int i = fragments.size() - 1; i >= 0; i--) {
+            suffixSums[i] = suffixSums[i + 1] + tokenCounts[i];
+        }
+
+        logger.trace(
+                "applyInequalityPinning: convergenceScore={}, cacheWeight={}, fragments={}, originalPinned={}",
+                convergenceScore,
+                cacheWeight,
+                fragments.size(),
+                originalPinnedFragments.size());
+
+        Context next = context;
+        for (int i = 0; i < fragments.size(); i++) {
+            ContextFragment f = fragments.get(i);
+            if (isPinnedBySystem(f)) {
+                continue;
+            }
+
+            if (fragmentsDelta.contains(f)) {
+                continue;
+            }
+
+            double freedTokens = 0.9 * tokenCounts[i];
+            double lostTokens = suffixSums[i + 1];
+
+            boolean pin = (cacheWeight * lostTokens) > freedTokens && (lostTokens - freedTokens) > 10_000;
+            logger.trace(
+                    "applyInequalityPinning: idx={}, id={}, desc='{}', freedTokens={}, lostTokens={}, pin={}",
+                    i,
+                    f.id(),
+                    f.description().renderNowOr("(empty)"),
+                    freedTokens,
+                    lostTokens,
+                    pin);
+            if (pin) {
+                next = next.withPinned(f, true);
+            }
+        }
+        return next;
+    }
+
+    /**
+     * Calculates a convergence score indicating how "settled" the workspace fragment set is.
+     *
+     * <p>The score is used to decide how aggressively to protect early workspace fragments
+     * from being dropped, in order to preserve LLM prefix cache efficiency. Dropping an early
+     * fragment invalidates the cached token prefix for all subsequent content, so we want to
+     * avoid such drops while the search is still actively exploring.
+     *
+     * <p>The score combines two signals:
+     * <ul>
+     *   <li><b>Stability</b> (Jaccard similarity): {@code |intersection| / |union|}. High stability
+     *       means the fragment set isn't changing much turn-to-turn.</li>
+     *   <li><b>Novelty</b>: {@code |added| / |union|}. High novelty means we're still discovering
+     *       new fragments (including deepening into already-known files).</li>
+     * </ul>
+     *
+     * <p>The final score is {@code stability * (1 - novelty)}:
+     * <ul>
+     *   <li>Returns values near <b>1.0</b> when the workspace is stable and no new fragments are
+     *       being added (converged state) — cache protection can be relaxed.</li>
+     *   <li>Returns values near <b>0.0</b> when the workspace is churning or new fragments are
+     *       being discovered (exploration state) — cache protection should be aggressive.</li>
+     * </ul>
+     *
+     * <p>This score feeds into {@link #applyPinning(Context, Context)}, which temporarily pins
+     * early fragments when {@code cacheWeight * lostTokens > freedTokens}, where
+     * {@code cacheWeight = 1 - convergenceScore}.
+     *
+     * @param context the current turn context
+     * @param lastTurnContext the context from the previous turn, or null if this is the first turn
+     * @return a score in [0, 1] where higher values indicate greater convergence
+     */
+    double calculateConvergenceScore(Context context, @Nullable Context lastTurnContext) {
+        if (lastTurnContext == null) {
+            return 1.0;
+        }
+
+        var currIds = context.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
+        var prevIds = lastTurnContext.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
+
+        Set<String> intersection = new HashSet<>(prevIds);
+        intersection.retainAll(currIds);
+
+        Set<String> union = new HashSet<>(prevIds);
+        union.addAll(currIds);
+
+        if (union.isEmpty()) {
+            return 1.0;
+        }
+
+        double stability = (double) intersection.size() / union.size();
+
+        Set<String> noveltySet = new HashSet<>(currIds);
+        noveltySet.removeAll(prevIds);
+        double novelty = (double) noveltySet.size() / union.size();
+
+        return stability * (1.0 - novelty);
+    }
+
+    private record PendingTerminal(ToolExecutionResult terminalExecution) {
+        public String toolName() {
+            return terminalExecution.toolName();
+        }
+
+        public String resultText() {
+            return terminalExecution.resultText();
+        }
+    }
+
+    private sealed interface TurnOutcome {
+        record Continue(Context contextAfterTurn, List<ChatMessage> sessionMessagesAfterTurn) implements TurnOutcome {}
+
+        record PendingTerminal(
+                Context contextAfterTurn,
+                List<ChatMessage> sessionMessagesAfterTurn,
+                SearchAgent.PendingTerminal pendingTerminal)
+                implements TurnOutcome {}
+
+        record Final(TaskResult result) implements TurnOutcome {}
+
+        enum Overflow implements TurnOutcome {
+            INSTANCE
+        }
+
+        enum AutoScan implements TurnOutcome {
+            INSTANCE
+        }
+    }
+
+    private record TurnPrompt(
+            List<ChatMessage> messages, List<ToolSpecification> toolSpecs, @Nullable UserMessage extraUserMessage) {}
+
+    private TaskResult finalizePendingTerminal(PendingTerminal pendingTerminal, Context context) {
+        if ("abortSearch".equals(pendingTerminal.toolName())) {
+            return errorResult(
+                    new TaskResult.StopDetails(
+                            TaskResult.StopReason.LLM_ABORTED, "Aborted: " + pendingTerminal.resultText()),
+                    taskMeta(),
+                    context);
+        }
+        return createResult(pendingTerminal.toolName(), goal, context);
+    }
+
+    private boolean shouldSummarize(String toolName) {
         return Set.of(
                         "getSymbolLocations",
                         "searchSymbols",
@@ -760,7 +1279,7 @@ public class SearchAgent {
                 .contains(toolName);
     }
 
-    protected String summarizeResult(
+    private String summarizeResult(
             String query, ToolExecutionRequest request, String rawResult, @Nullable String reasoning)
             throws InterruptedException {
         var sys = new SystemMessage(
@@ -790,7 +1309,7 @@ public class SearchAgent {
         return (sr.error() != null) ? rawResult : sr.text();
     }
 
-    protected static Map<String, Object> getArgumentsMap(ToolExecutionRequest request) {
+    private static Map<String, Object> getArgumentsMap(ToolExecutionRequest request) {
         try {
             return new ObjectMapper().readValue(request.arguments(), new TypeReference<>() {});
         } catch (JsonProcessingException e) {
@@ -799,7 +1318,7 @@ public class SearchAgent {
         }
     }
 
-    protected TaskResult.TaskMeta taskMeta() {
+    private TaskResult.TaskMeta taskMeta() {
         return new TaskResult.TaskMeta(TaskResult.Type.SEARCH, Service.ModelConfig.from(model, cm.getService()));
     }
 }
