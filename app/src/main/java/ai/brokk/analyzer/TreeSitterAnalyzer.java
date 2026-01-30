@@ -2651,9 +2651,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localChildren);
 
         // Synthetic constructor injection: for each class-like CU, check if it needs an implicit constructor.
-        // We register these in the symbol index and main CU map so they are resolvable via getDefinitions
-        // and included in getAllDeclarations, but we do NOT attach them to localChildren.
-        // This ensures they don't appear in skeletons or member lists (fixing regressions in existing tests).
+        // Implicit constructors are fully integrated into the local state:
+        // 1. Attached as a direct child of the enclosing class in localChildren
+        // 2. Present in localStates (and therefore codeUnitState) via the unionKeys mechanism
+        // 3. Registered in the symbol index for resolution via getDefinitions
+        // We do NOT add a signature entry to preserve existing skeleton rendering expectations.
         for (CodeUnit cu : List.copyOf(localCuByFqName.values())) {
             if (cu.isClass()) {
                 List<CodeUnit> kids = localChildren.getOrDefault(cu, List.of());
@@ -2673,14 +2675,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     .add(implicit);
                         }
 
-                        // Add to the main CU map so it exists in the analyzer state (codeUnitState)
+                        // Add to the main CU map
                         localCuByFqName.putIfAbsent(implicit.fqName(), implicit);
                         localHasBody.put(implicit, true);
 
-                        // Ensure the implicit CU is present in localStates by providing keys for unionKeys
-                        // We do NOT add it to the parent's localChildren list.
+                        // Fully integrate into the state:
+                        // 1. Attach as child of the class
+                        localChildren.computeIfAbsent(cu, k -> new ArrayList<>()).add(implicit);
+                        // 2. Ensure entries exist for the synthetic unit itself to force inclusion in unionKeys
                         localChildren.putIfAbsent(implicit, new ArrayList<>());
                         localSourceRanges.putIfAbsent(implicit, new ArrayList<>());
+                        // Note: we do NOT add a signature entry to preserve current skeleton expectations
 
                         log.trace("Synthesized implicit constructor for class {}", cu.fqName());
                     }

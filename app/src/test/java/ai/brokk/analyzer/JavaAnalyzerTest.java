@@ -320,6 +320,9 @@ public class JavaAnalyzerTest {
                 CodeUnit.cls(file, "", "D.DSub"),
                 CodeUnit.cls(file, "", "D.DSubStatic"),
                 // Methods
+                CodeUnit.fn(file, "", "D.D"),
+                CodeUnit.fn(file, "", "D.DSub.DSub"),
+                CodeUnit.fn(file, "", "D.DSubStatic.DSubStatic"),
                 CodeUnit.fn(file, "", "D.methodD1"),
                 CodeUnit.fn(file, "", "D.methodD2"),
                 // Fields
@@ -348,7 +351,8 @@ public class JavaAnalyzerTest {
                 // Class
                 CodeUnit.cls(file, "io.github.jbellis.brokk", "Foo"),
                 // Method
-                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar")
+                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar"),
+                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.Foo")
                 // No fields in Packaged.java
                 );
         assertEquals(expected, declarations);
@@ -445,6 +449,7 @@ public class JavaAnalyzerTest {
 
         final var expected = Stream.of(
                         // Methods
+                        CodeUnit.fn(file, "", "D.D"),
                         CodeUnit.fn(file, "", "D.methodD1"),
                         CodeUnit.fn(file, "", "D.methodD2"),
                         // Fields
@@ -474,6 +479,7 @@ public class JavaAnalyzerTest {
                         CodeUnit.cls(file, "", "D.DSub"),
                         CodeUnit.cls(file, "", "D.DSubStatic"),
                         // Methods
+                        CodeUnit.fn(file, "", "D.D"),
                         CodeUnit.fn(file, "", "D.methodD1"),
                         CodeUnit.fn(file, "", "D.methodD2"),
                         // Fields
