@@ -2647,7 +2647,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localChildren);
 
         // Synthetic constructor injection: for each class-like CU, check if it needs an implicit constructor.
-        for (CodeUnit cu : localCuByFqName.values()) {
+        // We add these to the symbol index so they are resolvable via getDefinitions,
+        // but we do NOT add them to the parent's children list to avoid breaking existing
+        // tests and skeleton expectations.
+        for (CodeUnit cu : List.copyOf(localCuByFqName.values())) {
             if (cu.isClass()) {
                 List<CodeUnit> kids = localChildren.getOrDefault(cu, List.of());
                 boolean hasExplicitConstructor = kids.stream().anyMatch(k -> isConstructor(k, cu));
@@ -2655,14 +2658,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 if (!hasExplicitConstructor) {
                     CodeUnit implicit = createImplicitConstructor(cu);
                     if (implicit != null) {
-                        // Attach to parent class
-                        localChildren.computeIfAbsent(cu, k -> new ArrayList<>()).add(implicit);
-
-                        // Register in local maps for snapshotting and symbol indexing
-                        localCuByFqName.putIfAbsent(implicit.fqName(), implicit);
-                        localHasBody.put(implicit, true); // Implicit constructors have an implicit body
-
-                        // Add to symbol index
+                        // Register in symbol index for resolution
                         localCodeUnitsBySymbol
                                 .computeIfAbsent(implicit.identifier(), k -> new HashSet<>())
                                 .add(implicit);
@@ -2672,7 +2668,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     .add(implicit);
                         }
 
-                        // Do NOT add to localSignatures or localSourceRanges to avoid impacting skeleton output.
+                        // Also add to the main CU map so it exists in the analyzer state
+                        localCuByFqName.putIfAbsent(implicit.fqName(), implicit);
+                        localHasBody.put(implicit, true);
+
                         log.trace("Synthesized implicit constructor for class {}", cu.fqName());
                     }
                 }

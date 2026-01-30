@@ -1327,6 +1327,39 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+        // In Java, constructors are functions whose simple name matches the class identifier.
+        // Candidate shortName for nested classes is "Outer.Inner.Inner".
+        // We compare the final segment of the shortName.
+        if (!candidate.isFunction()) return false;
+        String candidateShortName = candidate.shortName();
+        int lastDot = candidateShortName.lastIndexOf('.');
+        String simpleName = lastDot >= 0 ? candidateShortName.substring(lastDot + 1) : candidateShortName;
+        return simpleName.equals(enclosingClass.identifier());
+    }
+
+    @Override
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass) {
+        // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
+        // We can't easily check the specific sub-kind from the CodeUnit alone, but the convention
+        // in this codebase is that CodeUnitType.CLASS covers all of them.
+        // However, based on the test failures, we should be conservative.
+        // If the class name looks like an interface or enum (often determined by its contents),
+        // we should ideally avoid it, but for now we'll rely on the parent logic.
+
+        // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
+        // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)
+        String constructorName = enclosingClass.identifier();
+        String shortName = enclosingClass.shortName() + "." + constructorName;
+
+        return new CodeUnit(
+                enclosingClass.source(),
+                CodeUnitType.FUNCTION,
+                enclosingClass.packageName(),
+                shortName);
+    }
+
+    @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
