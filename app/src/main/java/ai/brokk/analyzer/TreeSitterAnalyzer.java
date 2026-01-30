@@ -2673,7 +2673,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
                         // Add to the main CU map so it exists in the analyzer state (codeUnitState)
                         localCuByFqName.putIfAbsent(implicit.fqName(), implicit);
-                        localHasBody.put(implicit, true);
+                        localHasBody.put(implicit, false);
 
                         // Ensure the implicit CU is present in localStates by providing keys for unionKeys
                         // We do NOT add it to the parent's localChildren list.
