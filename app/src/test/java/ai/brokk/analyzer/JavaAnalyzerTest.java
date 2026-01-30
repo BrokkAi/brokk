@@ -863,6 +863,22 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void implicitConstructorCodeUnit_isResolvableViaGetDefinitions() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                "public class Foo {}", "Foo.java").build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            var definitions = analyzer.getDefinitions("Foo.Foo");
+            assertFalse(definitions.isEmpty(), "Implicit constructor Foo.Foo should be resolvable");
+
+            boolean foundFunction = definitions.stream()
+                    .anyMatch(cu -> cu.kind() == CodeUnitType.FUNCTION);
+            assertTrue(foundFunction, "At least one definition for Foo.Foo should be a FUNCTION");
+        }
+    }
+
+    @Test
     public void moduleCodeUnitAggregatesChildrenAcrossFiles_excludesNested() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
