@@ -1171,18 +1171,19 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                     (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
+            String modelLabel = modelName == null ? "this model" : modelName;
             boolean supportsEffort = modelName != null && service.supportsReasoningEffort(modelName);
             boolean supportsDisable = modelName != null && service.supportsReasoningDisable(modelName);
 
             if (!supportsEffort) {
                 label.setText("Off");
                 label.setEnabled(false);
-                label.setToolTipText("Reasoning effort not supported by " + modelName);
+                label.setToolTipText("Reasoning effort not supported by " + modelLabel);
             } else if (value instanceof Service.ReasoningLevel level) {
                 if (level == Service.ReasoningLevel.DISABLE && !supportsDisable) {
                     label.setText(Service.ReasoningLevel.DEFAULT.toString());
                     label.setEnabled(true);
-                    label.setToolTipText("Disable reasoning is not supported by " + modelName + "; defaulting.");
+                    label.setToolTipText("Disable reasoning is not supported by " + modelLabel + "; defaulting.");
                 } else {
                     label.setText(level.toString());
                     label.setEnabled(true);
@@ -1226,6 +1227,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 JTable table, Object value, boolean isSelected, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
+            String modelLabel = modelName == null ? "this model" : modelName;
             boolean supportsEffort = modelName != null && service.supportsReasoningEffort(modelName);
             boolean supportsDisable = modelName != null && service.supportsReasoningDisable(modelName);
 
@@ -1247,7 +1249,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
             if (!supportsEffort) {
                 comboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
-                comboBox.setToolTipText("Reasoning effort not supported by " + modelName);
+                comboBox.setToolTipText("Reasoning effort not supported by " + modelLabel);
                 comboBox.setRenderer(new DefaultListCellRenderer() {
                     @Override
                     public Component getListCellRendererComponent(
@@ -1321,10 +1323,11 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                     (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
+            String modelLabel = modelName == null ? "this model" : modelName;
             if (modelName != null && !service.supportsProcessingTier(modelName)) {
                 label.setText("Off");
                 label.setEnabled(false);
-                label.setToolTipText("Processing tiers not supported by " + modelName);
+                label.setToolTipText("Processing tiers not supported by " + modelLabel);
             } else if (value instanceof Service.ProcessingTier tier) {
                 label.setText(tier.toString());
                 label.setEnabled(true);
@@ -1367,13 +1370,14 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 JTable table, Object value, boolean isSelected, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
+            String modelLabel = modelName == null ? "this model" : modelName;
             boolean supports = modelName != null && service.supportsProcessingTier(modelName);
             Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
             editorComponent.setEnabled(supports);
             comboBox.setEnabled(supports);
             if (!supports) {
                 comboBox.setSelectedItem(Service.ProcessingTier.DEFAULT);
-                comboBox.setToolTipText("Processing tiers not supported by " + modelName);
+                comboBox.setToolTipText("Processing tiers not supported by " + modelLabel);
                 comboBox.setRenderer(new DefaultListCellRenderer() {
                     @Override
                     public Component getListCellRendererComponent(
