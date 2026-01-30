@@ -2645,55 +2645,6 @@ public final class JobRunner {
     }
 
     /**
-     * Adapts a real GitWorkflow into the IssuePrWorkflow facade.
-     */
-    private static IssuePrWorkflow workflowAdapter(GitWorkflow gw) {
-        return new IssuePrWorkflow() {
-            @Override
-            public GitWorkflow.BranchDiff diffBetweenBranches(String oldBranch, String newBranch) {
-                try {
-                    return gw.diffBetweenBranches(oldBranch, newBranch);
-                } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
-                    throw new RuntimeException("diffBetweenBranches failed: " + e.getMessage(), e);
-                }
-            }
-
-            @Override
-            public void performAutoCommit(String message) {
-                try {
-                    // performAutoCommit returns Optional<CommitResult>; production code ignored result.
-                    gw.performAutoCommit(message);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("performAutoCommit interrupted", e);
-                }
-            }
-
-            @Override
-            public GitWorkflow.PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO io) {
-                try {
-                    return gw.suggestPullRequestDetails(source, target, io);
-                } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
-                    throw new RuntimeException("suggestPullRequestDetails failed: " + e.getMessage(), e);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("suggestPullRequestDetails interrupted", e);
-                }
-            }
-
-            @Override
-            public java.net.URI createPullRequest(
-                    String source, String target, String title, String body, @Nullable String githubToken) {
-                try {
-                    return gw.createPullRequest(source, target, title, body, githubToken);
-                } catch (Exception e) {
-                    throw new RuntimeException("createPullRequest failed: " + e.getMessage(), e);
-                }
-            }
-        };
-    }
-
-    /**
      * Encapsulates the "commit -> diff -> maybe create PR" gating logic for ISSUE mode.
      *
      * This is package-private for unit tests to exercise the branch-diff-based PR gating without
