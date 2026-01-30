@@ -178,6 +178,12 @@ public class GoAnalyzerTest {
         CodeUnit expectedMethod_GetFieldA = CodeUnit.fn(pf, "declpkg", "MyStruct.GetFieldA");
         CodeUnit expectedStructFieldA = CodeUnit.field(pf, "declpkg", "MyStruct.FieldA");
         CodeUnit expectedInterfaceMethod_DoSomething = CodeUnit.fn(pf, "declpkg", "MyInterface.DoSomething");
+        CodeUnit expectedUint32Map = CodeUnit.cls(pf, "declpkg", "Uint32Map");
+        CodeUnit expectedStringAlias = CodeUnit.field(pf, "declpkg", "_module_.StringAlias");
+        CodeUnit expectedMyInt = CodeUnit.cls(pf, "declpkg", "MyInt");
+        CodeUnit expectedMyIntString = CodeUnit.fn(pf, "declpkg", "MyInt.String");
+        CodeUnit expectedGroupedNamedType = CodeUnit.cls(pf, "declpkg", "GroupedNamedType");
+        CodeUnit expectedGroupedAlias = CodeUnit.field(pf, "declpkg", "_module_.GroupedAlias");
 
         assertTrue(
                 declarations.contains(expectedFunc),
@@ -233,11 +239,71 @@ public class GoAnalyzerTest {
                         + declarations.stream()
                                 .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
                                 .toList());
+        assertTrue(
+                declarations.contains(expectedUint32Map),
+                "Declarations should contain named type Uint32Map as CLASS_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedStringAlias),
+                "Declarations should contain type alias StringAlias as FIELD_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedMyInt),
+                "Declarations should contain named type MyInt as CLASS_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedMyIntString),
+                "Declarations should contain method MyInt.String. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertFalse(
+                declarations.contains(CodeUnit.field(pf, "declpkg", "_module_.Uint32Map")),
+                "Named type Uint32Map should NOT appear as FIELD_LIKE.");
+        assertTrue(
+                declarations.contains(expectedGroupedNamedType),
+                "Declarations should contain grouped named type GroupedNamedType as CLASS_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedGroupedAlias),
+                "Declarations should contain grouped alias GroupedAlias as FIELD_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertFalse(
+                declarations.contains(CodeUnit.field(pf, "declpkg", "_module_.GroupedNamedType")),
+                "Grouped named type GroupedNamedType should NOT appear as FIELD_LIKE.");
+
+        // Verify skeleton structure differences
+        String uint32MapSkeleton = analyzer.getSkeleton(expectedUint32Map).orElse("");
+        String myIntSkeleton = analyzer.getSkeleton(expectedMyInt).orElse("");
+        String stringAliasSkeleton = analyzer.getSkeleton(expectedStringAlias).orElse("");
+
+        assertTrue(
+                uint32MapSkeleton.contains("{"), "CLASS_LIKE Uint32Map should have class-like structure (curly brace)");
+        assertTrue(myIntSkeleton.contains("{"), "CLASS_LIKE MyInt should have class-like structure (curly brace)");
+        assertFalse(stringAliasSkeleton.contains("{"), "FIELD_LIKE StringAlias should NOT have curly braces");
+
+        // Verify parenting
+        List<CodeUnit> myIntChildren = analyzer.getDirectChildren(expectedMyInt);
+        assertEquals(1, myIntChildren.size(), "MyInt should have exactly 1 child (String method)");
+        assertTrue(myIntChildren.contains(expectedMyIntString), "MyInt.String should be a child of MyInt");
+
+        List<CodeUnit> uint32MapChildren = analyzer.getDirectChildren(expectedUint32Map);
+        assertTrue(uint32MapChildren.isEmpty(), "Uint32Map (named type with no methods) should have zero children");
 
         assertEquals(
-                9,
+                15,
                 declarations.size(),
-                "Expected 9 declarations in declarations.go. Found: "
+                "Expected 15 declarations in declarations.go. Found: "
                         + declarations.stream().map(CodeUnit::fqName).toList());
     }
 
