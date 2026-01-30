@@ -40,6 +40,7 @@ public class HistoryTable extends JPanel {
     private final JScrollPane scrollPane;
     private final ResetArrowLayerUI arrowLayerUI;
     private final ContextManager contextManager;
+    private boolean suppressSelectionEvents = false;
 
     @SuppressWarnings("unused")
     private final Chrome chrome;
@@ -155,6 +156,15 @@ public class HistoryTable extends JPanel {
      * Must be called on EDT.
      */
     public void setHistory(ContextHistory history, @Nullable Context contextToSelect) {
+        suppressSelectionEvents = true;
+        try {
+            setHistoryInternal(history, contextToSelect);
+        } finally {
+            suppressSelectionEvents = false;
+        }
+    }
+
+    private void setHistoryInternal(ContextHistory history, @Nullable Context contextToSelect) {
         // Reset any per-row height customizations before rebuilding
         table.setRowHeight(table.getRowHeight());
 
@@ -307,7 +317,7 @@ public class HistoryTable extends JPanel {
 
     private void setupSelectionHandler() {
         table.getSelectionModel().addListSelectionListener(e -> {
-            if (e.getValueIsAdjusting()) return;
+            if (suppressSelectionEvents) return;
             int row = table.getSelectedRow();
             if (row >= 0 && row < table.getRowCount()) {
                 Object val = model.getValueAt(row, COL_CONTEXT);

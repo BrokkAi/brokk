@@ -432,7 +432,6 @@ public class SearchPrompts {
                         or simple summaries if they just need to be run for validation. Thus, you should
                         convert tests whose full source you don't need to summaries by dropping the file and
                         adding the summary. In general, you should avoid dropping test summaries.
-                      %s
                     """;
         }
 
