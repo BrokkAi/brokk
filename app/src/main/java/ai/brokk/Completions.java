@@ -63,12 +63,19 @@ public class Completions {
             dedup.put(cu.fqName(), cu);
         }
         for (CodeUnit cu : candidates) {
-            String id = cu.identifier();
-            int dotIdx = id.indexOf('.');
-            // Identifiers should not normally start with '.', but be robust: treat ".Foo" as having an empty first
-            // segment.
-            if (dotIdx >= 0) {
-                String firstSegment = id.substring(0, dotIdx);
+            String shortName = cu.shortName();
+            int dotIdx = shortName.indexOf('.');
+            int dollarIdx = shortName.indexOf('$');
+
+            int separatorIdx;
+            if (dotIdx >= 0 && dollarIdx >= 0) {
+                separatorIdx = Math.min(dotIdx, dollarIdx);
+            } else {
+                separatorIdx = Math.max(dotIdx, dollarIdx);
+            }
+
+            if (separatorIdx >= 0) {
+                String firstSegment = shortName.substring(0, separatorIdx);
                 if (firstSegment.equalsIgnoreCase(query)) {
                     String parentFqn =
                             cu.packageName().isEmpty() ? firstSegment : (cu.packageName() + "." + firstSegment);
