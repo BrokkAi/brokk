@@ -1171,14 +1171,23 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                     (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            if (modelName != null && !service.supportsReasoningEffort(modelName)) {
+            boolean supportsEffort = modelName != null && service.supportsReasoningEffort(modelName);
+            boolean supportsDisable = modelName != null && service.supportsReasoningDisable(modelName);
+
+            if (!supportsEffort) {
                 label.setText("Off");
                 label.setEnabled(false);
                 label.setToolTipText("Reasoning effort not supported by " + modelName);
             } else if (value instanceof Service.ReasoningLevel level) {
-                label.setText(level.toString());
-                label.setEnabled(true);
-                label.setToolTipText("Select reasoning effort");
+                if (level == Service.ReasoningLevel.DISABLE && !supportsDisable) {
+                    label.setText(Service.ReasoningLevel.DEFAULT.toString());
+                    label.setEnabled(true);
+                    label.setToolTipText("Disable reasoning is not supported by " + modelName + "; defaulting.");
+                } else {
+                    label.setText(level.toString());
+                    label.setEnabled(true);
+                    label.setToolTipText("Select reasoning effort");
+                }
             } else {
                 label.setText(value == null ? "" : value.toString());
                 label.setEnabled(true);
@@ -1217,11 +1226,26 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 JTable table, Object value, boolean isSelected, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            boolean supports = modelName != null && service.supportsReasoningEffort(modelName);
+            boolean supportsEffort = modelName != null && service.supportsReasoningEffort(modelName);
+            boolean supportsDisable = modelName != null && service.supportsReasoningDisable(modelName);
+
+            comboBox.removeAllItems();
+            if (supportsEffort) {
+                for (Service.ReasoningLevel level : Service.ReasoningLevel.values()) {
+                    if (level == Service.ReasoningLevel.DISABLE && !supportsDisable) {
+                        continue;
+                    }
+                    comboBox.addItem(level);
+                }
+            } else {
+                comboBox.addItem(Service.ReasoningLevel.DEFAULT);
+            }
+
             Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
-            editorComponent.setEnabled(supports);
-            comboBox.setEnabled(supports);
-            if (!supports) {
+            editorComponent.setEnabled(supportsEffort);
+            comboBox.setEnabled(supportsEffort);
+
+            if (!supportsEffort) {
                 comboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
                 comboBox.setToolTipText("Reasoning effort not supported by " + modelName);
                 comboBox.setRenderer(new DefaultListCellRenderer() {
@@ -1243,7 +1267,11 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             } else {
                 comboBox.setToolTipText("Select reasoning effort");
                 comboBox.setRenderer(new DefaultListCellRenderer());
-                comboBox.setSelectedItem(value);
+                if (value instanceof Service.ReasoningLevel lvl && (lvl != Service.ReasoningLevel.DISABLE || supportsDisable)) {
+                    comboBox.setSelectedItem(lvl);
+                } else {
+                    comboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
+                }
             }
             return editorComponent;
         }
@@ -1261,7 +1289,21 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         @Override
         public Object getCellEditorValue() {
-            return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ReasoningLevel.DEFAULT;
+            Object value = super.getCellEditorValue();
+            if (!comboBox.isEnabled()) {
+                return Service.ReasoningLevel.DEFAULT;
+            }
+            if (value instanceof Service.ReasoningLevel lvl && lvl == Service.ReasoningLevel.DISABLE) {
+                int row = table.getEditingRow();
+                if (row != -1) {
+                    int modelRow = table.convertRowIndexToModel(row);
+                    String modelName = (String) table.getModel().getValueAt(modelRow, 1);
+                    if (modelName != null && !service.supportsReasoningDisable(modelName)) {
+                        return Service.ReasoningLevel.DEFAULT;
+                    }
+                }
+            }
+            return value;
         }
     }
 
