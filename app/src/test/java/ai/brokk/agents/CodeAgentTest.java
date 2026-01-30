@@ -19,7 +19,6 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
-import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -1336,18 +1335,6 @@ class CodeAgentTest {
         assertTrue(
                 containsEditable,
                 "Expected editable fragment content to appear in messages when it's listed as changed");
-
-        // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
-        var toc = WorkspacePrompts.formatToc(ctx, Collections.emptySet());
-        var tocReminder =
-                """
-                Reminder: here is a list of the full contents of the Workspace that you can refer to above:
-                %s
-                """
-                        .formatted(toc);
-        var augmented = Messages.getText(request) + "\n\n" + tocReminder;
-        assertTrue(augmented.contains(Messages.getText(request)));
-        assertTrue(augmented.contains(toc));
     }
 
     @Test

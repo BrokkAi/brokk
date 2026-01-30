@@ -552,6 +552,24 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testPackageNameExtractedCorrectlyInFQNs() {
+        var pf = new ProjectFile(testProject.getRoot(), Path.of("mypkg", "mypkg.go"));
+        var declarations = analyzer.getDeclarations(pf);
+
+        assertFalse(declarations.isEmpty(), "Should find declarations in mypkg.go");
+
+        var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(fqns.contains("mypkg.MyFunc"), "Expected mypkg.MyFunc, got: " + fqns);
+        assertTrue(fqns.contains("mypkg.MyType"), "Expected mypkg.MyType, got: " + fqns);
+
+        assertTrue(
+                declarations.stream()
+                        .noneMatch(
+                                cu -> cu.fqName().equals("mypkg") || cu.fqName().startsWith("package")),
+                "Package clause should not appear as a CodeUnit: " + fqns);
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";

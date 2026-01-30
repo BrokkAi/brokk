@@ -4,6 +4,7 @@ import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Core analyzer interface providing code intelligence capabilities.
@@ -13,6 +14,10 @@ import java.util.stream.Collectors;
  * String FQN, use {@link ai.brokk.AnalyzerUtil} convenience methods to convert and delegate.
  */
 public interface IAnalyzer {
+    // Common separators across languages to denote hierarchy or member access.
+    // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
+    Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
+
     /**
      * Record representing a code unit relevance result with a code unit and its score.
      */
@@ -125,6 +130,37 @@ public interface IAnalyzer {
     SequencedSet<CodeUnit> getDefinitions(String fqName);
 
     /**
+     * Returns the enclosing class or module for the given CodeUnit.
+     * If cu is already a class or module, returns itself.
+     * If cu is a member (function, field), searches for the parent definition.
+     */
+    default Optional<CodeUnit> parentOf(CodeUnit cu) {
+        if (cu.isClass() || cu.isModule()) {
+            return Optional.of(cu);
+        }
+
+        String fqName = cu.fqName();
+        int lastIdx = -1;
+        // Find the last occurrence among any valid separators
+        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
+            int idx = fqName.lastIndexOf(sep);
+            if (idx > lastIdx) {
+                lastIdx = idx;
+            }
+        }
+
+        // Must find a separator, and it must not be the first character
+        if (lastIdx <= 0) {
+            return Optional.empty();
+        }
+
+        String candidateParent = fqName.substring(0, lastIdx);
+        return getDefinitions(candidateParent).stream()
+                .filter(parent -> parent.isClass() || parent.isModule())
+                .findFirst();
+    }
+
+    /**
      * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
      *
      * <p>This method is used by the default getSymbols(java.util.Set) implementation to traverse the code unit
@@ -189,6 +225,52 @@ public interface IAnalyzer {
     default boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
         return true;
     }
+
+    /**
+     * Finds the nearest block-scoped declaration (parameter, local variable, etc.) for an identifier.
+     *
+     * <p>This method performs lexical scope analysis to determine if an identifier at the given
+     * position is shadowed by a local declaration. It searches upward through enclosing blocks,
+     * checking for parameters, local variables, catch parameters, for-loop variables, lambda
+     * parameters, pattern variables, and try-with-resources variables.
+     *
+     * <p><b>Important:</b> This method does NOT resolve class-level field declarations. If no
+     * block-scoped declaration shadows the identifier, this returns {@code Optional.empty()}.
+     * The identifier may still refer to a field, imported symbol, or external reference — callers
+     * must handle the empty case accordingly.
+     *
+     * <p>Primary use case: {@link #isAccessExpression} uses this to filter out local variable
+     * and parameter usages from field/member access detection.
+     *
+     * @param file           the source file
+     * @param startByte      the start byte of the identifier
+     * @param endByte        the end byte of the identifier
+     * @param identifierName the name of the identifier to resolve
+     * @return information about the nearest block-scoped declaration, or empty if none found
+     */
+    default Optional<DeclarationInfo> findNearestDeclaration(
+            ProjectFile file, int startByte, int endByte, String identifierName) {
+        return Optional.empty();
+    }
+
+    /**
+     * Kinds of declarations that can be found by {@link #findNearestDeclaration}.
+     *
+     * <p>Note: Not all kinds are returned by all language implementations.
+     */
+    enum DeclarationKind {
+        PARAMETER,
+        LOCAL_VARIABLE,
+        /** Reserved for future use; not currently returned by any analyzer implementation. */
+        FIELD,
+        CATCH_PARAMETER,
+        FOR_LOOP_VARIABLE,
+        PATTERN_VARIABLE,
+        RESOURCE_VARIABLE,
+        UNKNOWN
+    }
+
+    record DeclarationInfo(DeclarationKind kind, String name, @Nullable CodeUnit enclosingUnit) {}
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {

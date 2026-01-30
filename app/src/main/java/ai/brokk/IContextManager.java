@@ -334,4 +334,17 @@ public interface IContextManager {
     default CompletableFuture<Void> createSessionAsync(String name) {
         throw new UnsupportedOperationException();
     }
+
+    /**
+     * Returns true if a task (such as an LLM action or an aggregating task scope) is currently in progress.
+     * <p>
+     * The default implementation is conservative and returns {@code true} to prevent concurrent mutations
+     * by unknown implementations. Implementations that can safely accept context mutations concurrently
+     * should override this method appropriately.
+     *
+     * @return true if a task is in progress, false otherwise.
+     */
+    default boolean isTaskInProgress() {
+        return true;
+    }
 }

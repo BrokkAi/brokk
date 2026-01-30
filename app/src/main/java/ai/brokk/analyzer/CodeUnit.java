@@ -52,15 +52,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this(source, kind, packageName, shortName, null);
     }
 
-    /** Return the FQCN corresponding to the given FQMN */
-    public static String toClassname(String fqMethodName) {
-        int lastDot = fqMethodName.lastIndexOf('.');
-        if (lastDot == -1) {
-            return fqMethodName;
-        }
-        return fqMethodName.substring(0, lastDot);
-    }
-
     /**
      * Returns the fully qualified name constructed from package and short name. For MODULE, shortName is often a fixed
      * placeholder like "_module_", so fqName becomes "packageName._module_".
@@ -286,10 +277,4 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public static CodeUnit module(ProjectFile source, String packageName, String shortName) {
         return new CodeUnit(source, CodeUnitType.MODULE, packageName, shortName);
     }
-
-    // Helper records for parsing, made public for external access
-    public record Tuple2<T1, T2>(T1 _1, T2 _2) {}
-
-    // Package, className, identifier - used for language-specific parsing
-    public record Tuple3<T1, T2, T3>(T1 _1, T2 _2, T3 _3) {}
 }

@@ -370,7 +370,7 @@ public class ReviewAgent {
                 })
                 .filter(fd -> !fd.oldText().isEmpty() && !fd.newText().isEmpty())
                 .filter(fd -> {
-                    var diffRes = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
+                    var diffRes = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new", 1);
                     return diffRes.diff().split("@@").length > 3; // > 2 hunks
                 })
                 .map(fd -> {

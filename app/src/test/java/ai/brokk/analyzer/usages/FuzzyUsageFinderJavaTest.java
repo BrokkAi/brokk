@@ -635,4 +635,69 @@ public class FuzzyUsageFinderJavaTest {
                     "Expected to find usage in callDogSpeak (transitive inheritance); actual: " + enclosingMethods);
         }
     }
+
+    @Test
+    public void testFieldUsageExcludesConstructorParameter() throws Exception {
+        String channelHolderSource =
+                """
+                public class ChannelHolder {
+                    public String channel;
+                }
+                """;
+
+        String falsePositiveSource =
+                """
+                public class FalsePositive {
+                    protected FalsePositive(String channel, int bufferSize) {
+                        this(channel, bufferSize, 0);
+                    }
+
+                    protected FalsePositive(String channel, int bufferSize, int offset) {
+                        // usage of parameter 'channel'
+                        System.out.println(channel);
+                    }
+                }
+                """;
+
+        String truePositiveSource =
+                """
+                public class TruePositive {
+                    public void access(ChannelHolder holder) {
+                        // Actual usage of the field
+                        System.out.println(holder.channel);
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(channelHolderSource, "ChannelHolder.java")
+                .addFileContents(falsePositiveSource, "FalsePositive.java")
+                .addFileContents(truePositiveSource, "TruePositive.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "ChannelHolder.channel";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var files = fileNamesFromHits(hits);
+
+            // Verify FalsePositive.java is NOT included (parameter usage)
+            assertFalse(
+                    files.contains("FalsePositive.java"),
+                    "Should NOT find usage in FalsePositive.java (it's a constructor parameter)");
+
+            // Verify TruePositive.java IS included (actual field access)
+            assertTrue(
+                    files.contains("TruePositive.java"),
+                    "Should find usage in TruePositive.java (actual field access)");
+
+            // Additionally verify we have exactly one hit (the true positive)
+            assertEquals(1, hits.size(), "Expected exactly one usage hit");
+        }
+    }
 }
