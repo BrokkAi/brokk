@@ -2647,9 +2647,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localChildren);
 
         // Synthetic constructor injection: for each class-like CU, check if it needs an implicit constructor.
-        // We add these to the symbol index so they are resolvable via getDefinitions,
-        // but we do NOT add them to the parent's children list to avoid breaking existing
-        // tests and skeleton expectations.
+        // We register these in the symbol index and main CU map so they are resolvable via getDefinitions
+        // and included in getAllDeclarations, but we do NOT attach them to localChildren.
+        // This ensures they don't appear in skeletons or member lists (fixing regressions in existing tests).
         for (CodeUnit cu : List.copyOf(localCuByFqName.values())) {
             if (cu.isClass()) {
                 List<CodeUnit> kids = localChildren.getOrDefault(cu, List.of());
@@ -2668,9 +2668,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     .add(implicit);
                         }
 
-                        // Also add to the main CU map so it exists in the analyzer state
+                        // Add to the main CU map so it exists in the analyzer state (codeUnitState)
                         localCuByFqName.putIfAbsent(implicit.fqName(), implicit);
                         localHasBody.put(implicit, true);
+
+                        // Ensure the implicit CU is present in localStates by providing keys for unionKeys
+                        // We do NOT add it to the parent's localChildren list.
+                        localChildren.putIfAbsent(implicit, new ArrayList<>());
+                        localSourceRanges.putIfAbsent(implicit, new ArrayList<>());
 
                         log.trace("Synthesized implicit constructor for class {}", cu.fqName());
                     }
