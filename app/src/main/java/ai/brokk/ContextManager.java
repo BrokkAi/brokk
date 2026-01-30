@@ -1229,7 +1229,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public void addCallersForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "No callers found for " + methodName + ("."));
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "No callers found for " + methodName + ".");
             return;
         }
         var fragment = new ContextFragments.UsageFragment(this, methodName);
@@ -1240,7 +1240,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** callees for method */
     public void calleesForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "No callees found for " + methodName + ("."));
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "No callees found for " + methodName + ".");
             return;
         }
         var fragment = new ContextFragments.UsageFragment(this, methodName);
