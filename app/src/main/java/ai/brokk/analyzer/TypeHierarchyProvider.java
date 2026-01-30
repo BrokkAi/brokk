@@ -59,7 +59,12 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
             return List.of();
         }
 
-        String className = CodeUnit.toClassname(target.fqName());
+        var maybeClassName = analyzer.parentOf(target);
+        if (maybeClassName.isEmpty()) {
+            // This may be a function with a module parent, which wouldn't have polymorphic capabilities
+            return List.of();
+        }
+        String className = maybeClassName.get().identifier();
         var classDefs = analyzer.getDefinitions(className);
         var parentClassOpt = classDefs.stream().filter(CodeUnit::isClass).findFirst();
 
