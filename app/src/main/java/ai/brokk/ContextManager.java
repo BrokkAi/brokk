@@ -197,6 +197,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private boolean sessionsSyncActive = false;
 
+    // Indicates whether this ContextManager was initialized in headless mode (no Swing UI).
+    // Default is false; set to true by createHeadless(...).
+    private boolean headlessMode = false;
+
     @SuppressWarnings("NullAway.Init")
     private AbstractWatchService watchService;
 
@@ -351,10 +355,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // If the active session was unreadable, create a new session and notify the user
                 if (report.quarantinedSessionIds().contains(currentSessionId)) {
                     createOrReuseSession(DEFAULT_SESSION_NAME);
-                    SwingUtilities.invokeLater(() -> io.systemNotify(
-                            "Your previously active session was unreadable and has been moved to the 'unreadable' folder. A new session has been created.",
-                            "Session Quarantined",
-                            JOptionPane.WARNING_MESSAGE));
+                    if (isHeadlessMode()) {
+                        // In headless mode there is no EDT/Swing; call notification synchronously
+                        io.systemNotify(
+                                "Your previously active session was unreadable and has been moved to the 'unreadable' folder. A new session has been created.",
+                                "Session Quarantined",
+                                JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        SwingUtilities.invokeLater(() -> io.systemNotify(
+                                "Your previously active session was unreadable and has been moved to the 'unreadable' folder. A new session has been created.",
+                                "Session Quarantined",
+                                JOptionPane.WARNING_MESSAGE));
+                    }
                 }
             });
         }
@@ -749,6 +761,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public Path getRoot() {
         return project.getRoot();
+    }
+
+    /**
+     * Returns true when this ContextManager is running in headless mode (no Swing UI).
+     *
+     * Package-private on purpose: allows internal callers in the same package to branch behavior
+     * without exposing headless concerns to external callers.
+     */
+    boolean isHeadlessMode() {
+        return headlessMode;
     }
 
     /** Returns the Models instance associated with this context manager. */
@@ -1457,15 +1479,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Always migrate legacy Task List for the active session first, then notify UI.
         migrateLegacyTaskLists(sessionId);
 
-        // Notify listeners and UI on the EDT
-        SwingUtilities.invokeLater(() -> {
+        // Notify listeners and UI. If running headless, notify synchronously to avoid Swing/EDT usage.
+        if (isHeadlessMode()) {
             notifyContextListeners(liveContext());
-
             io.updateContextHistoryTable(liveContext());
             if (io instanceof Chrome) {
                 io.enableActionButtons();
             }
-        });
+        } else {
+            SwingUtilities.invokeLater(() -> {
+                notifyContextListeners(liveContext());
+                io.updateContextHistoryTable(liveContext());
+                if (io instanceof Chrome) {
+                    io.enableActionButtons();
+                }
+            });
+        }
     }
 
     @SuppressWarnings("deprecation")
@@ -2691,6 +2720,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * submitted, so that all logging and UI callbacks are routed to the desired sink.
      */
     public void createHeadless(BuildDetails buildDetails) {
+        // Mark this ContextManager as running headless so internal code paths can avoid EDT/Swing logic.
+        this.headlessMode = true;
+
         this.io = new HeadlessConsole();
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
