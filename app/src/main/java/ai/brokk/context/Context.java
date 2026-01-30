@@ -2,7 +2,6 @@ package ai.brokk.context;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
