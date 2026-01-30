@@ -97,13 +97,7 @@ public final class FuzzyUsageFinder {
      */
     private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) throws InterruptedException {
         // non-nested identifier
-        var shortName = target.identifier().replace("$", ".");
-        if (shortName.contains(".")) {
-            // shortName format is "Class.member" or "simpleFunction"
-            int lastDot = shortName.lastIndexOf('.');
-            shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
-        }
-        final String identifier = shortName;
+        final String identifier = target.identifier();
 
         // Determine language based on the target's source file extension
         Language lang = Languages.fromExtension(target.source().extension());
@@ -114,10 +108,10 @@ public final class FuzzyUsageFinder {
                 .map(template -> template.replace("$ident", Pattern.quote(identifier)))
                 .collect(Collectors.toSet());
 
-        // Define pattern for matching code unit definitions with exact shortName (used to detect uniqueness)
+        // Define pattern for matching code unit definitions with exact identifier (used to detect uniqueness)
         var matchingCodeUnits =
                 analyzer.searchDefinitions("\\b%s\\b".formatted(Pattern.quote(identifier)), false).stream()
-                        .filter(cu -> cu.shortName().equals(identifier))
+                        .filter(cu -> cu.identifier().equals(identifier))
                         .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
 
