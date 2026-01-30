@@ -106,26 +106,9 @@ public final class FuzzyUsageFinder {
 
         // Build language-aware search patterns for this code unit kind
         var templates = lang.getSearchPatterns(target.kind());
-        final String searchIdent;
-        if (lang == Languages.JAVA && "<init>".equals(identifier)) {
-            String sn = target.shortName();
-            int lastDot = sn.lastIndexOf(".<init>");
-            if (lastDot >= 0) {
-                int start = sn.lastIndexOf('.', lastDot - 1);
-                searchIdent = sn.substring(start + 1, lastDot);
-            } else {
-                searchIdent = identifier;
-            }
-        } else if (lang == Languages.C_SHARP && "<init>".equals(identifier)) {
-            String sn = target.shortName();
-            int lastDot = sn.lastIndexOf(".<init>");
-            searchIdent = lastDot >= 0 ? sn.substring(0, lastDot) : identifier;
-        } else {
-            searchIdent = identifier;
-        }
 
         var searchPatterns = templates.stream()
-                .map(template -> template.replace("$ident", Pattern.quote(searchIdent)))
+                .map(template -> template.replace("$ident", Pattern.quote(identifier)))
                 .collect(Collectors.toSet());
 
         // Define pattern for matching code unit definitions with exact identifier (used to detect uniqueness)
@@ -135,10 +118,9 @@ public final class FuzzyUsageFinder {
                         .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
 
-        // Use a fast substring scan to prefilter candidate files by the search identifier
-        // For constructors (identifier = <init>), we need to search for the class name instead
+        // Use a fast substring scan to prefilter candidate files by the raw identifier, not the regex
         Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
-                List.of(searchIdent), analyzer.getProject().getAnalyzableFiles(lang));
+                List.of(identifier), analyzer.getProject().getAnalyzableFiles(lang));
 
         // Apply file filter if provided (e.g., to exclude test files)
         if (fileFilter != null) {
