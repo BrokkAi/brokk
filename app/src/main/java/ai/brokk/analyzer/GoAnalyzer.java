@@ -353,15 +353,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         } else if (INTERFACE_TYPE.equals(kindNodeType)) {
             kindText = "interface";
         } else {
-            log.warn(
-                    "renderClassHeader for Go: Unhandled kind node type '{}' for classNode {}. Falling back.",
-                    kindNodeType,
-                    sourceContent
-                            .substringFromBytes(classNode.getStartByte(), classNode.getEndByte())
-                            .lines()
-                            .findFirst()
-                            .orElse(""));
-            return signatureTextParam + " {";
+            // Named types like "type Encoding int" — render the full declaration as header
+            String kindSource = sourceContent.substringFromBytes(kindNode.getStartByte(), kindNode.getEndByte());
+            return String.format("type %s %s {", nameText, kindSource).strip();
         }
 
         // Go visibility is by capitalization, exportPrefix is not used here.

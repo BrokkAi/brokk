@@ -277,12 +277,16 @@ public class GoAnalyzerTest {
 
         // Verify parenting
         List<CodeUnit> myIntChildren = analyzer.getDirectChildren(expectedMyInt);
+        assertEquals(1, myIntChildren.size(), "MyInt should have exactly 1 child (String method)");
         assertTrue(myIntChildren.contains(expectedMyIntString), "MyInt.String should be a child of MyInt");
+
+        List<CodeUnit> uint32MapChildren = analyzer.getDirectChildren(expectedUint32Map);
+        assertTrue(uint32MapChildren.isEmpty(), "Uint32Map (named type with no methods) should have zero children");
 
         assertEquals(
                 13,
                 declarations.size(),
-                "Expected 12 declarations in declarations.go. Found: "
+                "Expected 13 declarations in declarations.go. Found: "
                         + declarations.stream().map(CodeUnit::fqName).toList());
     }
 
