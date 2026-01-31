@@ -32,37 +32,67 @@ public class SearchPrompts {
     public static final SearchPrompts instance = new SearchPrompts();
 
     public enum Objective {
-        ANSWER_ONLY("query") {
+        ANSWER_ONLY(
+                "query",
+                "You are the Search Agent, a code researcher focused on answering questions about this codebase.",
+                "Your goal is to gather enough context to answer the user's question accurately and cite evidence from the repo.",
+                "a comprehensive Markdown answer (via answer(String))",
+                false) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ANSWER);
             }
         },
-        TASKS_ONLY("instructions") {
+        TASKS_ONLY(
+                "instructions",
+                "You are the Search Agent, a code researcher focused on turning goals into implementation tasks.",
+                "Your goal is to gather enough context to produce a clear, minimal, incremental task list for the Code Agent.",
+                "a task list for the Code Agent (via createOrReplaceTaskList(...))",
+                true) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.TASK_LIST);
             }
         },
-        LUTZ("query_or_instructions") {
+        LUTZ(
+                "query_or_instructions",
+                "You are the Search Agent, a code researcher that can answer, plan, or hand off implementation.",
+                "Your goal is to gather enough context to either answer the question, produce a task list, or invoke the Code Agent for a small change.",
+                "one of: answer, task list, or Code Agent invocation",
+                true) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ANSWER, Terminal.CODE, Terminal.TASK_LIST);
             }
         },
-        WORKSPACE_ONLY("task") {
+        WORKSPACE_ONLY(
+                "task",
+                "You are the Search Agent, a code researcher and librarian.",
+                "Your goal is to prepare the Workspace for the Code Agent by finding and curating the minimum sufficient context.",
+                "a curated Workspace ready for the Code Agent",
+                true) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.WORKSPACE);
             }
         },
-        ISSUE_DIAGNOSIS("issue_diagnosis") {
+        ISSUE_DIAGNOSIS(
+                "issue_diagnosis",
+                "You are the Search Agent, a code researcher focused on diagnosing issues.",
+                "Your goal is to gather enough context to diagnose the issue and produce a formal issue report with evidence from the repo.",
+                "a single JSON issue report (via issueWriterOutput(String json))",
+                false) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ISSUE_JSON);
             }
         },
-        PROMPT_ENRICHMENT("prompt_enrichment") {
+        PROMPT_ENRICHMENT(
+                "prompt_enrichment",
+                "You are the Search Agent, a code researcher focused on prompt enrichment.",
+                "Your goal is to gather enough context to enrich the user's request into an execution-ready prompt for another LLM.",
+                "an enriched prompt (via answer(String))",
+                false) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ANSWER);
@@ -70,31 +100,40 @@ public class SearchPrompts {
         };
 
         private final String tag;
+        private final String identity;
+        private final String mission;
+        private final String deliverable;
+        private final boolean includeHandoff;
 
-        Objective(String tag) {
+        Objective(String tag, String identity, String mission, String deliverable, boolean includeHandoff) {
             this.tag = tag;
+            this.identity = identity;
+            this.mission = mission;
+            this.deliverable = deliverable;
+            this.includeHandoff = includeHandoff;
         }
 
         public String tag() {
             return tag;
         }
 
+        public String identity() {
+            return identity;
+        }
+
+        public String mission() {
+            return mission;
+        }
+
+        public String deliverable() {
+            return deliverable;
+        }
+
+        public boolean includeHandoff() {
+            return includeHandoff;
+        }
+
         public abstract Set<Terminal> terminals();
-    }
-
-    public String searchAgentIdentity() {
-        return """
-                You are the Search Agent.
-                Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
-                Your responsibilities are:
-                  1.  **Find & Discover:** Use search and inspection tools to locate the context (files, classes, and methods) necessary to solve the problem or answer the question.
-                  2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context that the Code Agent will need.
-                  3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
-
-                Remember: **You must never write, create, or modify code.**
-                Your purpose is to *find* existing code, not *create* new code.
-                The Code Agent is solely responsible for all code generation and modification.
-                """;
     }
 
     public final List<ChatMessage> buildAskPrompt(Context ctx, String input, TaskResult.TaskMeta meta) {
@@ -143,12 +182,23 @@ public class SearchPrompts {
                 .collect(Collectors.joining(", "));
 
         record SearchSystemData(
-                String identity, String dropExplanationGuidance, String supportedTypes, String objective) {}
+                String identity,
+                String objective,
+                String deliverable,
+                String mission,
+                boolean includeHandoff,
+                String dropExplanationGuidance,
+                String supportedTypes) {}
+
         var data = new SearchSystemData(
-                searchAgentIdentity(),
+                objective.identity(),
+                objective.name(),
+                objective.deliverable(),
+                objective.mission(),
+                objective.includeHandoff(),
                 DROP_EXPLANATION_GUIDANCE.indent(12).stripTrailing(),
-                supportedTypes,
-                objective.name());
+                supportedTypes);
+
         try {
             return new SystemMessage(SEARCH_SYSTEM_TEMPLATE.apply(data));
         } catch (IOException e) {
@@ -254,13 +304,21 @@ public class SearchPrompts {
         String searchSystemTemplateText =
                 """
                 <instructions>
-                {{#if (eq objective "PROMPT_ENRICHMENT")}}
-                Act as an expert software developer and technical writer. Your goal is to gather enough context to enrich a user's request into a detailed, high-quality prompt for another LLM.
-                {{else if (eq objective "ISSUE_DIAGNOSIS")}}
-                Act as an expert software developer and debugger. Your goal is to gather enough context to diagnose an issue and produce a formal issue report.
-                {{else}}
                 {{identity}}
+
+                Objective: {{objective}}
+                Deliverable: {{deliverable}}
+
+                {{mission}}
+
+                Your responsibilities are:
+                  1.  **Find & Discover:** Use search and inspection tools to locate relevant code (files, classes, methods).
+                  2.  **Curate & Prune:** Aggressively prune the Workspace to leave *only* essential context.
+                {{#if includeHandoff}}
+                  3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent.
                 {{/if}}
+
+                Remember: **You must never write, create, or modify code.** Your purpose is to *find* existing code, not *create* new code.
 
                 Memory model (reliability):
                   - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).

@@ -36,6 +36,43 @@ class SearchPromptsTest {
     }
 
     @Test
+    void searchSystemPrompt_includesObjectiveAndDeliverable() throws Exception {
+        var tempDir = Files.createTempDirectory("brokk-search-system-prompt-test-");
+        try {
+            var project = new TestProject(tempDir);
+            var cm = new TestContextManager(
+                    project, new TestConsoleIO(), java.util.Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            Context ctx = cm.liveContext();
+
+            var answerOnly = SearchPrompts.instance
+                    .searchSystemPrompt(ctx, SearchPrompts.Objective.ANSWER_ONLY)
+                    .text();
+            assertTrue(answerOnly.contains("Objective: ANSWER_ONLY"));
+            assertTrue(answerOnly.contains("Deliverable: a comprehensive Markdown answer"));
+
+            var workspaceOnly = SearchPrompts.instance
+                    .searchSystemPrompt(ctx, SearchPrompts.Objective.WORKSPACE_ONLY)
+                    .text();
+            assertTrue(workspaceOnly.contains("Objective: WORKSPACE_ONLY"));
+            assertTrue(workspaceOnly.contains("Deliverable: a curated Workspace ready for the Code Agent"));
+
+            var issueDiagnosis = SearchPrompts.instance
+                    .searchSystemPrompt(ctx, SearchPrompts.Objective.ISSUE_DIAGNOSIS)
+                    .text();
+            assertTrue(issueDiagnosis.contains("Objective: ISSUE_DIAGNOSIS"));
+            assertTrue(issueDiagnosis.contains("Deliverable: a single JSON issue report"));
+
+            var promptEnrichment = SearchPrompts.instance
+                    .searchSystemPrompt(ctx, SearchPrompts.Objective.PROMPT_ENRICHMENT)
+                    .text();
+            assertTrue(promptEnrichment.contains("Objective: PROMPT_ENRICHMENT"));
+            assertTrue(promptEnrichment.contains("Deliverable: an enriched prompt"));
+        } finally {
+            ai.brokk.util.FileUtil.deleteRecursively(tempDir);
+        }
+    }
+
+    @Test
     void promptEnrichmentDirective_includesRequiredSectionsAndProhibitions() throws Exception {
         var tempDir = Files.createTempDirectory("brokk-prompt-enrichment-test-");
         try {
