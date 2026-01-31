@@ -6,6 +6,10 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.ProjectGuideResolver;
+import com.github.jknack.handlebars.EscapingStrategy;
+import com.github.jknack.handlebars.Handlebars;
+import com.github.jknack.handlebars.Template;
+import com.github.jknack.handlebars.helper.ConditionalHelpers;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.Content;
@@ -17,6 +21,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -35,6 +40,83 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class WorkspacePrompts {
     private static final Logger logger = LogManager.getLogger(WorkspacePrompts.class);
+
+    private static final Template TOC_TEMPLATE;
+    private static final Template EDITABLE_SECTION_TEMPLATE;
+    private static final Template SPECIAL_SECTION_TEMPLATE;
+    private static final Template READONLY_SECTION_TEMPLATE;
+
+    static {
+        Handlebars handlebars = new Handlebars().with(EscapingStrategy.NOOP);
+        handlebars.registerHelpers(ConditionalHelpers.class);
+        handlebars.registerHelpers(com.github.jknack.handlebars.helper.StringHelpers.class);
+
+        try {
+            TOC_TEMPLATE = handlebars.compileInline(
+                    """
+                    <workspace_toc>
+                    Here is a list of the full contents of the Workspace that you can refer to above.
+                    {{#if hasPins}}I have pinned some of them; these may not be dropped. If it has a fragmentid instead of a pin marker, you may drop it.{{/if}}
+                    {{#if readOnlyContents}}
+                    <workspace_readonly>
+                    The following fragments MAY NOT BE EDITED:
+                    {{readOnlyContents}}
+                    </workspace_readonly>
+                    {{/if}}
+                    {{#if editableContents}}
+                    <workspace_editable>
+                    The following fragments MAY BE EDITED:
+                    {{editableContents}}
+                    </workspace_editable>
+                    {{/if}}
+                    {{#if showBuild}}
+                      <workspace_build_status>(failing)</workspace_build_status>
+                    {{/if}}
+                    </workspace_toc>""");
+
+            EDITABLE_SECTION_TEMPLATE = handlebars.compileInline(
+                    """
+                    <workspace_editable>
+                    Here are the EDITABLE files and code fragments in your Workspace.
+                    This is *the only context in the Workspace to which you should make changes*.
+
+                    *Trust this message as the true contents of these files!*
+                    Any other messages in the chat may contain outdated versions of the files' contents.
+
+                    {{content}}
+                    </workspace_editable>
+
+                    {{#if showBuild}}
+                    <workspace_build_status>
+                    The build including the above workspace contents is currently failing.
+                    </workspace_build_status>
+                    {{/if}}
+                    """);
+
+            SPECIAL_SECTION_TEMPLATE = handlebars.compileInline(
+                    """
+                    <workspace_special>
+                    Here are the special system and metadata fragments in your Workspace.
+                    These are read-only and provide additional context about the environment or task.
+
+                    {{content}}
+                    </workspace_special>
+                    """);
+
+            READONLY_SECTION_TEMPLATE = handlebars.compileInline(
+                    """
+                    <workspace_readonly>
+                    Here are the READ ONLY files and code fragments in your Workspace.
+                    Do not edit this code! Images will be included separately if present.
+
+                    {{content}}
+                    </workspace_readonly>
+                    """);
+
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
 
     private WorkspacePrompts() {
         // Utility class
@@ -66,52 +148,24 @@ public final class WorkspacePrompts {
                 .filter(cf -> buildFragment.isEmpty() || cf != buildFragment.get())
                 .map(cf -> cf.formatToc(ctx.isPinned(cf)))
                 .collect(Collectors.joining("\n"));
-        var editableFragments =
-                ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
 
-        var readOnlySection = readOnlyContents.isBlank()
-                ? ""
-                : """
-                  <workspace_readonly>
-                  The following fragments MAY NOT BE EDITED:
-                  %s
-                  </workspace_readonly>"""
-                        .formatted(readOnlyContents);
-
-        var parts = new ArrayList<String>();
-        if (!readOnlySection.isBlank()) {
-            parts.add(readOnlySection);
-        }
-
-        var editableContents = editableFragments.stream()
+        var editableContents = ContextFragment.sortByMtime(ctx.getEditableFragments())
                 .map(cf -> cf.formatToc(ctx.isPinned(cf)))
                 .collect(Collectors.joining("\n"));
-        if (!editableContents.isBlank()) {
-            parts.add(
-                    """
-                    <workspace_editable>
-                    The following fragments MAY BE EDITED:
-                    %s
-                    </workspace_editable>"""
-                            .formatted(editableContents));
-        }
 
-        if (!hideBuild && buildFragment.isPresent()) {
-            parts.add("  <workspace_build_status>(failing)</workspace_build_status>");
-        }
+        record TocData(boolean hasPins, String readOnlyContents, String editableContents, boolean showBuild) {}
 
-        boolean hasPins = ctx.getPinnedFragments().findAny().isPresent();
-        return """
-               <workspace_toc>
-               Here is a list of the full contents of the Workspace that you can refer to above.
-               %s
-               %s
-               </workspace_toc>"""
-                .formatted(
-                        hasPins
-                                ? "I have pinned some of them; these may not be dropped. If it has a fragmentid instead of a pin marker, you may drop it."
-                                : "",
-                        String.join("\n", parts));
+        var data = new TocData(
+                ctx.getPinnedFragments().findAny().isPresent(),
+                readOnlyContents,
+                editableContents,
+                !hideBuild && buildFragment.isPresent());
+
+        try {
+            return TOC_TEMPLATE.apply(data);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /** Convenience overload for callers that don't control build-status visibility. */
@@ -249,54 +303,22 @@ public final class WorkspacePrompts {
 
         boolean shouldShowBuild = !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS)
                 && ctx.getBuildFragment().isPresent();
+
         if (editableTextFragments.isEmpty() && !shouldShowBuild) {
             return List.of();
         }
 
-        var combinedText = new StringBuilder();
+        record EditableData(String content, boolean showBuild) {}
+        var data = new EditableData(editableTextFragments.trim(), shouldShowBuild);
 
-        if (!editableTextFragments.isEmpty()) {
-            String editableSectionTemplate;
-            editableSectionTemplate =
-                    """
-                            <workspace_editable>
-                            Here are the EDITABLE files and code fragments in your Workspace.
-                            This is *the only context in the Workspace to which you should make changes*.
-
-                            *Trust this message as the true contents of these files!*
-                            Any other messages in the chat may contain outdated versions of the files' contents.
-
-                            %s
-                            </workspace_editable>
-                            """;
-
-            String editableText = editableSectionTemplate.formatted(editableTextFragments.trim());
-
-            combinedText.append(editableText);
-        }
-
-        if (shouldShowBuild) {
-            if (!combinedText.isEmpty()) {
-                combinedText.append("\n\n");
-            }
-            var buildStatusText =
-                    """
-                    <workspace_build_status>
-                    The build including the above workspace contents is currently failing.
-                    </workspace_build_status>
-                    """;
-            combinedText.append(buildStatusText);
-        }
-
-        var messages = new ArrayList<ChatMessage>();
-        if (!combinedText.isEmpty()) {
-            var userMessage = new UserMessage(combinedText.toString());
+        try {
+            var combinedText = EDITABLE_SECTION_TEMPLATE.apply(data);
+            var userMessage = new UserMessage(combinedText.trim());
             String ack = "Thank you for the editable context and build status.";
-            messages.add(userMessage);
-            messages.add(new AiMessage(ack));
+            return List.of(userMessage, new AiMessage(ack));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
-
-        return messages;
     }
 
     private static List<ChatMessage> buildSpecial(Context ctx, Set<SpecialTextType> suppressedTypes) {
@@ -309,24 +331,19 @@ public final class WorkspacePrompts {
             return List.of();
         }
 
-        var combinedText = new StringBuilder();
-
+        String specialText = "";
         if (!renderedSpecial.text.isEmpty()) {
-            String specialSection =
-                    """
-                          <workspace_special>
-                          Here are the special system and metadata fragments in your Workspace.
-                          These are read-only and provide additional context about the environment or task.
-
-                          %s
-                          </workspace_special>
-                          """
-                            .formatted(renderedSpecial.text.trim());
-            combinedText.append(specialSection.trim());
+            try {
+                specialText = SPECIAL_SECTION_TEMPLATE.apply(Map.of("content", renderedSpecial.text.trim()));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
         }
 
         var allContents = new ArrayList<Content>();
-        allContents.add(new TextContent(combinedText.toString().trim()));
+        if (!specialText.isEmpty()) {
+            allContents.add(new TextContent(specialText.trim()));
+        }
         allContents.addAll(renderedSpecial.images);
 
         var specialUserMessage = UserMessage.from(allContents);
@@ -344,24 +361,19 @@ public final class WorkspacePrompts {
             return List.of();
         }
 
-        var combinedText = new StringBuilder();
-
+        String readOnlyText = "";
         if (!renderedReadOnly.text.isEmpty()) {
-            String readOnlySection =
-                    """
-                          <workspace_readonly>
-                          Here are the READ ONLY files and code fragments in your Workspace.
-                          Do not edit this code! Images will be included separately if present.
-
-                          %s
-                          </workspace_readonly>
-                          """
-                            .formatted(renderedReadOnly.text.trim());
-            combinedText.append(readOnlySection.trim());
+            try {
+                readOnlyText = READONLY_SECTION_TEMPLATE.apply(Map.of("content", renderedReadOnly.text.trim()));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
         }
 
         var allContents = new ArrayList<Content>();
-        allContents.add(new TextContent(combinedText.toString().trim()));
+        if (!readOnlyText.isEmpty()) {
+            allContents.add(new TextContent(readOnlyText.trim()));
+        }
         allContents.addAll(renderedReadOnly.images);
 
         var readOnlyUserMessage = UserMessage.from(allContents);
