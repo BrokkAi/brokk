@@ -137,14 +137,18 @@ public class SearchPrompts {
         return new UserMessage(text);
     }
 
-    public SystemMessage searchSystemPrompt(Context context) {
+    public SystemMessage searchSystemPrompt(Context context, Objective objective) {
         var supportedTypes = context.getContextManager().getProject().getAnalyzerLanguages().stream()
                 .map(Language::name)
                 .collect(Collectors.joining(", "));
 
-        record SearchSystemData(String identity, String dropExplanationGuidance, String supportedTypes) {}
+        record SearchSystemData(
+                String identity, String dropExplanationGuidance, String supportedTypes, String objective) {}
         var data = new SearchSystemData(
-                searchAgentIdentity(), DROP_EXPLANATION_GUIDANCE.indent(12).stripTrailing(), supportedTypes);
+                searchAgentIdentity(),
+                DROP_EXPLANATION_GUIDANCE.indent(12).stripTrailing(),
+                supportedTypes,
+                objective.name());
         try {
             return new SystemMessage(SEARCH_SYSTEM_TEMPLATE.apply(data));
         } catch (IOException e) {
@@ -193,7 +197,6 @@ public class SearchPrompts {
 
     private record DirectiveData(
             String goal,
-            String objective,
             String objectiveTag,
             boolean isEmptyProject,
             boolean needsBuildSetup,
@@ -251,7 +254,13 @@ public class SearchPrompts {
         String searchSystemTemplateText =
                 """
                 <instructions>
+                {{#if (eq objective "PROMPT_ENRICHMENT")}}
+                Act as an expert software developer and technical writer. Your goal is to gather enough context to enrich a user's request into a detailed, high-quality prompt for another LLM.
+                {{else if (eq objective "ISSUE_DIAGNOSIS")}}
+                Act as an expert software developer and debugger. Your goal is to gather enough context to diagnose an issue and produce a formal issue report.
+                {{else}}
                 {{identity}}
+                {{/if}}
 
                 Memory model (reliability):
                   - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).
@@ -328,7 +337,7 @@ public class SearchPrompts {
                 </{{objectiveTag}}>
 
                 <search-objective>
-                {{#if (eq objective "ISSUE_DIAGNOSIS")}}
+                {{#if (eq (lower objectiveTag) "issue_diagnosis")}}
                 Deliver ONLY a single JSON object using the issueWriterOutput(String json) tool.
 
                 Required output schema (STRICT):
@@ -343,7 +352,7 @@ public class SearchPrompts {
                       - identifiers/symbol names
                       - fragment ids when available
                     It MAY include a section like "## Agent Instructions" but it must be inside bodyMarkdown.
-                {{else if (eq objective "PROMPT_ENRICHMENT")}}
+                {{else if (eq (lower objectiveTag) "prompt_enrichment")}}
                 Write an execution-ready enrichment of the user's request. Output ONLY the enriched prompt text via answer(String).
 
                 Rules:
@@ -364,13 +373,13 @@ public class SearchPrompts {
                 **Open Questions**
                 **Verification**
                 **Plan** (explicit step-by-step; in **Plan**, name the key files/modules/classes/methods to change only if supported by the input or discovered from the repo; otherwise ask in **Open Questions**)
-                {{else if (eq objective "ANSWER_ONLY")}}
+                {{else if (eq (lower objectiveTag) "query")}}
                 Deliver a written answer using the answer(String) tool.
-                {{else if (eq objective "LUTZ")}}
+                {{else if (eq (lower objectiveTag) "query_or_instructions")}}
                 Either deliver a written answer, solve the problem by invoking Code Agent, or decompose the problem into a task list.
-                {{else if (eq objective "TASKS_ONLY")}}
+                {{else if (eq (lower objectiveTag) "instructions")}}
                 Deliver a task list using the createOrReplaceTaskList(String explanation, List<String> tasks) tool.
-                {{else if (eq objective "WORKSPACE_ONLY")}}
+                {{else if (eq (lower objectiveTag) "task")}}
                 Deliver a curated Workspace containing everything required for the follow-on Code Agent
                 to solve the given task.
                 {{/if}}
@@ -393,7 +402,7 @@ public class SearchPrompts {
                   - Full sources: when you need complete implementation details.
                 {{/if}}
 
-                {{#if (eq objective "LUTZ")}}
+                {{#if (eq (lower objectiveTag) "query_or_instructions")}}
                 Then:
                   - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
                   - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
@@ -534,7 +543,7 @@ public class SearchPrompts {
 
         var messages = new ArrayList<ChatMessage>();
 
-        messages.add(searchSystemPrompt(context));
+        messages.add(searchSystemPrompt(context, objective));
 
         // Describe available MCP tools
         var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
@@ -598,7 +607,6 @@ public class SearchPrompts {
         var terminals = objective.terminals();
         var data = new DirectiveData(
                 goal,
-                objective.name(),
                 objective.tag(),
                 cm.getProject().isEmptyProject(),
                 needsBuildSetup,
