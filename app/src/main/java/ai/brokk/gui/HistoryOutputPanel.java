@@ -291,9 +291,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
 
-        historyTableComponent.addSelectionListener(contextFromHistory -> {
-            if (!contextFromHistory.equals(contextManager.selectedContext())) {
-                contextManager.setSelectedContext(contextFromHistory);
+        historyTableComponent.addSelectionListener(ctx -> {
+            if (!ctx.equals(contextManager.selectedContext())) {
+                // https://github.com/BrokkAi/brokk/issues/2531
+                if (contextManager.getContextHistory().getHistory().contains(ctx)) {
+                    contextManager.setSelectedContext(ctx);
+                }
             }
         });
 

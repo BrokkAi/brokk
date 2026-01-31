@@ -1671,8 +1671,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param contextFromHistory The context selected in the UI.
      */
     public void setSelectedContext(Context contextFromHistory) {
-        if (contextHistory.setSelectedContext(contextFromHistory)) {
-            notifyContextListeners(contextFromHistory);
+        try {
+            if (contextHistory.setSelectedContext(contextFromHistory)) {
+                notifyContextListeners(contextFromHistory);
+            }
+        } catch (IllegalArgumentException e) {
+            // This can happen if the history was swapped (e.g. session switch) while a selection
+            // event from the old history was still in the EDT queue.
+            logger.warn("Ignoring selection of context {} which is not in current history", contextFromHistory.id());
         }
     }
 
