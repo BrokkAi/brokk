@@ -86,14 +86,14 @@ public class SearchPrompts {
         return """
                 You are the Search Agent.
                 Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
-                  Your responsibilities are:
-                    1.  **Find & Discover:** Use search and inspection tools to locate all relevant files, classes, and methods.
-                    2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context (files, summaries, notes) that the Code Agent will need.
-                    3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
+                Your responsibilities are:
+                  1.  **Find & Discover:** Use search and inspection tools to locate the context (files, classes, and methods) necessary to solve the problem or answer the question.
+                  2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context that the Code Agent will need.
+                  3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
 
-                  Remember: **You must never write, create, or modify code.**
-                  Your purpose is to *find* existing code, not *create* new code.
-                  The Code Agent is solely responsible for all code generation and modification.
+                Remember: **You must never write, create, or modify code.**
+                Your purpose is to *find* existing code, not *create* new code.
+                The Code Agent is solely responsible for all code generation and modification.
                 """;
     }
 
@@ -193,6 +193,7 @@ public class SearchPrompts {
 
     private record DirectiveData(
             String goal,
+            String objective,
             String objectiveTag,
             boolean isEmptyProject,
             boolean needsBuildSetup,
@@ -238,7 +239,7 @@ public class SearchPrompts {
 
                 Response rules:
                 - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
-                - Don't give up: if the number of irrelevant fragments is overwhelming, do your best. It’s okay to not get everything, but it’s not okay to call performedInitialReview without trying to clean up.
+                - Don't give up: if the number of irrelevant fragments is overwhelming, do your best. It's okay to not get everything, but it's not okay to call performedInitialReview without trying to clean up.
                 </instructions>
                 """;
         try {
@@ -274,11 +275,11 @@ public class SearchPrompts {
                   2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
                      - Search tool selection:
                           Definitions / declarations only?
-                          → searchSymbols
+                          -> searchSymbols
                           How is something used, accessed, obtained, injected, or called?
-                          → addSymbolUsagesToWorkspace
+                          -> addSymbolUsagesToWorkspace
                           Strings, configs, markdown, comments, reflection, or unknown names?
-                          → searchSubstrings
+                          -> searchSubstrings
                      - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
                        They do NOT surface local variables or hardcoded strings like environment variable names,
                        system properties, or comments. If searchSubstrings finds a hit in a file but the summary
@@ -286,16 +287,15 @@ public class SearchPrompts {
                   3) The symbol-based tools only have visibility into the following file types: {{supportedTypes}}
                      Use text-based tools if you need to search other file types.
                   4) Group related lookups into a single tool call when possible.
-                  5) Your responsibility ends at providing context.
-                     Do not attempt to write the solution or pseudocode for the solution.
+                  5) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
+                     Do not write code, and do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
                      and let the Code Agent write the code. (But when refactoring, it is usually sufficient to call `addSymbolUsagesToWorkspace`
                      and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
-                     Note: Code Agent will also take care of creating new files, you only need to add existing files
-                     to the Workspace.
-                  6) When you have enough information to finalize (solve the problem or answer the question), do so; there
-                     are no bonus points for grooming the perfect Workspace.
+                     Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
+                  6) When you have enough information to take a final action, do so.
+                     There are no bonus points for grooming the perfect Workspace.
 
                 Working efficiently:
                   - Think before calling tools.
@@ -328,7 +328,7 @@ public class SearchPrompts {
                 </{{objectiveTag}}>
 
                 <search-objective>
-                {{#if terminalIssueJson}}
+                {{#if (eq objective "ISSUE_DIAGNOSIS")}}
                 Deliver ONLY a single JSON object using the issueWriterOutput(String json) tool.
 
                 Required output schema (STRICT):
@@ -343,8 +343,7 @@ public class SearchPrompts {
                       - identifiers/symbol names
                       - fragment ids when available
                     It MAY include a section like "## Agent Instructions" but it must be inside bodyMarkdown.
-                {{else if terminalAnswer}}
-                {{#if (eq objective "PROMPT_ENRICHMENT")}}
+                {{else if (eq objective "PROMPT_ENRICHMENT")}}
                 Write an execution-ready enrichment of the user's request. Output ONLY the enriched prompt text via answer(String).
 
                 Rules:
@@ -369,7 +368,14 @@ public class SearchPrompts {
                 Deliver a written answer using the answer(String) tool.
                 {{else if (eq objective "LUTZ")}}
                 Either deliver a written answer, solve the problem by invoking Code Agent, or decompose the problem into a task list.
+                {{else if (eq objective "TASKS_ONLY")}}
+                Deliver a task list using the createOrReplaceTaskList(String explanation, List<String> tasks) tool.
+                {{else if (eq objective "WORKSPACE_ONLY")}}
+                Deliver a curated Workspace containing everything required for the follow-on Code Agent
+                to solve the given task.
+                {{/if}}
 
+                {{#if terminalTasks}}
                 Invariant: Before any final action:
                   1. Prune fragments that are no longer needed (superseded by summaries or irrelevant to the goal).
                      Do not finalize while the Workspace still contains obvious noise or superseded large fragments.
@@ -385,33 +391,13 @@ public class SearchPrompts {
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.
                   - Full sources: when you need complete implementation details.
+                {{/if}}
 
+                {{#if (eq objective "LUTZ")}}
                 Then:
                   - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
                   - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
                   - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
-                {{/if}}
-                {{else if (eq objective "TASKS_ONLY")}}
-                Deliver a task list using the createOrReplaceTaskList(String explanation, List<String> tasks) tool.
-
-                Invariant: Before any final action:
-                  1. Prune fragments that are no longer needed (superseded by summaries or irrelevant to the goal).
-                     Do not finalize while the Workspace still contains obvious noise or superseded large fragments.
-                  2. Add the minimum sufficient, decision-relevant context to remove guesswork.
-                An unchanged or empty Workspace is a failure unless the question is explicitly independent of this codebase.
-
-                Workspace context guidance:
-                  - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
-                  - If you don't know where to find a piece of information, use search tools or skimDirectory to identify specific files/classes/methods instead of guessing.
-                  - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
-                    skimDirectory can help you narrow down your search, after which you should add only those specific items to the Workspace.
-                When to prefer the different content types:
-                  - Summaries: when you only need API signatures/types/constants.
-                  - Method sources: when you need implementation details for specific methods.
-                  - Full sources: when you need complete implementation details.
-                {{else if (eq objective "WORKSPACE_ONLY")}}
-                Deliver a curated Workspace containing everything required for the follow-on Code Agent
-                to solve the given task.
                 {{/if}}
                 </search-objective>
 
@@ -436,12 +422,10 @@ public class SearchPrompts {
                 Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
                 Pruning mandate (do this now):
-                  - In parallel with exploration, prune the Workspace
-                  - **MANDATORY** Drop irrelevant/noise fragments now with dropWorkspaceFragments
-                  - **MANDATORY** Reduce Workspace size: replace large fragments with smaller artifacts (addFileSummariesToWorkspace, addClassSummariesToWorkspace, addMethodsToWorkspace) if reasonable
-                  - When replacing fragments, drop the originals (dropWorkspaceFragments) - no superseded fragments!
-                  - Before re-adding content, check Discarded Context to avoid redoing work
-                  - You may not drop pinned fragments.
+                  - Prune in parallel with exploration.
+                  - Drop irrelevant/noise fragments now with dropWorkspaceFragments.
+                  - Replace large fragments with smaller artifacts (addFileSummariesToWorkspace, addClassSummariesToWorkspace, addMethodsToWorkspace) when possible; drop superseded originals.
+                  - Check Discarded Context before re-adding content; you may not drop pinned fragments.
 
                 {{#if isWorkspaceObjective}}
                 Tests:
@@ -457,7 +441,7 @@ public class SearchPrompts {
                 - Use issueWriterOutput(String json) to finalize. Output MUST be ONLY a single JSON object (no fences, no preamble, no trailing text). abortSearch(explanation) is the only other allowed final tool.
                 {{else}}
                 {{#if terminalAnswer}}
-                - Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <persistence>).
+                - Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <markdown-reminder>).
                 - Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.
                 {{/if}}
                 {{#if terminalTasks}}
@@ -484,9 +468,9 @@ public class SearchPrompts {
                 You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
                 usefully do so.
 
-                Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn,
-                EXCEPT that you should also call dropWorkspaceFragments if any final cleanup is needed.
-                If you include a terminal together with other tools, the terminal will be ignored for this turn.
+                Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, callCodeAgent, issueWriterOutput, abortSearch)
+                must be the ONLY tool in a turn. If final cleanup is needed (for example, dropWorkspaceFragments), do it first,
+                then finalize on the next turn. If you include a terminal together with other tools, the terminal will be ignored for this turn.
 
                 Remember: it is NOT your objective to write code.
 
@@ -545,8 +529,8 @@ public class SearchPrompts {
 
         // Build workspace messages in insertion order with viewing policy applied
         var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
-        // fudge factor for langchain4j's tokenizer undercounts most modern models
-        var workspaceTokens = 1.2 * Messages.getApproximateMessageTokens(workspaceMessages);
+        // Fudge factor for langchain4j's tokenizer undercounts most modern models. Use ceil to avoid undercounting.
+        long workspaceTokens = (long) Math.ceil(1.2 * Messages.getApproximateMessageTokens(workspaceMessages));
 
         var messages = new ArrayList<ChatMessage>();
 
@@ -585,7 +569,7 @@ public class SearchPrompts {
         // Workspace size warning
         String warning = "";
         if (inputLimit > 0) {
-            double pct = workspaceTokens / inputLimit * 100.0;
+            double pct = (double) workspaceTokens / inputLimit * 100.0;
             if (pct > 90.0) {
                 warning =
                         """
@@ -614,6 +598,7 @@ public class SearchPrompts {
         var terminals = objective.terminals();
         var data = new DirectiveData(
                 goal,
+                objective.name(),
                 objective.tag(),
                 cm.getProject().isEmptyProject(),
                 needsBuildSetup,
