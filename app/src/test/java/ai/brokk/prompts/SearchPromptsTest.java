@@ -1,5 +1,6 @@
 package ai.brokk.prompts;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.Service;
@@ -12,10 +13,27 @@ import ai.brokk.testutil.TestProject;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-class SearchPromptsPromptEnrichmentFormatTest {
+class SearchPromptsTest {
+
+    @Test
+    void testPromptEnrichmentObjective() {
+        SearchPrompts.Objective objective = SearchPrompts.Objective.PROMPT_ENRICHMENT;
+        Set<SearchPrompts.Terminal> terminals = objective.terminals();
+
+        assertEquals(1, terminals.size());
+        assertTrue(terminals.contains(SearchPrompts.Terminal.ANSWER));
+    }
+
+    @Test
+    void issueDiagnosisTerminals_isIssueJsonOnly() {
+        assertEquals(
+                EnumSet.of(SearchPrompts.Terminal.ISSUE_JSON), SearchPrompts.Objective.ISSUE_DIAGNOSIS.terminals());
+    }
 
     @Test
     void promptEnrichmentDirective_includesRequiredSectionsAndProhibitions() throws Exception {
