@@ -2177,7 +2177,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     void enableButtons() {
         // Called when an action completes. Reset buttons based on current CM/project state.
-        updateButtonStates();
+        LoggingFuture.runVirtual(this::updateButtonStates);
     }
 
     private String loadActionMode() {
