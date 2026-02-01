@@ -61,8 +61,8 @@ import picocli.CommandLine;
         name = "brokk-cli",
         mixinStandardHelpOptions = true,
         description = "One-shot Brokk workspace and task runner.")
-public final class BrokkCli implements Callable<Integer> {
-    private static final Logger logger = LogManager.getLogger(BrokkCli.class);
+public final class BprCli implements Callable<Integer> {
+    private static final Logger logger = LogManager.getLogger(BprCli.class);
 
     @CommandLine.Option(names = "--project", description = "Path to the project root.")
     @Nullable
@@ -199,7 +199,7 @@ public final class BrokkCli implements Callable<Integer> {
         logger.info("Starting Brokk CLI...");
         System.setProperty("java.awt.headless", "true");
 
-        int exitCode = new CommandLine(new BrokkCli()).execute(args);
+        int exitCode = new CommandLine(new BprCli()).execute(args);
         System.exit(exitCode);
     }
 
