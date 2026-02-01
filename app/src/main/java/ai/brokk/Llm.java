@@ -355,7 +355,7 @@ public class Llm {
         var accumulatedTextBuilder = new StringBuilder();
         var accumulatedReasoningBuilder = new StringBuilder();
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
-        var errorRef = new AtomicReference<@Nullable Throwable>();
+        var errorRef = new AtomicReference<@Nullable Exception>();
         var fenceOpen = new AtomicBoolean(false);
         long elapsedMs;
 
@@ -462,12 +462,13 @@ public class Llm {
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
                     logger.debug(th);
-                    var retryable = !(th instanceof NonRetriableException);
+                    var mapped = ExceptionMapper.DEFAULT.mapException(th);
+                    var retryable = !(mapped instanceof NonRetriableException);
                     // Immediate feedback for user
                     String message =
-                            "LLM Error: " + th.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
+                            "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-                    errorRef.set(th);
+                    errorRef.set(mapped);
                     if (echo && addJsonFence && fenceOpen.get()) {
                         io.llmOutput(
                                 "\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
@@ -697,7 +698,7 @@ public class Llm {
             throw new IllegalArgumentException("REQUIRED tool specifications must not be empty");
         }
 
-        Throwable lastError = null;
+        @Nullable Exception lastError = null;
         int attempt = 0;
         var messages = Messages.forLlm(rawMessages);
         if (messages.isEmpty()) {
@@ -1610,7 +1611,7 @@ public class Llm {
     }
 
     /**
-     * The result of a streaming cal. Exactly one of (chatResponse, error) is not null UNLESS if the LLM hangs up
+     * The result of a streaming call. Exactly one of (chatResponse, error) is not null UNLESS if the LLM hangs up
      * abruptly after starting its response. In that case we'll forge a NullSafeResponse with the partial result and
      * also include the error that we got from the HTTP layer. In this case chatResponse and error will both be
      * non-null, but chatResponse.originalResponse will be null.
@@ -1619,21 +1620,21 @@ public class Llm {
      * contents of chatResponse.
      */
     public record StreamingResult(
-            @Nullable NullSafeResponse chatResponse, @Nullable Throwable error, int retries, long elapsedMs) {
-        public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Throwable error) {
+            @Nullable NullSafeResponse chatResponse, @Nullable Exception error, int retries, long elapsedMs) {
+        public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Exception error) {
             this(partialResponse, error, 0, 0);
         }
 
-        public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Throwable error, int retries) {
+        public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Exception error, int retries) {
             this(partialResponse, error, retries, 0);
         }
 
-        public static StreamingResult fromResponse(@Nullable ChatResponse originalResponse, @Nullable Throwable error) {
+        public static StreamingResult fromResponse(@Nullable ChatResponse originalResponse, @Nullable Exception error) {
             return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, 0);
         }
 
         public static StreamingResult fromResponse(
-                @Nullable ChatResponse originalResponse, @Nullable Throwable error, long elapsedMs) {
+                @Nullable ChatResponse originalResponse, @Nullable Exception error, long elapsedMs) {
             return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, elapsedMs);
         }
 
