@@ -6,14 +6,14 @@ import ai.brokk.ContextManager;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.project.WorktreeProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.WorkspaceTools;
@@ -35,7 +35,7 @@ import picocli.CommandLine;
 
 @SuppressWarnings("NullAway.Init")
 @CommandLine.Command(
-        name = "brokk-cli",
+        name = "brokk",
         mixinStandardHelpOptions = true,
         description = "Brokk CLI - AI-powered code assistant.",
         footerHeading = "%nAvailable Models:%n",
@@ -46,123 +46,150 @@ public final class BrokkCli implements Callable<Integer> {
     private static final String DEFAULT_CODE_MODEL = "Flash 3";
     private static final String DEFAULT_PLAN_MODEL = "Opus 4.5";
 
-    // --- Project Path ---
-    @CommandLine.Option(names = "--project", required = true, description = "Path to the project root.")
-    private Path projectPath;
+    @CommandLine.Parameters(hidden = true)
+    private List<String> unmatched = new ArrayList<>();
 
-    // --- Mode Flags ---
-    @CommandLine.Option(
-            names = "--scan",
-            description =
-                    "Run ContextAgent scan. Standalone: prints recommendations. Can compose with --code or --search.")
-    private boolean scan;
+    @CommandLine.ArgGroup(exclusive = false, heading = "%nProject Configuration:%n")
+    private ProjectConfig projectConfig = new ProjectConfig();
 
-    @CommandLine.Option(
-            names = "--code",
-            description =
-                    "Code changes mode. Uses ArchitectAgent if editable context exists, otherwise SearchAgent with CODE_ONLY.")
-    private boolean code;
+    static final class ProjectConfig {
+        @CommandLine.Option(
+                names = "--project",
+                defaultValue = ".",
+                description = "Path to the project root. Default: current directory.")
+        Path projectPath;
 
-    @CommandLine.Option(
-            names = "--search",
-            description = "Search/answer mode. Uses SearchAgent with ANSWER_ONLY objective.")
-    private boolean search;
+        @CommandLine.Option(
+                names = "--goal",
+                description =
+                        "Goal/prompt for the operation. Required for --scan, --code, --search. Supports @file syntax.")
+        @Nullable
+        String goal;
 
-    // --- Search Tool Actions ---
-    @CommandLine.Option(
-            names = "--list-symbols",
-            split = ",",
-            description = "Search for symbols using comma-delimited regex patterns. Standalone action.")
-    private List<String> listSymbolsPatterns = new ArrayList<>();
+        @CommandLine.Option(names = "--build-only-cmd", description = "Build/lint command (no tests).")
+        @Nullable
+        String buildOnlyCmd;
 
-    @CommandLine.Option(
-            names = "--skim-directory",
-            description = "List immediate contents of a directory. Standalone action.")
-    @Nullable
-    private String skimDirectoryPath;
+        @CommandLine.Option(names = "--test-all-cmd", description = "Command to run all tests.")
+        @Nullable
+        String testAllCmd;
 
-    // --- Goal Parameter ---
-    @CommandLine.Option(
-            names = "--goal",
-            description =
-                    "Goal/prompt for the operation. Required for --scan, --code, --search. Supports @file syntax.")
-    @Nullable
-    private String goal;
+        @CommandLine.Option(
+                names = "--test-some-cmd",
+                description =
+                        "Mustache template for specific tests. Variables: {{#files}}, {{#classes}}, {{#fqclasses}}.")
+        @Nullable
+        String testSomeCmd;
+    }
 
-    // --- Context Injection ---
-    @CommandLine.Option(
-            names = "--file",
-            split = ",",
-            arity = "1..*",
-            description = "Add files for editing (comma-delimited or repeatable).")
-    private List<String> files = new ArrayList<>();
+    @CommandLine.ArgGroup(exclusive = false)
+    private ActionMode actionMode = new ActionMode();
 
-    @CommandLine.Option(
-            names = "--class",
-            split = ",",
-            arity = "1..*",
-            description = "Add class sources by FQCN (comma-delimited or repeatable).")
-    private List<String> classes = new ArrayList<>();
+    static final class ActionMode {
+        @CommandLine.ArgGroup(exclusive = false, validate = false, heading = "%nActions (Context Engine):%n")
+        ContextEngineGroup contextEngine;
 
-    @CommandLine.Option(
-            names = "--method",
-            split = ",",
-            arity = "1..*",
-            description = "Add method sources by FQ name (comma-delimited or repeatable).")
-    private List<String> methods = new ArrayList<>();
+        @CommandLine.ArgGroup(exclusive = false, validate = false, heading = "%nActions (Agentic Research):%n")
+        AgenticResearchGroup agenticResearch;
 
-    @CommandLine.Option(
-            names = "--usage",
-            split = ",",
-            arity = "1..*",
-            description = "Add symbol usages (comma-delimited or repeatable).")
-    private List<String> usages = new ArrayList<>();
+        @CommandLine.ArgGroup(exclusive = false, validate = false, heading = "%nActions (Agentic Coding):%n")
+        AgenticCodingGroup agenticCoding;
+    }
 
-    @CommandLine.Option(
-            names = "--summary",
-            split = ",",
-            arity = "1..*",
-            description = "Add summaries - tries as class first, then as file (comma-delimited or repeatable).")
-    private List<String> summaries = new ArrayList<>();
+    static final class ContextEngineGroup {
+        @CommandLine.Option(
+                names = "--list-symbols",
+                split = ",",
+                description = "Standalone symbol search using comma-delimited regex patterns.")
+        List<String> listSymbolsPatterns = new ArrayList<>();
 
-    // --- Build Commands ---
-    @CommandLine.Option(names = "--build-only-cmd", description = "Build/lint command (no tests).")
-    @Nullable
-    private String buildOnlyCmd;
+        @CommandLine.Option(names = "--skim-directory", description = "Standalone directory listing.")
+        @Nullable
+        String skimDirectoryPath;
+    }
 
-    @CommandLine.Option(names = "--test-all-cmd", description = "Command to run all tests.")
-    @Nullable
-    private String testAllCmd;
+    static final class AgenticResearchGroup {
+        @CommandLine.Option(
+                names = "--scan",
+                description = "Lightweight scan for relevant files (usually run before --search).")
+        boolean scan;
 
-    @CommandLine.Option(
-            names = "--test-some-cmd",
-            description = "Mustache template for specific tests. Variables: {{#files}}, {{#classes}}, {{#fqclasses}}.")
-    @Nullable
-    private String testSomeCmd;
+        @CommandLine.Option(names = "--search", description = "Deep search/answer mode.")
+        boolean search;
+    }
 
-    // --- Models ---
-    @CommandLine.Option(
-            names = "--codemodel",
-            description = "Code model alias. Default: ${DEFAULT-VALUE}.",
-            defaultValue = DEFAULT_CODE_MODEL)
-    private String codeModelAlias;
+    static final class AgenticCodingGroup {
+        @CommandLine.Option(names = "--code", description = "Apply changes (use when you know what files to change).")
+        boolean code;
 
-    @CommandLine.Option(
-            names = "--planmodel",
-            description = "Planning model alias. Default: ${DEFAULT-VALUE}.",
-            defaultValue = DEFAULT_PLAN_MODEL)
-    private String planModelAlias;
+        @CommandLine.Option(
+                names = "--lutz",
+                description = "Search for context, then implement the goal (use when you don't know what to change).")
+        boolean lutz;
 
-    // --- Other Options ---
-    @CommandLine.Option(names = "--worktree", description = "Create detached worktree at the given path.")
-    @Nullable
-    private Path worktreePath;
+        @CommandLine.Option(names = "--merge", description = "Solves all merge conflicts in the repo.")
+        boolean merge = false;
 
-    @CommandLine.Option(
-            names = "--brokk-key",
-            description = "Brokk API key override (also reads BROKK_API_KEY env var).")
-    @Nullable
-    private String brokkApiKey;
+        @CommandLine.Option(names = "--build", description = "Run build verification without making changes.")
+        boolean build = false;
+    }
+
+    @CommandLine.ArgGroup(exclusive = false, heading = "%nWorkspace Content (optional context):%n")
+    private WorkspaceContext workspaceContext = new WorkspaceContext();
+
+    static final class WorkspaceContext {
+        @CommandLine.Option(
+                names = "--file",
+                split = ",",
+                arity = "1..*",
+                description = "Add files for editing (comma-delimited or repeatable).")
+        List<String> files = new ArrayList<>();
+
+        @CommandLine.Option(
+                names = "--class",
+                split = ",",
+                arity = "1..*",
+                description = "Add class sources by FQCN (comma-delimited or repeatable).")
+        List<String> classes = new ArrayList<>();
+
+        @CommandLine.Option(
+                names = "--method",
+                split = ",",
+                arity = "1..*",
+                description = "Add method sources by FQ name (comma-delimited or repeatable).")
+        List<String> methods = new ArrayList<>();
+
+        @CommandLine.Option(
+                names = "--usage",
+                split = ",",
+                arity = "1..*",
+                description = "Add symbol usages (comma-delimited or repeatable).")
+        List<String> usages = new ArrayList<>();
+
+        @CommandLine.Option(
+                names = "--summary",
+                split = ",",
+                arity = "1..*",
+                description = "Add summaries - tries as class first, then as file (comma-delimited or repeatable).")
+        List<String> summaries = new ArrayList<>();
+    }
+
+    @CommandLine.ArgGroup(exclusive = false, heading = "%nModel Selection:%n")
+    private ModelConfig modelConfig = new ModelConfig();
+
+    static final class ModelConfig {
+        @CommandLine.Option(
+                names = "--codemodel",
+                description = "Code model alias. Default: ${DEFAULT-VALUE}.",
+                defaultValue = DEFAULT_CODE_MODEL)
+        String codeModelAlias = DEFAULT_CODE_MODEL;
+
+        @CommandLine.Option(
+                names = "--planmodel",
+                description = "Planning model alias. Default: ${DEFAULT-VALUE}.",
+                defaultValue = DEFAULT_PLAN_MODEL)
+        String planModelAlias = DEFAULT_PLAN_MODEL;
+    }
 
     private ContextManager cm;
     private AbstractProject project;
@@ -173,6 +200,7 @@ public final class BrokkCli implements Callable<Integer> {
 
         var cli = new BrokkCli();
         var cmd = new CommandLine(cli);
+        cmd.setUnmatchedArgumentsAllowed(true);
 
         // Set dynamic footer with available models
         cmd.getCommandSpec().usageMessage().footer(getModelFooter());
@@ -185,8 +213,6 @@ public final class BrokkCli implements Callable<Integer> {
         try {
             var models = MainProject.loadFavoriteModels();
             var lines = new ArrayList<String>();
-            lines.add("");
-            lines.add("Available Models:");
             for (var model : models) {
                 lines.add("  " + model.alias() + " -> " + model.config().name());
             }
@@ -200,100 +226,115 @@ public final class BrokkCli implements Callable<Integer> {
     @Blocking
     public Integer call() throws Exception {
         // --- API Key Setup ---
-        String effectiveBrokkKey = brokkApiKey;
-        if (effectiveBrokkKey == null || effectiveBrokkKey.isBlank()) {
-            effectiveBrokkKey = System.getenv("BROKK_API_KEY");
-        }
+        String effectiveBrokkKey = System.getenv("BROKK_API_KEY");
         if (effectiveBrokkKey != null && !effectiveBrokkKey.isBlank()) {
             MainProject.setHeadlessBrokkApiKeyOverride(effectiveBrokkKey);
-            logger.info("Using Brokk API key (length={})", effectiveBrokkKey.length());
+            logger.info("Using BROKK_API_KEY environment variable (length={})", effectiveBrokkKey.length());
         }
+
+        String goal = projectConfig.goal;
 
         // --- Expand @file syntax for goal ---
         if (goal != null) {
             goal = maybeLoadFromFile(goal);
         }
 
-        // --- Mode Validation ---
+        if (!unmatched.isEmpty() && unmatched.stream().anyMatch(s -> !s.isBlank())) {
+            System.err.println("Error: Unrecognized arguments: " + String.join(" ", unmatched));
+            System.err.println("Use --help to see available options.");
+            return 1;
+        }
+
+        // --- Mode Mapping & Validation ---
+        boolean scan = false;
+        boolean code = false;
+        boolean search = false;
+        boolean lutz = false;
+        boolean merge = false;
+        boolean build = false;
+
+        List<String> listSymbolsPatterns = List.of();
+        @Nullable String skimDirectoryPath = null;
+
+        if (actionMode.agenticResearch != null) {
+            scan = actionMode.agenticResearch.scan;
+            search = actionMode.agenticResearch.search;
+        }
+        if (actionMode.agenticCoding != null) {
+            code = actionMode.agenticCoding.code;
+            lutz = actionMode.agenticCoding.lutz;
+            merge = actionMode.agenticCoding.merge;
+            build = actionMode.agenticCoding.build;
+        }
+        if (actionMode.contextEngine != null) {
+            listSymbolsPatterns = actionMode.contextEngine.listSymbolsPatterns.stream()
+                    .filter(s -> !s.isBlank())
+                    .toList();
+            skimDirectoryPath = actionMode.contextEngine.skimDirectoryPath;
+        }
+
         boolean hasListSymbols = !listSymbolsPatterns.isEmpty();
-        boolean hasSkimDirectory = skimDirectoryPath != null;
+        boolean hasSkimDirectory = skimDirectoryPath != null && !skimDirectoryPath.isBlank();
 
-        int modeCount = 0;
-        if (scan && !code && !search) modeCount++; // standalone scan
-        if (code) modeCount++;
-        if (search) modeCount++;
-        if (hasListSymbols) modeCount++;
-        if (hasSkimDirectory) modeCount++;
+        var selectedActions = new ArrayList<String>();
+        if (hasListSymbols) selectedActions.add("--list-symbols");
+        if (hasSkimDirectory) selectedActions.add("--skim-directory");
+        if (scan) selectedActions.add("--scan");
+        if (search) selectedActions.add("--search");
+        if (code) selectedActions.add("--code");
+        if (lutz) selectedActions.add("--lutz");
+        if (merge) selectedActions.add("--merge");
+        if (build) selectedActions.add("--build");
 
-        // scan can compose with code or search, so don't count it if composing
-        if (scan && (code || search)) {
-            modeCount--; // scan is composing, not standalone
-        }
-
-        boolean worktreeOnly = worktreePath != null && modeCount == 0 && !scan;
-
-        if (!worktreeOnly && modeCount == 0) {
+        if (selectedActions.isEmpty()) {
             System.err.println(
                     """
-                    Error: No action specified.
+                    Error: Missing required action mode.
 
-                    Choose one of:
-                      --scan             Run ContextAgent scan (standalone or combine with --code/--search)
-                      --code             Apply code changes (requires build details)
-                      --search           Search/answer mode
-                      --list-symbols     Standalone symbol search (use --list-symbols PAT1,PAT2,...)
-                      --skim-directory   Standalone directory listing (use --skim-directory REL_OR_ABS_PATH)
-                      --worktree         Create a detached worktree
+                    Specify exactly one of:
 
-                    Tip: For most tasks, start with:
-                      brokk-cli --project <path> --search --goal "<your question>"
+                    Context Engine:
+                      --list-symbols=<patterns>[,<patterns>...]
+                      --skim-directory=<path>
+
+                    Agentic Research:
+                      --scan
+                      --search
+
+                    Agentic Coding:
+                      --code
+                      --lutz
+                      --merge
+                      --build
+
+                    Use --help to see full option details.
                     """);
             return 1;
         }
 
-        if (modeCount > 1) {
+        if (selectedActions.size() > 1) {
             System.err.println(
                     """
-                    Error: Too many modes/actions specified.
+                    Error: Too many action modes.
 
-                    Exactly one primary mode can be specified:
-                      --code OR --search OR --scan (standalone) OR --list-symbols OR --skim-directory
+                    Specify exactly one action mode, but got:
+                      %s
 
-                    Exception:
-                      --scan can be combined with --code OR --search.
-
-                    Examples:
-                      brokk-cli --project . --scan --goal "@goal.txt"
-                      brokk-cli --project . --scan --code --goal "Fix failing test"
-                      brokk-cli --project . --search --goal "What does Foo do?"
-                    """);
-            return 1;
-        }
-
-        if (code && search) {
-            System.err.println(
+                    Use --help to see full option details.
                     """
-                    Error: Conflicting modes.
-
-                    --code and --search cannot be used together.
-                      --code   is for making edits (may run builds)
-                      --search is for answering questions (no edits)
-
-                    If you want context discovery + edits, use:
-                      --scan --code
-                    """);
+                            .formatted(String.join(" ", selectedActions)));
             return 1;
         }
 
         // --- Goal Validation ---
-        boolean needsGoal = scan || code || search;
+        boolean needsGoal = scan || code || search || lutz; // --merge/--build do not strictly require a goal
         if (needsGoal && (goal == null || goal.isBlank())) {
             System.err.println(
                     """
                     Error: Missing required --goal.
 
                     --goal is required for:
-                      --scan, --code, --search
+                      --scan, --search, --code, --lutz
 
                     Notes:
                       - You can pass a literal string: --goal "Explain how X works"
@@ -304,9 +345,9 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Build Command Validation ---
         int buildCmdCount = 0;
-        if (buildOnlyCmd != null) buildCmdCount++;
-        if (testAllCmd != null) buildCmdCount++;
-        if (testSomeCmd != null) buildCmdCount++;
+        if (projectConfig.buildOnlyCmd != null) buildCmdCount++;
+        if (projectConfig.testAllCmd != null) buildCmdCount++;
+        if (projectConfig.testSomeCmd != null) buildCmdCount++;
 
         if (buildCmdCount > 1) {
             System.err.println(
@@ -325,7 +366,7 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Project Path Validation ---
-        projectPath = projectPath.toAbsolutePath();
+        Path projectPath = requireNonNull(projectConfig.projectPath).toAbsolutePath();
         if (!Files.isDirectory(projectPath)) {
             System.err.println(
                     """
@@ -351,36 +392,14 @@ public final class BrokkCli implements Callable<Integer> {
             return 1;
         }
 
-        // --- Worktree Setup ---
-        if (worktreePath != null) {
-            worktreePath = worktreePath.toAbsolutePath();
-            if (Files.exists(worktreePath)) {
-                logger.debug("Worktree directory already exists: {}. Skipping creation.", worktreePath);
-            } else {
-                try (var gitRepo = new GitRepo(projectPath)) {
-                    var defaultBranch = gitRepo.getDefaultBranch();
-                    var targetCommit = gitRepo.resolveToCommit(defaultBranch).getName();
-                    logger.debug("Creating worktree from {} at commit {}", defaultBranch, targetCommit);
-                    gitRepo.worktrees().addWorktreeDetached(worktreePath, targetCommit);
-                    logger.debug("Successfully created detached worktree at {}", worktreePath);
-                } catch (GitRepo.GitRepoException | GitRepo.NoDefaultBranchException e) {
-                    System.err.println("Error creating worktree: " + e.getMessage());
-                    return 1;
-                }
-            }
-            if (worktreeOnly) {
-                return 0;
-            }
-            projectPath = worktreePath;
-        }
-
         // --- Create Project and ContextManager ---
-        var mainProject = new MainProject(projectPath);
-        project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
+        project = new MainProject(projectPath);
         cm = new ContextManager(project);
 
         // --- Build Details ---
-        boolean hasCliDetails = buildOnlyCmd != null || testAllCmd != null || testSomeCmd != null;
+        boolean hasCliDetails = projectConfig.buildOnlyCmd != null
+                || projectConfig.testAllCmd != null
+                || projectConfig.testSomeCmd != null;
         var existingDetails = project.loadBuildDetails();
         BuildAgent.BuildDetails buildDetailsToUse;
 
@@ -390,11 +409,12 @@ public final class BrokkCli implements Callable<Integer> {
             buildDetailsToUse = existingDetails.orElse(BuildAgent.BuildDetails.EMPTY);
         }
 
-        // Validate build details for --code mode
-        if (code && buildDetailsToUse.equals(BuildAgent.BuildDetails.EMPTY)) {
+        // Validate build details for coding/build modes
+        if ((code || lutz || build) && buildDetailsToUse.equals(BuildAgent.BuildDetails.EMPTY)) {
+            String modeName = code ? "--code" : (lutz ? "--lutz" : "--build");
             System.err.println(
                     """
-                    Error: --code requires build details, but none were provided or configured.
+                    Error: %s requires build details, but none were provided or configured.
 
                     Fix this by doing ONE of the following:
                       1) Provide a build command on the CLI:
@@ -405,12 +425,12 @@ public final class BrokkCli implements Callable<Integer> {
                       2) Configure build details in the project (so CLI can reuse them next time).
 
                     Why this is required:
-                      --code may apply edits and then run verification. Without a build/test command,
-                      Brokk cannot validate changes.
+                      %s requires a command to verify changes or run the build.
 
                     Example:
-                      brokk-cli --project . --code --goal "Fix CI" --test-all-cmd "mvn test"
-                    """);
+                      brokk --project . %s --goal "Refactor" --test-all-cmd "mvn test"
+                    """
+                            .formatted(modeName, modeName, modeName));
             return 1;
         }
 
@@ -421,8 +441,8 @@ public final class BrokkCli implements Callable<Integer> {
         StreamingChatModel codeModel;
         StreamingChatModel planModel;
         try {
-            var codeModelFav = MainProject.getFavoriteModel(codeModelAlias);
-            var planModelFav = MainProject.getFavoriteModel(planModelAlias);
+            var codeModelFav = MainProject.getFavoriteModel(modelConfig.codeModelAlias);
+            var planModelFav = MainProject.getFavoriteModel(modelConfig.planModelAlias);
             codeModel = service.getModel(codeModelFav.config());
             planModel = service.getModel(planModelFav.config());
 
@@ -440,7 +460,7 @@ public final class BrokkCli implements Callable<Integer> {
                           --codemodel "%s"
                           --planmodel "%s"
                         """
-                                .formatted(codeModelAlias, planModelAlias));
+                                .formatted(modelConfig.codeModelAlias, modelConfig.planModelAlias));
                 return 1;
             }
         } catch (IllegalArgumentException e) {
@@ -492,26 +512,46 @@ public final class BrokkCli implements Callable<Integer> {
         // --- Context Injection ---
         var tools = new WorkspaceTools(cm.liveContext());
 
-        if (!files.isEmpty()) {
-            tools.addFilesToWorkspace(files);
+        if (code
+                && !lutz
+                && workspaceContext.files.isEmpty()
+                && workspaceContext.classes.isEmpty()
+                && workspaceContext.methods.isEmpty()
+                && workspaceContext.usages.isEmpty()
+                && workspaceContext.summaries.isEmpty()) {
+            System.err.println(
+                    """
+                    Error: --code requires an existing workspace context.
+
+                    You invoked --code without providing any files, classes, or methods to the workspace.
+                    If you don't know which files need changing, use --lutz instead.
+
+                    Example:
+                      brokk --project . --code --file src/MyFile.java --goal "Refactor this"
+                    """);
+            return 1;
         }
 
-        if (!classes.isEmpty()) {
-            tools.addClassesToWorkspace(classes);
+        if (!workspaceContext.files.isEmpty()) {
+            tools.addFilesToWorkspace(workspaceContext.files);
         }
 
-        if (!methods.isEmpty()) {
-            tools.addMethodsToWorkspace(methods);
+        if (!workspaceContext.classes.isEmpty()) {
+            tools.addClassesToWorkspace(workspaceContext.classes);
         }
 
-        if (!usages.isEmpty()) {
-            for (var symbol : usages) {
+        if (!workspaceContext.methods.isEmpty()) {
+            tools.addMethodsToWorkspace(workspaceContext.methods);
+        }
+
+        if (!workspaceContext.usages.isEmpty()) {
+            for (var symbol : workspaceContext.usages) {
                 tools.addSymbolUsagesToWorkspace(symbol);
             }
         }
 
-        if (!summaries.isEmpty()) {
-            var result = resolveSummaries(summaries, tools);
+        if (!workspaceContext.summaries.isEmpty()) {
+            var result = resolveSummaries(workspaceContext.summaries, tools);
             if (result != 0) {
                 return result;
             }
@@ -519,34 +559,73 @@ public final class BrokkCli implements Callable<Integer> {
 
         cm.pushContext(ctx -> tools.getContext());
 
-        // --- Run Scan (if specified) ---
+        // --- Run Primary Mode ---
         if (scan) {
             var scanResult = runContextAgentScan(planModel, requireNonNull(goal));
-            if (!scanResult.success()) {
-                System.err.println("Scan did not complete successfully.");
-                if (!code && !search) {
-                    return 1;
-                }
-            }
-        }
-
-        // --- Run Primary Mode ---
-        if (code) {
-            return runCodeMode(planModel, codeModel, requireNonNull(goal));
+            return scanResult.success() ? 0 : 1;
+        } else if (lutz) {
+            return runCodeMode(planModel, codeModel, requireNonNull(goal), true);
+        } else if (code) {
+            return runCodeMode(planModel, codeModel, requireNonNull(goal), false);
         } else if (search) {
             return runSearchMode(planModel, requireNonNull(goal));
-        } else if (scan) {
-            // Standalone scan - already ran above, just print results
-            return 0;
+        } else if (merge) {
+            return runMergeMode(planModel, codeModel);
+        } else if (build) {
+            return runBuildMode();
         }
 
         return 0;
     }
 
+    private int runMergeMode(StreamingChatModel planModel, StreamingChatModel codeModel) {
+        var io = cm.getIo();
+        var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
+        if (conflictOpt.isEmpty()) {
+            System.err.println("Error: Repository is not in a merge/rebase/cherry-pick/revert conflict state.");
+            return 1;
+        }
+
+        var conflict = conflictOpt.get();
+        logger.debug("Conflict detected: {}", conflict);
+        io.showNotification(ai.brokk.IConsoleIO.NotificationRole.INFO, "Running MergeAgent...");
+
+        TaskResult result;
+        try (var scope = cm.beginTaskUngrouped("Merge")) {
+            MergeAgent mergeAgent =
+                    new MergeAgent(cm, planModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+            result = mergeAgent.execute();
+            scope.append(result);
+        } catch (Exception e) {
+            System.err.println("Error during merge execution: " + e.getMessage());
+            logger.error("Merge mode error", e);
+            return 1;
+        }
+
+        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            System.err.println("Merge failed: " + result.stopDetails().reason());
+            System.err.println(result.stopDetails().explanation());
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private int runBuildMode() throws InterruptedException {
+        var io = cm.getIo();
+        String buildError = BuildAgent.runVerification(cm);
+        io.showNotification(
+                ai.brokk.IConsoleIO.NotificationRole.INFO,
+                buildError.isEmpty()
+                        ? "Build verification completed successfully."
+                        : "Build verification failed:\n" + buildError);
+        return buildError.isEmpty() ? 0 : 1;
+    }
+
     private BuildAgent.BuildDetails createBuildDetails() {
-        String buildCmd = buildOnlyCmd != null ? buildOnlyCmd : "";
-        String testAll = testAllCmd != null ? testAllCmd : "";
-        String testSome = testSomeCmd != null ? testSomeCmd : "";
+        String buildCmd = projectConfig.buildOnlyCmd != null ? projectConfig.buildOnlyCmd : "";
+        String testAll = projectConfig.testAllCmd != null ? projectConfig.testAllCmd : "";
+        String testSome = projectConfig.testSomeCmd != null ? projectConfig.testSomeCmd : "";
 
         return new BuildAgent.BuildDetails(buildCmd, testAll, testSome, Set.of(), Map.of("VIRTUAL_ENV", ".venv"));
     }
@@ -572,7 +651,8 @@ public final class BrokkCli implements Callable<Integer> {
         return recommendations;
     }
 
-    private int runCodeMode(StreamingChatModel planModel, StreamingChatModel codeModel, String goalText) {
+    private int runCodeMode(
+            StreamingChatModel planModel, StreamingChatModel codeModel, String goalText, boolean forceScan) {
         var io = cm.getIo();
 
         // Check if editable context exists
@@ -581,10 +661,12 @@ public final class BrokkCli implements Callable<Integer> {
 
         TaskResult result;
         try (var scope = cm.beginTaskUngrouped(goalText)) {
-            if (hasEditableContext) {
+            if (hasEditableContext || forceScan) {
                 io.showNotification(
                         ai.brokk.IConsoleIO.NotificationRole.INFO,
-                        "Running ArchitectAgent with existing editable context...");
+                        forceScan
+                                ? "Running ArchitectAgent (lutz mode)..."
+                                : "Running ArchitectAgent with existing editable context...");
                 var agent = new ArchitectAgent(cm, planModel, codeModel, goalText, scope);
                 result = agent.executeWithScan();
             } else {
