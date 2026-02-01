@@ -47,10 +47,10 @@ public final class BrokkCli implements Callable<Integer> {
     private static final String DEFAULT_PLAN_MODEL = "Opus 4.5";
 
     @CommandLine.Parameters(hidden = true)
-    private List<String> unmatched = new ArrayList<>();
+    private final List<String> unmatched = new ArrayList<>();
 
     @CommandLine.ArgGroup(exclusive = false, heading = "%nProject Configuration:%n")
-    private ProjectConfig projectConfig = new ProjectConfig();
+    private final ProjectConfig projectConfig = new ProjectConfig();
 
     static final class ProjectConfig {
         @CommandLine.Option(
@@ -246,32 +246,26 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Mode Mapping & Validation ---
-        boolean scan = false;
-        boolean code = false;
-        boolean search = false;
-        boolean lutz = false;
-        boolean merge = false;
-        boolean build = false;
+        boolean scan;
+        boolean code;
+        boolean search;
+        boolean lutz;
+        boolean merge;
+        boolean build;
 
-        List<String> listSymbolsPatterns = List.of();
-        @Nullable String skimDirectoryPath = null;
+        List<String> listSymbolsPatterns;
+        @Nullable String skimDirectoryPath;
 
-        if (actionMode.agenticResearch != null) {
-            scan = actionMode.agenticResearch.scan;
-            search = actionMode.agenticResearch.search;
-        }
-        if (actionMode.agenticCoding != null) {
-            code = actionMode.agenticCoding.code;
-            lutz = actionMode.agenticCoding.lutz;
-            merge = actionMode.agenticCoding.merge;
-            build = actionMode.agenticCoding.build;
-        }
-        if (actionMode.contextEngine != null) {
-            listSymbolsPatterns = actionMode.contextEngine.listSymbolsPatterns.stream()
-                    .filter(s -> !s.isBlank())
-                    .toList();
-            skimDirectoryPath = actionMode.contextEngine.skimDirectoryPath;
-        }
+        scan = actionMode.agenticResearch.scan;
+        search = actionMode.agenticResearch.search;
+        code = actionMode.agenticCoding.code;
+        lutz = actionMode.agenticCoding.lutz;
+        merge = actionMode.agenticCoding.merge;
+        build = actionMode.agenticCoding.build;
+        listSymbolsPatterns = actionMode.contextEngine.listSymbolsPatterns.stream()
+                .filter(s -> !s.isBlank())
+                .toList();
+        skimDirectoryPath = actionMode.contextEngine.skimDirectoryPath;
 
         boolean hasListSymbols = !listSymbolsPatterns.isEmpty();
         boolean hasSkimDirectory = skimDirectoryPath != null && !skimDirectoryPath.isBlank();
@@ -313,16 +307,16 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         if (selectedActions.size() > 1) {
-            System.err.println(
+            System.err.printf(
                     """
-                    Error: Too many action modes.
+                                      Error: Too many action modes.
 
-                    Specify exactly one action mode, but got:
-                      %s
+                                      Specify exactly one action mode, but got:
+                                        %s
 
-                    Use --help to see full option details.
-                    """
-                            .formatted(String.join(" ", selectedActions)));
+                                      Use --help to see full option details.
+                                      %n""",
+                    String.join(" ", selectedActions));
             return 1;
         }
 
@@ -366,29 +360,29 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Project Path Validation ---
-        Path projectPath = requireNonNull(projectConfig.projectPath).toAbsolutePath();
+        Path projectPath = projectConfig.projectPath.toAbsolutePath();
         if (!Files.isDirectory(projectPath)) {
-            System.err.println(
+            System.err.printf(
                     """
-                    Error: Invalid --project path.
+                                      Error: Invalid --project path.
 
-                    The provided path is not a directory:
-                      %s
-                    """
-                            .formatted(projectPath));
+                                      The provided path is not a directory:
+                                        %s
+                                      %n""",
+                    projectPath);
             return 1;
         }
         if (!GitRepoFactory.hasGitRepo(projectPath)) {
-            System.err.println(
+            System.err.printf(
                     """
-                    Error: Not a Git repository.
+                                      Error: Not a Git repository.
 
-                    Brokk CLI requires --project to point at a Git worktree (a directory containing a .git folder or file).
+                                      Brokk CLI requires --project to point at a Git worktree (a directory containing a .git folder or file).
 
-                    Provided:
-                      %s
-                    """
-                            .formatted(projectPath));
+                                      Provided:
+                                        %s
+                                      %n""",
+                    projectPath);
             return 1;
         }
 
@@ -412,25 +406,25 @@ public final class BrokkCli implements Callable<Integer> {
         // Validate build details for coding/build modes
         if ((code || lutz || build) && buildDetailsToUse.equals(BuildAgent.BuildDetails.EMPTY)) {
             String modeName = code ? "--code" : (lutz ? "--lutz" : "--build");
-            System.err.println(
+            System.err.printf(
                     """
-                    Error: %s requires build details, but none were provided or configured.
+                                      Error: %s requires build details, but none were provided or configured.
 
-                    Fix this by doing ONE of the following:
-                      1) Provide a build command on the CLI:
-                           --build-only-cmd "..."
-                         OR --test-all-cmd "..."
-                         OR --test-some-cmd "..."
+                                      Fix this by doing ONE of the following:
+                                        1) Provide a build command on the CLI:
+                                             --build-only-cmd "..."
+                                           OR --test-all-cmd "..."
+                                           OR --test-some-cmd "..."
 
-                      2) Configure build details in the project (so CLI can reuse them next time).
+                                        2) Configure build details in the project (so CLI can reuse them next time).
 
-                    Why this is required:
-                      %s requires a command to verify changes or run the build.
+                                      Why this is required:
+                                        %s requires a command to verify changes or run the build.
 
-                    Example:
-                      brokk --project . %s --goal "Refactor" --test-all-cmd "mvn test"
-                    """
-                            .formatted(modeName, modeName, modeName));
+                                      Example:
+                                        brokk --project . %s --goal "Refactor" --test-all-cmd "mvn test"
+                                      %n""",
+                    modeName, modeName, modeName);
             return 1;
         }
 
@@ -447,48 +441,46 @@ public final class BrokkCli implements Callable<Integer> {
             planModel = service.getModel(planModelFav.config());
 
             if (codeModel == null || planModel == null) {
-                System.err.println(
+                System.err.printf(
                         """
-                        Error: Failed to initialize models.
+                                          Error: Failed to initialize models.
 
-                        Likely causes:
-                          - Missing/invalid API key (use --brokk-key or BROKK_API_KEY env var)
-                          - Unknown/disabled model configuration in your Brokk service
-                          - Network/proxy issue
+                                          Likely causes:
+                                            - Missing/invalid API key (use --brokk-key or BROKK_API_KEY env var)
+                                            - Unknown/disabled model configuration in your Brokk service
+                                            - Network/proxy issue
 
-                        Requested:
-                          --codemodel "%s"
-                          --planmodel "%s"
-                        """
-                                .formatted(modelConfig.codeModelAlias, modelConfig.planModelAlias));
+                                          Requested:
+                                            --codemodel "%s"
+                                            --planmodel "%s"
+                                          %n""",
+                        modelConfig.codeModelAlias, modelConfig.planModelAlias);
                 return 1;
             }
         } catch (IllegalArgumentException e) {
-            System.err.println(
+            System.err.printf(
                     """
-                    Error: Unknown model alias.
+                            Error: Unknown model alias.
 
-                    %s
+                            %s
 
-                    Available model aliases:
-                    %s
-                    """
-                            .formatted(
-                                    e.getMessage(),
-                                    MainProject.loadFavoriteModels().stream()
-                                            .map(m -> "  - " + m.alias() + " -> "
-                                                    + m.config().name())
-                                            .collect(Collectors.joining("\n"))));
+                            Available model aliases:
+                            %s
+                            %n""",
+                    e.getMessage(),
+                    MainProject.loadFavoriteModels().stream()
+                            .map(m -> "  - " + m.alias() + " -> " + m.config().name())
+                            .collect(Collectors.joining("\n")));
             return 1;
         } catch (Exception e) {
-            System.err.println(
+            System.err.printf(
                     """
-                    Error: Failed to initialize models.
+                                      Error: Failed to initialize models.
 
-                    Cause:
-                      %s
-                    """
-                            .formatted(e.getMessage()));
+                                      Cause:
+                                        %s
+                                      %n""",
+                    e.getMessage());
             return 1;
         }
 
