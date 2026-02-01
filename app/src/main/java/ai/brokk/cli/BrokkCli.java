@@ -76,7 +76,8 @@ public final class BrokkCli implements Callable<Integer> {
 
     @CommandLine.Option(
             names = "--add-class",
-            description = "Add the file containing the given FQCN to the workspace for editing. Can be repeated.")
+            description =
+                    "Add the class corresnponding to the given FQCN to the workspace for editing. Can be repeated.")
     private List<String> addClasses = new ArrayList<>();
 
     @CommandLine.Option(
@@ -86,12 +87,13 @@ public final class BrokkCli implements Callable<Integer> {
 
     @CommandLine.Option(
             names = "--add-usage",
-            description = "Add usages of a FQ symbol as a dynamic fragment. Can be repeated.")
+            description =
+                    "Add the full source of all methods calling then given FQ symbol to the workspace for editing. Can be repeated.")
     private List<String> addUsages = new ArrayList<>();
 
     @CommandLine.Option(
             names = "--add-summary-class",
-            description = "Add a class summary/skeleton as a dynamic fragment. Can be repeated.")
+            description = "Add a summary of the given class to the workspace. Can be repeated.")
     private List<String> addSummaryClasses = new ArrayList<>();
 
     @CommandLine.Option(
@@ -101,18 +103,8 @@ public final class BrokkCli implements Callable<Integer> {
 
     @CommandLine.Option(
             names = "--add-method-source",
-            description = "Add the source of a FQ method as a fragment. Can be repeated.")
+            description = "Add the source of a FQ method to the workspace for editing. Can be repeated.")
     private List<String> addMethodSources = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-callers",
-            description = "Add callers of a FQ method. Format: <FQN>=<depth>. Can be repeated.")
-    private Map<String, Integer> addCallers = Map.of();
-
-    @CommandLine.Option(
-            names = "--add-callees",
-            description = "Add callees of a FQ method. Format: <FQN>=<depth>. Can be repeated.")
-    private Map<String, Integer> addCallees = Map.of();
 
     @CommandLine.Option(names = "--architect", description = "Run Architect agent with the given prompt.")
     @Nullable
@@ -488,12 +480,6 @@ public final class BrokkCli implements Callable<Integer> {
         }
         for (var symbol : addUsages) {
             tools.addSymbolUsagesToWorkspace(symbol);
-        }
-        for (var entry : addCallers.entrySet()) {
-            tools.addSymbolUsagesToWorkspace(entry.getKey());
-        }
-        for (var entry : addCallees.entrySet()) {
-            tools.addSymbolUsagesToWorkspace(entry.getKey());
         }
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();
