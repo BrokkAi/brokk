@@ -48,9 +48,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.*;
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
 import java.util.*;
@@ -2094,46 +2092,6 @@ public class Chrome
         }
     }
 
-    /**
-     * Safely reads string data from the system clipboard, handling potential exceptions
-     * when the clipboard is temporarily unavailable or doesn't contain string data.
-     * <p>
-     * <b>Background:</b> On Windows, clipboard access methods like
-     * {@link Clipboard#isDataFlavorAvailable(DataFlavor)} and {@link Clipboard#getData(DataFlavor)}
-     * can throw {@link IllegalStateException} when the clipboard is locked by another process.
-     * This is particularly problematic during rapid focus change events on the EDT.
-     * <p>
-     * <b>Solution:</b> This wrapper catches all clipboard-related exceptions and returns {@code null}
-     * to indicate unavailability, allowing the UI to gracefully handle temporary clipboard locks
-     * without propagating exceptions to users.
-     * <p>
-     * <b>Related JDK Issue:</b> <a href="https://bugs.openjdk.org/browse/JDK-8353950">JDK-8353950</a>
-     * - Windows clipboard interaction instability
-     *
-     * @return The string data from clipboard, or null if unavailable or not a string
-     */
-    @Nullable
-    private static String readStringFromClipboardSafe() {
-        var clipboard = getSystemClipboardSafe();
-        if (clipboard == null) {
-            return null;
-        }
-
-        try {
-            if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
-                return null;
-            }
-            var data = clipboard.getData(DataFlavor.stringFlavor);
-            return (String) data;
-        } catch (UnsupportedFlavorException | IOException | IllegalStateException e) {
-            logger.warn("Failed to read string from clipboard: {}", e.getMessage());
-            return null;
-        } catch (Exception e) {
-            logger.warn("Unexpected error reading clipboard string data", e);
-            return null;
-        }
-    }
-
     // for paste from menubar -- ctrl-v paste is handled in individual components
     private class GlobalPasteAction extends AbstractAction {
         public GlobalPasteAction(String name) {
@@ -2158,9 +2116,13 @@ public class Chrome
             if (lastRelevantFocusOwner == null) {
                 // leave it false
             } else if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
-                // Use safe wrapper instead of direct isDataFlavorAvailable() to avoid Windows clipboard
-                // lock exceptions during rapid focus changes on EDT. See JDK-8353950.
-                canPasteNow = readStringFromClipboardSafe() != null;
+                // Use the safe retry logic from ICM, but without the retries since we're on the EDT here
+                var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+                try {
+                    canPasteNow = clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor);
+                } catch (IllegalStateException ex) {
+                    logger.debug("Clipboard temporarily unavailable");
+                }
             }
             setEnabled(canPasteNow);
         }

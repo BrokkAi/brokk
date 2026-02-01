@@ -41,7 +41,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.*;
-import java.awt.datatransfer.DataFlavor;
 import java.awt.event.*;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -826,12 +825,9 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         selectedFilesTable.getActionMap().put("paste-files", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                try {
-                    var content = (String)
-                            Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+                var content = chrome.getContextManager().getStringFromClipboard();
+                if (content != null) {
                     addRelPathsFromText(content);
-                } catch (Exception ex) {
-                    logger.debug("Failed to paste files from clipboard", ex);
                 }
             }
         });
@@ -1237,12 +1233,9 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         JPopupMenu popup = new JPopupMenu();
         JMenuItem pasteItem = new JMenuItem("Paste");
         pasteItem.addActionListener(ev -> {
-            try {
-                var content = (String)
-                        Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+            var content = chrome.getContextManager().getStringFromClipboard();
+            if (content != null) {
                 addRelPathsFromText(content);
-            } catch (Exception ex) {
-                logger.debug("Failed to paste files from clipboard via context menu", ex);
             }
         });
         popup.add(pasteItem);

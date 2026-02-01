@@ -698,30 +698,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             @Override
             public void actionPerformed(ActionEvent e) {
                 var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-                var contents = clipboard.getContents(null);
-                boolean imageHandled = false;
+                int maxAttempts = 3;
+                int delayMs = 50;
+                boolean imageFound = false;
 
-                if (contents == null) {
-                    return;
-                }
-
-                for (var flavor : contents.getTransferDataFlavors()) {
+                for (int i = 0; i < maxAttempts; i++) {
                     try {
-                        if (flavor.equals(DataFlavor.imageFlavor)
-                                || flavor.getMimeType().startsWith("image/")) {
-                            // Re-use existing ContextActions logic
-                            chrome.getContextActionsHandler()
-                                    .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
-                            imageHandled = true;
+                        var contents = clipboard.getContents(null);
+                        if (contents != null) {
+                            for (var flavor : contents.getTransferDataFlavors()) {
+                                if (flavor.equals(DataFlavor.imageFlavor)
+                                        || flavor.getMimeType().startsWith("image/")) {
+                                    imageFound = true;
+                                    break;
+                                }
+                            }
+                        }
+                        break;
+                    } catch (IllegalStateException ex) {
+                        if (i == maxAttempts - 1) {
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
                             break;
                         }
-                    } catch (Exception ex) {
-                        // Log at trace to avoid noise; proceed with default paste handling
-                        logger.trace("Clipboard flavor probe failed during smartPaste; falling back to default", ex);
+                        try {
+                            Thread.sleep(delayMs);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
                     }
                 }
 
-                if (!imageHandled) {
+                if (imageFound) {
+                    chrome.getContextActionsHandler()
+                            .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
+                } else {
                     area.paste(); // Default text paste
                 }
             }
