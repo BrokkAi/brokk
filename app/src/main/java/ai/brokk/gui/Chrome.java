@@ -455,7 +455,7 @@ public class Chrome
 
     @Override
     public void disableActionButtons() {
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             disableHistoryPanel();
             rightPanel.getInstructionsPanel().disableButtons();
             rightPanel.getTaskListPanel().disablePlay();
@@ -465,7 +465,7 @@ public class Chrome
 
     @Override
     public void enableActionButtons() {
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             rightPanel.getInstructionsPanel().enableButtons();
             rightPanel.getTaskListPanel().enablePlay();
             blitzForgeMenuItem.setEnabled(true);
