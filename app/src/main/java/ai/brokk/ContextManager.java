@@ -31,7 +31,6 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -1701,21 +1700,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public CompletableFuture<String> summarize(String input, int words) {
-        var future = new CompletableFuture<String>();
+        return LoggingFuture.supplyCallableVirtual(() -> {
+            var msgs = SummarizerPrompts.instance.collectMessages(input, words);
+            // Use quickModel for summarization
+            Llm.StreamingResult result = getLlm(
+                            getService().quickestModel(), "Summarize: " + input, TaskResult.Type.SUMMARIZE)
+                    .sendRequest(msgs);
 
-        var worker = new SummarizeWorker(this, input, words) {
-            @Override
-            protected void done() {
-                try {
-                    future.complete(get()); // complete successfully
-                } catch (Exception ex) {
-                    future.completeExceptionally(ex);
-                }
+            if (result.error() != null) {
+                throw result.error();
             }
-        };
-
-        worker.execute();
-        return future;
+            var summary = result.text().trim();
+            if (summary.endsWith(".")) {
+                return summary.substring(0, summary.length() - 1);
+            }
+            return summary;
+        });
     }
 
     /**
@@ -2847,37 +2847,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
-        }
-    }
-
-    public static class SummarizeWorker extends ExceptionAwareSwingWorker<String, String> {
-        private final IContextManager cm;
-        private final String content;
-        private final int words;
-
-        public SummarizeWorker(IContextManager cm, String content, int words) {
-            super(cm.getIo());
-            this.cm = cm;
-            this.content = content;
-            this.words = words;
-        }
-
-        @Override
-        protected String doInBackground() throws Exception {
-            var msgs = SummarizerPrompts.instance.collectMessages(content, words);
-            // Use quickModel for summarization
-            Llm.StreamingResult result = cm.getLlm(
-                            cm.getService().quickestModel(), "Summarize: " + content, TaskResult.Type.SUMMARIZE)
-                    .sendRequest(msgs);
-            if (result.error() != null) {
-                logger.warn("Summarization failed or was cancelled.");
-                return "Summarization failed.";
-            }
-            var summary = result.text().trim();
-            if (summary.endsWith(".")) {
-                return summary.substring(0, summary.length() - 1);
-            }
-            return summary;
         }
     }
 
