@@ -518,7 +518,7 @@ public class ArchitectAgent {
             return codeAgentSuccessResult();
         }
 
-        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal).withEcho());
+        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal, TaskResult.Type.ARCHITECT).withEcho());
         var modelsService = cm.getService();
 
         while (true) {
@@ -576,7 +576,6 @@ public class ArchitectAgent {
                 allowed.add("addMethodsToWorkspace");
                 allowed.add("addSymbolUsagesToWorkspace");
                 allowed.add("addUrlContentsToWorkspace");
-                allowed.add("appendNote");
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("explainCommit");
 
@@ -641,8 +640,11 @@ public class ArchitectAgent {
                         currentModelTokens);
 
                 // Emergency LLM restricted to critical workspace tools
-                var emergencyLlm = cm.getLlm(
-                        new Llm.Options(fallbackModel, "Architect emergency (context too large): " + goal).withEcho());
+                var emergencyLlm = cm.getLlm(new Llm.Options(
+                                fallbackModel,
+                                "Architect emergency (context too large): " + goal,
+                                TaskResult.Type.ARCHITECT)
+                        .withEcho());
                 notifyCriticalWorkspaceRestriction(workspaceTokenSize, fallbackModelTokens);
                 var emergencyAllowed = criticalAllowedTools();
                 emergencyAllowed = WorkspaceTools.filterByAnalyzerAvailability(emergencyAllowed, cm.getProject());
@@ -911,7 +913,6 @@ public class ArchitectAgent {
         allowed.add("abortProject");
         allowed.add("dropWorkspaceFragments");
         allowed.add("addFileSummariesToWorkspace");
-        allowed.add("appendNote");
         return allowed;
     }
 
@@ -952,7 +953,6 @@ public class ArchitectAgent {
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "appendNote" -> 2;
             case "addFilesToWorkspace" -> 3;
             case "addFileSummariesToWorkspace" -> 4;
             case "addUrlContentsToWorkspace" -> 5;

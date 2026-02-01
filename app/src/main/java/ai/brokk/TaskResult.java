@@ -118,15 +118,14 @@ public record TaskResult(
         CODE,
         ASK,
         SEARCH,
-        CONTEXT,
+        SCAN, // ContextAgent
         MERGE,
         BLITZFORGE,
-        REVIEW;
+        REVIEW,
+        SUMMARIZE, // also "describe"
+        CLASSIFY;
 
         public String displayName() {
-            if (this == SEARCH) {
-                return "Lutz Mode";
-            }
             var lower = name().toLowerCase(Locale.ROOT);
             return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
         }

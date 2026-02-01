@@ -1,17 +1,21 @@
-(package_clause (package_identifier) @package.definition)
+(package_clause (package_identifier) @package.name)
 
 (import_declaration) @import.declaration
 
 (function_declaration
-  name: (identifier) @function.name) @function.definition;
+  name: (identifier) @function.name) @function.definition
 
-; Matches type declarations for structs and interfaces
+; Named types
 (type_declaration
   (type_spec
-    name: (type_identifier) @type.name ; Capture the type_identifier as the name
-    type: (_) @type.kind ; Capture the specific type (struct_type, interface_type)
-  )
-) @type.definition
+    name: (type_identifier) @type.name
+    type: (_) @type.kind) @type.definition)
+
+; True type aliases
+(type_declaration
+  (type_alias
+    name: (type_identifier) @type.name
+    type: (_) @type.kind) @type.definition)
 
 (var_declaration
   (var_spec

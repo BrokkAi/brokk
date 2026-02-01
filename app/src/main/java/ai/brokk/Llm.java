@@ -93,6 +93,7 @@ public class Llm {
         return new Llm(
                 options.model,
                 options.task,
+                options.type,
                 cm,
                 options.allowPartialResponses,
                 options.forceReasoningEcho,
@@ -106,6 +107,7 @@ public class Llm {
     public static class Options {
         private final StreamingChatModel model;
         private final String task;
+        private TaskResult.Type type;
         private boolean allowPartialResponses;
         private boolean echo;
         // FIXME this is a hack to keep ContextAgent's file scan from living permanently (until compression)
@@ -115,9 +117,10 @@ public class Llm {
         // MOP).
         private boolean forceReasoningEcho;
 
-        public Options(StreamingChatModel model, String task) {
+        public Options(StreamingChatModel model, String task, TaskResult.Type type) {
             this.model = model;
             this.task = task;
+            this.type = type;
         }
 
         public Options withPartialResponses() {
@@ -138,8 +141,10 @@ public class Llm {
 
     private IConsoleIO io;
     private final Path historyBaseDir;
+    private final Path historyTaskBaseDir;
     private final String baseTaskDirName;
     private @Nullable Path taskHistoryDir; // Directory for this specific LLM task's history files (created lazily)
+    private final TaskResult.Type taskType;
     final IContextManager contextManager;
     private static final int DEFAULT_MAX_ATTEMPTS = 8;
     private final int MAX_ATTEMPTS;
@@ -157,12 +162,14 @@ public class Llm {
     public Llm(
             StreamingChatModel model,
             String taskDescription,
+            TaskResult.Type taskType,
             IContextManager contextManager,
             boolean allowPartialResponses,
             boolean forceReasoningEcho,
             boolean tagRetain,
             boolean echo) {
         this.model = model;
+        this.taskType = taskType;
         this.contextManager = contextManager;
         this.io = contextManager.getIo();
         this.allowPartialResponses = allowPartialResponses;
@@ -173,11 +180,19 @@ public class Llm {
         logger.trace("MAX_ATTEMPTS configured to {}", this.MAX_ATTEMPTS);
         this.historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
+        if (taskType == TaskResult.Type.SUMMARIZE) {
+            this.historyTaskBaseDir = historyBaseDir.resolve("summaries");
+        } else if (taskType == TaskResult.Type.NONE) {
+            this.historyTaskBaseDir = historyBaseDir.resolve("other");
+        } else {
+            this.historyTaskBaseDir = historyBaseDir;
+        }
+
         // Store task directory name components for lazy creation
         var timestamp =
                 LocalDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
         var taskDesc = LogDescription.getShortDescription(taskDescription);
-        this.baseTaskDirName = String.format("%s %s", timestamp, taskDesc);
+        this.baseTaskDirName = String.format("%s %s %s", timestamp, taskType.displayName(), taskDesc);
     }
 
     /**
@@ -230,10 +245,10 @@ public class Llm {
         if (taskHistoryDir == null) {
             synchronized (Llm.class) {
                 int suffix = 1;
-                var mutableDirName = historyBaseDir.resolve(baseTaskDirName);
+                var mutableDirName = historyTaskBaseDir.resolve(baseTaskDirName);
                 while (Files.exists(mutableDirName)) {
                     var newDirName = baseTaskDirName + "-" + suffix;
-                    mutableDirName = historyBaseDir.resolve(newDirName);
+                    mutableDirName = historyTaskBaseDir.resolve(newDirName);
                     suffix++;
                 }
                 taskHistoryDir = mutableDirName;
@@ -333,6 +348,9 @@ public class Llm {
         var cancelled = new AtomicBoolean(false);
         var lock = new ReentrantLock(); // Used by ifNotCancelled
 
+        var hasStartedNonReasoningOutput = new AtomicBoolean(false);
+        var loggedReasoningAfterContent = new AtomicBoolean(false);
+
         // Variables to store results from callbacks
         var accumulatedTextBuilder = new StringBuilder();
         var accumulatedReasoningBuilder = new StringBuilder();
@@ -366,6 +384,9 @@ public class Llm {
             @Override
             public void onPartialResponse(String token) {
                 ifNotCancelled.accept(() -> {
+                    if (!token.isEmpty()) {
+                        hasStartedNonReasoningOutput.set(true);
+                    }
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         if (addJsonFence && !fenceOpen.get()) {
@@ -384,6 +405,17 @@ public class Llm {
             @Override
             public void onReasoningResponse(String reasoningContent) {
                 ifNotCancelled.accept(() -> {
+                    if (hasStartedNonReasoningOutput.get()) {
+                        if (loggedReasoningAfterContent.compareAndSet(false, true)) {
+                            var svc = contextManager.getService();
+                            var modelConfig = Service.ModelConfig.from(model, svc);
+                            logger.warn(
+                                    "Stream switched from non-reasoning to reasoning; ignoring reasoning tokens. modelConfig={}",
+                                    modelConfig);
+                        }
+                        return;
+                    }
+
                     // Gate formatting to GPT-5 (and other variants like mini) only, and only after the first reasoning
                     // chunk
                     boolean isGpt5 = contextManager.getService().nameOf(model).startsWith(ModelProperties.GPT_5);
@@ -1774,7 +1806,14 @@ public class Llm {
 
     public Llm copy(String newTaskDescription) {
         return new Llm(
-                model, newTaskDescription, contextManager, allowPartialResponses, forceReasoningEcho, tagRetain, echo);
+                model,
+                newTaskDescription,
+                taskType,
+                contextManager,
+                allowPartialResponses,
+                forceReasoningEcho,
+                tagRetain,
+                echo);
     }
 
     public void setModel(StreamingChatModel model) {

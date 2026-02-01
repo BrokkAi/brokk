@@ -69,6 +69,9 @@ public class HeadlessExecCli {
     private String buildSettings = "";
     private String issueDelivery = "";
 
+    // New flag: when true and mode == ISSUE, instruct server to skip verification (tests/lint/review loops)
+    private boolean skipVerification = false;
+
     private @Nullable HeadlessExecutorMain executor;
 
     private @Nullable Path tempWorkspaceRoot;
@@ -358,6 +361,10 @@ public class HeadlessExecCli {
                     jobSpec.put("buildSettings", buildSettings);
                 }
             }
+            // Persist the skipVerification choice explicitly so the server can map it to JobSpec.skipVerification
+            if (skipVerification) {
+                jobSpec.put("skipVerification", true);
+            }
         } else if ("REVIEW".equals(mode)) {
             tags.put("github_token", githubToken);
             tags.put("repo_owner", repoOwner);
@@ -632,6 +639,8 @@ public class HeadlessExecCli {
                 "  --max-issue-fix-attempts NUMBER  Max final verification attempts (tests/lint loop) (default: 20)");
         System.out.println("  --build-settings JSON    Build settings as JSON object");
         System.out.println("  --issue-delivery MODE    Delivery mode ('none' to skip PR creation)");
+        System.out.println(
+                "  --skip-verification      Skip verification and final test/lint/review loops for ISSUE mode (quick mode)");
         System.out.println();
         System.out.println(
                 "Note: In SEARCH mode, --code-model is ignored (SearchAgent is read-only and does not generate code).");
@@ -656,7 +665,10 @@ public class HeadlessExecCli {
                 } else {
                     // Form: --key value
                     var key = arg.substring(2);
-                    if ("auto-commit".equals(key) || "auto-compress".equals(key) || "pre-scan".equals(key)) {
+                    if ("auto-commit".equals(key)
+                            || "auto-compress".equals(key)
+                            || "pre-scan".equals(key)
+                            || "skip-verification".equals(key)) {
                         // Boolean flags
                         parseOption(key, "true");
                     } else {
@@ -884,6 +896,7 @@ public class HeadlessExecCli {
             }
             case "build-settings" -> buildSettings = value;
             case "issue-delivery" -> issueDelivery = value;
+            case "skip-verification" -> skipVerification = true;
             default -> {
                 System.err.println("ERROR: Unknown option: --" + key);
                 return false;

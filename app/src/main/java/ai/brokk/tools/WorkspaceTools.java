@@ -9,6 +9,8 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
+import ai.brokk.tasks.TaskList;
+import ai.brokk.util.HtmlToMarkdown;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -26,6 +28,7 @@ import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 /**
  * Provides tools for manipulating the context (adding/removing files and fragments) and adding analysis results
@@ -79,59 +82,51 @@ public class WorkspaceTools {
                             "List of file paths relative to the project root (e.g., 'src/main/java/com/example/MyClass.java'). Must not be empty.")
                     List<String> relativePaths) {
         if (relativePaths.isEmpty()) {
-            return "File paths list cannot be empty.";
+            return "Cannot add files: file paths list is empty.";
         }
 
-        List<ProjectFile> projectFiles = new ArrayList<>();
-        List<String> errors = new ArrayList<>();
-        for (String path : relativePaths) {
-            if (path.isBlank()) {
-                errors.add("Null or blank path provided.");
+        var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
+        var workspaceFiles = currentWorkspaceFiles();
+        List<ProjectFile> toAddFiles = new ArrayList<>();
+
+        for (String rawPath : relativePaths.stream().distinct().toList()) {
+            String path = rawPath.strip();
+            if (path.isEmpty()) {
+                reporter.add(Bucket.ERROR, "File path is blank.");
                 continue;
             }
             try {
                 var file = context.getContextManager().toFile(path);
                 if (!file.exists()) {
-                    errors.add("File at `%s` does not exist (remember, don't use this method to create new files)"
-                            .formatted(path));
+                    reporter.add(
+                            Bucket.ERROR,
+                            "File at `%s` does not exist (do not use this method to create new files)."
+                                    .formatted(path));
                     continue;
                 }
-                projectFiles.add(file);
+                if (file.isDirectory()) {
+                    reporter.add(
+                            Bucket.ERROR,
+                            "File path `%s` is a directory; only normal files may be added.".formatted(path));
+                    continue;
+                }
+
+                if (workspaceFiles.contains(file)) {
+                    reporter.add(Bucket.ALREADY_PRESENT, file.toString());
+                } else {
+                    toAddFiles.add(file);
+                    reporter.add(Bucket.ADDED, file.toString());
+                }
             } catch (IllegalArgumentException e) {
-                errors.add("Invalid path: " + path);
+                reporter.add(Bucket.ERROR, "Invalid path: `%s`.".formatted(path));
             }
         }
-
-        // Determine already-present files and files-to-add based on current workspace state
-        var workspaceFiles = currentWorkspaceFiles();
-        var distinctRequested = new HashSet<>(projectFiles);
-        var toAddFiles = distinctRequested.stream()
-                .filter(f -> !workspaceFiles.contains(f))
-                .toList();
-        var alreadyPresent = distinctRequested.stream()
-                .filter(workspaceFiles::contains)
-                .map(ProjectFile::toString)
-                .sorted()
-                .toList();
 
         var fragments = context.getContextManager().toPathFragments(toAddFiles);
         context = context.addFragments(fragments);
 
-        String addedNames =
-                toAddFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
-        String result = "";
-        if (addedNames.isEmpty()) {
-            result += "No new files added.\n";
-        } else {
-            result += "Added to the workspace: %s\n".formatted(addedNames);
-        }
-        if (!alreadyPresent.isEmpty()) {
-            result += "Already present (no-op): %s.\n".formatted(String.join(", ", alreadyPresent));
-        }
-        if (!errors.isEmpty()) {
-            result += "Errors were: [%s]\n".formatted(String.join(", ", errors));
-        }
-        return result;
+        String report = reporter.report();
+        return report.isEmpty() ? "No changes." : report;
     }
 
     @Tool(
@@ -141,18 +136,38 @@ public class WorkspaceTools {
                             "List of fully qualified class names (e.g., ['com.example.MyClass', 'org.another.Util']). Must not be empty.")
                     List<String> classNames) {
         if (classNames.isEmpty()) {
-            return "Class names list cannot be empty.";
+            return "Cannot add classes: class names list is empty.";
         }
 
-        int initialFragmentCount = (int) context.allFragments().count();
-        context = Context.withAddedClasses(context, classNames, getAnalyzer());
-        int addedCount = (int) context.allFragments().count() - initialFragmentCount;
+        var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
+        List<ContextFragments.CodeFragment> toAdd = new ArrayList<>();
 
-        if (addedCount == 0) {
-            return "Could not find definitions for any of the provided class names: " + String.join(", ", classNames);
+        for (String rawName : classNames.stream().distinct().toList()) {
+            String className = rawName.strip();
+            if (className.isEmpty()) {
+                reporter.add(Bucket.ERROR, "Class name is blank.");
+                continue;
+            }
+
+            var cuOpt = reporter.analyzer.getDefinitions(className).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+
+            if (cuOpt.isEmpty()) {
+                reporter.add(Bucket.NOT_FOUND, className);
+                continue;
+            }
+
+            var cu = cuOpt.get();
+            var fragment = new ContextFragments.CodeFragment(context.getContextManager(), cu);
+            if (reporter.maybeAdd(fragment, className)) {
+                toAdd.add(fragment);
+            }
         }
 
-        return "Added %d code fragment(s) for requested classes.".formatted(addedCount);
+        context = context.addFragments(toAdd);
+        String report = reporter.report();
+        return report.isEmpty() ? "No changes." : report;
     }
 
     @Tool(
@@ -165,21 +180,26 @@ public class WorkspaceTools {
 
         try {
             logger.debug("Fetching content from URL: {}", urlString);
-            int initialFragmentCount = (int) context.allFragments().count();
-            context = Context.withAddedUrlContent(context, urlString);
-            int addedCount = (int) context.allFragments().count() - initialFragmentCount;
+            var content = fetchUrlContent(new URI(urlString));
+            content = HtmlToMarkdown.maybeConvertToMarkdown(content);
 
-            if (addedCount == 0) {
-                return "Fetched content from URL is empty: " + urlString;
+            if (content.isBlank()) {
+                return "Fetched content from URL is empty";
             }
 
+            var fragment = new ContextFragments.StringFragment(
+                    context.getContextManager(),
+                    content,
+                    "Content from " + urlString,
+                    SyntaxConstants.SYNTAX_STYLE_NONE);
+            context = context.addFragments(fragment);
+
             logger.debug("Successfully added URL content to context");
-            return "Added content from URL [%s] as a read-only text fragment.".formatted(urlString);
+            return "Added content from URL as a read-only text fragment";
         } catch (URISyntaxException e) {
-            return "Invalid URL format: " + urlString;
+            throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.REQUEST_ERROR, "Invalid URL format");
         } catch (IOException e) {
-            logger.error("Failed to fetch or process URL content: {}", urlString, e);
-            throw new RuntimeException("Failed to fetch URL content for " + urlString + ": " + e.getMessage(), e);
+            throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.INTERNAL_ERROR, "I/O Error");
         }
     }
 
@@ -241,35 +261,29 @@ public class WorkspaceTools {
 
         // Apply removal and upsert DISCARDED_CONTEXT in the local context
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
-        var next =
+        context =
                 context.removeFragmentsByIds(droppedIds).withSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
-        context = next;
 
         logger.debug(
-                "dropWorkspaceFragments: dropped={}, protected={}, unknown={}, updatedDiscardedEntries={}",
+                "dropWorkspaceFragments: dropped={}, pinned={}, unknown={}, updatedDiscardedEntries={}",
                 droppedIds.size(),
                 protectedFragments.size(),
                 unknownIds.size(),
                 mergedDiscarded.size());
 
         var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
-        var baseMsg = "Dropped %d fragment(s): [%s]. Updated DISCARDED_CONTEXT with %d entr%s."
-                .formatted(
-                        droppedIds.size(),
-                        droppedReprs,
-                        mergedDiscarded.size(),
-                        mergedDiscarded.size() == 1 ? "y" : "ies");
+        var baseMsg = "Dropped: %s.".formatted(droppedReprs);
 
         if (!protectedFragments.isEmpty()) {
             var protectedDescriptions = protectedFragments.stream()
                     .map(ContextFragment::description)
                     .map(ComputedValue::join)
                     .collect(Collectors.joining(", "));
-            baseMsg += " Protected (not dropped): " + protectedDescriptions + ".";
+            baseMsg += "\nPinned (not dropped): " + protectedDescriptions + ".";
         }
 
         if (!unknownIds.isEmpty()) {
-            baseMsg += " Unknown fragment IDs: " + String.join(", ", unknownIds);
+            baseMsg += "\nUnknown fragment IDs (not dropped): " + String.join(", ", unknownIds);
         }
         return baseMsg;
     }
@@ -306,20 +320,38 @@ public class WorkspaceTools {
                             "List of fully qualified class names (e.g., ['com.example.ClassA', 'org.another.ClassB']) to get summaries for. Must not be empty.")
                     List<String> classNames) {
         if (classNames.isEmpty()) {
-            return "Cannot add summary: class names list is empty";
+            return "Cannot add class summaries: class names list is empty.";
         }
 
-        List<String> distinctClassNames = classNames.stream().distinct().toList();
-        if (distinctClassNames.isEmpty()) {
-            return "Cannot add summary: class names list resolved to empty";
+        var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
+        List<ContextFragments.SummaryFragment> toAdd = new ArrayList<>();
+
+        for (String rawName : classNames.stream().distinct().toList()) {
+            String className = rawName.strip();
+            if (className.isEmpty()) {
+                reporter.add(Bucket.ERROR, "Class name is blank.");
+                continue;
+            }
+
+            var cuOpt = reporter.analyzer.getDefinitions(className).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+
+            if (cuOpt.isEmpty()) {
+                reporter.add(Bucket.NOT_FOUND, className);
+                continue;
+            }
+
+            var fragment = new ContextFragments.SummaryFragment(
+                    context.getContextManager(), cuOpt.get().fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            if (reporter.maybeAdd(fragment, className)) {
+                toAdd.add(fragment);
+            }
         }
 
-        int initialFragmentCount = (int) context.allFragments().count();
-        context = Context.withAddedClassSummaries(context, distinctClassNames);
-        int addedCount = (int) context.allFragments().count() - initialFragmentCount;
-
-        return "Added %d dynamic class summar%s for: [%s]"
-                .formatted(addedCount, addedCount == 1 ? "y" : "ies", String.join(", ", distinctClassNames));
+        context = context.addFragments(toAdd);
+        String report = reporter.report();
+        return report.isEmpty() ? "No changes." : report;
     }
 
     @Tool(
@@ -334,19 +366,50 @@ public class WorkspaceTools {
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']. Must not be empty.")
                     List<String> filePaths) {
         if (filePaths.isEmpty()) {
-            return "Cannot add summaries: file paths list is empty.";
+            return "Cannot add file summaries: file paths list is empty.";
         }
 
+        var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
         var project = (AbstractProject) context.getContextManager().getProject();
-        int initialFragmentCount = (int) context.allFragments().count();
-        context = Context.withAddedFileSummaries(context, filePaths, project);
-        int addedCount = (int) context.allFragments().count() - initialFragmentCount;
 
-        if (addedCount == 0) {
-            return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
+        List<ProjectFile> resolvedFiles = new ArrayList<>();
+
+        for (String rawPattern : filePaths) {
+            String pattern = rawPattern.strip();
+            if (pattern.isEmpty()) {
+                reporter.add(Bucket.ERROR, "File path is blank.");
+                continue;
+            }
+
+            List<ProjectFile> matches = ai.brokk.Completions.expandPath(project, pattern).stream()
+                    .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
+                    .toList();
+
+            if (matches.isEmpty()) {
+                reporter.add(Bucket.ERROR, "No files matched path `%s`.".formatted(pattern));
+                continue;
+            }
+
+            resolvedFiles.addAll(matches);
         }
 
-        return "Added %d dynamic file summar%s.".formatted(addedCount, addedCount == 1 ? "y" : "ies");
+        resolvedFiles = resolvedFiles.stream().distinct().toList();
+
+        List<ContextFragments.SummaryFragment> toAdd = new ArrayList<>();
+
+        for (ProjectFile file : resolvedFiles) {
+            var fragment = new ContextFragments.SummaryFragment(
+                    context.getContextManager(), file.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+
+            if (reporter.maybeAdd(fragment, file.toString())) {
+                toAdd.add(fragment);
+            }
+        }
+
+        context = context.addFragments(toAdd);
+        String report = reporter.report();
+        return report.isEmpty() ? "No changes." : report;
     }
 
     @Tool(
@@ -356,48 +419,41 @@ public class WorkspaceTools {
                   """)
     public String addMethodsToWorkspace(
             @P(
-                            "List of fully qualified method names (e.g., ['com.example.ClassA.method1', 'org.another.ClassB.processData']) to retrieve sources for. Must not be empty.")
+                            "List of fully qualified method names (e.g., ['com.example.ClassA.method1', 'org.another.ClassB.processData']) to retrieve sources for. Must not be empty. Must not include parameters (I will process all overloads).")
                     List<String> methodNames) {
         if (methodNames.isEmpty()) {
-            return "Cannot add method sources: method names list is empty";
+            return "Cannot add method sources: method names list is empty.";
         }
 
-        int initialFragmentCount = (int) context.allFragments().count();
-        context = Context.withAddedMethodSources(context, methodNames, getAnalyzer());
-        int addedCount = (int) context.allFragments().count() - initialFragmentCount;
+        var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
+        List<ContextFragments.CodeFragment> toAdd = new ArrayList<>();
 
-        if (addedCount == 0) {
-            return "No sources found for methods: " + String.join(", ", methodNames);
+        for (String rawName : methodNames.stream().distinct().toList()) {
+            String methodName = rawName.strip();
+            if (methodName.isEmpty()) {
+                reporter.add(Bucket.ERROR, "Method name is blank.");
+                continue;
+            }
+
+            var cuOpt = reporter.analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+
+            if (cuOpt.isEmpty()) {
+                reporter.add(Bucket.NOT_FOUND, methodName);
+                continue;
+            }
+
+            var cu = cuOpt.get();
+            var fragment = new ContextFragments.CodeFragment(context.getContextManager(), cu);
+            if (reporter.maybeAdd(fragment, methodName)) {
+                toAdd.add(fragment);
+            }
         }
 
-        return "Added %d method source(s).".formatted(addedCount);
-    }
-
-    @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use for factual excerpts and cross-fragment synthesis when keeping full text is unnecessary. Describe what IS, not what SHOULD BE — no action items for the Code Agent.")
-    public String appendNote(
-            @P("Markdown content to append. Factual observations only — no action items for the Code Agent.")
-                    String markdown) {
-        if (markdown.isBlank()) {
-            return "Ignoring empty Note";
-        }
-
-        var existed =
-                context.getSpecial(SpecialTextType.SEARCH_NOTES.description()).isPresent();
-
-        var current = context.getSpecial(SpecialTextType.SEARCH_NOTES.description())
-                .map(ContextFragment::text)
-                .map(ComputedValue::join)
-                .orElse("");
-        var updated = current.isBlank() ? markdown : current + "\n\n" + markdown;
-        context = context.withSpecial(SpecialTextType.SEARCH_NOTES, updated);
-
-        logger.debug(
-                "appendNote: {} Task Notes fragment ({} chars).",
-                existed ? "updated existing" : "created new",
-                markdown.length());
-
-        return existed ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
+        context = context.addFragments(toAdd);
+        String report = reporter.report();
+        return report.isEmpty() ? "No changes." : report;
     }
 
     /**
@@ -474,8 +530,28 @@ public class WorkspaceTools {
             - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
 
             Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
-            `tasks` is a List<String> - if you have N tasks, output N list elements.
+            `tasks` is a List<TaskListEntry> - if you have N tasks, output N list elements.
             """;
+
+    public record TaskListEntry(
+            @P("Short display title for the task.") String title,
+            @P("The full task description (Markdown encouraged).") String instructions,
+            @P("Files and fully qualified method/class names important to implement the task.") String keyLocations,
+            @P(
+                            "Useful discoveries from OUTSIDE the key locations. Note: the Workspace will change as tasks are loaded and executed, so you must capture important discoveries here to preserve them for future tasks.")
+                    String keyDiscoveries) {
+
+        public TaskList.TaskItem toTaskItem() {
+            String combinedText = instructions.strip();
+            if (!keyLocations.isBlank()) {
+                combinedText += "\n\n**Key Locations:**\n" + keyLocations.strip();
+            }
+            if (!keyDiscoveries.isBlank()) {
+                combinedText += "\n\n**Key Discoveries:**\n" + keyDiscoveries.strip();
+            }
+            return new TaskList.TaskItem(title.strip(), combinedText, false);
+        }
+    }
 
     @Tool(
             value =
@@ -484,18 +560,21 @@ public class WorkspaceTools {
             @P(
                             "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown. Include touch points for files, classes, and tests.")
                     String explanation,
-            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
+            @P(TASK_LIST_GUIDANCE) List<TaskListEntry> tasks) {
         logger.debug("createOrReplaceTaskList selected with {} tasks", tasks.size());
         if (tasks.isEmpty()) {
             return "No tasks provided.";
         }
 
+        List<TaskList.TaskItem> taskItems =
+                tasks.stream().map(TaskListEntry::toTaskItem).toList();
+
         var cm = context.getContextManager();
-        // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
-        context = cm.createOrReplaceTaskList(context, explanation, tasks);
+        // Delegate to ContextManager to ensure centralized refresh via setTaskList
+        context = cm.createOrReplaceTaskList(context, explanation, taskItems);
 
         var lines = IntStream.range(0, tasks.size())
-                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i).title())
                 .collect(Collectors.joining("\n"));
         var formattedTaskList = "# Task List\n" + lines + "\n";
 
@@ -513,6 +592,170 @@ public class WorkspaceTools {
     }
 
     // --- Helper Methods ---
+
+    private enum Bucket {
+        ADDED("Added"),
+        ALREADY_PRESENT("Already present (no-op)"),
+        SKIPPED_FILE("Skipped (covered by file in workspace)"),
+        SKIPPED_CLASS("Skipped (covered by class source in workspace)"),
+        SKIPPED_FILE_SUMMARY("Skipped (covered by file summary in workspace)"),
+        NOT_FOUND("Not found"),
+        ERROR("Errors");
+
+        private final String label;
+
+        Bucket(String label) {
+            this.label = label;
+        }
+    }
+
+    private static class CoverageReporter {
+        private final Context context;
+        private final IAnalyzer analyzer;
+        private final WorkspaceState state;
+        private final Map<Bucket, List<String>> buckets = new EnumMap<>(Bucket.class);
+
+        CoverageReporter(Context context, IAnalyzer analyzer, WorkspaceState state) {
+            this.context = context;
+            this.analyzer = analyzer;
+            this.state = state;
+        }
+
+        void add(Bucket bucket, String identifier) {
+            buckets.computeIfAbsent(bucket, k -> new ArrayList<>()).add(identifier);
+        }
+
+        /**
+         * Checks if a fragment should be added based on context presence and coverage rules.
+         * Returns true if it should be added, false if it's already present or covered.
+         */
+        boolean maybeAdd(ContextFragment fragment, String identifier) {
+            if (context.contains(fragment)) {
+                add(Bucket.ALREADY_PRESENT, identifier);
+                return false;
+            }
+
+            var units = fragment.sources().join();
+            if (units.size() == 1) {
+                var cu = units.iterator().next();
+                var coveredBy = state.isCovered(cu, analyzer);
+                if (coveredBy.isPresent()) {
+                    add(coveredBy.get().bucket, identifier);
+                    return false;
+                }
+            } else if (fragment instanceof ContextFragments.SummaryFragment sf
+                    && sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS) {
+                // Special case for file summaries which don't have sources() populated the same way
+                try {
+                    var file = context.getContextManager().toFile(sf.getTargetIdentifier());
+                    if (state.isCovered(file)) {
+                        add(Bucket.SKIPPED_FILE, identifier);
+                        return false;
+                    }
+                } catch (IllegalArgumentException ignored) {
+                    add(Bucket.NOT_FOUND, identifier);
+                }
+            }
+
+            add(Bucket.ADDED, identifier);
+            return true;
+        }
+
+        String report() {
+            StringBuilder sb = new StringBuilder();
+            for (Bucket bucket : Bucket.values()) {
+                List<String> items = buckets.get(bucket);
+                if (items != null && !items.isEmpty()) {
+                    sb.append(bucket.label)
+                            .append(": ")
+                            .append(items.stream().sorted().distinct().collect(Collectors.joining(", ")))
+                            .append("\n");
+                }
+            }
+            return sb.toString().trim();
+        }
+    }
+
+    private enum CoverageReason {
+        FILE(Bucket.SKIPPED_FILE),
+        CLASS(Bucket.SKIPPED_CLASS),
+        FILE_SUMMARY(Bucket.SKIPPED_FILE_SUMMARY);
+
+        private final Bucket bucket;
+
+        CoverageReason(Bucket bucket) {
+            this.bucket = bucket;
+        }
+    }
+
+    private record WorkspaceState(
+            Set<ProjectFile> filesInWorkspace,
+            Set<ProjectFile> fileSummariesInWorkspace,
+            Set<CodeUnit> classInWorkspace) {
+
+        boolean isCovered(ProjectFile file) {
+            return filesInWorkspace.contains(file);
+        }
+
+        Optional<CoverageReason> isCovered(CodeUnit cu, IAnalyzer analyzer) {
+            if (filesInWorkspace.contains(cu.source())) {
+                return Optional.of(CoverageReason.FILE);
+            }
+
+            if (cu.isFunction() || cu.isField()) {
+                return analyzer.parentOf(cu).filter(classInWorkspace::contains).isPresent()
+                        ? Optional.of(CoverageReason.CLASS)
+                        : Optional.empty();
+            }
+
+            if (cu.isClass()) {
+                if (classInWorkspace.contains(cu)) {
+                    return Optional.of(CoverageReason.CLASS);
+                }
+                if (fileSummariesInWorkspace.contains(cu.source())) {
+                    return Optional.of(CoverageReason.FILE_SUMMARY);
+                }
+            }
+
+            return Optional.empty();
+        }
+    }
+
+    private WorkspaceState workspaceState() {
+        var cm = context.getContextManager();
+        var fragments = context.allFragments().toList();
+
+        Set<ProjectFile> filesInWorkspace = fragments.stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .flatMap(f -> f.files().join().stream())
+                .collect(Collectors.toSet());
+
+        Set<ProjectFile> fileSummariesInWorkspace = new HashSet<>();
+        Set<CodeUnit> classInWorkspace = new HashSet<>();
+
+        for (ContextFragment fragment : fragments) {
+            if (fragment instanceof ContextFragments.SummaryFragment sf) {
+                if (sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS) {
+                    try {
+                        fileSummariesInWorkspace.add(cm.toFile(sf.getTargetIdentifier()));
+                    } catch (IllegalArgumentException ignored) {
+                        // ignore invalid/legacy targets; we only use this as a best-effort optimization
+                    }
+                }
+                continue;
+            }
+
+            if (fragment instanceof ContextFragments.CodeFragment cf) {
+                for (CodeUnit cu : cf.sources().join()) {
+                    if (cu.isClass()) {
+                        classInWorkspace.add(cu);
+                    }
+                }
+            }
+        }
+
+        return new WorkspaceState(filesInWorkspace, fileSummariesInWorkspace, classInWorkspace);
+    }
 
     /**
      * Fetches content from a given URL. Public static for reuse.

@@ -46,6 +46,36 @@ public interface TypeHierarchyProvider extends CapabilityProvider {
     }
 
     /**
+     * Returns the set of subclasses/descendants for the class declaring the target function.
+     * This is useful for finding usages of a method where calls on subclasses are also valid matches,
+     * following IntelliJ-style usage semantics where overrides are included.
+     *
+     * @param target the target code unit (must be a FUNCTION)
+     * @param analyzer the analyzer used to resolve definitions and children
+     * @return a list of descendants for the declaring class, or an empty list if not a function or no hierarchy
+     */
+    default List<CodeUnit> getPolymorphicMatches(CodeUnit target, IAnalyzer analyzer) {
+        if (target.kind() != CodeUnitType.FUNCTION) {
+            return List.of();
+        }
+
+        var maybeClassName = analyzer.parentOf(target);
+        if (maybeClassName.isEmpty()) {
+            // This may be a function with a module parent, which wouldn't have polymorphic capabilities
+            return List.of();
+        }
+        String className = maybeClassName.get().identifier();
+        var classDefs = analyzer.getDefinitions(className);
+        var parentClassOpt = classDefs.stream().filter(CodeUnit::isClass).findFirst();
+
+        if (parentClassOpt.isEmpty()) {
+            return List.of();
+        }
+
+        return this.getDescendants(parentClassOpt.get());
+    }
+
+    /**
      * Helper method to perform BFS traversal of a code unit hierarchy in either direction.
      *
      * @param cu the starting code unit

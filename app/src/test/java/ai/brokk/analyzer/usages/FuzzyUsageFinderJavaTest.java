@@ -435,6 +435,160 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
+    public void testAlternativesComputationForNestedClasses() throws Exception {
+        String outer1 = "public class Outer1 { public static class Inner { public void doWork() {} } }";
+        String outer2 = "public class Outer2 { public static class Inner { public void doWork() {} } }";
+        String user =
+                """
+                public class User {
+                    public void use() {
+                        Outer1.Inner inner = new Outer1.Inner();
+                        inner.doWork();
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(outer1, "Outer1.java")
+                .addFileContents(outer2, "Outer2.java")
+                .addFileContents(user, "User.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            // Search for usages of Outer1$Inner.
+            // Under the current bug, identifier will be "Inner", but matchingCodeUnits filter uses
+            // cu.shortName().equals("Inner"). For Outer1.Inner, shortName is "Outer1.Inner" (or "Outer1$Inner"),
+            // so it won't match "Inner", resulting in isUnique = false but with 0 alternatives,
+            // or incorrect Ambiguous/Success classification.
+            var result = finder.findUsages("Outer1$Inner");
+            var either = result.toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure: " + either.getErrorMessage());
+            }
+
+            // With the fix, the finder correctly identifies both Inner classes as alternatives.
+            // The public findUsages(String) API always returns Success after aggregation/filtering.
+            // We verify success and that hits were found for the usage in User.java.
+            assertTrue(
+                    result instanceof FuzzyResult.Success,
+                    "Expected Success result, got: " + result.getClass().getSimpleName());
+
+            var hits = either.getUsages();
+            assertFalse(hits.isEmpty(), "Expected at least one usage hit for Outer1.Inner");
+
+            var files = hits.stream().map(h -> h.file().getFileName()).collect(Collectors.toSet());
+            assertTrue(files.contains("User.java"), "Expected usage in User.java; actual: " + files);
+        }
+    }
+
+    @Test
+    public void testFindUsagesSimpleNonNestedClass() throws Exception {
+        // Test that findUsages works correctly for simple non-nested classes
+        // This ensures the lastSep >= 0 branch in CodeUnit.identifier() doesn't regress
+        // when lastSep is -1 (no '.' or '$' in the shortName)
+        String fooContent = "public class Foo { public void doSomething() {} }";
+        String barContent =
+                """
+                public class Bar {
+                    private Foo foo;
+                    public void useFoo() {
+                        foo = new Foo();
+                        foo.doSomething();
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(fooContent, "Foo.java")
+                .addFileContents(barContent, "Bar.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            // Search for usages of the simple class Foo (no nesting, so identifier() returns "Foo")
+            var result = finder.findUsages("Foo");
+            var either = result.toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure: " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            assertFalse(hits.isEmpty(), "Expected at least one usage hit for Foo");
+
+            var files = hits.stream().map(h -> h.file().getFileName()).collect(Collectors.toSet());
+            assertTrue(files.contains("Bar.java"), "Expected usage in Bar.java; actual: " + files);
+
+            // Verify we found usages in Bar's useFoo method
+            var barHits = hits.stream()
+                    .filter(h -> h.file().getFileName().equals("Bar.java"))
+                    .toList();
+            assertFalse(barHits.isEmpty(), "Expected hits in Bar.java");
+        }
+    }
+
+    @Test
+    public void testDeeplyNestedClassUsages() throws Exception {
+        String nestedSource =
+                """
+                public class Outer {
+                    public static class Middle {
+                        public static class Inner {
+                            public void targetMethod() {}
+                        }
+                    }
+                }
+                """;
+        String otherSource = "public class Other { public static class DecoyInner { public void otherMethod() {} } }";
+        String userSource =
+                """
+                public class User {
+                    public void use() {
+                        Outer.Middle.Inner a = new Outer.Middle.Inner();
+                        Other.DecoyInner b = new Other.DecoyInner();
+                        a.targetMethod();
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(nestedSource, "Outer.java")
+                .addFileContents(otherSource, "Other.java")
+                .addFileContents(userSource, "User.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            // Search for the deeply nested class
+            var result = finder.findUsages("Outer$Middle$Inner");
+            var either = result.toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure: " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            // We expect usages in User.java for Outer.Middle.Inner
+            // The decoy class Other.DecoyInner has a different simple name, so it won't be matched
+            var userHits = hits.stream()
+                    .filter(h -> h.file().getFileName().equals("User.java"))
+                    .toList();
+
+            // Verify we found at least one hit for the deeply nested class
+            assertFalse(userHits.isEmpty(), "Expected hits for Outer.Middle.Inner in User.java");
+
+            // The key verification: hits should be for Inner, not DecoyInner
+            // Since DecoyInner has a different identifier, it won't appear in our results
+            for (var hit : userHits) {
+                // The enclosing method should be 'use' from User class
+                assertEquals("use", hit.enclosing().identifier(), "Expected hit to be within the 'use' method");
+
+                // Verify the snippet contains the target class name
+                assertTrue(hit.snippet().contains("Outer.Middle.Inner"), "Snippet should contain Outer.Middle.Inner");
+            }
+        }
+    }
+
+    @Test
     public void testUsageHitEqualityBasedOnPosition() {
         Path root = Path.of(".").toAbsolutePath().normalize();
         var file = new ProjectFile(root, Path.of("A.java"));
@@ -451,5 +605,253 @@ public class FuzzyUsageFinderJavaTest {
         hitSet.add(hit1);
         hitSet.add(hit2);
         assertEquals(2, hitSet.size(), "Set should preserve both hits within the same enclosing unit");
+    }
+
+    @Test
+    public void testPolymorphicMatchesIncludeNonOverridingSubclasses() throws Exception {
+        String animalContent =
+                """
+            public class Animal {
+                public void speak() {
+                    System.out.println("Animal speaks");
+                }
+            }
+            """;
+        String dogContent =
+                """
+            public class Dog extends Animal {
+                // Does NOT override speak() - inherits from Animal
+            }
+            """;
+        String catContent =
+                """
+            public class Cat extends Animal {
+                @Override
+                public void speak() {
+                    System.out.println("Meow");
+                }
+            }
+            """;
+        String callerContent =
+                """
+            public class Caller {
+                public void callDogSpeak(Dog dog) {
+                    dog.speak(); // This is actually Animal.speak via inheritance
+                }
+                public void callCatSpeak(Cat cat) {
+                    cat.speak(); // This is Cat.speak (override)
+                }
+            }
+            """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(animalContent, "Animal.java")
+                .addFileContents(dogContent, "Dog.java")
+                .addFileContents(catContent, "Cat.java")
+                .addFileContents(callerContent, "Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "Animal.speak";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var enclosingMethods =
+                    hits.stream().map(h -> h.enclosing().identifier()).collect(Collectors.toSet());
+
+            // Should find usage in callDogSpeak because Dog inherits speak() without overriding
+            // Dog should be detected as a polymorphic match
+            assertTrue(
+                    enclosingMethods.contains("callDogSpeak"),
+                    "Expected to find usage in callDogSpeak (Dog inherits speak without overriding); actual: "
+                            + enclosingMethods);
+        }
+    }
+
+    @Test
+    public void testOverloadedMethodDoesNotBlockPolymorphicMatch() throws Exception {
+        String animalContent =
+                """
+            public class Animal {
+                public void speak() {
+                    System.out.println("Animal speaks");
+                }
+            }
+            """;
+        String dogContent =
+                """
+            public class Dog extends Animal {
+                // Has an OVERLOAD with different signature, but does NOT override speak()
+                public void speak(String message) {
+                    System.out.println("Dog says: " + message);
+                }
+            }
+            """;
+        String callerContent =
+                """
+            public class Caller {
+                public void callDogSpeak(Dog dog) {
+                    dog.speak(); // This calls Animal.speak() via inheritance (not the overload)
+                }
+            }
+            """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(animalContent, "Animal.java")
+                .addFileContents(dogContent, "Dog.java")
+                .addFileContents(callerContent, "Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "Animal.speak";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var enclosingMethods =
+                    hits.stream().map(h -> h.enclosing().identifier()).collect(Collectors.toSet());
+
+            // Dog.speak(String) is an OVERLOAD, not an override of Animal.speak()
+            // So Dog should still be a polymorphic match for Animal.speak()
+            // and calls to dog.speak() should be found as usages
+            assertTrue(
+                    enclosingMethods.contains("callDogSpeak"),
+                    "Expected to find usage in callDogSpeak (Dog has overload speak(String) but inherits speak()); actual: "
+                            + enclosingMethods);
+        }
+    }
+
+    @Test
+    public void testPolymorphicMatchesIncludeTransitiveNonOverridingSubclasses() throws Exception {
+        String animalContent =
+                """
+            public class Animal {
+                public void speak() {
+                    System.out.println("Animal speaks");
+                }
+            }
+            """;
+        String mammalContent =
+                """
+            public class Mammal extends Animal {
+                // Inherits speak
+            }
+            """;
+        String dogContent =
+                """
+            public class Dog extends Mammal {
+                // Inherits speak via Mammal
+            }
+            """;
+        String callerContent =
+                """
+            public class Caller {
+                public void callMammalSpeak(Mammal m) {
+                    m.speak();
+                }
+                public void callDogSpeak(Dog d) {
+                    d.speak();
+                }
+            }
+            """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(animalContent, "Animal.java")
+                .addFileContents(mammalContent, "Mammal.java")
+                .addFileContents(dogContent, "Dog.java")
+                .addFileContents(callerContent, "Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "Animal.speak";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var enclosingMethods =
+                    hits.stream().map(h -> h.enclosing().identifier()).collect(Collectors.toSet());
+
+            assertTrue(
+                    enclosingMethods.contains("callMammalSpeak"),
+                    "Expected to find usage in callMammalSpeak; actual: " + enclosingMethods);
+            assertTrue(
+                    enclosingMethods.contains("callDogSpeak"),
+                    "Expected to find usage in callDogSpeak (transitive inheritance); actual: " + enclosingMethods);
+        }
+    }
+
+    @Test
+    public void testFieldUsageExcludesConstructorParameter() throws Exception {
+        String channelHolderSource =
+                """
+                public class ChannelHolder {
+                    public String channel;
+                }
+                """;
+
+        String falsePositiveSource =
+                """
+                public class FalsePositive {
+                    protected FalsePositive(String channel, int bufferSize) {
+                        this(channel, bufferSize, 0);
+                    }
+
+                    protected FalsePositive(String channel, int bufferSize, int offset) {
+                        // usage of parameter 'channel'
+                        System.out.println(channel);
+                    }
+                }
+                """;
+
+        String truePositiveSource =
+                """
+                public class TruePositive {
+                    public void access(ChannelHolder holder) {
+                        // Actual usage of the field
+                        System.out.println(holder.channel);
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(channelHolderSource, "ChannelHolder.java")
+                .addFileContents(falsePositiveSource, "FalsePositive.java")
+                .addFileContents(truePositiveSource, "TruePositive.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            var symbol = "ChannelHolder.channel";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var files = fileNamesFromHits(hits);
+
+            // Verify FalsePositive.java is NOT included (parameter usage)
+            assertFalse(
+                    files.contains("FalsePositive.java"),
+                    "Should NOT find usage in FalsePositive.java (it's a constructor parameter)");
+
+            // Verify TruePositive.java IS included (actual field access)
+            assertTrue(
+                    files.contains("TruePositive.java"),
+                    "Should find usage in TruePositive.java (actual field access)");
+
+            // Additionally verify we have exactly one hit (the true positive)
+            assertEquals(1, hits.size(), "Expected exactly one usage hit");
+        }
     }
 }

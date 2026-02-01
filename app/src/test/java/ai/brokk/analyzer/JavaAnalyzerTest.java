@@ -13,10 +13,12 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -324,6 +326,16 @@ public class JavaAnalyzerTest {
                 CodeUnit.field(file, "", "D.field1"),
                 CodeUnit.field(file, "", "D.field2"));
         assertEquals(expected, classes);
+
+        // Verify identifier() returns innermost name for nested classes
+        var dSubOpt =
+                classes.stream().filter(cu -> cu.fqName().equals("D.DSub")).findFirst();
+        assertTrue(dSubOpt.isPresent());
+        assertEquals("DSub", dSubOpt.get().identifier(), "Nested class identifier should be innermost name");
+
+        var dOpt = classes.stream().filter(cu -> cu.fqName().equals("D")).findFirst();
+        assertTrue(dOpt.isPresent());
+        assertEquals("D", dOpt.get().identifier(), "Top-level class identifier should equal shortName");
     }
 
     @Test
@@ -340,6 +352,14 @@ public class JavaAnalyzerTest {
                 // No fields in Packaged.java
                 );
         assertEquals(expected, declarations);
+
+        // Verify identifier() for packaged class
+        var fooOpt = declarations.stream()
+                .filter(cu -> cu.fqName().equals("io.github.jbellis.brokk.Foo"))
+                .findFirst();
+        assertTrue(fooOpt.isPresent());
+        assertEquals("Foo", fooOpt.get().shortName(), "Packaged class shortName should be simple name");
+        assertEquals("Foo", fooOpt.get().identifier(), "Packaged class identifier should be simple name");
     }
 
     @Test
@@ -365,6 +385,47 @@ public class JavaAnalyzerTest {
         assertEquals("D.field1", field1Def.get().fqName());
         assertFalse(field1Def.get().isClass());
         assertFalse(field1Def.get().isFunction());
+    }
+
+    @Test
+    public void testCodeUnitIdentifierAndShortName() {
+        // Simple class: D
+        var classDDef = analyzer.getDefinitions("D").stream().findFirst();
+        assertTrue(classDDef.isPresent(), "Should find definition for class 'D'");
+        assertEquals("D", classDDef.get().shortName(), "Simple class shortName should be just the class name");
+        assertEquals("D", classDDef.get().identifier(), "Simple class identifier should be the class name");
+
+        // Nested class: D.DSub (one level of nesting)
+        var classDSubDef = analyzer.getDefinitions("D.DSub").stream().findFirst();
+        assertTrue(classDSubDef.isPresent(), "Should find definition for nested class 'D.DSub'");
+        assertEquals("D.DSub", classDSubDef.get().shortName(), "Nested class shortName should include parent");
+        assertEquals("DSub", classDSubDef.get().identifier(), "Nested class identifier should be innermost name only");
+
+        // Deeply nested class: A.AInner.AInnerInner (two levels of nesting)
+        var classAInnerInnerDef =
+                analyzer.getDefinitions("A.AInner.AInnerInner").stream().findFirst();
+        assertTrue(classAInnerInnerDef.isPresent(), "Should find definition for deeply nested class");
+        assertEquals(
+                "A.AInner.AInnerInner",
+                classAInnerInnerDef.get().shortName(),
+                "Deeply nested shortName should include full path");
+        assertEquals(
+                "AInnerInner",
+                classAInnerInnerDef.get().identifier(),
+                "Deeply nested identifier should be innermost name only");
+
+        // Static nested class: A.AInnerStatic
+        var classAInnerStaticDef =
+                analyzer.getDefinitions("A.AInnerStatic").stream().findFirst();
+        assertTrue(classAInnerStaticDef.isPresent(), "Should find definition for static nested class");
+        assertEquals(
+                "A.AInnerStatic",
+                classAInnerStaticDef.get().shortName(),
+                "Static nested shortName should include parent");
+        assertEquals(
+                "AInnerStatic",
+                classAInnerStaticDef.get().identifier(),
+                "Static nested identifier should be innermost name only");
     }
 
     @Test
@@ -1090,6 +1151,199 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testInterfaceConstantsFieldsDetection() throws IOException {
+        String code =
+                """
+                public interface SyntaxConstants {
+                    String SYNTAX_STYLE_NONE = "text/plain";
+                    String SYNTAX_STYLE_ACTIONSCRIPT = "text/actionscript";
+                    String SYNTAX_STYLE_C = "text/c";
+                    int DEFAULT_PRIORITY = 100;
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "SyntaxConstants.java").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var declarations = analyzer.getAllDeclarations();
+
+            // Verify the interface itself is detected
+            boolean foundInterface =
+                    declarations.stream().anyMatch(cu -> cu.isClass() && "SyntaxConstants".equals(cu.fqName()));
+            assertTrue(foundInterface, "Interface SyntaxConstants should be detected as a class");
+
+            // Verify the fields are detected
+            Set<String> fieldNames = declarations.stream()
+                    .filter(CodeUnit::isField)
+                    .map(CodeUnit::identifier)
+                    .collect(Collectors.toSet());
+
+            assertTrue(fieldNames.contains("SYNTAX_STYLE_NONE"), "Field SYNTAX_STYLE_NONE should be detected");
+            assertTrue(
+                    fieldNames.contains("SYNTAX_STYLE_ACTIONSCRIPT"),
+                    "Field SYNTAX_STYLE_ACTIONSCRIPT should be detected");
+            assertTrue(fieldNames.contains("SYNTAX_STYLE_C"), "Field SYNTAX_STYLE_C should be detected");
+            assertTrue(fieldNames.contains("DEFAULT_PRIORITY"), "Field DEFAULT_PRIORITY should be detected");
+        }
+    }
+
+    @Test
+    public void testInterfaceConstantsMultipleDeclarators() throws IOException {
+        String code =
+                """
+                public interface MultiConstants {
+                    int CONST_A = 1, CONST_B = 2;
+                    String NAME_X = "x", NAME_Y = "y", NAME_Z = "z";
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "MultiConstants.java").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var declarations = analyzer.getAllDeclarations();
+
+            // Verify the interface itself is detected
+            boolean foundInterface =
+                    declarations.stream().anyMatch(cu -> cu.isClass() && "MultiConstants".equals(cu.fqName()));
+            assertTrue(foundInterface, "Interface MultiConstants should be detected as a class");
+
+            // Verify the fields are detected
+            Set<String> fieldNames = declarations.stream()
+                    .filter(CodeUnit::isField)
+                    .map(CodeUnit::identifier)
+                    .collect(Collectors.toSet());
+
+            assertTrue(fieldNames.contains("CONST_A"), "Field CONST_A should be detected");
+            assertTrue(fieldNames.contains("CONST_B"), "Field CONST_B should be detected");
+            assertTrue(fieldNames.contains("NAME_X"), "Field NAME_X should be detected");
+            assertTrue(fieldNames.contains("NAME_Y"), "Field NAME_Y should be detected");
+            assertTrue(fieldNames.contains("NAME_Z"), "Field NAME_Z should be detected");
+
+            assertEquals(5, fieldNames.size(), "Should detect exactly 5 constant fields");
+        }
+    }
+
+    @Test
+    public void testInterfaceConstantsWithGenericsAndAnnotations() throws IOException {
+        String code =
+                """
+                import java.util.List;
+                public interface ComplexConstants {
+                    List<String> ITEMS = List.of("a", "b");
+                    @Deprecated
+                    String DEPRECATED_VAL = "old";
+                    @SuppressWarnings("unchecked")
+                    List RAW_LIST = List.of();
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "ComplexConstants.java").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var declarations = analyzer.getAllDeclarations();
+
+            Set<String> fieldNames = declarations.stream()
+                    .filter(CodeUnit::isField)
+                    .map(CodeUnit::identifier)
+                    .collect(Collectors.toSet());
+
+            assertTrue(fieldNames.contains("ITEMS"), "Field ITEMS with generics should be detected");
+            assertTrue(fieldNames.contains("DEPRECATED_VAL"), "Annotated field DEPRECATED_VAL should be detected");
+            assertTrue(fieldNames.contains("RAW_LIST"), "Annotated field RAW_LIST should be detected");
+            assertEquals(3, fieldNames.size());
+        }
+    }
+
+    @Test
+    public void testIsAccessExpressionCommentFiltering() throws IOException {
+        String content =
+                """
+                public class Test {
+                    // Target should not be found
+                    /* Target should not be found */
+                    /** Target in javadoc */
+                    private Target myTarget;
+                    public void main() {
+                        new Target();
+                    }
+                }
+                """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Comments should return false
+            assertIsAccessExpression(analyzer, file, content, "Target", 0, false); // // Target
+            assertIsAccessExpression(analyzer, file, content, "Target", 1, false); // /* Target
+            assertIsAccessExpression(analyzer, file, content, "Target", 2, false); // /** Target
+
+            // Real references should return true
+            // Occurrence 3 is 'private Target myTarget' (type identifier)
+            assertIsAccessExpression(analyzer, file, content, "Target", 3, true);
+            // Occurrence 4 is 'new Target()' (object creation)
+            assertIsAccessExpression(analyzer, file, content, "Target", 4, true);
+        }
+    }
+
+    private void assertIsAccessExpression(
+            JavaAnalyzer analyzer,
+            ProjectFile file,
+            String content,
+            String substring,
+            int occurrence,
+            boolean expected) {
+        int charIdx = -1;
+        for (int i = 0; i <= occurrence; i++) {
+            charIdx = content.indexOf(substring, charIdx + 1);
+        }
+        assertTrue(charIdx >= 0, "Could not find occurrence " + occurrence + " of " + substring);
+
+        int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+        int endByte = startByte + substring.getBytes(StandardCharsets.UTF_8).length;
+
+        assertEquals(
+                expected,
+                analyzer.isAccessExpression(file, startByte, endByte),
+                "Expected isAccessExpression=" + expected + " for '" + substring + "' at occurrence " + occurrence);
+    }
+
+    @Test
+    public void testIsAccessExpressionLocalShadowing() throws IOException {
+        String content =
+                """
+        public class ShadowTest {
+            private String channel;
+            public ShadowTest(String channel) {
+                System.out.println(channel);      // Parameter access
+                System.out.println(this.channel); // Explicit field access
+            }
+            public void other(Object obj) {
+                String channel = "local";
+                System.out.println(channel);      // Local variable access
+            }
+        }
+        """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "ShadowTest.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "ShadowTest.java");
+
+            // Occurrence 0: private String channel (field declaration name)
+            assertIsAccessExpression(analyzer, file, content, "channel", 0, false);
+            // Occurrence 1: String channel (parameter declaration name)
+            assertIsAccessExpression(analyzer, file, content, "channel", 1, false);
+            // Occurrence 2: println(channel) -> resolves to parameter
+            assertIsAccessExpression(analyzer, file, content, "channel", 2, false);
+            // Occurrence 3: this.channel -> explicit field access
+            assertIsAccessExpression(analyzer, file, content, "channel", 3, true);
+            // Occurrence 4: String channel = "local" (local var declaration name)
+            assertIsAccessExpression(analyzer, file, content, "channel", 4, false);
+            // Occurrence 5: println(channel) -> resolves to local variable
+            assertIsAccessExpression(analyzer, file, content, "channel", 5, false);
+        }
+    }
+
+    @Test
     public void testSummaryFragmentSupportingFragmentsFiltersNestedAncestors() throws IOException {
         try (var project = InlineTestProjectCreator.code(
                         """
@@ -1122,10 +1376,255 @@ public class JavaAnalyzerTest {
             var ids = frag.supportingFragments().stream()
                     .filter(f -> f instanceof ContextFragments.SummaryFragment)
                     .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet());
 
             assertTrue(ids.contains("p.OuterBase"), "Should contain top-level ancestor p.OuterBase");
             assertFalse(ids.contains("p.InnerBase"), "Should NOT contain nested class ancestor p.InnerBase");
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_ConstructorParameter() throws IOException {
+        String content =
+                """
+        public class CtrCryptoInputStream {
+            protected CtrCryptoInputStream(final ReadableByteChannel channel, final int bufferSize) {
+                this.doSomething(channel);
+            }
+        }
+        """;
+
+        try (var testProject = InlineTestProjectCreator.code(content, "CtrCryptoInputStream.java")
+                .build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "CtrCryptoInputStream.java");
+
+            // Find the byte position of "channel" in "this.doSomething(channel)"
+            int charIdx = content.indexOf("doSomething(channel)") + "doSomething(".length();
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "channel".getBytes(StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "channel");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'channel'");
+            assertEquals(IAnalyzer.DeclarationKind.PARAMETER, result.get().kind());
+            assertEquals("channel", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_LocalVariable() throws IOException {
+        String content =
+                """
+        public class Test {
+            public void method() {
+                String localVar = "hello";
+                System.out.println(localVar);
+            }
+        }
+        """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "localVar" in "println(localVar)"
+            int charIdx = content.indexOf("println(localVar)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "localVar".getBytes(StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "localVar");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'localVar'");
+            assertEquals(IAnalyzer.DeclarationKind.LOCAL_VARIABLE, result.get().kind());
+            assertEquals("localVar", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_EnhancedForLoop() throws IOException {
+        String content =
+                """
+        import java.util.List;
+        public class Test {
+            public void method(List<String> items) {
+                for (String item : items) {
+                    System.out.println(item);
+                }
+            }
+        }
+        """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "item" in "println(item)"
+            int charIdx = content.indexOf("println(item)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "item".getBytes(StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "item");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'item'");
+            assertEquals(
+                    IAnalyzer.DeclarationKind.FOR_LOOP_VARIABLE, result.get().kind());
+            assertEquals("item", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_CatchParameter() throws IOException {
+        String content =
+                """
+        public class Test {
+            public void method() {
+                try {
+                    throw new RuntimeException();
+                } catch (Exception ex) {
+                    System.out.println(ex);
+                }
+            }
+        }
+        """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "ex" in "println(ex)"
+            int charIdx = content.indexOf("println(ex)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "ex".getBytes(StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "ex");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'ex'");
+            assertEquals(IAnalyzer.DeclarationKind.CATCH_PARAMETER, result.get().kind());
+            assertEquals("ex", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_TryWithResources() throws IOException {
+        String content =
+                """
+        import java.io.*;
+        public class Test {
+            public void method() throws IOException {
+                try (InputStream stream = new FileInputStream("test")) {
+                    stream.read();
+                }
+            }
+        }
+        """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "stream" in "stream.read()"
+            int charIdx = content.indexOf("stream.read()");
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "stream".getBytes(StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "stream");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'stream'");
+            assertEquals(
+                    IAnalyzer.DeclarationKind.RESOURCE_VARIABLE, result.get().kind());
+            assertEquals("stream", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_LambdaParameter() throws IOException {
+        String content =
+                """
+        import java.util.List;
+        public class Test {
+            public void method(List<String> items) {
+                items.forEach(x -> System.out.println(x));
+            }
+        }
+        """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "x" in "println(x)"
+            int charIdx = content.indexOf("println(x)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "x".getBytes(StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "x");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'x'");
+            assertEquals(IAnalyzer.DeclarationKind.PARAMETER, result.get().kind());
+            assertEquals("x", result.get().name());
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_NotFound_ReturnsEmpty() throws IOException {
+        String content =
+                """
+        public class Test {
+            private String field;
+            public void method() {
+                System.out.println(field);
+            }
+        }
+        """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "field" in "println(field)"
+            int charIdx = content.indexOf("println(field)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "field".getBytes(StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "field");
+
+            assertTrue(result.isEmpty(), "Should return empty for field access (not a local declaration)");
+        }
+    }
+
+    @Test
+    public void testFindNearestDeclaration_MethodParameter() throws IOException {
+        String content =
+                """
+        public class Test {
+            public void method(String param) {
+                System.out.println(param);
+            }
+        }
+        """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "Test.java").build()) {
+            JavaAnalyzer analyzer = (JavaAnalyzer) createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "Test.java");
+
+            // Find the byte position of "param" in "println(param)"
+            int charIdx = content.indexOf("println(param)") + "println(".length();
+            int startByte = content.substring(0, charIdx).getBytes(StandardCharsets.UTF_8).length;
+            int endByte = startByte + "param".getBytes(StandardCharsets.UTF_8).length;
+
+            var result = analyzer.findNearestDeclaration(file, startByte, endByte, "param");
+
+            assertTrue(result.isPresent(), "Should find declaration for 'param'");
+            assertEquals(IAnalyzer.DeclarationKind.PARAMETER, result.get().kind());
+            assertEquals("param", result.get().name());
         }
     }
 }

@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
-import ai.brokk.Service;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestProject;
@@ -46,7 +45,7 @@ class InstructionsPanelErrorHandlingTest {
     @DisplayName("Service.isOnline returns false when quickModel is UnavailableStreamingModel")
     void serviceIsOnline_returnsFalse_whenQuickModelIsUnavailable() {
         // Configure TestService to return an unavailable model
-        testService.setModel(ModelProperties.ModelType.QUICKEST, new AbstractService.UnavailableStreamingModel());
+        testService.setModel(ModelProperties.ModelType.QUICKEST, new AbstractService.OfflineStreamingModel());
 
         assertFalse(testService.isOnline(), "Service should be offline when quickModel is unavailable");
     }
@@ -54,7 +53,7 @@ class InstructionsPanelErrorHandlingTest {
     @Test
     @DisplayName("TestService.quickestModel returns custom model when configured")
     void quickestModel_returnsCustomModel_whenConfigured() {
-        var customModel = new Service.UnavailableStreamingModel();
+        var customModel = new AbstractService.OfflineStreamingModel();
         testService.setModel(ModelProperties.ModelType.QUICKEST, customModel);
 
         StreamingChatModel result = testService.quickestModel();
@@ -81,12 +80,12 @@ class InstructionsPanelErrorHandlingTest {
     @DisplayName("Service behavior when offline - isOnline returns false")
     void serviceBehavior_whenOffline_isOnlineReturnsFalse() {
         // Set up an offline service
-        testService.setModel(ModelProperties.ModelType.QUICKEST, new AbstractService.UnavailableStreamingModel());
+        testService.setModel(ModelProperties.ModelType.QUICKEST, new AbstractService.OfflineStreamingModel());
 
         // Verify the conditions that InstructionsPanel checks
         assertFalse(testService.isOnline(), "Service should report offline");
         assertInstanceOf(
-                Service.UnavailableStreamingModel.class,
+                AbstractService.OfflineStreamingModel.class,
                 testService.quickestModel(),
                 "Quick model should be UnavailableStreamingModel");
     }

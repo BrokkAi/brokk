@@ -174,7 +174,7 @@ public record ContextDelta(
             // If it's just a single CONTEXT task, we ignore it and build description normally.
             // Otherwise, we pick the last non-CONTEXT task to describe the turn.
             var nonContextTasks = addedTasks.stream()
-                    .filter(t -> t.meta() == null || t.meta().type() != TaskResult.Type.CONTEXT)
+                    .filter(t -> t.meta() == null || t.meta().type() != TaskResult.Type.SCAN)
                     .toList();
 
             if (!nonContextTasks.isEmpty()) {

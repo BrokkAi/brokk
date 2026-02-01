@@ -147,7 +147,8 @@ public interface IContextManager {
     }
 
     @Blocking
-    default Context createOrReplaceTaskList(Context context, @Nullable String bigPicture, List<String> tasks) {
+    default Context createOrReplaceTaskList(
+            Context context, @Nullable String bigPicture, List<ai.brokk.tasks.TaskList.TaskItem> tasks) {
         throw new UnsupportedOperationException();
     }
 
@@ -277,17 +278,8 @@ public interface IContextManager {
         addFragments(List.of(fragment));
     }
 
-    /** Create a new LLM instance for the given model and description */
-    default Llm getLlm(StreamingChatModel model, String taskDescription) {
-        return getLlm(new Llm.Options(model, taskDescription));
-    }
-
-    /** Create a new LLM instance for the given model and description */
-    default Llm getLlm(StreamingChatModel model, String taskDescription, boolean allowPartialResponses) {
-        var options = new Llm.Options(model, taskDescription);
-        if (allowPartialResponses) {
-            options.withPartialResponses();
-        }
+    default Llm getLlm(StreamingChatModel model, String taskDescription, TaskResult.Type type) {
+        var options = new Llm.Options(model, taskDescription, type);
         return getLlm(options);
     }
 
@@ -341,5 +333,18 @@ public interface IContextManager {
 
     default CompletableFuture<Void> createSessionAsync(String name) {
         throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Returns true if a task (such as an LLM action or an aggregating task scope) is currently in progress.
+     * <p>
+     * The default implementation is conservative and returns {@code true} to prevent concurrent mutations
+     * by unknown implementations. Implementations that can safely accept context mutations concurrently
+     * should override this method appropriately.
+     *
+     * @return true if a task is in progress, false otherwise.
+     */
+    default boolean isTaskInProgress() {
+        return true;
     }
 }

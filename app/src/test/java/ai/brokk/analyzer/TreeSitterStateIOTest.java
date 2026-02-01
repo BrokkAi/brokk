@@ -103,8 +103,10 @@ public class TreeSitterStateIOTest {
             assertTrue(loaded instanceof CppAnalyzer, "Loaded analyzer is not CppAnalyzer");
             CppAnalyzer loadedCpp = (CppAnalyzer) loaded;
 
-            // After deserialization, treeOf(...) should be null (not persisted)
-            assertNull(loadedCpp.treeOf(cppFile), "Expected no parse tree after deserialization");
+            // After deserialization, verify the tree is not in the snapshot state (not persisted)
+            var loadedProps = loadedCpp.snapshotState().fileState().get(cppFile);
+            assertNotNull(loadedProps);
+            assertNull(loadedProps.parsedTree(), "Expected no parse tree in the serialized state");
 
             // Modify the C++ file on disk
             Files.writeString(
@@ -374,6 +376,61 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void lazyTreeParsingAfterRoundtrip(@TempDir Path tempDir) throws Exception {
+        // 1. Create test project with a Java file
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package com.example;
+
+                        public class Lazy {
+                            public void doSomething() {}
+                        }
+                        """,
+                "src/main/java/com/example/Lazy.java");
+
+        try (IProject project = builder.build()) {
+            // 2. Create JavaAnalyzer and get ProjectFile reference
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            ProjectFile file = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Lazy.java"));
+
+            // Verify the original analyzer has the tree parsed
+            assertNotNull(analyzer.treeOf(file), "Original analyzer should have parsed tree");
+
+            // 3. Save state to temp file
+            Path stateFile = tempDir.resolve("lazy_test.smile.gz");
+            TreeSitterStateIO.save(analyzer.snapshotState(), stateFile);
+            assertTrue(Files.exists(stateFile), "State file should exist after save");
+
+            // 4. Load state from file
+            var loadedStateOpt = TreeSitterStateIO.load(stateFile);
+            assertTrue(loadedStateOpt.isPresent(), "Should successfully load state");
+            var loadedState = loadedStateOpt.get();
+
+            // 5. Create new analyzer from loaded state
+            JavaAnalyzer loadedAnalyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+
+            // 6. Verify that initially parsedTree is null in the snapshot (trees are not serialized)
+            var initialSnapshot = loadedAnalyzer.snapshotState();
+            var initialFileProps = initialSnapshot.fileState().get(file);
+            assertNotNull(initialFileProps, "File properties should exist in loaded state");
+            assertNull(initialFileProps.parsedTree(), "Parsed tree should be null in initial snapshot");
+
+            // 7. Call treeOf to trigger lazy parsing
+            var lazyParsedTree = loadedAnalyzer.treeOf(file);
+
+            // 8. Assert the returned tree is not null
+            assertNotNull(lazyParsedTree, "treeOf should return non-null tree after lazy parsing");
+
+            // 9. Call snapshotState() and verify tree is now in the snapshot's fileState
+            var afterLazySnapshot = loadedAnalyzer.snapshotState();
+            var afterLazyFileProps = afterLazySnapshot.fileState().get(file);
+            assertNotNull(afterLazyFileProps, "File properties should exist after lazy parsing");
+            assertNotNull(
+                    afterLazyFileProps.parsedTree(), "Parsed tree should be present in snapshot after lazy parsing");
+        }
+    }
+
+    @Test
     void roundTripTypeHierarchy(@TempDir Path tempDir) throws Exception {
         var builder = InlineTestProjectCreator.code(
                 """
@@ -457,6 +514,55 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void roundTripAncestorTriggeredSubtypes(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                interface Base {}
+                class Child1 implements Base {}
+                class Child2 implements Base {}
+                """,
+                "src/main/java/com/example/Hierarchy.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            CodeUnit baseCu = analyzer.getDefinitions("com.example.Base").getFirst();
+            CodeUnit child1Cu = analyzer.getDefinitions("com.example.Child1").getFirst();
+            CodeUnit child2Cu = analyzer.getDefinitions("com.example.Child2").getFirst();
+
+            // 1. Trigger lazy supertype computation for the children.
+            // This also populates the reverse subtype index in the transient cache as a side-effect.
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            List<CodeUnit> parents1 = hierarchy.getDirectAncestors(child1Cu);
+            List<CodeUnit> parents2 = hierarchy.getDirectAncestors(child2Cu);
+
+            assertTrue(parents1.contains(baseCu));
+            assertTrue(parents2.contains(baseCu));
+
+            // 2. Snapshot the state and verify the reverse index (subtypes) was merged.
+            TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
+            Set<CodeUnit> subtypesInSnapshot = snapshot.typeHierarchyGraph().subtypesOf(baseCu);
+            assertTrue(subtypesInSnapshot.contains(child1Cu), "Snapshot should contain Child1 as subtype of Base");
+            assertTrue(subtypesInSnapshot.contains(child2Cu), "Snapshot should contain Child2 as subtype of Base");
+
+            // 3. Round-trip serialization
+            Path storage = tempDir.resolve("ancestor_test.smile.gz");
+            TreeSitterStateIO.save(snapshot, storage);
+
+            var loadedStateOpt = TreeSitterStateIO.load(storage);
+            assertTrue(loadedStateOpt.isPresent());
+            var loadedState = loadedStateOpt.get();
+
+            // 4. Verify reloaded state contains the subtype mappings
+            Set<CodeUnit> reloadedSubtypes = loadedState.typeHierarchyGraph().subtypesOf(baseCu);
+            assertTrue(reloadedSubtypes.contains(child1Cu));
+            assertTrue(reloadedSubtypes.contains(child2Cu));
+            assertEquals(2, reloadedSubtypes.size());
+        }
+    }
+
+    @Test
     void roundTripImportsAndReverseImports(@TempDir Path tempDir) throws Exception {
         var root = tempDir.resolve("root");
         Files.createDirectories(root);
@@ -490,6 +596,68 @@ public class TreeSitterStateIOTest {
                 state.importGraph().reverseImports(),
                 loaded.importGraph().reverseImports(),
                 "Reverse imports should match after round-trip");
+    }
+
+    @Test
+    void descendantsRecoveredFromPersistedSupertypesEvenIfSubtypeGraphMissing() throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                interface Base {}
+                class Child1 implements Base {}
+                class Child2 implements Base {}
+                """,
+                "src/main/java/com/example/Hierarchy.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            CodeUnit baseOriginal = analyzer.getDefinitions("com.example.Base").getFirst();
+            CodeUnit child1Original =
+                    analyzer.getDefinitions("com.example.Child1").getFirst();
+            CodeUnit child2Original =
+                    analyzer.getDefinitions("com.example.Child2").getFirst();
+
+            // 1. Trigger ancestor computation for children to ensure state has SuperTypeInfo.Computed
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            hierarchy.getDirectAncestors(child1Original);
+            hierarchy.getDirectAncestors(child2Original);
+
+            // 2. Create a snapshot and convert to DTO
+            var snapshot = analyzer.snapshotState();
+            var dto = TreeSitterStateIO.toDto(snapshot);
+
+            // 3. Create a "legacy" DTO that omits the explicit subtype/supertype graph
+            // This simulates snapshots where hierarchy graphs were not persisted or were empty,
+            // but CodeUnitProperties.superTypes.supertypesComputed is still true.
+            var legacyDto = new TreeSitterStateIO.AnalyzerStateDto(
+                    dto.symbolIndex(),
+                    dto.codeUnitState(),
+                    dto.fileState(),
+                    dto.imports(),
+                    dto.reverseImports(),
+                    null, // supertypes graph omitted
+                    null, // subtypes graph omitted
+                    dto.symbolKeys(),
+                    dto.snapshotEpochNanos());
+
+            var legacyState = TreeSitterStateIO.fromDto(legacyDto);
+
+            // 4. Load analyzer from legacy state
+            JavaAnalyzer loaded = JavaAnalyzer.fromState(project, legacyState, IAnalyzer.ProgressListener.NOOP);
+
+            // 5. Resolve Base from the loaded analyzer
+            CodeUnit baseLoaded = loaded.getDefinitions("com.example.Base").getFirst();
+
+            // 6. Query descendants. Even though the subtypes graph was null/empty in the DTO,
+            // the analyzer should be able to recover them from the computed supertypes in CodeUnitProperties.
+            Set<CodeUnit> descendants =
+                    loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseLoaded);
+
+            assertEquals(2, descendants.size(), "Should find both descendants via supertype back-links");
+            assertTrue(descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child1")), "Missing Child1");
+            assertTrue(descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child2")), "Missing Child2");
+        }
     }
 
     @Test

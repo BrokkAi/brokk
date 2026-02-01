@@ -1054,7 +1054,18 @@ public final class HeadlessExecutorMain {
                 }
             }
 
-            var jobSpec = JobSpec.of(
+            // Determine if this is an ISSUE-mode job based on tags and honor explicit skipVerification only for ISSUE.
+            boolean isIssueMode = safeTags.getOrDefault("mode", "").equalsIgnoreCase("ISSUE");
+            boolean skipVerificationFlag = false;
+            if (isIssueMode) {
+                skipVerificationFlag = Boolean.TRUE.equals(jobSpecRequest.skipVerification());
+            }
+
+            var overrides =
+                    new JobSpec.ModelOverrides(reasoningLevel, reasoningLevelCode, temperature, temperatureCode);
+
+            // Explicitly construct JobSpec so we can pass skipVerification flag and preserve default max attempts.
+            var jobSpec = new JobSpec(
                     jobSpecRequest.taskInput(),
                     jobSpecRequest.autoCommit(),
                     jobSpecRequest.autoCompress(),
@@ -1063,7 +1074,14 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.codeModel(),
                     preScanFlag,
                     safeTags,
-                    new JobSpec.ModelOverrides(reasoningLevel, reasoningLevelCode, temperature, temperatureCode));
+                    /* sourceBranch= */ null,
+                    /* targetBranch= */ null,
+                    overrides.reasoningLevel(),
+                    overrides.reasoningLevelCode(),
+                    overrides.temperature(),
+                    overrides.temperatureCode(),
+                    skipVerificationFlag,
+                    JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
@@ -1588,7 +1606,8 @@ public final class HeadlessExecutorMain {
             @Nullable String reasoningLevel,
             @Nullable String reasoningLevelCode,
             @Nullable Double temperature,
-            @Nullable Double temperatureCode) {}
+            @Nullable Double temperatureCode,
+            @Nullable Boolean skipVerification) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 
@@ -1622,7 +1641,8 @@ public final class HeadlessExecutorMain {
             @Nullable String plannerModel,
             @Nullable String codeModel,
             @Nullable Map<String, Object> buildSettings,
-            @Nullable Integer maxIssueFixAttempts) {}
+            @Nullable Integer maxIssueFixAttempts,
+            @Nullable Boolean skipVerification) {}
 
     /**
      * POST /v1/jobs/issue - Convenience endpoint for starting an ISSUE mode job.
@@ -1682,6 +1702,8 @@ public final class HeadlessExecutorMain {
                 buildSettingsJson = OBJECT_MAPPER.writeValueAsString(request.buildSettings());
             }
 
+            boolean skipVerificationFlag = Boolean.TRUE.equals(request.skipVerification());
+
             var jobSpec = JobSpec.ofIssue(
                     Objects.requireNonNull(request.plannerModel()),
                     request.codeModel() != null ? request.codeModel().strip() : null,
@@ -1690,7 +1712,8 @@ public final class HeadlessExecutorMain {
                     Objects.requireNonNull(request.repo()),
                     request.issueNumber(),
                     buildSettingsJson,
-                    maxAttempts);
+                    maxAttempts,
+                    skipVerificationFlag);
 
             // Create or get job
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);

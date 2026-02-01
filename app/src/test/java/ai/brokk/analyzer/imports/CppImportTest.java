@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.ImportInfo;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
@@ -251,6 +252,92 @@ class CppImportTest {
 
             assertTrue(
                     importedUnits.isEmpty(), "Includes that escape project root should not resolve to any CodeUnits");
+        }
+    }
+
+    @Test
+    void testCouldImportFile_quotedIncludeMatches() throws Exception {
+        // Test: #include "utils/helper.h" should return true for utils/helper.h
+        String headerContent = "void helperFunction();";
+        String sourceContent =
+                """
+                #include "utils/helper.h"
+
+                int main() { return 0; }
+                """;
+
+        try (IProject project = code(headerContent, "utils/helper.h")
+                .addFileContents(sourceContent, "main.cpp")
+                .build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
+            ProjectFile targetFile = new ProjectFile(project.getRoot(), "utils/helper.h");
+
+            List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+
+            assertTrue(result, "#include \"utils/helper.h\" should match utils/helper.h");
+        }
+    }
+
+    @Test
+    void testCouldImportFile_angleBracketSystemIncludes() throws Exception {
+        // Test: Angle bracket includes (<vector>) are system includes and should never match
+        // project files because they reference external headers.
+        String headerContent = "void myFunction();";
+        String sourceContent =
+                """
+                #include <myheader.h>
+                #include <vector>
+
+                int main() { return 0; }
+                """;
+
+        try (IProject project = code(headerContent, "myheader.h")
+                .addFileContents(sourceContent, "main.cpp")
+                .build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile sourceFile = new ProjectFile(project.getRoot(), "main.cpp");
+            ProjectFile targetFile = new ProjectFile(project.getRoot(), "myheader.h");
+
+            List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+
+            assertFalse(result, "System includes (angle brackets) should not match project files");
+        }
+    }
+
+    @Test
+    void testCouldImportFile_relativeIncludeResolvesCorrectly() throws Exception {
+        // Test: #include "helper.h" should match both helper.h and src/helper.h (suffix match)
+        String headerContent = "void helperFunction();";
+        String sourceContent =
+                """
+                #include "helper.h"
+
+                int main() { return 0; }
+                """;
+
+        try (IProject project = code(headerContent, "src/helper.h")
+                .addFileContents(sourceContent, "src/main.cpp")
+                .build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            analyzer = (TreeSitterAnalyzer) analyzer.update();
+
+            ProjectFile sourceFile = new ProjectFile(project.getRoot(), "src/main.cpp");
+            ProjectFile targetFile = new ProjectFile(project.getRoot(), "src/helper.h");
+
+            List<ImportInfo> imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+
+            assertTrue(result, "#include \"helper.h\" should match src/helper.h via suffix match");
         }
     }
 }

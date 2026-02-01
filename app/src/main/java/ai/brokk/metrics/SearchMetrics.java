@@ -87,11 +87,10 @@ public interface SearchMetrics {
     /**
      * Serialize metrics along with the basic result fields into JSON.
      *
-     * @param query the original query
-     * @param turns number of turns (AI messages)
+     * @param query   the original query
      * @param success whether the search succeeded
      */
-    String toJson(String query, int turns, boolean success);
+    String toJson(String query, boolean success);
 
     /**
      * Information about a fragment in the workspace.
@@ -156,7 +155,7 @@ public interface SearchMetrics {
                 long timeMs, int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {}
 
         @Override
-        public String toJson(String query, int turns, boolean success) {
+        public String toJson(String query, boolean success) {
             // Return empty object as requested in PR review
             return "{}";
         }
@@ -280,7 +279,7 @@ public interface SearchMetrics {
 
         /** Generate enhanced JSON output with metrics. Maintains backward compatibility. */
         @Override
-        public synchronized String toJson(String query, int turns, boolean success) {
+        public synchronized String toJson(String query, boolean success) {
             // Compute elapsed_ms as sum of all turn times (LLM call times)
             long elapsedMs =
                     this.turns.stream().mapToLong(TurnMetrics::getTime_ms).sum();
@@ -316,7 +315,6 @@ public interface SearchMetrics {
             var result = new SearchResult(
                     query,
                     foundFiles,
-                    turns,
                     elapsedMs,
                     success,
                     contextScan,
@@ -338,7 +336,6 @@ public interface SearchMetrics {
         public record SearchResult(
                 String query,
                 List<String> found_files,
-                int turns,
                 long elapsed_ms,
                 boolean success,
                 ContextScanInfo context_scan,
@@ -347,7 +344,11 @@ public interface SearchMetrics {
                 @Nullable String stop_reason,
                 int final_workspace_size,
                 @Nullable List<String> final_workspace_files,
-                @Nullable List<FragmentInfo> final_workspace_fragments) {}
+                @Nullable List<FragmentInfo> final_workspace_fragments) {
+            public int turns() {
+                return turns_detail.size();
+            }
+        }
 
         /** Context scan metrics. */
         public record ContextScanInfo(

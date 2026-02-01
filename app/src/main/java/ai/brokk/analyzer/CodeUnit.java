@@ -52,15 +52,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this(source, kind, packageName, shortName, null);
     }
 
-    /** Return the FQCN corresponding to the given FQMN */
-    public static String toClassname(String fqMethodName) {
-        int lastDot = fqMethodName.lastIndexOf('.');
-        if (lastDot == -1) {
-            return fqMethodName;
-        }
-        return fqMethodName.substring(0, lastDot);
-    }
-
     /**
      * Returns the fully qualified name constructed from package and short name. For MODULE, shortName is often a fixed
      * placeholder like "_module_", so fqName becomes "packageName._module_".
@@ -72,14 +63,21 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     /**
-     * Returns just the last symbol name component. For CLASS: simple class name (C, C$D). For FUNCTION/FIELD: member
-     * name (foo from a.b.C.foo). For MODULE: the shortName itself (e.g., "_module_").
+     * Returns just the last symbol name component. For CLASS: innermost class name (e.g., `D` from `Outer$D` or `Inner`
+     * from `Outer.Inner`). For FUNCTION/FIELD: member name (foo from a.b.C.foo). For MODULE: the shortName itself (e.g.,
+     * "_module_").
      *
      * @return just the last symbol name component.
      */
     public String identifier() {
         return switch (kind) {
-            case CLASS -> shortName; // Simple class name, potentially including nesting (C, C$D)
+            case CLASS -> {
+                // Extract simple name from potentially nested class (e.g., "AInner" from "A.AInner" or "A$AInner")
+                int lastDot = shortName.lastIndexOf('.');
+                int lastDollar = shortName.lastIndexOf('$');
+                int lastSep = Math.max(lastDot, lastDollar);
+                yield lastSep >= 0 ? shortName.substring(lastSep + 1) : shortName;
+            }
             case MODULE -> shortName; // The module's own short name, e.g., "_module_"
             default -> { // FUNCTION or FIELD
                 // shortName format is "Class.member" or "simpleFunction"
@@ -286,10 +284,4 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public static CodeUnit module(ProjectFile source, String packageName, String shortName) {
         return new CodeUnit(source, CodeUnitType.MODULE, packageName, shortName);
     }
-
-    // Helper records for parsing, made public for external access
-    public record Tuple2<T1, T2>(T1 _1, T2 _2) {}
-
-    // Package, className, identifier - used for language-specific parsing
-    public record Tuple3<T1, T2, T3>(T1 _1, T2 _2, T3 _3) {}
 }

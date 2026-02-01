@@ -3,6 +3,7 @@ package ai.brokk.gui.dialogs;
 import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -1668,7 +1669,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
                     var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions, meta);
-                    var llm = cm.getLlm(model, "Ask", true);
+                    var options = new Llm.Options(model, "Ask", TaskResult.Type.ASK).withPartialResponses();
+                    var llm = cm.getLlm(options);
                     llm.setOutput(dialogIo);
                     tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
                 } else {
@@ -1707,7 +1709,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             if (!fContextFilter.isBlank() && !llmOutput.isBlank()) {
                 try {
                     var quickestModel = cm.getService().quickestModel();
-                    var filterLlm = cm.getLlm(quickestModel, "ContextFilter");
+                    var filterLlm = cm.getLlm(quickestModel, "ContextFilter", TaskResult.Type.CLASSIFY);
                     filterLlm.setOutput(dialogIo);
                     boolean keep = RelevanceClassifier.isRelevant(filterLlm, contextFilter, llmOutput);
                     if (!keep) {

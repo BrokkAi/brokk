@@ -2,6 +2,7 @@ package ai.brokk.difftool.ui.unified;
 
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.util.ContentDiffUtils;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.Patch;
@@ -14,7 +15,6 @@ import org.apache.logging.log4j.Logger;
 /** Generates unified diff documents from buffer sources with support for both standard and full context modes. */
 public class UnifiedDiffGenerator {
     private static final Logger logger = LogManager.getLogger(UnifiedDiffGenerator.class);
-    private static final int STANDARD_CONTEXT_LINES = 3;
 
     /**
      * Generate a unified diff document from a JMDiffNode (preferred method). This uses the pre-processed diff
@@ -127,7 +127,7 @@ public class UnifiedDiffGenerator {
 
         // Use UnifiedDiffUtils to generate standard unified diff
         var unifiedLines = UnifiedDiffUtils.generateUnifiedDiff(
-                leftSource.title(), rightSource.title(), leftLines, patch, STANDARD_CONTEXT_LINES);
+                leftSource.title(), rightSource.title(), leftLines, patch, ContentDiffUtils.STANDARD_CONTEXT_LINES);
 
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         int leftLineNum = 0;
@@ -224,8 +224,8 @@ public class UnifiedDiffGenerator {
             boolean showHunkSeparators) {
 
         // Use UnifiedDiffUtils to generate standard unified diff from the existing patch
-        var unifiedLines =
-                UnifiedDiffUtils.generateUnifiedDiff(leftTitle, rightTitle, leftLines, patch, STANDARD_CONTEXT_LINES);
+        var unifiedLines = UnifiedDiffUtils.generateUnifiedDiff(
+                leftTitle, rightTitle, leftLines, patch, ContentDiffUtils.STANDARD_CONTEXT_LINES);
 
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         int leftLineNum = 0;
@@ -624,7 +624,7 @@ public class UnifiedDiffGenerator {
             textBuilder.append(" ").append('\n');
 
             // Add context lines before the change (3 lines)
-            int contextStart = Math.max(0, delta.getSource().getPosition() - STANDARD_CONTEXT_LINES);
+            int contextStart = Math.max(0, delta.getSource().getPosition() - ContentDiffUtils.STANDARD_CONTEXT_LINES);
             for (int i = contextStart; i < delta.getSource().getPosition(); i++) {
                 if (i < leftLines.size()) {
                     // Context lines are already normalized from leftLines processing
@@ -646,7 +646,7 @@ public class UnifiedDiffGenerator {
 
             // Add context lines after the change (3 lines)
             int sourceEnd = delta.getSource().getPosition() + delta.getSource().size();
-            int contextEnd = Math.min(leftLines.size(), sourceEnd + STANDARD_CONTEXT_LINES);
+            int contextEnd = Math.min(leftLines.size(), sourceEnd + ContentDiffUtils.STANDARD_CONTEXT_LINES);
             for (int i = sourceEnd; i < contextEnd; i++) {
                 if (i < leftLines.size()) {
                     // Context lines are already normalized from leftLines processing

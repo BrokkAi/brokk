@@ -291,9 +291,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
 
-        historyTableComponent.addSelectionListener(contextFromHistory -> {
-            if (!contextFromHistory.equals(contextManager.selectedContext())) {
-                contextManager.setSelectedContext(contextFromHistory);
+        historyTableComponent.addSelectionListener(ctx -> {
+            if (!ctx.equals(contextManager.selectedContext())) {
+                // https://github.com/BrokkAi/brokk/issues/2531
+                if (contextManager.getContextHistory().getHistory().contains(ctx)) {
+                    contextManager.setSelectedContext(ctx);
+                }
             }
         });
 
@@ -448,6 +451,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 contextToSelect != null ? contextToSelect.id() : "null");
 
         SwingUtilities.invokeLater(() -> {
+            // Skip rebuild if the requested context is already selected - this is just a selection echo
+            if (contextToSelect != null && contextToSelect.equals(historyTableComponent.getSelectedContext())) {
+                updateUndoRedoButtonStates();
+                return;
+            }
+
             historyTableComponent.setHistory(contextManager.getContextHistory(), contextToSelect);
             contextManager.getProject().getMainProject().sessionsListChanged();
             updateUndoRedoButtonStates();
@@ -1630,7 +1639,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             contextManager.submitLlmAction(() -> {
                 try {
                     var model = contextManager.getService().getScanModel();
-                    var llm = contextManager.getLlm(new Llm.Options(model, "Create Task List"));
+                    var llm = contextManager.getLlm(new Llm.Options(model, "Create Task List", TaskResult.Type.SEARCH));
                     llm.setOutput(chrome);
 
                     var system = new SystemMessage(

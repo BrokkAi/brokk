@@ -14,6 +14,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -57,6 +58,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -98,7 +100,6 @@ public class Chrome
 
     // Dependencies:
     final ContextManager contextManager;
-    private Context activeContext; // Track the currently displayed context
 
     // Global Undo/Redo Actions
     private final GlobalUndoAction globalUndoAction;
@@ -156,7 +157,6 @@ public class Chrome
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.previewManager = new PreviewManager(this);
-        this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI", false);
@@ -455,7 +455,7 @@ public class Chrome
 
     @Override
     public void disableActionButtons() {
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             disableHistoryPanel();
             rightPanel.getInstructionsPanel().disableButtons();
             rightPanel.getTaskListPanel().disablePlay();
@@ -465,7 +465,7 @@ public class Chrome
 
     @Override
     public void enableActionButtons() {
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             rightPanel.getInstructionsPanel().enableButtons();
             rightPanel.getTaskListPanel().enablePlay();
             blitzForgeMenuItem.setEnabled(true);
@@ -1012,8 +1012,7 @@ public class Chrome
 
     @Override
     public void contextChanged(Context newCtx) {
-        final boolean updateOutput = (!activeContext.equals(newCtx) && !contextManager.isTaskScopeInProgress());
-        activeContext = newCtx;
+        final boolean updateOutput = !contextManager.isTaskScopeInProgress();
 
         SwingUtilities.invokeLater(() -> {
             globalUndoAction.updateEnabledState();
@@ -2292,12 +2291,71 @@ public class Chrome
         updateContextHistoryTable();
     }
 
+    private static final Pattern URL_PATTERN =
+            Pattern.compile("(https?://\\S+?(?=[,.?!:;\"']?(\\s|$)))", Pattern.CASE_INSENSITIVE);
+
     @Override
     public void systemNotify(String message, String title, int messageType) {
         SwingUtilities.invokeLater(() -> {
+            Object dialogContent = buildMessageComponentWithLinks(message);
             //noinspection MagicConstant
-            JOptionPane.showMessageDialog(frame, message, title, messageType);
+            JOptionPane.showMessageDialog(frame, dialogContent, title, messageType);
         });
+    }
+
+    private Object buildMessageComponentWithLinks(String message) {
+        // Check if message contains any URLs
+        if (!URL_PATTERN.matcher(message).find()) {
+            return message;
+        }
+
+        // Split by newlines and build a vertical panel
+        var lines = message.split("\n", -1);
+        var panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setOpaque(false);
+
+        for (String line : lines) {
+            if (line.isEmpty()) {
+                // Empty line = vertical spacing
+                panel.add(Box.createVerticalStrut(10));
+                continue;
+            }
+
+            var matcher = URL_PATTERN.matcher(line);
+            if (!matcher.find()) {
+                // No URL in this line - just a JLabel
+                var label = new JLabel(line);
+                label.setAlignmentX(Component.LEFT_ALIGNMENT);
+                panel.add(label);
+            } else {
+                // Line contains URL(s) - build horizontal panel
+                matcher.reset();
+                var linePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                linePanel.setOpaque(false);
+                linePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+                int lastEnd = 0;
+                while (matcher.find()) {
+                    if (matcher.start() > lastEnd) {
+                        String textBefore = line.substring(lastEnd, matcher.start());
+                        linePanel.add(new JLabel(textBefore));
+                    }
+                    String url = matcher.group(1);
+                    linePanel.add(new BrowserLabel(url));
+                    lastEnd = matcher.end();
+                }
+
+                if (lastEnd < line.length()) {
+                    String textAfter = line.substring(lastEnd);
+                    linePanel.add(new JLabel(textAfter));
+                }
+
+                panel.add(linePanel);
+            }
+        }
+
+        return panel;
     }
 
     @Override

@@ -27,7 +27,6 @@ application {
     mainClass.set("ai.brokk.Brokk")
     applicationDefaultJvmArgs = buildList {
         // enable feature flags; JavaExec baseline supplies other args
-        add("-Dbrokk.servicetiers=true")
         add("-Dbrokk.architectshell=true")
         add("-Dwatch.service.polling=true")
         // JDK 24+ requires explicit flags for unsafe memory access and native access

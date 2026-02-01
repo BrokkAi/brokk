@@ -40,6 +40,7 @@ public class HistoryTable extends JPanel {
     private final JScrollPane scrollPane;
     private final ResetArrowLayerUI arrowLayerUI;
     private final ContextManager contextManager;
+    private boolean suppressSelectionEvents = false;
 
     @SuppressWarnings("unused")
     private final Chrome chrome;
@@ -155,6 +156,15 @@ public class HistoryTable extends JPanel {
      * Must be called on EDT.
      */
     public void setHistory(ContextHistory history, @Nullable Context contextToSelect) {
+        suppressSelectionEvents = true;
+        try {
+            setHistoryInternal(history, contextToSelect);
+        } finally {
+            suppressSelectionEvents = false;
+        }
+    }
+
+    private void setHistoryInternal(ContextHistory history, @Nullable Context contextToSelect) {
         // Reset any per-row height customizations before rebuilding
         table.setRowHeight(table.getRowHeight());
 
@@ -307,16 +317,14 @@ public class HistoryTable extends JPanel {
 
     private void setupSelectionHandler() {
         table.getSelectionModel().addListSelectionListener(e -> {
-            if (e.getValueIsAdjusting()) return;
+            if (suppressSelectionEvents) return;
             int row = table.getSelectedRow();
             if (row >= 0 && row < table.getRowCount()) {
                 Object val = model.getValueAt(row, COL_CONTEXT);
                 if (val instanceof Context ctx) {
                     selectionListeners.forEach(l -> l.accept(ctx));
-                    if (currentHistory != null) {
-                        var ds = currentHistory.getDiffService();
-                        ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
-                    }
+                    // Diff is requested by requestVisibleDiffs() for visible rows;
+                    // no need to trigger row height adjustment here which causes scroll bounce
                 } else {
                     selectionClearedListeners.forEach(Runnable::run);
                 }
@@ -380,7 +388,12 @@ public class HistoryTable extends JPanel {
                     if (row < 0) return;
                     Object val = model.getValueAt(row, COL_CONTEXT);
                     if (val instanceof Context ctx) {
-                        table.setRowSelectionInterval(row, row);
+                        suppressSelectionEvents = true;
+                        try {
+                            table.setRowSelectionInterval(row, row);
+                        } finally {
+                            suppressSelectionEvents = false;
+                        }
                         contextMenuListeners.forEach(l -> l.accept(ctx, e));
                     }
                 }
@@ -495,6 +508,18 @@ public class HistoryTable extends JPanel {
                 ds.diff(sctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(sctx)));
             }
         }
+    }
+
+    /**
+     * Returns the currently selected Context, or null if no Context row is selected.
+     */
+    public @Nullable Context getSelectedContext() {
+        int row = table.getSelectedRow();
+        if (row < 0 || row >= model.getRowCount()) {
+            return null;
+        }
+        Object val = model.getValueAt(row, COL_CONTEXT);
+        return (val instanceof Context ctx) ? ctx : null;
     }
 
     private static Point clampViewportPosition(JScrollPane sp, Point desired) {

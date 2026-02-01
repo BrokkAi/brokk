@@ -844,9 +844,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         pullBtn.setVisible(true);
 
         boolean canPush = pushPull != null && pushPull.canPush();
-        pushBtn.setEnabled(canPush && !hasUncommittedChanges);
+        boolean hasLocalChanges = res.filesChanged() > 0 || hasUncommittedChanges;
+        pushBtn.setEnabled(canPush && !hasUncommittedChanges && hasLocalChanges);
         if (hasUncommittedChanges) {
             pushBtn.setToolTipText("Commit your uncommitted changes before pushing to the remote repository");
+        } else if (!hasLocalChanges) {
+            pushBtn.setToolTipText("No changes to push");
         } else if (!canPush) {
             pushBtn.setToolTipText("No local commits to push to the remote repository");
         } else {
@@ -865,7 +868,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean isPreviewMode = currentMode == PanelMode.PREVIEW;
         boolean showPR = isPreviewMode;
 
-        boolean prBtnEnabled = isPreviewMode && !hasUncommittedChanges;
+        boolean prBtnEnabled = isPreviewMode && !hasUncommittedChanges && hasLocalChanges;
         String prBtnTooltip;
 
         if (!isPreviewMode) {
@@ -874,6 +877,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } else if (hasUncommittedChanges) {
             prBtnEnabled = false;
             prBtnTooltip = "Commit your uncommitted changes before creating a pull request";
+        } else if (!hasLocalChanges) {
+            prBtnEnabled = false;
+            prBtnTooltip = "No changes to create a pull request";
         } else if (isDefaultBranch && res.filesChanged() == 0) {
             prBtnEnabled = false;
             prBtnTooltip = "No changes to create a pull request from the default branch";
@@ -1193,7 +1199,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         // Clicking the Guided Review button (not the context menu) should prompt when a subset is selected.
-        String[] options = {"Review All Changes", "Only Selected Commits", "Cancel"};
+        String[] options = {"Review All Changes", "Review Selected Changes", "Cancel"};
         int choice = MaterialOptionPane.showOptionDialog(
                 chrome.getFrame(),
                 "Review all changes, or only the selected commits?",
@@ -1446,6 +1452,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     setMode(PanelMode.REVIEW);
                     emitReviewTabStateFromCached();
                     codeReviewPanel.displayReview(result.review(), result.context());
+                    chrome.notifyActionComplete("Guided Review is ready");
                     codeReviewPanel.setBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
                     revalidate();
