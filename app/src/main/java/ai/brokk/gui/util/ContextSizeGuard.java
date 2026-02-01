@@ -34,6 +34,21 @@ public final class ContextSizeGuard {
 
     private ContextSizeGuard() {}
 
+    /** Heuristic binary detection for Path: presence of NUL within the first 8KB. */
+    private static boolean isBinaryFile(Path path) {
+        try (var in = Files.newInputStream(path)) {
+            byte[] buf = new byte[8192];
+            int n = in.read(buf);
+            if (n <= 0) return false;
+            for (int i = 0; i < n; i++) {
+                if (buf[i] == 0) return true;
+            }
+            return false;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     public record SizeEstimate(int fileCount, long estimatedTokens, boolean isTruncated) {}
 
     /** Result of the size check, passed to the callback. */
@@ -70,6 +85,9 @@ public final class ContextSizeGuard {
                     var iterator = walk.filter(Files::isRegularFile).iterator();
                     while (iterator.hasNext() && fileCount < MAX_FILES_TO_ENUMERATE) {
                         var file = iterator.next();
+                        if (isBinaryFile(file)) {
+                            continue;
+                        }
                         try {
                             totalBytes += Files.size(file);
                             fileCount++;
@@ -84,6 +102,9 @@ public final class ContextSizeGuard {
                     logger.debug("Error walking directory {}: {}", path, e.getMessage());
                 }
             } else if (Files.isRegularFile(path)) {
+                if (pf.isBinary()) {
+                    continue;
+                }
                 try {
                     totalBytes += Files.size(path);
                     fileCount++;
