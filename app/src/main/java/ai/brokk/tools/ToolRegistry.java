@@ -204,7 +204,7 @@ public class ToolRegistry {
         } catch (InterruptedException ie) {
             throw ie;
         } catch (Exception e) {
-            GlobalExceptionHandler.handle(e, st -> {});
+            GlobalExceptionHandler.handle(e);
             return ToolExecutionResult.internalError(
                     request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
         }

@@ -1,7 +1,6 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.concurrent.ExecutorsUtil;
-import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.TextCanonicalizer;
@@ -560,7 +559,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
             for (var pf : filesToProcess) {
-                CompletableFuture<Void> future = LoggingFuture.supplyAsync(
+                // we do our own exception handling so LoggingFuture is not appropriate here
+                CompletableFuture<Void> future = CompletableFuture.supplyAsync(
                                 () -> {
                                     totalFilesAttempted.incrementAndGet();
                                     return readFileBytes(pf, timing);
