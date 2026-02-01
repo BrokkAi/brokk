@@ -451,6 +451,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 contextToSelect != null ? contextToSelect.id() : "null");
 
         SwingUtilities.invokeLater(() -> {
+            // Skip rebuild if the requested context is already selected - this is just a selection echo
+            if (contextToSelect != null && contextToSelect.equals(historyTableComponent.getSelectedContext())) {
+                updateUndoRedoButtonStates();
+                return;
+            }
+
             historyTableComponent.setHistory(contextManager.getContextHistory(), contextToSelect);
             contextManager.getProject().getMainProject().sessionsListChanged();
             updateUndoRedoButtonStates();
