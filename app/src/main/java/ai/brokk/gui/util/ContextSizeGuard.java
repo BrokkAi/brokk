@@ -2,6 +2,7 @@ package ai.brokk.gui.util;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.BrokkFile;
+import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -70,6 +71,9 @@ public final class ContextSizeGuard {
                     var iterator = walk.filter(Files::isRegularFile).iterator();
                     while (iterator.hasNext() && fileCount < MAX_FILES_TO_ENUMERATE) {
                         var file = iterator.next();
+                        if (new ExternalFile(file.toAbsolutePath()).isBinary()) {
+                            continue;
+                        }
                         try {
                             totalBytes += Files.size(file);
                             fileCount++;
@@ -84,6 +88,9 @@ public final class ContextSizeGuard {
                     logger.debug("Error walking directory {}: {}", path, e.getMessage());
                 }
             } else if (Files.isRegularFile(path)) {
+                if (pf.isBinary()) {
+                    continue;
+                }
                 try {
                     totalBytes += Files.size(path);
                     fileCount++;
