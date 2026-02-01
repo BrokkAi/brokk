@@ -25,7 +25,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import java.awt.Component;
 import java.awt.Image;
 import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.io.File;
 import java.io.IOException;
@@ -539,18 +538,8 @@ public class ContextActionsHandler {
     @Blocking
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
         var content = getSelectedContent(selectedFragments);
-        var sel = new StringSelection(content);
-        var cb = Chrome.getSystemClipboardSafe();
-        if (cb == null) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Clipboard temporarily unavailable");
-            return;
-        }
-        try {
-            cb.setContents(sel, sel);
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
-        } catch (IllegalStateException e) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Clipboard temporarily unavailable");
-        }
+        contextManager.copyToClipboard(content);
+        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
     }
 
     @Blocking

@@ -36,7 +36,6 @@ import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -1376,8 +1375,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 IssueDetails details = issueService.loadDetails(header.id());
                 String body = details.markdownBody();
                 if (!body.isBlank()) {
-                    StringSelection stringSelection = new StringSelection(body);
-                    Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
+                    contextManager.copyToClipboard(body);
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Issue " + header.id() + " description copied to clipboard.");

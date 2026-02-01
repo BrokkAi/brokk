@@ -1900,9 +1900,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         if (!taskTexts.isEmpty()) {
-            String clipboardText = String.join("\n", taskTexts);
-            StringSelection selection = new StringSelection(clipboardText);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+            cm.copyToClipboard(String.join("\n", taskTexts));
         }
     }
 

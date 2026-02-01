@@ -15,6 +15,8 @@ import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import java.awt.*;
+import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.util.Collection;
 import java.util.List;
@@ -39,6 +41,32 @@ public interface IContextManager {
 
     default boolean undoContext() throws InterruptedException {
         throw new UnsupportedOperationException();
+    }
+
+    default void copyToClipboard(String textToCopy) {
+        var selection = new StringSelection(textToCopy);
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        int maxAttempts = 3;
+        int delayMs = 50;
+
+        for (int i = 0; i < maxAttempts; i++) {
+            try {
+                clipboard.setContents(selection, selection);
+                return;
+            } catch (IllegalStateException e) {
+                if (i == maxAttempts - 1) {
+                    logger.warn("Failed to copy to clipboard after {} attempts", maxAttempts, e);
+                    getIo().showNotification(IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
+                    break;
+                }
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
     }
 
     /** Callback interface for analyzer update events. */

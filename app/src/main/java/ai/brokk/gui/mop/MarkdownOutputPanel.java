@@ -16,7 +16,6 @@ import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -334,9 +333,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     public void copy() {
         String selectedText = getSelectedText();
         String textToCopy = selectedText.isEmpty() ? getDisplayedText() : selectedText;
-        if (!textToCopy.isEmpty()) {
-            var selection = new StringSelection(textToCopy);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, selection);
+        if (!textToCopy.isEmpty() && currentContextManager != null) {
+            currentContextManager.copyToClipboard(textToCopy);
         }
     }
 
