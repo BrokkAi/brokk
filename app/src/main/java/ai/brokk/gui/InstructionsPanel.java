@@ -491,7 +491,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         applyAdvancedMode(GlobalUiSettings.isAdvancedMode());
 
         // Subscribe to events
-        contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
+        contextManager.addServiceReloadListener(() -> LoggingFuture.runVirtual(this::updateButtonStates));
         contextManager.addContextListener(this);
     }
 
@@ -1867,9 +1867,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
+        assert SwingUtilities.isEventDispatchThread();
         final var modelToUse = selectDropdownModelOrShowError("Ask");
         if (modelToUse == null) {
-            updateButtonStates();
+            LoggingFuture.runVirtual(this::updateButtonStates);
             return;
         }
         prepareAndRunAskCommand(modelToUse, input);
@@ -1917,10 +1918,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query, String action) {
+        assert SwingUtilities.isEventDispatchThread();
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
-            updateButtonStates();
+            LoggingFuture.runVirtual(this::updateButtonStates);
             return;
         }
 
@@ -2104,11 +2106,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Called when actions complete.
      */
     private void updateButtonStates() {
-        SwingUtilities.invokeLater(() -> {
-            // Check if service is online
-            var service = contextManager.getService();
-            boolean serviceIsOnline = service.isOnline();
+        assert !SwingUtilities.isEventDispatchThread();
+        // Check if service is online
+        var service = contextManager.getService();
+        boolean serviceIsOnline = service.isOnline();
 
+        SwingUtilities.invokeLater(() -> {
             if (!serviceIsOnline) {
                 // Service is offline: show offline state
                 actionButton.showOfflineMode();
@@ -2213,6 +2216,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void onActionButtonPressed() {
+        assert SwingUtilities.isEventDispatchThread();
         if (isActionRunning()) {
             // Stop action
             chrome.getContextManager().interruptLlmAction();
@@ -2221,10 +2225,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             switch (storedAction) {
                 case ACTION_CODE -> {
                     var model = selectDropdownModelOrShowError("Code");
-                    if (model != null) {
-                        prepareAndRunCodeCommand(model);
+                    if (model == null) {
+                        LoggingFuture.runVirtual(this::updateButtonStates);
                     } else {
-                        updateButtonStates();
+                        prepareAndRunCodeCommand(model);
                     }
                 }
                 case ACTION_LUTZ -> runSearchCommand();
