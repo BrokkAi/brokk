@@ -83,6 +83,12 @@ public class SearchPrompts {
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ANSWER);
             }
+        },
+        CODE_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.CODE);
+            }
         };
 
         public abstract Set<Terminal> terminals();
@@ -625,6 +631,20 @@ public class SearchPrompts {
                     **Verification**
                     **Plan** (explicit step-by-step; in **Plan**, name the key files/modules/classes/methods to change only if supported by the input or discovered from the repo; otherwise ask in **Open Questions**)
                     """);
+            case CODE_ONLY ->
+                new TerminalObjective(
+                        "task",
+                        """
+                    Gather the minimum context required to implement the task, then invoke Code Agent.
+
+                    %s
+
+                    %s
+
+                    Finalize with callCodeAgent(String instructions) once the Workspace contains
+                    sufficient context for the Code Agent to implement the change.
+                    """
+                                .formatted(FINALIZATION_INVARIANT, WORKSPACE_CONTEXT_GUIDANCE));
         };
     }
 }

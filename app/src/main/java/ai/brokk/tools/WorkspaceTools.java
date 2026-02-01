@@ -237,7 +237,7 @@ public class WorkspaceTools {
         var protectedFragments = NullnessUtil.castNonNull(partitioned.get(false));
 
         // Merge explanations for successfully dropped fragments (new overwrites old)
-        var existingDiscardedMap = context.getDiscardedFragmentsNote();
+        var existingDiscardedMap = context.getDiscardedFragmentsNotes();
         Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
         for (var f : toDrop) {
             var removal = idToRemoval.get(f.id());
