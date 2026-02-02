@@ -3815,7 +3815,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             });
 
             if (cu.isModule()) {
-                moduleKeyCache.get(cu.fqName(), k -> finalMergeKey);
+                // Assignment is here to pass linting
+                var unused = moduleKeyCache.get(cu.fqName(), k -> finalMergeKey);
             }
         });
 
