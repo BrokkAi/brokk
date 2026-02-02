@@ -96,6 +96,11 @@ public final class BrokkCli implements Callable<Integer> {
                 names = "--autocommit",
                 description = "Automatically commit changes after a successful task. Default: false.")
         boolean autocommit = false;
+
+        @CommandLine.Option(
+                names = "--new-session",
+                description = "Create a fresh session instead of resuming the most recent one. Default: false.")
+        boolean newSession = false;
     }
 
     @CommandLine.ArgGroup(exclusive = false)
@@ -460,16 +465,16 @@ public final class BrokkCli implements Callable<Integer> {
                 || projectConfig.testAllCmd != null
                 || projectConfig.testSomeCmd != null;
         var existingDetails = project.loadBuildDetails();
-        BuildAgent.BuildDetails buildDetailsToUse;
+        BuildAgent.BuildDetails bd;
 
         if (hasCliDetails) {
-            buildDetailsToUse = createBuildDetails();
+            bd = createBuildDetails();
         } else {
-            buildDetailsToUse = existingDetails.orElse(BuildAgent.BuildDetails.EMPTY);
+            bd = existingDetails.orElse(BuildAgent.BuildDetails.EMPTY);
         }
 
         // Validate build details for coding/build modes
-        if ((code || lutz || build) && buildDetailsToUse.equals(BuildAgent.BuildDetails.EMPTY)) {
+        if ((code || lutz || build) && bd.equals(BuildAgent.BuildDetails.EMPTY)) {
             String modeName = code ? "--code" : (lutz ? "--lutz" : "--build");
             System.err.printf(
                     """
@@ -493,7 +498,11 @@ public final class BrokkCli implements Callable<Integer> {
             return 1;
         }
 
-        cm.createHeadless(buildDetailsToUse);
+        if (projectConfig.newSession) {
+            cm.createHeadless(bd, true);
+        } else {
+            cm.createHeadless(bd, false);
+        }
         var service = cm.getService();
 
         // --- Model Resolution ---

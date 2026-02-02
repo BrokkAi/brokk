@@ -2685,20 +2685,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return io;
     }
 
-    public void createHeadless() {
-        createHeadless(BuildDetails.EMPTY);
+    @TestOnly
+    void createHeadless() {
+        createHeadless(BuildDetails.EMPTY, true);
     }
 
-    /**
-     * This should be invoked immediately after constructing the {@code ContextManager} but before any tasks are
-     * submitted, so that all logging and UI callbacks are routed to the desired sink.
-     */
-    public void createHeadless(BuildDetails buildDetails) {
+    public void createHeadless(BuildDetails buildDetails, boolean createNewSession) {
         this.io = new HeadlessConsole();
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
 
-        initializeCurrentSessionAndHistory(true);
+        initializeCurrentSessionAndHistory(createNewSession);
 
         cleanupOldHistoryAsync();
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
