@@ -71,17 +71,17 @@ else
             # Validate the extraction worked
             if [ "$REPO_SLUG" = "$REPO_URL" ]; then
                 echo "Warning: Could not parse repository from git remote: $REPO_URL"
-                REPO_SLUG="BrokkAi/brokk"
+                REPO_SLUG="BrokkAi/brokk-releases"
             fi
             echo "Using repository from git remote: $REPO_SLUG"
         else
             echo "Warning: Remote is not a GitHub repository: $REPO_URL"
-            REPO_SLUG="BrokkAi/brokk"
+            REPO_SLUG="BrokkAi/brokk-releases"
             echo "Using default repository: $REPO_SLUG"
         fi
     else
         echo "Warning: No git remote found, using default repository"
-        REPO_SLUG="BrokkAi/brokk"
+        REPO_SLUG="BrokkAi/brokk-releases"
 
         echo "Using default repository: $REPO_SLUG"
     fi
