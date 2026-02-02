@@ -103,10 +103,9 @@ public class TreeSitterStateIOTest {
             assertTrue(loaded instanceof CppAnalyzer, "Loaded analyzer is not CppAnalyzer");
             CppAnalyzer loadedCpp = (CppAnalyzer) loaded;
 
-            // After deserialization, verify the tree is not in the snapshot state (not persisted)
+            // After deserialization, verify file properties are present
             var loadedProps = loadedCpp.snapshotState().fileState().get(cppFile);
             assertNotNull(loadedProps);
-            assertNull(loadedProps.parsedTree(), "Expected no parse tree in the serialized state");
 
             // Modify the C++ file on disk
             Files.writeString(
@@ -317,7 +316,7 @@ public class TreeSitterStateIOTest {
                 new ImportInfo("import java.util.*;", true, null, null),
                 new ImportInfo("import foo.bar.Baz as B", false, "Baz", "B"));
 
-        var fileProps = new TreeSitterAnalyzer.FileProperties(List.of(), null, imports, false);
+        var fileProps = new TreeSitterAnalyzer.FileProperties(List.of(), imports, false);
 
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
                 HashTreePMap.<String, Set<CodeUnit>>empty(),
@@ -404,24 +403,16 @@ public class TreeSitterStateIOTest {
             // 5. Create new analyzer from loaded state
             JavaAnalyzer loadedAnalyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
 
-            // 6. Verify that initially parsedTree is null in the snapshot (trees are not serialized)
+            // 6. Verify that FileProperties exists
             var initialSnapshot = loadedAnalyzer.snapshotState();
             var initialFileProps = initialSnapshot.fileState().get(file);
             assertNotNull(initialFileProps, "File properties should exist in loaded state");
-            assertNull(initialFileProps.parsedTree(), "Parsed tree should be null in initial snapshot");
 
             // 7. Call treeOf to trigger lazy parsing
             var lazyParsedTree = loadedAnalyzer.treeOf(file);
 
             // 8. Assert the returned tree is not null
             assertNotNull(lazyParsedTree, "treeOf should return non-null tree after lazy parsing");
-
-            // 9. Call snapshotState() and verify tree is now in the snapshot's fileState
-            var afterLazySnapshot = loadedAnalyzer.snapshotState();
-            var afterLazyFileProps = afterLazySnapshot.fileState().get(file);
-            assertNotNull(afterLazyFileProps, "File properties should exist after lazy parsing");
-            assertNotNull(
-                    afterLazyFileProps.parsedTree(), "Parsed tree should be present in snapshot after lazy parsing");
         }
     }
 

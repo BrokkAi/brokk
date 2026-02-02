@@ -5,7 +5,6 @@ import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.TextCanonicalizer;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
@@ -123,17 +122,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * This is safe and intentional; clients must not assume parsedTree is non-null.
      *
      * @param topLevelCodeUnits the top-level code units.
-     * @param parsedTree        the corresponding parse tree (transient; null after load from storage).
      * @param importStatements  imports found on this file.
      */
     public record FileProperties(
-            List<CodeUnit> topLevelCodeUnits,
-            @JsonIgnore @Nullable TSTree parsedTree,
-            List<ImportInfo> importStatements,
-            boolean containsTests) {
+            List<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
 
         public static FileProperties empty() {
-            return new FileProperties(Collections.emptyList(), null, Collections.emptyList(), false);
+            return new FileProperties(Collections.emptyList(), Collections.emptyList(), false);
         }
     }
 
@@ -220,7 +215,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, Set<CodeUnit>> codeUnitsBySymbol,
             List<ImportInfo> importStatements,
-            @Nullable TSTree parsedTree,
             boolean containsTests) {}
 
     // Public record for stage timing information exposed to external tools
@@ -623,10 +617,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             cache.typeHierarchy().forEachForward(superUpdates::put);
             cache.typeHierarchy().forEachReverse((cu, newSubtypes) -> {
-                subUpdates.compute(cu, (k, existing) -> {
-                    if (existing == null) return new HashSet<>(newSubtypes);
+                subUpdates.merge(cu, new HashSet<>(newSubtypes), (existing, added) -> {
                     var merged = new HashSet<>(existing);
-                    merged.addAll(newSubtypes);
+                    merged.addAll(added);
                     return merged;
                 });
             });
@@ -647,30 +640,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             nextImportGraph = ImportGraph.from(forwardUpdates, reverseUpdates);
         }
 
-        PMap<ProjectFile, FileProperties> nextFileState = this.state.fileState();
-        if (!cache.trees().isEmpty()) {
-            Map<ProjectFile, FileProperties> fileUpdates = new HashMap<>();
-            cache.trees().forEach((file, tree) -> {
-                FileProperties existing = this.state.fileState().get(file);
-                if (existing != null && existing.parsedTree() == null) {
-                    fileUpdates.put(
-                            file,
-                            new FileProperties(
-                                    existing.topLevelCodeUnits(),
-                                    tree,
-                                    existing.importStatements(),
-                                    existing.containsTests()));
-                }
-            });
-            if (!fileUpdates.isEmpty()) {
-                nextFileState = nextFileState.plusAll(fileUpdates);
-            }
-        }
-
         return new AnalyzerState(
                 this.state.symbolIndex(),
                 this.state.codeUnitState(),
-                nextFileState,
+                this.state.fileState(),
                 nextImportGraph,
                 nextTypeHierarchyGraph,
                 this.state.symbolKeyIndex(),
@@ -835,13 +808,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Fall back to snapshot properties
-        TSTree snapshotTree = fileProperties(file).parsedTree();
-        if (snapshotTree != null) {
-            return snapshotTree;
-        }
-
-        // 3. Parse on-demand if file exists
+        // 2. Parse on-demand if file exists and cache result
         if (Files.exists(file.absPath())) {
             try {
                 byte[] bytes = readFileBytes(file, null);
@@ -1959,7 +1926,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
         if (fileBytes.length == 0) {
             log.trace("Skipping binary/empty file: {}", file);
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null, false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         }
 
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
@@ -1993,7 +1960,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), tree, false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         }
         String rootNodeType = rootNode.getType();
         log.trace("Root node type for {}: {}", file, rootNodeType);
@@ -2356,6 +2323,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     sigsForCu.add(signature);
                 }
             }
+
             var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
             var originalRange = new Range(
                     rangeNode.getStartByte(),
@@ -2369,6 +2337,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
+
             localCuByFqName.put(cu.fqName(), cu);
             localChildren.putIfAbsent(cu, new ArrayList<>());
 
@@ -2513,7 +2482,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportInfos),
-                tree,
                 containsTests);
     }
 
@@ -2527,7 +2495,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Determines how a parent node's name should appear in the classChain.
-     * By default delegates to determineClassName, but can be overridden to add type markers
+     * By default, delegates to determineClassName, but can be overridden to add type markers
      * (e.g., Python adds ":F" for functions to distinguish them from classes in the chain).
      */
     protected String determineClassChainSegmentName(String nodeType, String shortName) {
@@ -3362,7 +3330,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             // Update reverse index for BidirectionalCache manually since populator is NO-OP
             for (CodeUnit ancestor : supertypes) {
                 cache.typeHierarchy().updateReverse(ancestor, (existing) -> {
-                    Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    Set<CodeUnit> set = existing != null ? existing : new HashSet<>();
                     set.add(k);
                     return set;
                 });
@@ -3610,7 +3578,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 pf,
                 new FileProperties(
                         analysisResult.topLevelCUs(),
-                        analysisResult.parsedTree(),
                         analysisResult.importStatements(),
                         analysisResult.containsTests()));
 
@@ -3948,7 +3915,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 baseState.codeUnitState(),
                 baseState.fileState(),
                 baseState.importGraph(),
-                TypeHierarchyGraph.empty(),
+                baseState.typeHierarchyGraph(),
                 baseState.symbolKeyIndex(),
                 baseState.snapshotEpochNanos());
     }
