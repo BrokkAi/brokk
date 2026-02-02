@@ -2051,7 +2051,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 chrome.showOutputSpinner(spinnerText);
                 var title = input.length() > 50 ? input.substring(0, 47) + "..." : input;
-                try (var scope = cm.beginTask(input, false, "Lutz Mode: " + title)) {
+                try (var scope = cm.beginTask(input, true, "Lutz Mode: " + title)) {
                     var result = task.apply(scope);
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

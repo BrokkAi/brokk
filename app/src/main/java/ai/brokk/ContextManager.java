@@ -1533,15 +1533,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         TaskResult result;
         var title = task.title().isBlank() ? task.text() : task.title();
-        try (var scope = beginTask(prompt, true, true, "Task: " + title)) {
+        try (var scope = beginTask(prompt, true, "Task: " + title)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithScan();
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 new GitWorkflow(this).performAutoCommit(prompt);
                 var ctx = markTaskDone(result.context(), task);
-                result = result.withContext(ctx);
-                scope.append(result);
+
+                result = result.withContext(ctx); // result with task done
+                scope.append(result); // result with new history = top context
+                result = result.withContext(scope.compressTop()); // compress top context
             }
         } finally {
             // mirror panel behavior
@@ -2156,7 +2158,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
     @Override
-    public TaskScope beginTask(String input, boolean group, boolean compress, @Nullable String taskDescription) {
+    public TaskScope beginTask(String input, boolean group, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
@@ -2179,7 +2181,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
         }
 
-        return new TaskScope(group, compress, taskDescription);
+        return new TaskScope(group, taskDescription);
     }
 
     /**
@@ -2190,14 +2192,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public class TaskScope implements AutoCloseable {
         private final boolean group;
-        private final boolean compress;
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final UUID groupId = UUID.randomUUID();
         private final String groupLabel;
 
-        private TaskScope(boolean group, boolean compress, @Nullable String taskDescription) {
+        private TaskScope(boolean group, @Nullable String taskDescription) {
             this.group = group;
-            this.compress = compress;
             this.groupLabel = taskDescription == null ? "Task" : taskDescription;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
@@ -2223,7 +2223,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return result.context();
             }
 
-            // If there is literally nothing to record (no messages and no content changes), skip
+            // If there is literally nothing to record (no messages and no content changes)
             if (result.output().messages().isEmpty()) {
                 // Treat result.context() as new (right) and current topContext() as old (left)
                 Context other = liveContext();
@@ -2231,9 +2231,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (delta.isEmpty()) {
                     logger.debug("Empty TaskResult delta, skipping publish");
                     return result.context();
+                } else {
+                    // This is the "content-only change, no messages" path.
+                    // We record the checkpoint but skip conversation history.
+                    return publish(result.context());
                 }
             }
 
+            var updatedContext = publishWithHistory(result);
+
+            // prepare MOP to display new history with the next streamed message
+            // needed because after the last append (before close) the MOP should not update
+            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
+
+            return updatedContext;
+        }
+
+        private Context publishWithHistory(TaskResult result) {
+            assert !closed.get() : "TaskScope already closed";
             // push context
             logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
             var updated = result.context();
@@ -2248,10 +2263,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 contextHistory.addContextToGroup(contextId, groupId, groupLabel);
             }
 
-            // prepare MOP to display new history with the next streamed message
-            // needed because after the last append (before close) the MOP should not update
-            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
-
             return updatedContext;
         }
 
@@ -2259,10 +2270,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
          * Publishes an intermediate Context snapshot to history without finalizing a TaskResult.
          * This allows capturing checkpoints during long-running tasks.
          */
-        public void publish(Context context) {
+        public Context publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
             var newId = pushContext(currentLiveCtx -> context).id();
-            contextHistory.addContextToGroup(newId, groupId, groupLabel);
+            if (group) {
+                contextHistory.addContextToGroup(newId, groupId, groupLabel);
+            }
+            return context;
+        }
+
+        public Context compressTop() {
+            assert !closed.get() : "TaskScope already closed";
+            var ch = contextHistory;
+            var finalCtx = ch.replaceTop(ctx -> {
+                try {
+                    return compressHistory(ctx);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return ctx;
+                }
+            });
+            if (group) {
+                contextHistory.addContextToGroup(finalCtx.id(), groupId, groupLabel);
+            }
+            captureGitState(ch, finalCtx);
+            return finalCtx;
         }
 
         @Override
@@ -2284,24 +2316,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 taskScopeInProgress.set(false);
                 io.setTaskInProgress(false);
             });
-
-            if (compress) {
-                var finalCtx = ch.replaceTop(ctx -> {
-                    try {
-                        return compressHistory(ctx);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return ctx;
-                    }
-                });
-                captureGitState(ch, finalCtx);
-            }
         }
     }
 
     public class AnonymousScope extends TaskScope {
         private AnonymousScope() {
-            super(false, false, "");
+            super(false, "");
         }
 
         @Override
@@ -2310,7 +2330,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         @Override
-        public void publish(Context context) {}
+        public Context publish(Context context) {
+            return context;
+        }
 
         @Override
         public void closeInternal() {}

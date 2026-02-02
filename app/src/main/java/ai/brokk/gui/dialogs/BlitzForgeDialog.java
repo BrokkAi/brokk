@@ -1555,6 +1555,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     TaskResult postProcessResult = agent.executeWithScan();
                     scope.append(postProcessResult);
                 }
+                scope.compressTop();
             }
         });
         // Show the progress dialog (modeless)
