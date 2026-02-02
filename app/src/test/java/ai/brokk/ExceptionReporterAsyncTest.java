@@ -2,6 +2,7 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -258,11 +259,17 @@ class ExceptionReporterAsyncTest {
 
         ServiceCall call = serviceSpy.getCalls().get(0);
 
-        // Verify OS/JRE telemetry fields are present and non-empty
+        // Verify OS/JRE telemetry fields are present and match Environment methods
         assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
         assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-        assertFalse(call.optionalFields.get("osDescription").isEmpty(), "osDescription should not be empty");
-        assertFalse(call.optionalFields.get("jreDescription").isEmpty(), "jreDescription should not be empty");
+        assertEquals(
+                Environment.getOsDescription(),
+                call.optionalFields.get("osDescription"),
+                "osDescription should match Environment.getOsDescription()");
+        assertEquals(
+                Environment.getJreDescription(),
+                call.optionalFields.get("jreDescription"),
+                "jreDescription should match Environment.getJreDescription()");
 
         // Verify watch-service config fields are present
         assertTrue(call.optionalFields.containsKey("watchServiceSysProp"), "Should include watchServiceSysProp");
