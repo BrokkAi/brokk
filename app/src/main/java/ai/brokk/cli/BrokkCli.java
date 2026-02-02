@@ -46,10 +46,20 @@ public final class BrokkCli implements Callable<Integer> {
     private static final String DEFAULT_CODE_MODEL = "Flash 3";
     private static final String DEFAULT_PLAN_MODEL = "Opus 4.5";
 
+    private static final Set<String> GOAL_REQUIRED_ACTIONS = Set.of(
+            "--scan",
+            "--search",
+            "--code",
+            "--lutz",
+            "--list-symbols",
+            "--list-directory",
+            "--list-source",
+            "--list-usages");
+
     @CommandLine.Parameters(hidden = true)
     private final List<String> unmatched = new ArrayList<>();
 
-    @CommandLine.ArgGroup(exclusive = false, heading = "%nProject Configuration:%n")
+    @CommandLine.ArgGroup(exclusive = false, heading = "%nConfiguration:%n")
     private final ProjectConfig projectConfig = new ProjectConfig();
 
     static final class ProjectConfig {
@@ -62,7 +72,7 @@ public final class BrokkCli implements Callable<Integer> {
         @CommandLine.Option(
                 names = "--goal",
                 description =
-                        "Goal/prompt for the operation. Required for --scan, --code, --search. Supports @file syntax.")
+                        "Goal/prompt for the operation. Required for most actions. Supports loading from file with @path/to/file.")
         @Nullable
         String goal;
 
@@ -80,6 +90,11 @@ public final class BrokkCli implements Callable<Integer> {
                         "Mustache template for specific tests. Variables: {{#files}}, {{#classes}}, {{#fqclasses}}.")
         @Nullable
         String testSomeCmd;
+
+        @CommandLine.Option(
+                names = "--autocommit",
+                description = "Automatically commit changes after a successful task. Default: false.")
+        boolean autocommit = false;
     }
 
     @CommandLine.ArgGroup(exclusive = false)
@@ -90,11 +105,17 @@ public final class BrokkCli implements Callable<Integer> {
         @Nullable
         ContextEngineGroup contextEngine;
 
-        @CommandLine.ArgGroup(exclusive = false, validate = false, heading = "%nActions (Agentic Research):%n")
+        @CommandLine.ArgGroup(
+                exclusive = false,
+                validate = false,
+                heading = "%nActions (Agentic Research) — require --goal:%n")
         @Nullable
         AgenticResearchGroup agenticResearch;
 
-        @CommandLine.ArgGroup(exclusive = false, validate = false, heading = "%nActions (Agentic Coding):%n")
+        @CommandLine.ArgGroup(
+                exclusive = false,
+                validate = false,
+                heading = "%nActions (Agentic Coding) — require --goal (except --merge/--build):%n")
         @Nullable
         AgenticCodingGroup agenticCoding;
     }
@@ -158,11 +179,6 @@ public final class BrokkCli implements Callable<Integer> {
 
         @CommandLine.Option(names = "--build", description = "Run build verification without making changes.")
         boolean build = false;
-
-        @CommandLine.Option(
-                names = "--autocommit",
-                description = "Automatically commit changes after a successful task. Default: false.")
-        boolean autocommit = false;
     }
 
     @CommandLine.ArgGroup(exclusive = false, heading = "%nWorkspace Content (optional context):%n")
@@ -213,16 +229,22 @@ public final class BrokkCli implements Callable<Integer> {
     }
 
     private static String[] getModelFooter() {
+        var lines = new ArrayList<String>();
         try {
             var models = MainProject.loadFavoriteModels();
-            var lines = new ArrayList<String>();
             for (var model : models) {
                 lines.add("  " + model.alias() + " -> " + model.config().name());
             }
-            return lines.toArray(new String[0]);
         } catch (Exception e) {
-            return new String[] {"", "Unable to load available models."};
+            lines.add("  Unable to load available models.");
         }
+
+        lines.add("");
+        lines.add("Actions requiring --goal:");
+        lines.add(
+                "  " + String.join(", ", GOAL_REQUIRED_ACTIONS.stream().sorted().toList()));
+
+        return lines.toArray(new String[0]);
     }
 
     @Override
@@ -269,7 +291,7 @@ public final class BrokkCli implements Callable<Integer> {
         lutz = actionMode.agenticCoding != null && actionMode.agenticCoding.lutz;
         merge = actionMode.agenticCoding != null && actionMode.agenticCoding.merge;
         build = actionMode.agenticCoding != null && actionMode.agenticCoding.build;
-        autocommit = actionMode.agenticCoding != null && actionMode.agenticCoding.autocommit;
+        autocommit = projectConfig.autocommit;
 
         if (actionMode.contextEngine != null) {
             listSymbolsPatterns = actionMode.contextEngine.listSymbolsPatterns.stream()
@@ -358,18 +380,21 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Goal Validation ---
-        boolean needsGoal = scan || code || search || lutz || hasContextEngine;
+        boolean needsGoal = selectedActions.stream().anyMatch(GOAL_REQUIRED_ACTIONS::contains);
+
         if (needsGoal && (goal == null || goal.isBlank())) {
-            System.err.println(
+            System.err.printf(
                     """
                     Error: Missing required --goal.
 
-                    --goal is required for all research, coding, and context engine actions.
+                    --goal is required for the following actions:
+                      %s
 
                     Notes:
                       - You can pass a literal string: --goal "Explain how X works"
                       - You can load from a file:     --goal "@path/to/goal.txt"
-                    """);
+                    %n""",
+                    String.join(", ", GOAL_REQUIRED_ACTIONS.stream().sorted().toList()));
             return 1;
         }
 
@@ -549,7 +574,7 @@ public final class BrokkCli implements Callable<Integer> {
                         .toList();
 
                 if (!classes.isEmpty()) {
-                    System.out.println(searchTools.getClassSources(classes, finalGoal));
+                    System.out.println(searchTools.getClassSources(classes));
                 }
                 if (!methods.isEmpty()) {
                     System.out.println(searchTools.getMethodSources(methods));

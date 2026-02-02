@@ -322,16 +322,11 @@ public class SearchTools {
                     Use this when you need the complete implementation details, or if you think multiple methods in the classes may be relevant.
                     """)
     public String getClassSources(
-            @P("Fully qualified class names to retrieve the full source code for") List<String> classNames,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
+            @P("Fully qualified class names to retrieve the full source code for") List<String> classNames) {
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
             throw new IllegalArgumentException("Cannot get class sources: class names list is empty");
-        }
-        if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for getClassSources call");
         }
 
         StringBuilder result = new StringBuilder();
