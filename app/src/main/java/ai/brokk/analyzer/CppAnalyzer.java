@@ -1352,7 +1352,4 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         return identifiers;
     }
 
-    public String getCacheStatistics() {
-        return "ParsedTrees: N/A";
-    }
 }
