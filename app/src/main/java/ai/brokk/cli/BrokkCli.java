@@ -3,6 +3,7 @@ package ai.brokk.cli;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IConsoleIO.NotificationRole;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
@@ -12,6 +13,8 @@ import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
@@ -49,27 +52,20 @@ public final class BrokkCli implements Callable<Integer> {
 
     private static final Set<String> GOAL_REQUIRED_ACTIONS = Set.of(
             "--scan",
-            "--search",
             "--code",
-            "--lutz",
-            "--list-symbols",
-            "--list-directory",
-            "--list-source",
-            "--list-usages");
+            "--find-symbols",
+            "--find-usages",
+            "--fetch-source",
+            "--fetch-summary",
+            "--list-identifiers");
 
     @CommandLine.Parameters(hidden = true)
     private final List<String> unmatched = new ArrayList<>();
 
-    @CommandLine.ArgGroup(exclusive = false, heading = "%nConfiguration:%n")
-    private final ProjectConfig projectConfig = new ProjectConfig();
+    @CommandLine.ArgGroup(exclusive = false, heading = "%nTask:%n")
+    private final TaskConfig taskConfig = new TaskConfig();
 
-    static final class ProjectConfig {
-        @CommandLine.Option(
-                names = "--project",
-                defaultValue = ".",
-                description = "Path to the project root. Default: current directory.")
-        Path projectPath;
-
+    static final class TaskConfig {
         @CommandLine.Option(
                 names = "--goal",
                 description =
@@ -77,6 +73,26 @@ public final class BrokkCli implements Callable<Integer> {
         @Nullable
         String goal;
 
+        @CommandLine.Option(
+                names = "--autocommit",
+                description = "Automatically commit changes after a successful task. Default: false.")
+        boolean autocommit = false;
+
+        @CommandLine.Option(
+                names = "--new-session",
+                description = "Create a fresh session instead of resuming the most recent one. Default: false.")
+        boolean newSession = false;
+
+        @CommandLine.Option(
+                names = "--include-tests",
+                description = "Include test files in search results (usages, symbols). Default: false.")
+        boolean includeTests = false;
+    }
+
+    @CommandLine.ArgGroup(exclusive = false, heading = "%nProject Configuration (Optional):%n")
+    private final BuildTestConfig buildTestConfig = new BuildTestConfig();
+
+    static final class BuildTestConfig {
         @CommandLine.Option(names = "--build-only-cmd", description = "Build/lint command (no tests).")
         @Nullable
         String buildOnlyCmd;
@@ -91,16 +107,6 @@ public final class BrokkCli implements Callable<Integer> {
                         "Mustache template for specific tests. Variables: {{#files}}, {{#classes}}, {{#fqclasses}}.")
         @Nullable
         String testSomeCmd;
-
-        @CommandLine.Option(
-                names = "--autocommit",
-                description = "Automatically commit changes after a successful task. Default: false.")
-        boolean autocommit = false;
-
-        @CommandLine.Option(
-                names = "--new-session",
-                description = "Create a fresh session instead of resuming the most recent one. Default: false.")
-        boolean newSession = false;
     }
 
     @CommandLine.ArgGroup(exclusive = false)
@@ -114,13 +120,6 @@ public final class BrokkCli implements Callable<Integer> {
         @CommandLine.ArgGroup(
                 exclusive = false,
                 validate = false,
-                heading = "%nActions (Agentic Research) — require --goal:%n")
-        @Nullable
-        AgenticResearchGroup agenticResearch;
-
-        @CommandLine.ArgGroup(
-                exclusive = false,
-                validate = false,
                 heading = "%nActions (Agentic Coding) — require --goal (except --merge/--build):%n")
         @Nullable
         AgenticCodingGroup agenticCoding;
@@ -128,57 +127,50 @@ public final class BrokkCli implements Callable<Integer> {
 
     static final class ContextEngineGroup {
         @CommandLine.Option(
-                names = "--list-symbols",
+                names = "--scan",
+                description = "Agentic scan for relevant files and classes based on the --goal. Run this first.")
+        boolean scan;
+
+        @CommandLine.Option(
+                names = "--find-symbols",
                 split = ",",
                 description = "Standalone symbol search using comma-delimited regex patterns.")
-        List<String> listSymbolsPatterns = new ArrayList<>();
+        List<String> findSymbolsPatterns = new ArrayList<>();
 
         @CommandLine.Option(
-                names = "--list-directory",
-                description = "Lists all identifiers in each file within a directory (lightweight summary).")
-        @Nullable
-        String listDirectoryPath;
-
-        @CommandLine.Option(
-                names = "--list-source",
-                split = ",",
-                arity = "1..*",
-                description = "Returns the full source code of specific classes or methods.")
-        List<String> listSourceTargets = new ArrayList<>();
-
-        @CommandLine.Option(
-                names = "--list-usages",
+                names = "--find-usages",
                 split = ",",
                 arity = "1..*",
                 description = "Returns the source code of blocks where symbols are used.")
-        List<String> listUsagesTargets = new ArrayList<>();
+        List<String> findUsagesTargets = new ArrayList<>();
 
         @CommandLine.Option(
-                names = "--list-summary",
+                names = "--fetch-summary",
                 split = ",",
                 arity = "1..*",
                 description = "Returns all declarations (public/private) for specified files or classes.")
-        List<String> listSummaryTargets = new ArrayList<>();
-    }
+        List<String> fetchSummaryTargets = new ArrayList<>();
 
-    static final class AgenticResearchGroup {
         @CommandLine.Option(
-                names = "--scan",
-                description = "Lightweight scan for relevant files (usually run before --search).")
-        boolean scan;
+                names = "--fetch-source",
+                split = ",",
+                arity = "1..*",
+                description = "Returns the full source code of specific classes or methods.")
+        List<String> fetchSourceTargets = new ArrayList<>();
 
-        @CommandLine.Option(names = "--search", description = "Deep search/answer mode.")
-        boolean search;
+        @CommandLine.Option(
+                names = "--list-identifiers",
+                description = "Lists all identifiers in each file within a directory (lightweight summary).")
+        @Nullable
+        String listIdentifiersPath;
     }
 
     static final class AgenticCodingGroup {
-        @CommandLine.Option(names = "--code", description = "Apply changes (use when you know what files to change).")
-        boolean code;
-
         @CommandLine.Option(
-                names = "--lutz",
-                description = "Search for context, then implement the goal (use when you don't know what to change).")
-        boolean lutz;
+                names = "--code",
+                description =
+                        "Implement the changes asked for in --goal. Will search for relevant files if none are provided via --file.")
+        boolean code;
 
         @CommandLine.Option(names = "--merge", description = "Solves all merge conflicts in the repo.")
         boolean merge = false;
@@ -187,7 +179,7 @@ public final class BrokkCli implements Callable<Integer> {
         boolean build = false;
     }
 
-    @CommandLine.ArgGroup(exclusive = false, heading = "%nWorkspace Content (optional context):%n")
+    @CommandLine.ArgGroup(exclusive = false, heading = "%nWorkspace Content:%n")
     private WorkspaceContext workspaceContext = new WorkspaceContext();
 
     static final class WorkspaceContext {
@@ -199,7 +191,7 @@ public final class BrokkCli implements Callable<Integer> {
         List<String> files = new ArrayList<>();
     }
 
-    @CommandLine.ArgGroup(exclusive = false, heading = "%nModel Selection:%n")
+    @CommandLine.ArgGroup(exclusive = false, heading = "%nModel Selection (Optional):%n")
     private ModelConfig modelConfig = new ModelConfig();
 
     static final class ModelConfig {
@@ -214,6 +206,17 @@ public final class BrokkCli implements Callable<Integer> {
                 description = "Planning model alias. Default: ${DEFAULT-VALUE}.",
                 defaultValue = DEFAULT_PLAN_MODEL)
         String planModelAlias = DEFAULT_PLAN_MODEL;
+    }
+
+    @CommandLine.ArgGroup(exclusive = false, heading = "%nProject Configuration:%n")
+    private final ProjectConfig projectConfig = new ProjectConfig();
+
+    static final class ProjectConfig {
+        @CommandLine.Option(
+                names = "--project",
+                defaultValue = ".",
+                description = "Path to the project root. Default: current directory.")
+        Path projectPath;
     }
 
     private ContextManager cm;
@@ -247,8 +250,7 @@ public final class BrokkCli implements Callable<Integer> {
 
         lines.add("");
         lines.add("Actions requiring --goal:");
-        lines.add(
-                "  " + String.join(", ", GOAL_REQUIRED_ACTIONS.stream().sorted().toList()));
+        lines.add("  " + GOAL_REQUIRED_ACTIONS.stream().sorted().collect(Collectors.joining(", ")));
 
         return lines.toArray(new String[0]);
     }
@@ -263,7 +265,7 @@ public final class BrokkCli implements Callable<Integer> {
             logger.info("Using BROKK_API_KEY environment variable (length={})", effectiveBrokkKey.length());
         }
 
-        String goal = projectConfig.goal;
+        String goal = taskConfig.goal;
 
         // --- Expand @file syntax for goal ---
         if (goal != null) {
@@ -279,96 +281,67 @@ public final class BrokkCli implements Callable<Integer> {
         // --- Mode Mapping & Validation ---
         boolean scan;
         boolean code;
-        boolean search;
-        boolean lutz;
         boolean merge;
         boolean build;
         boolean autocommit;
 
-        List<String> listSymbolsPatterns;
-        @Nullable String listDirectoryPath;
-        List<String> listSourceTargets;
-        List<String> listUsagesTargets;
-        List<String> listSummaryTargets;
+        List<String> findSymbolsPatterns;
+        @Nullable String listIdentifiersPath;
+        List<String> fetchSourceTargets;
+        List<String> findUsagesTargets;
+        List<String> fetchSummaryTargets;
 
-        scan = actionMode.agenticResearch != null && actionMode.agenticResearch.scan;
-        search = actionMode.agenticResearch != null && actionMode.agenticResearch.search;
         code = actionMode.agenticCoding != null && actionMode.agenticCoding.code;
-        lutz = actionMode.agenticCoding != null && actionMode.agenticCoding.lutz;
         merge = actionMode.agenticCoding != null && actionMode.agenticCoding.merge;
         build = actionMode.agenticCoding != null && actionMode.agenticCoding.build;
-        autocommit = projectConfig.autocommit;
+        autocommit = taskConfig.autocommit;
 
         if (actionMode.contextEngine != null) {
-            listSymbolsPatterns = actionMode.contextEngine.listSymbolsPatterns.stream()
+            scan = actionMode.contextEngine.scan;
+            findSymbolsPatterns = actionMode.contextEngine.findSymbolsPatterns.stream()
                     .filter(s -> !s.isBlank())
                     .toList();
-            listDirectoryPath = actionMode.contextEngine.listDirectoryPath;
-            listSourceTargets = actionMode.contextEngine.listSourceTargets.stream()
+            listIdentifiersPath = actionMode.contextEngine.listIdentifiersPath;
+            fetchSourceTargets = actionMode.contextEngine.fetchSourceTargets.stream()
                     .filter(s -> !s.isBlank())
                     .toList();
-            listUsagesTargets = actionMode.contextEngine.listUsagesTargets.stream()
+            findUsagesTargets = actionMode.contextEngine.findUsagesTargets.stream()
                     .filter(s -> !s.isBlank())
                     .toList();
-            listSummaryTargets = actionMode.contextEngine.listSummaryTargets.stream()
+            fetchSummaryTargets = actionMode.contextEngine.fetchSummaryTargets.stream()
                     .filter(s -> !s.isBlank())
                     .toList();
         } else {
-            listSymbolsPatterns = List.of();
-            listDirectoryPath = null;
-            listSourceTargets = List.of();
-            listUsagesTargets = List.of();
-            listSummaryTargets = List.of();
+            scan = false;
+            findSymbolsPatterns = List.of();
+            listIdentifiersPath = null;
+            fetchSourceTargets = List.of();
+            findUsagesTargets = List.of();
+            fetchSummaryTargets = List.of();
         }
 
-        boolean hasListSymbols = !listSymbolsPatterns.isEmpty();
-        boolean hasListDirectory = listDirectoryPath != null && !listDirectoryPath.isBlank();
-        boolean hasListSource = !listSourceTargets.isEmpty();
-        boolean hasListUsages = !listUsagesTargets.isEmpty();
-        boolean hasListSummary = !listSummaryTargets.isEmpty();
+        boolean hasFindSymbols = !findSymbolsPatterns.isEmpty();
+        boolean hasListIdentifiers = listIdentifiersPath != null && !listIdentifiersPath.isBlank();
+        boolean hasFetchSource = !fetchSourceTargets.isEmpty();
+        boolean hasFindUsages = !findUsagesTargets.isEmpty();
+        boolean hasFetchSummary = !fetchSummaryTargets.isEmpty();
         boolean hasContextEngine =
-                hasListSymbols || hasListDirectory || hasListSource || hasListUsages || hasListSummary;
+                hasFindSymbols || hasListIdentifiers || hasFetchSource || hasFindUsages || hasFetchSummary;
 
         var selectedActions = new ArrayList<String>();
-        if (hasListSymbols) selectedActions.add("--list-symbols");
-        if (hasListDirectory) selectedActions.add("--list-directory");
-        if (hasListSource) selectedActions.add("--list-source");
-        if (hasListUsages) selectedActions.add("--list-usages");
-        if (hasListSummary) selectedActions.add("--list-summary");
+        if (hasFindSymbols) selectedActions.add("--find-symbols");
+        if (hasFindUsages) selectedActions.add("--find-usages");
+        if (hasFetchSummary) selectedActions.add("--fetch-summary");
+        if (hasFetchSource) selectedActions.add("--fetch-source");
+        if (hasListIdentifiers) selectedActions.add("--list-identifiers");
         if (scan) selectedActions.add("--scan");
-        if (search) selectedActions.add("--search");
         if (code) selectedActions.add("--code");
-        if (lutz) selectedActions.add("--lutz");
         if (merge) selectedActions.add("--merge");
         if (build) selectedActions.add("--build");
 
         if (selectedActions.isEmpty()) {
-            System.err.println(
-                    """
-                    Error: Missing required action mode.
-
-                    Specify exactly one of:
-
-                    Context Engine:
-                      --list-symbols=<patterns>
-                      --list-directory=<path>
-                      --list-source=<fqns>
-                      --list-usages=<symbols>
-                      --list-summary=<targets>
-
-                    Agentic Research:
-                      --scan
-                      --search
-
-                    Agentic Coding:
-                      --code
-                      --lutz
-                      --merge
-                      --build
-
-                    Use --help to see full option details.
-                    """);
-            return 1;
+            new CommandLine(this).usage(System.out);
+            return 0;
         }
 
         if (selectedActions.size() > 1) {
@@ -409,9 +382,9 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Build Command Validation ---
         int buildCmdCount = 0;
-        if (projectConfig.buildOnlyCmd != null) buildCmdCount++;
-        if (projectConfig.testAllCmd != null) buildCmdCount++;
-        if (projectConfig.testSomeCmd != null) buildCmdCount++;
+        if (buildTestConfig.buildOnlyCmd != null) buildCmdCount++;
+        if (buildTestConfig.testAllCmd != null) buildCmdCount++;
+        if (buildTestConfig.testSomeCmd != null) buildCmdCount++;
 
         if (buildCmdCount > 1) {
             System.err.println(
@@ -461,9 +434,9 @@ public final class BrokkCli implements Callable<Integer> {
         cm = new ContextManager(project);
 
         // --- Build Details ---
-        boolean hasCliDetails = projectConfig.buildOnlyCmd != null
-                || projectConfig.testAllCmd != null
-                || projectConfig.testSomeCmd != null;
+        boolean hasCliDetails = buildTestConfig.buildOnlyCmd != null
+                || buildTestConfig.testAllCmd != null
+                || buildTestConfig.testSomeCmd != null;
         var existingDetails = project.loadBuildDetails();
         BuildAgent.BuildDetails bd;
 
@@ -474,8 +447,8 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // Validate build details for coding/build modes
-        if ((code || lutz || build) && bd.equals(BuildAgent.BuildDetails.EMPTY)) {
-            String modeName = code ? "--code" : (lutz ? "--lutz" : "--build");
+        if ((code || build) && bd.equals(BuildAgent.BuildDetails.EMPTY)) {
+            String modeName = code ? "--code" : "--build";
             System.err.printf(
                     """
                                       Error: %s requires build details, but none were provided or configured.
@@ -498,11 +471,8 @@ public final class BrokkCli implements Callable<Integer> {
             return 1;
         }
 
-        if (projectConfig.newSession) {
-            cm.createHeadless(bd, true);
-        } else {
-            cm.createHeadless(bd, false);
-        }
+        cm.createHeadless(bd, taskConfig.newSession);
+        cm.clearHistory();
         var service = cm.getService();
 
         // --- Model Resolution ---
@@ -561,39 +531,15 @@ public final class BrokkCli implements Callable<Integer> {
         // --- Search Tool Actions (standalone) ---
         if (hasContextEngine) {
             var searchTools = new SearchTools(cm);
+            boolean includeTests = taskConfig.includeTests;
 
-            if (hasListSymbols) {
-                System.out.println(searchTools.searchSymbols(listSymbolsPatterns, finalGoal));
+            if (hasFindSymbols) {
+                System.out.println(searchTools.searchSymbols(findSymbolsPatterns, finalGoal));
             }
-            if (hasListDirectory) {
-                System.out.println(searchTools.skimDirectory(requireNonNull(listDirectoryPath), finalGoal));
+            if (hasFindUsages) {
+                System.out.println(searchTools.getUsages(findUsagesTargets, finalGoal, includeTests));
             }
-            if (hasListSource) {
-                // Try as classes first, then as methods
-                var analyzer = cm.getAnalyzer();
-                var allDecls = analyzer.getAllDeclarations();
-                var classNames = allDecls.stream()
-                        .filter(CodeUnit::isClass)
-                        .map(CodeUnit::fqName)
-                        .collect(Collectors.toSet());
-
-                var classes =
-                        listSourceTargets.stream().filter(classNames::contains).toList();
-                var methods = listSourceTargets.stream()
-                        .filter(t -> !classNames.contains(t))
-                        .toList();
-
-                if (!classes.isEmpty()) {
-                    System.out.println(searchTools.getClassSources(classes));
-                }
-                if (!methods.isEmpty()) {
-                    System.out.println(searchTools.getMethodSources(methods));
-                }
-            }
-            if (hasListUsages) {
-                System.out.println(searchTools.getUsages(listUsagesTargets, finalGoal));
-            }
-            if (hasListSummary) {
+            if (hasFetchSummary) {
                 // Use getFileSummaries if it matches a path pattern, else try getClassSkeletons
                 var classNames = cm.getAnalyzer().getAllDeclarations().stream()
                         .filter(CodeUnit::isClass)
@@ -603,7 +549,7 @@ public final class BrokkCli implements Callable<Integer> {
                 var filePatterns = new ArrayList<String>();
                 var classes = new ArrayList<String>();
 
-                for (var target : listSummaryTargets) {
+                for (var target : fetchSummaryTargets) {
                     if (classNames.contains(target)) {
                         classes.add(target);
                     } else {
@@ -618,25 +564,36 @@ public final class BrokkCli implements Callable<Integer> {
                     System.out.println(searchTools.getClassSkeletons(classes));
                 }
             }
+            if (hasFetchSource) {
+                // Try as classes first, then as methods
+                var analyzer = cm.getAnalyzer();
+                var allDecls = analyzer.getAllDeclarations();
+                var classNames = allDecls.stream()
+                        .filter(CodeUnit::isClass)
+                        .map(CodeUnit::fqName)
+                        .collect(Collectors.toSet());
+
+                var classes =
+                        fetchSourceTargets.stream().filter(classNames::contains).toList();
+                var methods = fetchSourceTargets.stream()
+                        .filter(t -> !classNames.contains(t))
+                        .toList();
+
+                if (!classes.isEmpty()) {
+                    System.out.println(searchTools.getClassSources(classes));
+                }
+                if (!methods.isEmpty()) {
+                    System.out.println(searchTools.getMethodSources(methods));
+                }
+            }
+            if (hasListIdentifiers) {
+                System.out.println(searchTools.skimDirectory(requireNonNull(listIdentifiersPath), finalGoal));
+            }
             return 0;
         }
 
         // --- Context Injection ---
         var tools = new WorkspaceTools(cm.liveContext());
-
-        if (code && !lutz && workspaceContext.files.isEmpty()) {
-            System.err.println(
-                    """
-                    Error: --code requires an existing workspace context.
-
-                    You invoked --code without providing any files to the workspace.
-                    If you don't know which files need changing, use --lutz instead.
-
-                    Example:
-                      brokk --project . --code --file src/MyFile.java --goal "Refactor this"
-                    """);
-            return 1;
-        }
 
         if (!workspaceContext.files.isEmpty()) {
             tools.addFilesToWorkspace(workspaceContext.files);
@@ -648,12 +605,8 @@ public final class BrokkCli implements Callable<Integer> {
         if (scan) {
             var scanResult = runContextAgentScan(planModel, finalGoal);
             return scanResult.success() ? 0 : 1;
-        } else if (lutz) {
-            return runCodeMode(planModel, codeModel, finalGoal, true, autocommit);
         } else if (code) {
-            return runCodeMode(planModel, codeModel, finalGoal, false, autocommit);
-        } else if (search) {
-            return runSearchMode(planModel, finalGoal);
+            return runCodeMode(planModel, codeModel, finalGoal, autocommit);
         } else if (merge) {
             return runMergeMode(planModel, codeModel);
         } else if (build) {
@@ -673,7 +626,7 @@ public final class BrokkCli implements Callable<Integer> {
 
         var conflict = conflictOpt.get();
         logger.debug("Conflict detected: {}", conflict);
-        io.showNotification(ai.brokk.IConsoleIO.NotificationRole.INFO, "Running MergeAgent...");
+        logger.debug("Running MergeAgent...");
 
         TaskResult result;
         try (var scope = cm.beginTaskUngrouped("Merge")) {
@@ -682,14 +635,16 @@ public final class BrokkCli implements Callable<Integer> {
             result = mergeAgent.execute();
             scope.append(result);
         } catch (Exception e) {
-            System.err.println("Error during merge execution: " + e.getMessage());
+            io.showNotification(NotificationRole.ERROR, "Error during merge execution: " + e.getMessage());
             logger.error("Merge mode error", e);
             return 1;
         }
 
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            System.err.println("Merge failed: " + result.stopDetails().reason());
-            System.err.println(result.stopDetails().explanation());
+            io.showNotification(
+                    NotificationRole.ERROR,
+                    "Merge failed: " + result.stopDetails().reason() + "\n"
+                            + result.stopDetails().explanation());
             return 1;
         }
 
@@ -699,18 +654,18 @@ public final class BrokkCli implements Callable<Integer> {
     private int runBuildMode() throws InterruptedException {
         var io = cm.getIo();
         String buildError = BuildAgent.runVerification(cm);
-        io.showNotification(
-                ai.brokk.IConsoleIO.NotificationRole.INFO,
-                buildError.isEmpty()
-                        ? "Build verification completed successfully."
-                        : "Build verification failed:\n" + buildError);
+        if (buildError.isEmpty()) {
+            logger.debug("Build verification completed successfully.");
+        } else {
+            io.showNotification(NotificationRole.ERROR, "Build verification failed:\n" + buildError);
+        }
         return buildError.isEmpty() ? 0 : 1;
     }
 
     private BuildAgent.BuildDetails createBuildDetails() {
-        String buildCmd = projectConfig.buildOnlyCmd != null ? projectConfig.buildOnlyCmd : "";
-        String testAll = projectConfig.testAllCmd != null ? projectConfig.testAllCmd : "";
-        String testSome = projectConfig.testSomeCmd != null ? projectConfig.testSomeCmd : "";
+        String buildCmd = buildTestConfig.buildOnlyCmd != null ? buildTestConfig.buildOnlyCmd : "";
+        String testAll = buildTestConfig.testAllCmd != null ? buildTestConfig.testAllCmd : "";
+        String testSome = buildTestConfig.testSomeCmd != null ? buildTestConfig.testSomeCmd : "";
 
         return new BuildAgent.BuildDetails(buildCmd, testAll, testSome, Set.of(), Map.of("VIRTUAL_ENV", ".venv"));
     }
@@ -718,51 +673,66 @@ public final class BrokkCli implements Callable<Integer> {
     private ContextAgent.RecommendationResult runContextAgentScan(StreamingChatModel model, String goalText)
             throws InterruptedException {
         var io = cm.getIo();
-        io.showNotification(ai.brokk.IConsoleIO.NotificationRole.INFO, "Running context scan...");
+        logger.debug("Running context scan...");
 
         var agent = new ContextAgent(cm, model, goalText, new MutedConsoleIO(io));
         var recommendations = agent.getRecommendations(cm.liveContext());
 
         if (recommendations.success()) {
-            System.out.println("Scan recommendations:");
-            for (var fragment : recommendations.fragments()) {
-                System.out.println("  - " + fragment.shortDescription().renderNowOr("(loading)"));
-                cm.addFragments(fragment);
+            // Convert fragments to SummaryFragments and print combined summary
+            var st = recommendations.fragments().stream();
+            if (!taskConfig.includeTests) {
+                st = st.filter(f -> f.files().join().stream()
+                        .noneMatch(pf -> ContextManager.isTestFile(pf, cm.getAnalyzerUninterrupted())));
             }
+            st.flatMap(f -> toSummaryFragments(f).stream()).forEach(f -> {
+                System.out.printf(
+                        "## %s:\n%s\n\n%n", f.description().join(), f.text().join());
+            });
+            cm.pushContext(ctx -> ctx.addFragments(recommendations.fragments()));
         } else {
-            System.err.println("Scan did not complete successfully.");
+            io.showNotification(NotificationRole.ERROR, "Scan did not complete successfully.");
         }
 
         return recommendations;
     }
 
+    private List<SummaryFragment> toSummaryFragments(ContextFragment fragment) {
+        var results = new ArrayList<SummaryFragment>();
+
+        // Extract files and convert to FILE_SKELETONS summaries
+        var files = fragment.files().join();
+        for (var file : files) {
+            results.add(new SummaryFragment(cm, file.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
+        }
+
+        // Extract code units and convert to CODEUNIT_SKELETON summaries
+        var sources = fragment.sources().join();
+        for (var codeUnit : sources) {
+            if (codeUnit.isClass()) {
+                results.add(new SummaryFragment(cm, codeUnit.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON));
+            }
+        }
+
+        return results;
+    }
+
     private int runCodeMode(
-            StreamingChatModel planModel,
-            StreamingChatModel codeModel,
-            String goalText,
-            boolean forceScan,
-            boolean autocommit) {
+            StreamingChatModel planModel, StreamingChatModel codeModel, String goalText, boolean autocommit) {
         var io = cm.getIo();
 
         // Check if editable context exists
         var context = cm.liveContext();
-        boolean hasEditableContext = context.getEditableFragments().findAny().isPresent();
 
         TaskResult result;
         try (var scope = cm.beginTaskUngrouped(goalText)) {
-            if (hasEditableContext || forceScan) {
-                io.showNotification(
-                        ai.brokk.IConsoleIO.NotificationRole.INFO,
-                        forceScan
-                                ? "Running ArchitectAgent (lutz mode)..."
-                                : "Running ArchitectAgent with existing editable context...");
+            if (context.getEditableFragments().findAny().isPresent()) {
+                logger.debug("Editable context present - running ArchitectAgent");
                 var agent = new ArchitectAgent(
                         cm, planModel, codeModel, goalText, scope, cm.liveContext(), new MutedConsoleIO(io));
-                result = agent.executeWithScan();
+                result = agent.executeWithScan(false);
             } else {
-                io.showNotification(
-                        ai.brokk.IConsoleIO.NotificationRole.INFO,
-                        "No editable context - running SearchAgent with CODE_ONLY objective...");
+                logger.debug("No editable context - running SearchAgent with CODE_ONLY objective...");
                 var agent = new SearchAgent(
                         context,
                         goalText,
@@ -781,63 +751,16 @@ public final class BrokkCli implements Callable<Integer> {
 
             scope.append(result);
         } catch (Exception e) {
-            System.err.println("Error during code execution: " + e.getMessage());
+            io.showNotification(NotificationRole.ERROR, "Error during code execution: " + e.getMessage());
             logger.error("Code mode error", e);
             return 1;
         }
 
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            System.err.println("Task failed: " + result.stopDetails().reason());
-            System.err.println(result.stopDetails().explanation());
-            return 1;
-        }
-
-        return 0;
-    }
-
-    private int runSearchMode(StreamingChatModel model, String goalText) {
-        var io = cm.getIo();
-        io.showNotification(ai.brokk.IConsoleIO.NotificationRole.INFO, "Running search...");
-
-        TaskResult result;
-        try (var scope = cm.beginTaskUngrouped(goalText)) {
-            var agent = new SearchAgent(cm.liveContext(), goalText, model, SearchPrompts.Objective.ANSWER_ONLY, scope);
-            result = agent.execute();
-            scope.append(result);
-        } catch (Exception e) {
-            System.err.println("Error during search: " + e.getMessage());
-            logger.error("Search mode error", e);
-            return 1;
-        }
-
-        // Print answer
-        System.out.println("\n=== Answer ===");
-        System.out.println(result.output().text().renderNowOr("(No answer available)"));
-
-        // Print workspace contents
-        System.out.println("\n=== Workspace Contents ===");
-        var workspaceFragments = result.context().getAllFragmentsInDisplayOrder();
-        if (workspaceFragments.isEmpty()) {
-            System.out.println("(empty)");
-        } else {
-            for (var fragment : workspaceFragments) {
-                System.out.println("  - " + fragment.shortDescription().renderNowOr("(loading)"));
-            }
-        }
-
-        // Print discarded context key facts
-        var discardedNotes = result.context().getDiscardedFragmentsNotes();
-        if (!discardedNotes.isEmpty()) {
-            System.out.println("\n=== Key Facts from Explored Context ===");
-            for (var entry : discardedNotes.entrySet()) {
-                System.out.println(entry.getKey() + ":");
-                System.out.println("  " + entry.getValue());
-            }
-        }
-
-        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            System.err.println(
-                    "\nSearch completed with status: " + result.stopDetails().reason());
+            io.showNotification(
+                    NotificationRole.ERROR,
+                    "Task failed: " + result.stopDetails().reason() + "\n"
+                            + result.stopDetails().explanation());
             return 1;
         }
 
