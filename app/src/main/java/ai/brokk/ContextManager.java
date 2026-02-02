@@ -2234,13 +2234,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             }
 
+            // push context
             logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
-
-            // optionally compress
             var updated = result.context();
             TaskEntry entry = updated.createTaskEntry(result);
-
-            // push context
             var updatedContext = pushContext(currentLiveCtx -> {
                 return updated.addHistoryEntry(entry, result.output());
             });

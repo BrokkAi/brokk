@@ -658,7 +658,7 @@ public class Context {
      * Parses JSON directly; returns an empty map if absent or parse fails.
      */
     @Blocking
-    public Map<String, String> getDiscardedFragmentsNote() {
+    public Map<String, String> getDiscardedFragmentsNotes() {
         return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
                 .map(sf -> SpecialTextType.deserializeDiscardedContext(sf.text().join()))
                 .orElseGet(LinkedHashMap::new);
