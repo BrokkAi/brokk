@@ -687,6 +687,9 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("fileState", List.of());
         stateDtoMap.put("imports", List.of());
         stateDtoMap.put("reverseImports", List.of());
+        // Simulate missing hierarchy graphs in older state
+        stateDtoMap.put("supertypes", null);
+        stateDtoMap.put("subtypes", null);
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 12345L);
 
@@ -710,5 +713,42 @@ public class TreeSitterStateIOTest {
         assertEquals("Test", loadedCu.shortName());
         assertEquals(1, loadedProps.ranges().size());
         // Implicitly verified that 'supertypes' field was ignored (no crash, no field in domain object)
+    }
+
+    @Test
+    void loadIgnoresLegacyRawSupertypesField(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("legacy_raw_supertypes.smile.gz");
+
+        // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        Map<String, Object> legacyProps = new HashMap<>();
+        legacyProps.put("children", List.of());
+        legacyProps.put("signatures", List.of());
+        legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 1, 0, 1, 0)));
+        legacyProps.put("supertypesComputed", false);
+        legacyProps.put("hasBody", false);
+        legacyProps.put("rawSupertypes", List.of("BaseClass", "InterfaceA")); // Field removed from DTO
+
+        Map<String, Object> entry = Map.of("key", cuDto, "value", legacyProps);
+
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 1L);
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, stateDtoMap);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isPresent(), "Should successfully load state even with unknown 'rawSupertypes' field");
     }
 }
