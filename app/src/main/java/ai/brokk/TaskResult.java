@@ -102,11 +102,33 @@ public record TaskResult(
                 return new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
             }
             if (response.error() instanceof ContextTooLargeException) {
-                return new TaskResult.StopDetails(StopReason.LLM_CONTEXT_SIZE, "Context limit exceeded");
+                return new TaskResult.StopDetails(
+                        StopReason.LLM_CONTEXT_SIZE,
+                        """
+                        Context limit exceeded.
+
+                        The LLM request was too large for the model's maximum input size.
+
+                        Fixes:
+                          - Remove or drop unneeded Workspace files/fragments
+                          - Prefer summaries over full files where possible
+                          - Narrow the goal/query to a smaller scope
+                        """
+                                .stripIndent()
+                                .stripTrailing());
             }
             var errorMessage = response.error().getMessage();
             return new TaskResult.StopDetails(
-                    TaskResult.StopReason.LLM_ERROR, errorMessage != null ? errorMessage : "Unknown error");
+                    TaskResult.StopReason.LLM_ERROR,
+                    """
+                    LLM request failed.
+
+                    Cause:
+                      %s
+                    """
+                            .stripIndent()
+                            .formatted(
+                                    errorMessage != null && !errorMessage.isBlank() ? errorMessage : "(no message)"));
         }
     }
 
@@ -118,15 +140,14 @@ public record TaskResult(
         CODE,
         ASK,
         SEARCH,
-        CONTEXT,
+        SCAN, // ContextAgent
         MERGE,
         BLITZFORGE,
-        REVIEW;
+        REVIEW,
+        SUMMARIZE, // also "describe"
+        CLASSIFY;
 
         public String displayName() {
-            if (this == SEARCH) {
-                return "Lutz Mode";
-            }
             var lower = name().toLowerCase(Locale.ROOT);
             return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
         }

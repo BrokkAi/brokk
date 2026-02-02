@@ -9,6 +9,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingExecutorService;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.IProject;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
@@ -218,7 +219,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             long count = idlePollTriggeredRebuilds.incrementAndGet();
             logger.debug("Idle-poll triggered external rebuild #{}", count);
             IAnalyzer.ProgressListener progressListener = listener::onProgress;
-            refresh(prev -> getLanguageHandle().createAnalyzer(project, progressListener));
+            refresh(prev -> project.getLanguageHandle().createAnalyzer(project, progressListener));
             externalRebuildRequested = false;
         }
     }
@@ -240,7 +241,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      */
     private IAnalyzer loadOrCreateAnalyzer() {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
-        Language langHandle = getLanguageHandle();
+        Language langHandle = project.getLanguageHandle();
         var projectLangs = project.getAnalyzerLanguages().stream()
                 .filter(l -> l != Languages.NONE)
                 .map(Language::name)
@@ -298,11 +299,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     "Created new analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
                     project.getRoot());
+            // Persist analyzer snapshots by language (best-effort)
+            persistAnalyzerState(analyzer);
             needsRebuild = false;
         }
-
-        // Persist analyzer snapshots by language (best-effort)
-        persistAnalyzerState(analyzer);
 
         logger.debug("Analyzer became ready, notifying listeners");
         listener.onAnalyzerReady();
@@ -316,17 +316,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
         logger.debug("Analyzer load complete!");
         return analyzer;
-    }
-
-    /** Convenience overload that infers the language set from {@link #project}. */
-    private Language getLanguageHandle() {
-        var projectLangs = project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Languages.NONE)
-                .collect(Collectors.toUnmodifiableSet());
-        if (projectLangs.isEmpty()) {
-            return Languages.NONE;
-        }
-        return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
     }
 
     /** Get a human-readable description of the analyzer languages for logging. */
@@ -506,13 +495,19 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             return;
         }
 
-        for (var lang : langs) {
-            try {
-                var sub = analyzer.subAnalyzer(lang).orElse(analyzer);
-                lang.saveAnalyzer(sub, project);
-            } catch (Throwable t) {
-                logger.debug("Failed persisting analyzer state for {}: {}", lang.name(), t.toString());
-            }
-        }
+        // Persist each language in parallel since saveAnalyzer is I/O bound
+        var futures = langs.stream()
+                .map(lang -> LoggingFuture.runAsync(() -> {
+                    try {
+                        var sub = analyzer.subAnalyzer(lang).orElse(analyzer);
+                        lang.saveAnalyzer(sub, project);
+                    } catch (Throwable t) {
+                        // Not the end of the world, but worth reporting as it possibly hurts performance later
+                        logger.debug("Failed persisting analyzer state for {}: {}", lang.name(), t.toString());
+                    }
+                }))
+                .toArray(CompletableFuture[]::new);
+
+        LoggingFuture.allOf(futures).join();
     }
 }

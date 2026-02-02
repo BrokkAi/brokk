@@ -279,7 +279,17 @@ public class UsageBenchEval implements Callable<Integer> {
         AbstractService service = online ? new Service(project) : new OfflineService(project);
         var cm = new ContextManager(project);
         var model = service.getModel(ModelProperties.ModelType.USAGES);
-        var llm = online ? new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false) : null;
+        var llm = online
+                ? new Llm(
+                        model,
+                        "Disambiguate Code Unit Usages",
+                        TaskResult.Type.CLASSIFY,
+                        cm,
+                        false,
+                        false,
+                        false,
+                        false)
+                : null;
         FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, service, llm);
 
         String projectName = project.getRoot().getFileName().toString();

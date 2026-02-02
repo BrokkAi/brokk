@@ -145,7 +145,7 @@ public final class BlitzForge {
 
         // Prepare executor
         ExecutorService executor;
-        if (config.model() instanceof Service.UnavailableStreamingModel) {
+        if (config.model() instanceof AbstractService.OfflineStreamingModel) {
             // Fallback simple fixed pool for tests
             int pool = Math.min(Math.max(1, files.size()), Runtime.getRuntime().availableProcessors());
             executor = Executors.newFixedThreadPool(pool);

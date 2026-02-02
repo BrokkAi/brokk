@@ -2,6 +2,7 @@ package ai.brokk.gui.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -45,5 +46,66 @@ class ContextSizeGuardTest {
 
         assertEquals(2, estimate.fileCount());
         assertEquals(200, estimate.estimatedTokens());
+    }
+
+    @Test
+    void estimateTokens_excludesBinaryFiles() throws IOException {
+        var textFile = tempDir.resolve("readme.txt");
+        Files.writeString(textFile, "x".repeat(400));
+
+        var binaryFile = tempDir.resolve("image.png");
+        byte[] binaryContent = new byte[1000];
+        binaryContent[0] = 0;
+        Files.write(binaryFile, binaryContent);
+
+        var pf1 = new ProjectFile(tempDir, tempDir.relativize(textFile));
+        var pf2 = new ProjectFile(tempDir, tempDir.relativize(binaryFile));
+        var estimate = ContextSizeGuard.estimateTokens(List.of(pf1, pf2));
+
+        assertEquals(1, estimate.fileCount());
+        assertEquals(100, estimate.estimatedTokens());
+        assertFalse(estimate.isTruncated());
+    }
+
+    @Test
+    void estimateTokens_excludesBinaryFilesInDirectories() throws IOException {
+        var subdir = tempDir.resolve("subdir");
+        Files.createDirectories(subdir);
+
+        Files.writeString(subdir.resolve("readme.txt"), "x".repeat(800));
+
+        byte[] binaryContent = new byte[2000];
+        binaryContent[100] = 0;
+        Files.write(subdir.resolve("image.bin"), binaryContent);
+
+        var pf = new ProjectFile(tempDir, tempDir.relativize(subdir));
+        var estimate = ContextSizeGuard.estimateTokens(Set.of(pf));
+
+        assertEquals(1, estimate.fileCount());
+        assertEquals(200, estimate.estimatedTokens());
+        assertFalse(estimate.isTruncated());
+    }
+
+    @Test
+    void estimateTokens_includesExternalFile() throws IOException {
+        // Project-local file
+        var projectFile = tempDir.resolve("proj.txt");
+        Files.writeString(projectFile, "p".repeat(100));
+
+        // External file (outside project root)
+        var externalPath =
+                Files.createTempFile("external", ".txt").toAbsolutePath().normalize();
+        Files.writeString(externalPath, "e".repeat(300));
+
+        var pf = new ProjectFile(tempDir, tempDir.relativize(projectFile));
+        var ef = new ExternalFile(externalPath);
+
+        var estimate = ContextSizeGuard.estimateTokens(List.of(pf, ef));
+
+        assertEquals(2, estimate.fileCount());
+
+        long expected = (Files.size(projectFile) + Files.size(externalPath)) / 4;
+        assertEquals(expected, estimate.estimatedTokens());
+        assertFalse(estimate.isTruncated());
     }
 }

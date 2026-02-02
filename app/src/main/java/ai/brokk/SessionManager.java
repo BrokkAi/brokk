@@ -123,7 +123,7 @@ public class SessionManager implements AutoCloseable {
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
         int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
         var delegateExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
-        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
+        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th);
         sessionExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();

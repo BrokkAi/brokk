@@ -25,12 +25,16 @@ public class TaskListPersistenceTest {
 
     @Test
     void createOrReplaceTaskList_persistsAndDeserializes() throws Exception {
-        var initial =
-                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
+        var testCm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
+        var initial = new Context(testCm);
 
-        var tasks = List.of("Build feature X", "Add unit tests", "Write documentation");
-        var afterCreate = initial.withTaskList(new TaskList.TaskListData(
-                tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList()));
+        var tasks = List.of(
+                new TaskList.TaskItem(
+                        "Build feature X",
+                        "Inst X\n\n**Key Locations:**\nLoc X\n\n**Key Discoveries:**\nDisc X",
+                        false),
+                new TaskList.TaskItem("Add unit tests", "Inst Y", false));
+        var afterCreate = testCm.createOrReplaceTaskList(initial, "Persistence Test", tasks);
 
         // Verify fragment exists and is JSON
         Optional<ContextFragments.StringFragment> fragOpt = afterCreate.getTaskListFragment();
@@ -42,10 +46,11 @@ public class TaskListPersistenceTest {
 
         // Verify JSON can be parsed back
         var data = Json.fromJson(frag.text().join(), TaskList.TaskListData.class);
-        assertEquals(3, data.tasks().size());
-        assertEquals("Build feature X", data.tasks().get(0).text());
-        assertEquals("Add unit tests", data.tasks().get(1).text());
-        assertEquals("Write documentation", data.tasks().get(2).text());
+        assertEquals(2, data.tasks().size());
+        assertEquals("Build feature X", data.tasks().get(0).title());
+        assertTrue(data.tasks().get(0).text().contains("Inst X"));
+        assertTrue(data.tasks().get(0).text().contains("Loc X"));
+        assertTrue(data.tasks().get(0).text().contains("Disc X"));
 
         // All should be incomplete
         for (var task : data.tasks()) {
@@ -59,8 +64,8 @@ public class TaskListPersistenceTest {
 
     @Test
     void createOrReplaceTaskList_dropsCompletedTasks_persistsCorrectly() throws Exception {
-        var initial =
-                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
+        var testCm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
+        var initial = new Context(testCm);
 
         // Create with mixed states
         var mixed = new TaskList.TaskListData(List.of(
@@ -69,24 +74,50 @@ public class TaskListPersistenceTest {
                 new TaskList.TaskItem("Done 2", "Also done", true)));
         var contextWithMixed = initial.withTaskList(mixed);
 
-        // Replace with new tasks (simulating replacement by creating new data)
-        var newTasks = List.of("Fresh task 1", "Fresh task 2");
-        var newData = new TaskList.TaskListData(
-                newTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
-        var afterReplace = contextWithMixed.withTaskList(newData);
+        // Replace with new tasks
+        var newTasks = List.of(
+                new TaskList.TaskItem("Fresh task 1", "Inst 1", false),
+                new TaskList.TaskItem("Fresh task 2", "Inst 2", false));
+        var afterReplace = testCm.createOrReplaceTaskList(contextWithMixed, "New scope", newTasks);
 
         // Verify replacement in persistent storage
         var frag = afterReplace.getTaskListFragment();
         assertTrue(frag.isPresent());
         var data = Json.fromJson(frag.get().text().join(), TaskList.TaskListData.class);
         assertEquals(2, data.tasks().size());
-        assertEquals("Fresh task 1", data.tasks().get(0).text());
-        assertEquals("Fresh task 2", data.tasks().get(1).text());
+        assertEquals("Fresh task 1", data.tasks().get(0).title());
+        assertEquals("Fresh task 2", data.tasks().get(1).title());
 
         // Completed tasks should not be in the new list
         for (var task : data.tasks()) {
             assertFalse(task.done());
         }
+    }
+
+    @Test
+    void createOrReplaceTaskList_persistsBigPicture() throws Exception {
+        var testCm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
+        var initial = new Context(testCm);
+
+        var bigPicture = "This is the big picture overview of the project goals";
+        var tasks = List.of(
+                new TaskList.TaskItem("First task", "Inst 1", false),
+                new TaskList.TaskItem("Second task", "Inst 2", false));
+        var afterCreate = testCm.createOrReplaceTaskList(initial, bigPicture, tasks);
+
+        // Verify fragment exists
+        Optional<ContextFragments.StringFragment> fragOpt = afterCreate.getTaskListFragment();
+        assertTrue(fragOpt.isPresent(), "Task list fragment should exist after creation");
+
+        // Verify JSON can be parsed back with bigPicture preserved
+        var frag = fragOpt.get();
+        var data = Json.fromJson(frag.text().join(), TaskList.TaskListData.class);
+        assertEquals(bigPicture, data.bigPicture());
+        assertEquals(2, data.tasks().size());
+
+        // Verify getTaskListDataOrEmpty also returns bigPicture
+        var deserialized = afterCreate.getTaskListDataOrEmpty();
+        assertEquals(bigPicture, deserialized.bigPicture());
     }
 
     @Test

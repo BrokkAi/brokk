@@ -30,6 +30,7 @@ public record JobSpec(
         @JsonProperty("reasoningLevelCode") @Nullable String reasoningLevelCode,
         @JsonProperty("temperature") @Nullable Double temperature,
         @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
+        @JsonProperty("skipVerification") boolean skipVerification,
         @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts) {
 
     public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 20;
@@ -65,6 +66,7 @@ public record JobSpec(
             @JsonProperty("reasoningLevelCode") @Nullable String reasoningLevelCode,
             @JsonProperty("temperature") @Nullable Double temperature,
             @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
+            @JsonProperty("skipVerification") boolean skipVerification,
             @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts) {
         this.taskInput = taskInput;
         this.autoCommit = autoCommit;
@@ -80,6 +82,7 @@ public record JobSpec(
         this.reasoningLevelCode = reasoningLevelCode;
         this.temperature = temperature;
         this.temperatureCode = temperatureCode;
+        this.skipVerification = skipVerification;
         this.maxIssueFixAttempts = maxIssueFixAttempts;
     }
 
@@ -114,6 +117,7 @@ public record JobSpec(
                 null,
                 null,
                 null,
+                false,
                 DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
@@ -143,6 +147,7 @@ public record JobSpec(
                 null,
                 null,
                 null,
+                false,
                 DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
@@ -168,7 +173,8 @@ public record JobSpec(
                 repo,
                 issueNumber,
                 buildSettingsJson,
-                DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+                DEFAULT_MAX_ISSUE_FIX_ATTEMPTS,
+                false);
     }
 
     public static JobSpec ofIssue(
@@ -180,6 +186,28 @@ public record JobSpec(
             int issueNumber,
             @Nullable String buildSettingsJson,
             int maxIssueFixAttempts) {
+        return ofIssue(
+                plannerModel,
+                codeModel,
+                githubToken,
+                owner,
+                repo,
+                issueNumber,
+                buildSettingsJson,
+                maxIssueFixAttempts,
+                false);
+    }
+
+    public static JobSpec ofIssue(
+            String plannerModel,
+            @Nullable String codeModel,
+            String githubToken,
+            String owner,
+            String repo,
+            int issueNumber,
+            @Nullable String buildSettingsJson,
+            int maxIssueFixAttempts,
+            boolean skipVerification) {
         // Only include build_settings tag when JSON is non-blank; absent means "use repo-level fallback"
         Map<String, String> tags;
         if (buildSettingsJson != null && !buildSettingsJson.isBlank()) {
@@ -213,6 +241,7 @@ public record JobSpec(
                 null,
                 null,
                 null,
+                skipVerification,
                 maxIssueFixAttempts);
     }
 
@@ -244,6 +273,7 @@ public record JobSpec(
                 reasoningLevelCode,
                 null,
                 null,
+                false,
                 DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
@@ -275,6 +305,7 @@ public record JobSpec(
                 overrides != null ? overrides.reasoningLevelCode() : null,
                 overrides != null ? overrides.temperature() : null,
                 overrides != null ? overrides.temperatureCode() : null,
+                false,
                 DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
@@ -308,6 +339,7 @@ public record JobSpec(
                 reasoningLevelCode,
                 null,
                 null,
+                false,
                 DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 

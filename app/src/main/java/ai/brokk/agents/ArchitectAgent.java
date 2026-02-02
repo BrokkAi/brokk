@@ -123,11 +123,25 @@ public class ArchitectAgent {
             String goal,
             ContextManager.TaskScope scope,
             Context initialContext) {
+        this(contextManager, planningModel, codeModel, goal, scope, initialContext, contextManager.getIo());
+    }
+
+    /**
+     * Constructs a BrokkAgent with an explicit IConsoleIO.
+     */
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            IConsoleIO io) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
         this.goal = goal;
-        this.io = contextManager.getIo();
+        this.io = io;
         this.scope = scope;
         this.context = initialContext;
     }
@@ -354,7 +368,7 @@ public class ArchitectAgent {
             @P("Command to run all tests.") String testAllCommand,
             @P("Command to run a subset of tests (e.g., a single module/file/class).") String testSomeCommand,
             @P("Directories to exclude from analysis/build context.") List<String> excludedDirectories) {
-        var existingDetails = cm.getProject().loadBuildDetails();
+        var existingDetails = cm.getProject().awaitBuildDetails();
         var details = new BuildAgent.BuildDetails(
                 buildLintCommand,
                 testAllCommand,
@@ -374,7 +388,7 @@ public class ArchitectAgent {
             "Verify the currently configured build/lint command by executing it and returning bounded output. Uses the project's saved build details and environment variables.")
     public String verifyBuildCommand() {
         var project = cm.getProject();
-        var details = project.loadBuildDetails();
+        var details = project.awaitBuildDetails();
         var buildLintCommand = details.buildLintCommand();
         if (buildLintCommand.trim().isEmpty()) {
             return "No build/lint command is configured.";
@@ -475,10 +489,15 @@ public class ArchitectAgent {
      * results are appended to the provided scope.
      */
     public TaskResult executeWithScan() throws InterruptedException {
+        return executeWithScan(
+                Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2);
+    }
+
+    public TaskResult executeWithScan(boolean pruneFirst) throws InterruptedException {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(context, goal, scanModel, this.scope);
-        if (Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2) {
+        if (pruneFirst) {
             searchAgent.pruneContext();
         }
         // (appends prune + scan results to scope)
@@ -518,7 +537,7 @@ public class ArchitectAgent {
             return codeAgentSuccessResult();
         }
 
-        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal).withEcho());
+        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal, TaskResult.Type.ARCHITECT).withEcho());
         var modelsService = cm.getService();
 
         while (true) {
@@ -576,7 +595,6 @@ public class ArchitectAgent {
                 allowed.add("addMethodsToWorkspace");
                 allowed.add("addSymbolUsagesToWorkspace");
                 allowed.add("addUrlContentsToWorkspace");
-                allowed.add("appendNote");
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("explainCommit");
 
@@ -584,7 +602,7 @@ public class ArchitectAgent {
                 allowed.add("callCodeAgent");
 
                 // only allow to run the tools when build settings are empty (mostly for new projects)
-                if (cm.getProject().loadBuildDetails().buildLintCommand().isBlank()) {
+                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
                     allowed.add("setBuildDetails");
                     allowed.add("verifyBuildCommand");
                 }
@@ -641,8 +659,11 @@ public class ArchitectAgent {
                         currentModelTokens);
 
                 // Emergency LLM restricted to critical workspace tools
-                var emergencyLlm = cm.getLlm(
-                        new Llm.Options(fallbackModel, "Architect emergency (context too large): " + goal).withEcho());
+                var emergencyLlm = cm.getLlm(new Llm.Options(
+                                fallbackModel,
+                                "Architect emergency (context too large): " + goal,
+                                TaskResult.Type.ARCHITECT)
+                        .withEcho());
                 notifyCriticalWorkspaceRestriction(workspaceTokenSize, fallbackModelTokens);
                 var emergencyAllowed = criticalAllowedTools();
                 emergencyAllowed = WorkspaceTools.filterByAnalyzerAvailability(emergencyAllowed, cm.getProject());
@@ -911,7 +932,6 @@ public class ArchitectAgent {
         allowed.add("abortProject");
         allowed.add("dropWorkspaceFragments");
         allowed.add("addFileSummariesToWorkspace");
-        allowed.add("appendNote");
         return allowed;
     }
 
@@ -952,7 +972,6 @@ public class ArchitectAgent {
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "appendNote" -> 2;
             case "addFilesToWorkspace" -> 3;
             case "addFileSummariesToWorkspace" -> 4;
             case "addUrlContentsToWorkspace" -> 5;
@@ -1077,7 +1096,7 @@ public class ArchitectAgent {
                     """;
         }
 
-        if (cm.getProject().loadBuildDetails().buildLintCommand().isBlank()) {
+        if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
             finalInstructions +=
                     """
 

@@ -73,7 +73,6 @@ public class ToolRegistry {
             Map.entry("addFilesToWorkspace", "Adding files to workspace"),
             Map.entry("addClassesToWorkspace", "Adding classes to workspace"),
             Map.entry("addUrlContentsToWorkspace", "Adding URL contents to workspace"),
-            Map.entry("appendNote", "Appending note"),
             Map.entry("addSymbolUsagesToWorkspace", "Adding symbol usages to workspace"),
             Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),
             Map.entry("addFileSummariesToWorkspace", "Adding file summaries to workspace"),
@@ -205,7 +204,7 @@ public class ToolRegistry {
         } catch (InterruptedException ie) {
             throw ie;
         } catch (Exception e) {
-            GlobalExceptionHandler.handle(e, st -> {});
+            GlobalExceptionHandler.handle(e);
             return ToolExecutionResult.internalError(
                     request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
         }

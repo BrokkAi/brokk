@@ -15,6 +15,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -25,6 +27,8 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 @Execution(ExecutionMode.SAME_THREAD)
 @ResourceLock("ai.brokk.util.Environment.shellCommandRunnerFactory")
 class BuildAgentTest {
+    private static final Logger logger = LogManager.getLogger(BuildAgentTest.class);
+
     @Test
     void testInterpolateModulesTemplate() {
         String template = "tests/runtests.py{{#modules}} {{value}}{{/modules}}";
@@ -227,7 +231,7 @@ class BuildAgentTest {
         }
 
         // Create project and test isGitignored method
-        var project = new MainProject(tempDir);
+        var project = MainProject.forTests(tempDir);
 
         // Verify empty directory is NOT ignored
         assertFalse(project.isGitignored(Path.of("tests/fixtures")), "Empty directory should NOT be ignored");
@@ -357,7 +361,7 @@ class BuildAgentTest {
             git.commit().setSign(false).setMessage("Initial").call();
         }
 
-        var project = new MainProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var agent = new BuildAgent(project, null, null);
 
         var patterns = Set.of(
@@ -395,7 +399,7 @@ class BuildAgentTest {
             git.commit().setSign(false).setMessage("Initial").call();
         }
 
-        var project = new MainProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         var agent = new BuildAgent(project, null, null);
 
         agent.reportBuildDetails(

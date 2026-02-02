@@ -188,6 +188,9 @@ public class ContextFragments {
     abstract static class AbstractComputedFragment implements ContextFragment.ComputedFragment {
         protected final String id;
         protected final IContextManager contextManager;
+        // desc and shortDesc are broken out so that DiffService only has to block for the very few
+        // fragments that don't know their description right away, instead of the many fragments that don't know their
+        // text()
         protected final ComputedValue<String> descriptionCv;
         protected final ComputedValue<String> shortDescriptionCv;
         protected final ComputedValue<String> syntaxStyleCv;
@@ -237,14 +240,18 @@ public class ContextFragments {
                     : ComputedValue.completed("snap-" + id, initialSnapshot);
         }
 
+        private ComputedValue<Void> allReadyCv() {
+            return ComputedValue.allOf(descriptionCv, shortDescriptionCv, syntaxStyleCv, snapshotCv);
+        }
+
         @Override
         public boolean await(Duration timeout) throws InterruptedException {
-            return snapshotCv.await(timeout).isPresent();
+            return allReadyCv().await(timeout).isPresent();
         }
 
         @Override
         public ComputedValue.Subscription onComplete(Runnable runnable) {
-            return snapshotCv.onComplete((v, ex) -> runnable.run());
+            return allReadyCv().onComplete((v, ex) -> runnable.run());
         }
 
         @Override
@@ -447,6 +454,10 @@ public class ContextFragments {
                             ? null
                             : decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file, contextManager) : null);
+            if (file.getRelPath().normalize().getFileName() == null) {
+                throw new IllegalArgumentException("ProjectPathFragment relPath must not be empty");
+            }
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
         }
 
@@ -517,6 +528,10 @@ public class ContextFragments {
                     "%s @%s".formatted(file.getFileName(), revision),
                     FileTypeUtil.get().guessContentType(file.absPath().toFile()),
                     ContentSnapshot.textSnapshot(content, Set.of(), Set.of(file)));
+            if (file.getRelPath().normalize().getFileName() == null) {
+                throw new IllegalArgumentException("ProjectPathFragment relPath must not be empty");
+            }
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
             this.revision = revision;
             this.content = content;
@@ -603,6 +618,7 @@ public class ContextFragments {
                     FileTypeUtil.get().guessContentType(file.absPath().toFile()),
                     snapshotText == null ? null : decodeFrozen(snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file) : null);
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
         }
 
@@ -644,6 +660,7 @@ public class ContextFragments {
                     SyntaxConstants.SYNTAX_STYLE_NONE,
                     null,
                     () -> computeSnapshotFor(file));
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
         }
 
@@ -1305,7 +1322,7 @@ public class ContextFragments {
                         .toList();
                 List<AnalyzerUtil.CodeWithSource> parts = AnalyzerUtil.processUsages(
                         analyzer, uses.stream().map(UsageHit::enclosing).toList());
-                String formatted = AnalyzerUtil.CodeWithSource.text(parts);
+                String formatted = AnalyzerUtil.CodeWithSource.text(analyzer, parts);
                 text = formatted.isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : formatted;
                 sources =
                         parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
@@ -1423,7 +1440,7 @@ public class ContextFragments {
 
             var codeOpt = analyzer.getSource(unit, true);
             if (codeOpt.isPresent()) {
-                text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text(analyzer);
                 hasSourceCode = true;
 
                 Collection<String> imports = analyzer.as(ImportAnalysisProvider.class)

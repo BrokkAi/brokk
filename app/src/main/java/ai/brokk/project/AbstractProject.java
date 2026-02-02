@@ -818,7 +818,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
-        var buildDetails = loadBuildDetails();
+        var buildDetails = awaitBuildDetails();
         return fileFilteringService.filterFiles(files, buildDetails.exclusionPatterns());
     }
 
@@ -856,7 +856,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public Set<String> getExclusionPatterns() {
         var exclusions = new HashSet<String>();
-        exclusions.addAll(loadBuildDetails().exclusionPatterns());
+        exclusions.addAll(awaitBuildDetails().exclusionPatterns());
 
         // Also exclude non-live dependencies
         var dependenciesDir = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);

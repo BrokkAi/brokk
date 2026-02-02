@@ -65,8 +65,8 @@ public class TextAreaConsoleIO implements IConsoleIO {
                 SwingUtilities.invokeLater(() -> textArea.setText(""));
                 hasStartedContent = true;
             } else if (meta.isReasoning() && !lastWasReasoning && hasStartedContent) {
-                // Illegal transition back to reasoning once non-reasoning content has started.
-                throw new IllegalStateException("Stream switched from non-reasoning to reasoning");
+                // Once non-reasoning content has started, ignore any reasoning tokens.
+                return;
             }
         }
 

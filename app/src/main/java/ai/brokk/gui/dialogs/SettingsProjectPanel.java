@@ -1205,7 +1205,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private void saveCiExclusions() {
         var project = chrome.getProject();
         try {
-            var currentDetails = project.loadBuildDetails();
+            var currentDetails = project.awaitBuildDetails();
 
             // Get all patterns from the unified list
             var rawPatterns = Collections.list(exclusionPatternsListModel.elements());

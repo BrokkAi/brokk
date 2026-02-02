@@ -25,6 +25,7 @@ public final class JavaTreeSitterNodeTypes {
 
     // Field-like declarations
     public static final String ENUM_CONSTANT = "enum_constant";
+    public static final String CONSTANT_DECLARATION = "constant_declaration";
 
     // Package declaration
     public static final String PACKAGE_DECLARATION = "package_declaration";
@@ -38,6 +39,28 @@ public final class JavaTreeSitterNodeTypes {
     // Annotations
     public static final String ANNOTATION = "annotation";
     public static final String MARKER_ANNOTATION = "marker_annotation";
+
+    // Reference node types (used in isAccessExpression)
+    public static final String METHOD_INVOCATION = "method_invocation";
+    public static final String FIELD_ACCESS = "field_access";
+    public static final String OBJECT_CREATION_EXPRESSION = "object_creation_expression";
+    public static final String TYPE_IDENTIFIER = "type_identifier";
+    public static final String SCOPED_TYPE_IDENTIFIER = "scoped_type_identifier";
+    public static final String CLASS_LITERAL = "class_literal";
+
+    // Declaration context node types
+    public static final String VARIABLE_DECLARATOR = "variable_declarator";
+    public static final String FORMAL_PARAMETER = "formal_parameter";
+    public static final String LOCAL_VARIABLE_DECLARATION = "local_variable_declaration";
+    public static final String ENHANCED_FOR_STATEMENT = "enhanced_for_statement";
+    public static final String CATCH_FORMAL_PARAMETER = "catch_formal_parameter";
+    public static final String RESOURCE_SPECIFICATION = "resource_specification";
+    public static final String RESOURCE = "resource";
+    public static final String LAMBDA_EXPRESSION = "lambda_expression";
+    public static final String INFERRED_PARAMETERS = "inferred_parameters";
+    public static final String FORMAL_PARAMETERS = "formal_parameters";
+    public static final String INSTANCEOF_EXPRESSION = "instanceof_expression";
+    public static final String PATTERN = "pattern";
 
     private JavaTreeSitterNodeTypes() {}
 }

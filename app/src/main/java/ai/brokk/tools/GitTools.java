@@ -2,6 +2,7 @@ package ai.brokk.tools;
 
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.TaskResult;
 import ai.brokk.git.GitRepo;
 import ai.brokk.prompts.CommitPrompts;
 import ai.brokk.prompts.MergePrompts;
@@ -71,7 +72,10 @@ public class GitTools {
             }
 
             StreamingChatModel modelToUse = cm.getService().getScanModel();
-            Llm llm = cm.getLlm(modelToUse, (detailed ? "Explain commit " : "Summarize commit ") + shortHash);
+            Llm llm = cm.getLlm(
+                    modelToUse,
+                    (detailed ? "Explain commit " : "Summarize commit ") + shortHash,
+                    TaskResult.Type.SUMMARIZE);
             try {
                 return explainWithHalving(diff, detailed, revision, llm);
             } catch (InterruptedException e) {

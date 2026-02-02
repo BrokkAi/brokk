@@ -9,6 +9,7 @@
     "version": "1.0.0",
     "jdeployPrelaunchVersion": "v0.0.5",
     "jdeploy": {
+        "winAppDir": "AppData\\Local\\Programs",
         "jdk": false,
         "jdkProvider": "jbr",
         "jbrVariant": "jcef",

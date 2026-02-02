@@ -6,6 +6,7 @@ import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.LoggingFuture;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.Test;
 
@@ -82,5 +83,23 @@ public class ComputedValueTest {
         var chained = cv.flatMap(v -> ComputedValue.completed("derived", v + 3));
 
         assertEquals(8, chained.future().get().intValue());
+    }
+
+    @Test
+    public void allOf_waitsForAll() throws Exception {
+        var fut1 = new CompletableFuture<Integer>();
+        var fut2 = new CompletableFuture<String>();
+        var cv1 = new ComputedValue<>("cv1", fut1);
+        var cv2 = new ComputedValue<>("cv2", fut2);
+
+        var combined = ComputedValue.allOf(cv1, cv2);
+        assertFalse(combined.future().isDone());
+
+        fut1.complete(1);
+        assertFalse(combined.future().isDone());
+
+        fut2.complete("done");
+        assertTrue(combined.future().isDone());
+        assertNull(combined.future().get());
     }
 }

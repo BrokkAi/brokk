@@ -5,6 +5,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
+import ai.brokk.TaskResult;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.context.Context;
 import ai.brokk.gui.dialogs.TextAreaConsoleIO;
@@ -105,7 +106,7 @@ public class WandAction {
                 """
                         .formatted(ctx.overview(), buildHistorySummary(ctx), originalPrompt);
 
-        Llm llm = contextManager.getLlm(new Llm.Options(model, "Refine Prompt").withEcho());
+        Llm llm = contextManager.getLlm(new Llm.Options(model, "Refine Prompt", TaskResult.Type.SUMMARIZE).withEcho());
         llm.setOutput(consoleIO);
         List<ChatMessage> req = List.of(
                 new SystemMessage("You are a Prompt Refiner for coding instructions."), new UserMessage(instruction));

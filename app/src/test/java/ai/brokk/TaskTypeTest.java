@@ -8,8 +8,8 @@ import org.junit.jupiter.api.Test;
 public class TaskTypeTest {
 
     @Test
-    void testSearchDisplayNameIsLutzMode() {
-        assertEquals("Lutz Mode", TaskResult.Type.SEARCH.displayName(), "SEARCH displayName must remain 'Lutz Mode'");
+    void testSearchDisplayNameIsSearch() {
+        assertEquals("Search", TaskResult.Type.SEARCH.displayName(), "SEARCH displayName must be 'Search'");
     }
 
     @Test
@@ -20,9 +20,9 @@ public class TaskTypeTest {
 
     @Test
     void testSafeParseByDisplayName() {
-        // Search maps to "Lutz Mode"
-        assertEquals(Optional.of(TaskResult.Type.SEARCH), TaskResult.Type.safeParse("Lutz Mode"));
-        assertEquals(Optional.of(TaskResult.Type.SEARCH), TaskResult.Type.safeParse("lutz mode"));
+        // Search maps to "Search"
+        assertEquals(Optional.of(TaskResult.Type.SEARCH), TaskResult.Type.safeParse("Search"));
+        assertEquals(Optional.of(TaskResult.Type.SEARCH), TaskResult.Type.safeParse("search"));
     }
 
     @Test

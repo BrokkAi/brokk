@@ -63,12 +63,26 @@ public class Completions {
             dedup.put(cu.fqName(), cu);
         }
         for (CodeUnit cu : candidates) {
-            String id = cu.identifier();
-            int dotIdx = id.indexOf('.');
-            // Identifiers should not normally start with '.', but be robust: treat ".Foo" as having an empty first
-            // segment.
-            if (dotIdx >= 0) {
-                String firstSegment = id.substring(0, dotIdx);
+            // We intentionally use shortName() (not identifier()) here because parent-class enrichment depends on
+            // seeing the nested path segments (e.g., "Chrome.AnalyzerStatusStrip" or "Do$Re$Sub") so we can detect
+            // when a completion result is a nested member under the queried parent name.
+            //
+            // CodeUnit.identifier() is designed for fuzzy matching and, for CLASS kinds, returns only the innermost
+            // name (e.g., "AnalyzerStatusStrip" from "Chrome.AnalyzerStatusStrip", or "Re" from "Do$Re"). That
+            // loses the prefix ("Chrome"/"Do") and would make separatorIdx always -1, preventing enrichment.
+            String shortName = cu.shortName();
+            int dotIdx = shortName.indexOf('.');
+            int dollarIdx = shortName.indexOf('$');
+
+            int separatorIdx;
+            if (dotIdx >= 0 && dollarIdx >= 0) {
+                separatorIdx = Math.min(dotIdx, dollarIdx);
+            } else {
+                separatorIdx = Math.max(dotIdx, dollarIdx);
+            }
+
+            if (separatorIdx >= 0) {
+                String firstSegment = shortName.substring(0, separatorIdx);
                 if (firstSegment.equalsIgnoreCase(query)) {
                     String parentFqn =
                             cu.packageName().isEmpty() ? firstSegment : (cu.packageName() + "." + firstSegment);
@@ -104,7 +118,12 @@ public class Completions {
 
         return candidates.stream()
                 .map(cu -> {
-                    int baseScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
+                    int identifierScore =
+                            hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
+                    int shortNameScore =
+                            (hierarchicalQuery || !cu.isClass()) ? Integer.MAX_VALUE : matcher.score(cu.shortName());
+                    int baseScore = Math.min(identifierScore, shortNameScore);
+
                     if (baseScore == Integer.MAX_VALUE) {
                         return new ScoredCodeUnit(cu, Integer.MAX_VALUE);
                     }

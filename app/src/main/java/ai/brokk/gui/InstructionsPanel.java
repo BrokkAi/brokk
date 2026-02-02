@@ -13,7 +13,7 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
-import ai.brokk.agents.LutzAgent;
+import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
@@ -491,7 +491,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         applyAdvancedMode(GlobalUiSettings.isAdvancedMode());
 
         // Subscribe to events
-        contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
+        contextManager.addServiceReloadListener(() -> LoggingFuture.runVirtual(this::updateButtonStates));
         contextManager.addContextListener(this);
     }
 
@@ -698,30 +698,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             @Override
             public void actionPerformed(ActionEvent e) {
                 var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-                var contents = clipboard.getContents(null);
-                boolean imageHandled = false;
+                int maxAttempts = 3;
+                int delayMs = 50;
+                boolean imageFound = false;
 
-                if (contents == null) {
-                    return;
-                }
-
-                for (var flavor : contents.getTransferDataFlavors()) {
+                for (int i = 0; i < maxAttempts; i++) {
                     try {
-                        if (flavor.equals(DataFlavor.imageFlavor)
-                                || flavor.getMimeType().startsWith("image/")) {
-                            // Re-use existing ContextActions logic
-                            chrome.getContextActionsHandler()
-                                    .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
-                            imageHandled = true;
+                        var contents = clipboard.getContents(null);
+                        if (contents != null) {
+                            for (var flavor : contents.getTransferDataFlavors()) {
+                                if (flavor.equals(DataFlavor.imageFlavor)
+                                        || flavor.getMimeType().startsWith("image/")) {
+                                    imageFound = true;
+                                    break;
+                                }
+                            }
+                        }
+                        break;
+                    } catch (IllegalStateException ex) {
+                        if (i == maxAttempts - 1) {
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
                             break;
                         }
-                    } catch (Exception ex) {
-                        // Log at trace to avoid noise; proceed with default paste handling
-                        logger.trace("Clipboard flavor probe failed during smartPaste; falling back to default", ex);
+                        try {
+                            Thread.sleep(delayMs);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
                     }
                 }
 
-                if (!imageHandled) {
+                if (imageFound) {
+                    chrome.getContextActionsHandler()
+                            .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
+                } else {
                     area.paste(); // Default text paste
                 }
             }
@@ -874,12 +886,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                        if (rows >= maxRows) break;
+                        if (rows >= 7) break;
                     }
                 }
-                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                return Math.max(1, Math.min(maxRows, rows));
+                return Math.max(1, Math.min(7, rows));
             }
 
             @Override
@@ -1107,7 +1117,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         LoggingFuture.supplyAsync(() -> {
                     var service = chrome.getContextManager().getService();
                     var model = service.getModel(config);
-                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                    if (model == null || model instanceof AbstractService.OfflineStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
                                         "Unavailable",
@@ -1638,7 +1648,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var models = contextManager.getService();
             // If we have an UnavailableStreamingModel, the service failed to initialize
-            if (models.quickestModel() instanceof Service.UnavailableStreamingModel) {
+            if (models.quickestModel() instanceof AbstractService.OfflineStreamingModel) {
                 return "Service contains unavailable model stub (initialization may have failed)";
             }
             return "Service appears initialized; check network connectivity and API key validity";
@@ -1779,7 +1789,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         Context ctx = cm.liveContext();
         messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
 
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question, TaskResult.Type.ASK).withEcho());
         return executeAskCommand(llm, messages, cm, question, meta);
     }
 
@@ -1857,9 +1867,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
+        assert SwingUtilities.isEventDispatchThread();
         final var modelToUse = selectDropdownModelOrShowError("Ask");
         if (modelToUse == null) {
-            updateButtonStates();
+            LoggingFuture.runVirtual(this::updateButtonStates);
             return;
         }
         prepareAndRunAskCommand(modelToUse, input);
@@ -1907,10 +1918,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query, String action) {
+        assert SwingUtilities.isEventDispatchThread();
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
-            updateButtonStates();
+            LoggingFuture.runVirtual(this::updateButtonStates);
             return;
         }
 
@@ -1931,7 +1943,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     boolean hadIncomplete = hasIncomplete(beforeTasks);
 
                     // SearchAgent now handles scanning internally via execute()
-                    LutzAgent agent = new LutzAgent(context, query, modelToUse, objective, scope);
+                    var agent = new SearchAgent(context, query, modelToUse, objective, scope);
 
                     var result = agent.execute();
                     // Apply results to context
@@ -2094,11 +2106,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Called when actions complete.
      */
     private void updateButtonStates() {
-        SwingUtilities.invokeLater(() -> {
-            // Check if service is online
-            var service = contextManager.getService();
-            boolean serviceIsOnline = service.isOnline();
+        assert !SwingUtilities.isEventDispatchThread();
+        // Check if service is online
+        var service = contextManager.getService();
+        boolean serviceIsOnline = service.isOnline();
 
+        SwingUtilities.invokeLater(() -> {
             if (!serviceIsOnline) {
                 // Service is offline: show offline state
                 actionButton.showOfflineMode();
@@ -2164,7 +2177,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     void enableButtons() {
         // Called when an action completes. Reset buttons based on current CM/project state.
-        updateButtonStates();
+        LoggingFuture.runVirtual(this::updateButtonStates);
     }
 
     private String loadActionMode() {
@@ -2203,6 +2216,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void onActionButtonPressed() {
+        assert SwingUtilities.isEventDispatchThread();
         if (isActionRunning()) {
             // Stop action
             chrome.getContextManager().interruptLlmAction();
@@ -2211,10 +2225,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             switch (storedAction) {
                 case ACTION_CODE -> {
                     var model = selectDropdownModelOrShowError("Code");
-                    if (model != null) {
-                        prepareAndRunCodeCommand(model);
+                    if (model == null) {
+                        LoggingFuture.runVirtual(this::updateButtonStates);
                     } else {
-                        updateButtonStates();
+                        prepareAndRunCodeCommand(model);
                     }
                 }
                 case ACTION_LUTZ -> runSearchCommand();
@@ -2265,9 +2279,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param oldText the original text to restore on undo (must be captured before any clearing)
      */
     private void setTextWithUndo(String newText, String oldText) {
-        // Skip no-op edits (e.g., when wand fails and restores original)
-        if (newText.equals(oldText)) {
-            // Still need to ensure undo listener is enabled (WandButton may have disabled it)
+        // Only skip if the current text matches what we are trying to set
+        if (newText.equals(instructionsArea.getText())) {
+            // Ensure undo listener is enabled (e.g. if WandButton disabled it before streaming)
             enableUndoListener();
             return;
         }
@@ -2279,6 +2293,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Re-enable undo listener for future user typing
         enableUndoListener();
+
+        // If the new text matches the original captured text (restoration case),
+        // we don't need to add an undoable edit as there is no semantic change.
+        if (newText.equals(oldText)) {
+            return;
+        }
 
         // Add a single edit representing the entire text replacement
         commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
@@ -2437,6 +2457,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     public JComponent getModelSelectorComponent() {
         return modelSelector.getComponent();
+    }
+
+    /**
+     * Cycles the model dropdown selection forward or backward in the favorites list.
+     * No-op in Core Focus (EZ) mode (dropdown is hidden), or if the manage dialog is open
+     * or there are no favorites.
+     */
+    public void cycleModel(boolean forward) {
+        if (!GlobalUiSettings.isAdvancedMode()) return;
+        modelSelector.cycleModel(forward);
     }
 
     /**

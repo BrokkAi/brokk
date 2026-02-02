@@ -443,6 +443,38 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     @Override
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        if (imports.isEmpty()) {
+            return false;
+        }
+
+        // Get the target file's relative path (normalized to forward slashes)
+        String targetPath = target.getRelPath().toString().replace('\\', '/');
+
+        for (ImportInfo imp : imports) {
+            String rawSnippet = imp.rawSnippet();
+
+            // Only consider quoted includes (#include "path"), not angle bracket includes (#include <path>)
+            // Angle bracket includes are typically external/system headers
+            Matcher m = QUOTED_INCLUDE_PATTERN.matcher(rawSnippet);
+            if (m.find()) {
+                String includePath = m.group(1);
+                // Normalize to forward slashes
+                includePath = includePath.replace('\\', '/');
+
+                // Check if include path matches or is a suffix of the target path
+                // e.g., "utils/helper.h" should match target "src/utils/helper.h" or "utils/helper.h"
+                if (targetPath.equals(includePath) || targetPath.endsWith("/" + includePath)) {
+                    return true;
+                }
+            }
+            // Angle bracket includes like #include <vector> are external headers, skip them
+        }
+
+        return false;
+    }
+
+    @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         // Get the import node using the standard capture name
@@ -1318,12 +1350,5 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         return identifiers;
-    }
-
-    public String getCacheStatistics() {
-        int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
-                .filter(fp -> fp.parsedTree() != null)
-                .count());
-        return "ParsedTrees: %d".formatted(parsedTreeCount);
     }
 }

@@ -189,6 +189,74 @@ class HeadlessExecutorMainIssueJobTest {
         return (String) jobIdObj;
     }
 
+    @Test
+    void testPostIssueJob_SkipVerification_DefaultFalseWhenMissing() throws Exception {
+        var payload = basePayload();
+        String jobId = postIssueJobAndGetJobId(payload);
+        var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertFalse(persisted.skipVerification());
+    }
+
+    @Test
+    void testPostIssueJob_SkipVerification_TrueWhenProvided() throws Exception {
+        var payload = basePayload();
+        payload.put("skipVerification", true);
+        String jobId = postIssueJobAndGetJobId(payload);
+        var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertTrue(persisted.skipVerification());
+    }
+
+    // Helpers for testing generic /v1/jobs ISSUE-mode path
+    private String postGenericIssueJobAndGetJobId(Map<String, Object> body) throws Exception {
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/v1/jobs"))
+                .header("Authorization", "Bearer " + AUTH_TOKEN)
+                .header("Idempotency-Key", "gen-" + System.nanoTime())
+                .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body)))
+                .build();
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertTrue(response.statusCode() == 200 || response.statusCode() == 201, "Unexpected status: " + response);
+        var responseJson = MAPPER.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
+        Object jobIdObj = responseJson.get("jobId");
+        assertTrue(jobIdObj instanceof String, "Expected jobId in response: " + response.body());
+        return (String) jobIdObj;
+    }
+
+    private Map<String, Object> baseGenericIssueJobPayload() {
+        var tags = new HashMap<String, Object>();
+        tags.put("mode", "ISSUE");
+        tags.put("github_token", "ghp_tok");
+        tags.put("repo_owner", "some-owner");
+        tags.put("repo_name", "some-repo");
+        tags.put("issue_number", "42");
+
+        var body = new HashMap<String, Object>();
+        body.put("sessionId", UUID.randomUUID().toString());
+        body.put("taskInput", "Issue via /v1/jobs");
+        body.put("autoCommit", false);
+        body.put("autoCompress", false);
+        body.put("plannerModel", "gpt-5-mini");
+        body.put("tags", tags);
+        return body;
+    }
+
+    @Test
+    void testGenericIssueJob_SkipVerification_DefaultFalseWhenMissing() throws Exception {
+        var payload = baseGenericIssueJobPayload();
+        String jobId = postGenericIssueJobAndGetJobId(payload);
+        var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertFalse(persisted.skipVerification());
+    }
+
+    @Test
+    void testGenericIssueJob_SkipVerification_TrueWhenProvided() throws Exception {
+        var payload = baseGenericIssueJobPayload();
+        payload.put("skipVerification", true);
+        String jobId = postGenericIssueJobAndGetJobId(payload);
+        var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertTrue(persisted.skipVerification());
+    }
+
     private JobSpec loadPersistedJobSpec(String jobId) throws Exception {
         Path storeDir = workspaceDir.resolve(".brokk").resolve("jobs");
         var store = new JobStore(storeDir);

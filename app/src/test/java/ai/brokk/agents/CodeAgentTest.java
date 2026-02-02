@@ -3,9 +3,9 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.Llm;
-import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.JavaAnalyzer;
@@ -19,7 +19,6 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
-import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -102,7 +101,7 @@ class CodeAgentTest {
         project = new TestProject(projectRoot, Languages.JAVA);
         cm = new TestContextManager(projectRoot, consoleIO, new JavaAnalyzer(project));
         assert cm.getProject() == project;
-        codeAgent = new CodeAgent(cm, new Service.UnavailableStreamingModel(), consoleIO);
+        codeAgent = new CodeAgent(cm, new AbstractService.OfflineStreamingModel(), consoleIO);
 
         // Save original shell command runner factory
         originalShellCommandRunnerFactory = Environment.shellCommandRunnerFactory;
@@ -1336,18 +1335,6 @@ class CodeAgentTest {
         assertTrue(
                 containsEditable,
                 "Expected editable fragment content to appear in messages when it's listed as changed");
-
-        // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
-        var toc = WorkspacePrompts.formatToc(ctx, Collections.emptySet());
-        var tocReminder =
-                """
-                Reminder: here is a list of the full contents of the Workspace that you can refer to above:
-                %s
-                """
-                        .formatted(toc);
-        var augmented = Messages.getText(request) + "\n\n" + tocReminder;
-        assertTrue(augmented.contains(Messages.getText(request)));
-        assertTrue(augmented.contains(toc));
     }
 
     @Test

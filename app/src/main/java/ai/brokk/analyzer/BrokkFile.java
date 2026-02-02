@@ -53,6 +53,10 @@ public interface BrokkFile extends Comparable<BrokkFile> {
         return Files.exists(absPath());
     }
 
+    default boolean isDirectory() {
+        return Files.isDirectory(absPath());
+    }
+
     /** best guess as to whether a file is text and hence eligible for substring search */
     @JsonIgnore
     default boolean isText() {

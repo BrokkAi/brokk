@@ -159,8 +159,9 @@ public class CodeAgent {
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
-        var coder = contextManager.getLlm(
-                new Llm.Options(model, userInput).withEcho().withPartialResponses());
+        var coder = contextManager.getLlm(new Llm.Options(model, userInput, TaskResult.Type.CODE)
+                .withEcho()
+                .withPartialResponses());
 
         coder.setOutput(io);
 
@@ -333,7 +334,7 @@ public class CodeAgent {
             } catch (ExecutionException e) {
                 throw new RuntimeException(e);
             }
-            context = context.copyAndRefresh(es.changedFiles(), "CodeAgent Changes");
+            context = context.copyAndRefresh(es.changedFiles());
 
             if (applyOutcome instanceof Step.Retry retryApply) {
                 cs = retryApply.cs();
@@ -566,7 +567,7 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation and original content.
      */
     public TaskResult runQuickTask(ProjectFile file, String oldText, String instructions) throws InterruptedException {
-        var llm = contextManager.getLlm(model, "QuickEdit: " + instructions);
+        var llm = contextManager.getLlm(model, "QuickEdit: " + instructions, TaskResult.Type.CODE);
         llm.setOutput(io);
 
         // Use up to 5 related classes as context (format as combined summaries)
@@ -790,7 +791,7 @@ public class CodeAgent {
             var notInContext = Sets.difference(mentionedFiles, filesInContext);
             if (!notInContext.isEmpty()) {
                 var quickModel = contextManager.getService().quickestModel();
-                var llm = contextManager.getLlm(quickModel, "Check if asking for files");
+                var llm = contextManager.getLlm(quickModel, "Check if asking for files", TaskResult.Type.CLASSIFY);
 
                 var filterDescription =
                         "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";
@@ -834,8 +835,10 @@ public class CodeAgent {
                     """
                     The build failed.
                     Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
-                    You should use the conversation history to understand what has been done so far, but
-                    only use the Workspace to generate SEARCH/REPLACE blocks.
+                    You should use the conversation history to understand your earlier thinking; since your changes
+                    have been incorporated into the Workspace, look at the current state of those files before
+                    generate SEARCH/REPLACE blocks. You have already made changes, but you made mistakes;
+                    that is why the build is failing!
 
                     IMPORTANT: If solving the build or failure requires editing files or using APIs you do not have
                     in your Workspace, do your best to explain the problem but DO NOT provide any edits.
@@ -964,12 +967,13 @@ public class CodeAgent {
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
                             editResult.originalContents());
-                    report("Failed to apply %s block(s), asking LLM to retry".formatted(failedResults.size()));
+                    report("Applied %d of %d unique block(s) successfully; asking LLM to retry"
+                            .formatted(succeededCount, attemptedBlockCount));
                     return new Step.Retry(csForStep, esForStep);
                 }
             } else { // All blocks applied successfully
                 if (succeededCount > 0) {
-                    report(succeededCount + " SEARCH/REPLACE blocks applied.");
+                    report("Applied %d unique SEARCH/REPLACE block(s).".formatted(succeededCount));
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
                 esForStep = es.afterApply(

@@ -3,6 +3,7 @@ import type {BrokkEvent, BubbleState} from '../types';
 import type {ResultMsg} from '../worker/shared';
 import {clearState, pushChunk, parse} from '../worker/worker-bridge';
 import {register, unregister, isRegistered} from '../worker/parseRouter';
+import { evaluateSplit, updateFenceState } from '../lib/splitStrategy';
 import { getNextThreadId, threadStore } from './threadStore';
 import { deleteSummaryEntry, getSummaryEntry } from './summaryStore';
 import { hideTransientMessage } from './transientStore';
@@ -53,12 +54,47 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 }
 
                 const isStreaming = evt.streaming ?? false;
-                const chunkText = evt.text ?? '';
+                let chunkText = evt.text ?? '';
                 const isTerminal = evt.meta.isTerminal;
 
                 // Decide if we append or start a new bubble.
                 // MarkdownOutputPanel.append is authoritative for isNewMessage.
-                const needNew = evt.meta.isNewMessage || list.length === 0;
+                let needNew = evt.meta.isNewMessage || list.length === 0;
+
+                // NEW: Check for length-based split (skip for terminal - already O(1))
+                if (!needNew && !isTerminal && list.length > 0) {
+                    const last = list.at(-1)!;
+                    const decision = evaluateSplit(
+                        last.markdown,
+                        chunkText,
+                        { insideFence: last.insideFence ?? false }
+                    );
+
+                    if (decision.shouldSplit) {
+                        // First, append the first part to current bubble (if any)
+                        if (decision.textForCurrentBubble) {
+                            const updatedLast: BubbleState = {
+                                ...last,
+                                markdown: last.markdown + decision.textForCurrentBubble,
+                                insideFence: updateFenceState(
+                                    last.insideFence ?? false,
+                                    decision.textForCurrentBubble
+                                ),
+                                epoch: evt.epoch,
+                            };
+                            list = [...list.slice(0, -1), updatedLast];
+
+                            // Push to worker
+                            if (isStreaming) {
+                                pushChunk(decision.textForCurrentBubble, last.seq);
+                            }
+                        }
+
+                        // Now continue with the rest as a new bubble
+                        chunkText = decision.textForNewBubble;
+                        needNew = true;
+                    }
+                }
 
                 let bubble: BubbleState;
                 if (needNew) {
@@ -72,6 +108,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         streaming: isStreaming,
                         isTerminal: isTerminal || false,
                         hast: undefined,
+                        insideFence: updateFenceState(false, chunkText),
                         reasoningState: evt.meta.isReasoning ? {
                             startTime: Date.now(),
                             complete: !isStreaming,
@@ -92,6 +129,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         ...last,
                         markdown: last.markdown + chunkText,
                         epoch: evt.epoch,
+                        insideFence: updateFenceState(last.insideFence ?? false, chunkText),
                     };
                     list = [...list.slice(0, -1), bubble];
                 }

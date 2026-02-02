@@ -8,6 +8,7 @@ import ai.brokk.SessionManager;
 import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
@@ -28,6 +29,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 public interface IProject extends AutoCloseable {
 
@@ -114,8 +116,9 @@ public interface IProject extends AutoCloseable {
      * This should only called directly by awaitBuildDetails and CM::createHeadless!
      * Everyone else should use awaitBuildDetails() instead.
      */
-    default BuildAgent.BuildDetails loadBuildDetails() {
-        return BuildAgent.BuildDetails.EMPTY;
+    @VisibleForTesting
+    default Optional<BuildAgent.BuildDetails> loadBuildDetails() {
+        return Optional.empty();
     }
 
     default MainProject.DataRetentionPolicy getDataRetentionPolicy() {
@@ -177,6 +180,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    @Blocking
     default BuildAgent.BuildDetails awaitBuildDetails() {
         return BuildAgent.BuildDetails.EMPTY;
     }
@@ -532,6 +536,16 @@ public interface IProject extends AutoCloseable {
     default CompletableFuture<Void> addLiveDependency(
             String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
         throw new UnsupportedOperationException();
+    }
+
+    default Language getLanguageHandle() {
+        var projectLangs = getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .collect(Collectors.toUnmodifiableSet());
+        if (projectLangs.isEmpty()) {
+            return Languages.NONE;
+        }
+        return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
     }
 
     enum CodeAgentTestScope {

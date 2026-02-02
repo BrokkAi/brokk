@@ -3,8 +3,8 @@ package ai.brokk.agents;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IConsoleIO;
-import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.HeadlessConsole;
@@ -38,7 +38,7 @@ class BlitzForgeTest {
 
         BlitzForge.RunConfig cfg = new BlitzForge.RunConfig(
                 "Do thing",
-                new Service.UnavailableStreamingModel(),
+                new AbstractService.OfflineStreamingModel(),
                 (Supplier<String>) () -> "",
                 (Supplier<String>) () -> "",
                 "",

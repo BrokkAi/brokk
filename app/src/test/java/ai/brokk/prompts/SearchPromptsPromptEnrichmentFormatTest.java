@@ -38,10 +38,10 @@ class SearchPromptsPromptEnrichmentFormatTest {
 
             var model = new TestScriptedLanguageModel("unused");
             var meta = new TaskResult.TaskMeta(TaskResult.Type.SEARCH, new Service.ModelConfig("test"));
-            var result = SearchPrompts.instance.buildPrompt(
+            var messages = SearchPrompts.instance.buildPrompt(
                     ctx, model, meta, goal, SearchPrompts.Objective.PROMPT_ENRICHMENT, List.of(), List.of());
 
-            String directive = extractPromptEnrichmentDirective(result.messages());
+            String directive = extractPromptEnrichmentDirective(messages);
 
             assertTrue(directive.contains("<prompt_enrichment>"));
 

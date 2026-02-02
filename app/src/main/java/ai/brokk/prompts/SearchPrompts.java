@@ -25,8 +25,6 @@ import java.util.stream.Collectors;
 public class SearchPrompts {
     public static final SearchPrompts instance = new SearchPrompts();
 
-    private static final double WORKSPACE_CRITICAL = 0.80;
-
     private static final String WORKSPACE_CONTEXT_GUIDANCE =
             """
             Workspace context guidance:
@@ -35,7 +33,6 @@ public class SearchPrompts {
               - Then add only those specific items to Workspace (no globs, no wildcards, no bulk directory adds).
               - Summaries: when you only need API signatures/types/constants.
               - Method sources: when you need implementation details for specific methods.
-              - Task Notes (appendNote): factual excerpts and cross-fragment synthesis.
               - Full sources: only when you need complete implementation details.
             """
                     .stripIndent();
@@ -86,15 +83,21 @@ public class SearchPrompts {
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ANSWER);
             }
+        },
+        CODE_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.CODE);
+            }
         };
 
         public abstract Set<Terminal> terminals();
     }
 
     /**
-     * Result of building a prompt, including messages and whether beast mode should be engaged.
+     * Result of building a prompt.
      */
-    public record PromptResult(List<ChatMessage> messages, boolean engageBeastMode) {}
+    public record PromptResult(List<ChatMessage> messages) {}
 
     public String searchAgentIdentity() {
         return """
@@ -162,12 +165,11 @@ public class SearchPrompts {
                 %s
 
                 Memory model (reliability):
-                  - Durable memory is ONLY the Workspace (fragments + SpecialText such as Task Notes and Discarded Context).
+                  - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).
                   - Chat history (including tool outputs) may be summarized or truncated; do NOT rely on it to retain details.
                   - If you might need something later, persist it into the Workspace:
                       - For structure/types/navigation: add class/file summaries.
                       - For behavior: add method sources; escalate to class source or full files only when needed.
-                      - For cross-fragment conclusions (facts only): appendNote (Task Notes).
                       - When dropping, record breadcrumbs in Discarded Context via dropWorkspaceFragments (keyFacts + dropReason).
                   - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
 
@@ -175,8 +177,7 @@ public class SearchPrompts {
                   1) PRUNE the Workspace continuously.
                      - You may drop a fragment only when it is:
                          (a) unrelated to the goal, OR
-                         (b) adequately replaced by smaller Workspace artifacts (method sources and/or class/file summaries), OR
-                         (c) you have captured any relevant takeaways in Task Notes (appendNote).
+                         (b) adequately replaced by smaller Workspace artifacts (method sources and/or class/file summaries).
                      - When using dropWorkspaceFragments, provide:
                          %s
                      - Workspace granularity (Prefer the smallest sufficient unit of context):
@@ -191,6 +192,10 @@ public class SearchPrompts {
                           → addSymbolUsagesToWorkspace
                           Strings, configs, markdown, comments, reflection, or unknown names?
                           → searchSubstrings
+                     - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
+                       They do NOT surface local variables or hardcoded strings like environment variable names,
+                       system properties, or comments. If searchSubstrings finds a hit in a file but the summary
+                       doesn't reveal the match, you MUST load the full file or method source to see the actual content.
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
                   4) Group related lookups into a single tool call when possible.
@@ -285,7 +290,7 @@ public class SearchPrompts {
     }
 
     /**
-     * Builds the prompt messages for SearchAgent and determines if beast mode should be engaged.
+     * Builds the prompt messages for SearchAgent.
      *
      * @param context the current context
      * @param model the model to use for token limit calculation
@@ -294,9 +299,9 @@ public class SearchPrompts {
      * @param objective the search objective
      * @param mcpTools the list of MCP tools available
      * @param sessionMessages the session-local conversation messages
-     * @return PromptResult containing the messages and whether beast mode should now be engaged
+     * @return PromptResult containing the messages
      */
-    public PromptResult buildPrompt(
+    public List<ChatMessage> buildPrompt(
             Context context,
             StreamingChatModel model,
             TaskResult.TaskMeta taskMeta,
@@ -316,9 +321,6 @@ public class SearchPrompts {
         // Build workspace messages in insertion order with viewing policy applied
         var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
         var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
-
-        // Determine if beast mode should be engaged
-        boolean engageBeastMode = (inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit);
 
         var messages = new ArrayList<ChatMessage>();
 
@@ -361,16 +363,20 @@ public class SearchPrompts {
             if (pct > 90.0) {
                 warning =
                         """
+                                <workspace-size-warning>
                                 CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
                                 You MUST reduce Workspace size immediately before any further exploration.
                                 Replace full text with summaries and drop non-essential fragments first.
+                                </workspace-size-warning>
                                 """
                                 .formatted(pct, workspaceTokens, inputLimit);
             } else if (pct > 60.0) {
                 warning =
                         """
+                                <workspace-size-warning>
                                 NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
                                 Prefer summaries and prune aggressively before expanding further.
+                                </workspace-size-warning>
                                 """
                                 .formatted(pct, workspaceTokens, inputLimit);
             }
@@ -432,7 +438,6 @@ public class SearchPrompts {
                         or simple summaries if they just need to be run for validation. Thus, you should
                         convert tests whose full source you don't need to summaries by dropping the file and
                         adding the summary. In general, you should avoid dropping test summaries.
-                      %s
                     """;
         }
 
@@ -454,7 +459,7 @@ public class SearchPrompts {
 
         String buildSetupTaskGuidance = "";
         boolean tasksObjective = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
-        if (tasksObjective && cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+        if (tasksObjective && cm.getProject().awaitBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
             buildSetupTaskGuidance =
                     """
                     <build-setup-task-guidance>
@@ -479,7 +484,10 @@ public class SearchPrompts {
                         %s
                         %s
 
+                        <tool-instructions>
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
+                        When you have enough information to finalize (solve the problem or answer the question), do so; there
+                        are no bonus points for grooming the perfect Workspace.
 
                         Pruning mandate (do this now):
                           - In parallel with exploration, prune the Workspace
@@ -487,23 +495,26 @@ public class SearchPrompts {
                           - **MANDATORY** Reduce Workspace size: replace large fragments with smaller artifacts (addFileSummariesToWorkspace, addClassSummariesToWorkspace, addMethodsToWorkspace) if reasonable
                           - When replacing fragments, drop the originals (dropWorkspaceFragments) - no superseded fragments!
                           - Before re-adding content, check Discarded Context to avoid redoing work
-
+                          - You may not drop pinned fragments.
                         %s
 
                         Finalization options:
                         %s
 
-                        You can call multiple non-final tools in a single turn. Provide a list of separate tool calls,
-                        each with its own name and arguments (add summaries, drop fragments, etc).
-                        Final actions (answer, createOrReplaceTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
-                        If you include a final together with other tools, the final will be ignored for this turn.
-                        It is NOT your objective to write code.
+                        You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
+                        usefully do so.
+
+                        Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn,
+                        EXCEPT that you should also call dropWorkspaceFragments if any final cleanup is needed.
+                        If you include a terminal together with other tools, the terminal will be ignored for this turn.
+
+                        Remember: it is NOT your objective to write code.
+
+                        %s
+                        </tool-instructions>
 
                         %s
 
-                        %s
-
-                        Reminder: here is a list of the full contents of the Workspace that you can refer to above:
                         %s
                         """
                         .formatted(
@@ -519,21 +530,8 @@ public class SearchPrompts {
                                 markdownReminder,
                                 WorkspacePrompts.formatToc(context, suppressed));
 
-        // Beast mode directive
-        if (engageBeastMode) {
-            directive = directive
-                    + """
-                    <beast-mode>
-                    The Workspace is full or execution was interrupted.
-                    Finalize now using the best available information.
-                    Prefer answer(String) when no code changes are needed.
-                    For code-change requests, use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire list (completed tasks will be dropped). Titles are summarized automatically from task text; pass task texts only. Otherwise use abortSearch with reasons.
-                    </beast-mode>
-                    """;
-        }
-
         messages.add(new UserMessage(directive));
-        return new PromptResult(messages, engageBeastMode);
+        return messages;
     }
 
     public enum Terminal {
@@ -633,6 +631,20 @@ public class SearchPrompts {
                     **Verification**
                     **Plan** (explicit step-by-step; in **Plan**, name the key files/modules/classes/methods to change only if supported by the input or discovered from the repo; otherwise ask in **Open Questions**)
                     """);
+            case CODE_ONLY ->
+                new TerminalObjective(
+                        "task",
+                        """
+                    Gather the minimum context required to implement the task, then invoke Code Agent.
+
+                    %s
+
+                    %s
+
+                    Finalize with callCodeAgent(String instructions) once the Workspace contains
+                    sufficient context for the Code Agent to implement the change.
+                    """
+                                .formatted(FINALIZATION_INVARIANT, WORKSPACE_CONTEXT_GUIDANCE));
         };
     }
 }

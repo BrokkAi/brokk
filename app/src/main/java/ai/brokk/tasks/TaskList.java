@@ -31,5 +31,10 @@ public class TaskList {
         }
     }
 
-    public record TaskListData(List<TaskItem> tasks) {}
+    public record TaskListData(@org.jetbrains.annotations.Nullable String bigPicture, List<TaskItem> tasks) {
+        /** Legacy constructor for backward compatibility with single-parameter usage. */
+        public TaskListData(List<TaskItem> tasks) {
+            this(null, tasks);
+        }
+    }
 }

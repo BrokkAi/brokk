@@ -10,12 +10,14 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -51,9 +53,17 @@ public final class FuzzyUsageFinder {
     public static FuzzyUsageFinder create(IContextManager cm, @Nullable Predicate<ProjectFile> fileFilter) {
         var service = cm.getService();
         var model = service.getModel(ModelProperties.ModelType.USAGES);
-        var llm = model instanceof AbstractService.UnavailableStreamingModel
+        var llm = model instanceof AbstractService.OfflineStreamingModel
                 ? null
-                : new Llm(model, "Disambiguate Code Unit Usages", cm, false, false, false, false);
+                : new Llm(
+                        model,
+                        "Disambiguate Code Unit Usages",
+                        ai.brokk.TaskResult.Type.CLASSIFY,
+                        cm,
+                        false,
+                        false,
+                        false,
+                        false);
         return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm, fileFilter);
     }
 
@@ -89,13 +99,7 @@ public final class FuzzyUsageFinder {
      */
     private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) throws InterruptedException {
         // non-nested identifier
-        var shortName = target.identifier().replace("$", ".");
-        if (shortName.contains(".")) {
-            // shortName format is "Class.member" or "simpleFunction"
-            int lastDot = shortName.lastIndexOf('.');
-            shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
-        }
-        final String identifier = shortName;
+        final String identifier = target.identifier();
 
         // Determine language based on the target's source file extension
         Language lang = Languages.fromExtension(target.source().extension());
@@ -106,10 +110,10 @@ public final class FuzzyUsageFinder {
                 .map(template -> template.replace("$ident", Pattern.quote(identifier)))
                 .collect(Collectors.toSet());
 
-        // Define pattern for matching code unit definitions with exact shortName (used to detect uniqueness)
+        // Define pattern for matching code unit definitions with exact identifier (used to detect uniqueness)
         var matchingCodeUnits =
                 analyzer.searchDefinitions("\\b%s\\b".formatted(Pattern.quote(identifier)), false).stream()
-                        .filter(cu -> cu.shortName().equals(identifier))
+                        .filter(cu -> cu.identifier().equals(identifier))
                         .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
 
@@ -160,6 +164,12 @@ public final class FuzzyUsageFinder {
                     .filter(cu -> !cu.fqName().equals(target.fqName()))
                     .collect(Collectors.toSet());
 
+            var hierarchyProvider = analyzer.as(TypeHierarchyProvider.class);
+            Collection<CodeUnit> polymorphicMatches = hierarchyProvider
+                    .map(provider -> provider.getPolymorphicMatches(target, analyzer))
+                    .orElse(List.of());
+            boolean hierarchySupported = hierarchyProvider.isPresent();
+
             // Group hits by enclosing CodeUnit to build one prompt per context.
             // Note: This is a design tradeoff: all hits within the same method/enclosing unit will receive
             // the same LLM-derived confidence score. While this saves tokens and latency, it may lack precision
@@ -172,7 +182,15 @@ public final class FuzzyUsageFinder {
 
             for (var entry : groupedHits.entrySet()) {
                 var hitsInGroup = entry.getValue();
-                var prompt = UsagePrompt.build(hitsInGroup, target, alternatives, analyzer, identifier, 8_000);
+                var prompt = UsagePrompt.build(
+                        hitsInGroup,
+                        target,
+                        alternatives,
+                        polymorphicMatches,
+                        hierarchySupported,
+                        analyzer,
+                        identifier,
+                        8_000);
 
                 var task = new RelevanceTask(prompt.filterDescription(), prompt.promptText());
                 tasks.add(task);
@@ -240,6 +258,12 @@ public final class FuzzyUsageFinder {
                         // Get the substring before the match and find its byte length
                         int startByte = content.substring(0, start).getBytes(StandardCharsets.UTF_8).length;
                         int endByte = startByte + matcher.group().getBytes(StandardCharsets.UTF_8).length;
+
+                        // Filter out hits that are actually declarations or comments if the analyzer supports AST
+                        // checks
+                        if (!analyzer.isAccessExpression(file, startByte, endByte)) {
+                            continue;
+                        }
 
                         // Map char offset -> 0-based line index using precomputed starts
                         int lineIdx = FileUtil.findLineIndexForOffset(lineStarts, start);

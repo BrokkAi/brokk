@@ -843,15 +843,22 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Compatibility overload for reviewing from a commit up to HEAD.
+     */
+    public void startCommitRangeReview(String oldestCommitId) {
+        startCommitRangeReview(oldestCommitId + "^", "HEAD");
+    }
+
+    /**
      * Starts a review for a specific range of commits.
      * Selects the Review tab and triggers the review generation in SessionChangesPanel.
      */
-    public void startCommitRangeReview(String oldestCommitId) {
+    public void startCommitRangeReview(String fromRef, String toRef) {
         SwingUtilities.invokeLater(() -> {
             focusReviewTab();
 
             if (reviewTabComponent instanceof SessionChangesPanel scp) {
-                scp.startCommitRangeReview(oldestCommitId);
+                scp.startCommitRangeReview(fromRef, toRef);
             }
         });
     }

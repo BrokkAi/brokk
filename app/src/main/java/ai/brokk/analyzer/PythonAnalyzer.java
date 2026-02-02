@@ -1085,6 +1085,77 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        PythonModuleInfo targetModule = resolveModuleInfo(target);
+        String targetFqn = targetModule.moduleQualifiedPackage();
+
+        for (ImportInfo imp : imports) {
+            String raw = imp.rawSnippet();
+
+            // Extract the module part.
+            // Patterns:
+            // 1. "import X.Y" -> module path is X.Y
+            // 2. "from X.Y import Z" -> module path is X.Y
+            // 3. "from .X import Y" -> relative module path
+            // 4. "from . import Y" -> relative module path (dots only)
+
+            String modulePath = null;
+            if (raw.startsWith("from ")) {
+                // "from path import name"
+                int importIdx = raw.indexOf(" import ");
+                if (importIdx != -1) {
+                    modulePath = raw.substring(5, importIdx).trim();
+                }
+            } else if (raw.startsWith("import ")) {
+                // "import path" or "import path as alias"
+                String pathPart = raw.substring(7).trim();
+                int asIdx = pathPart.indexOf(" as ");
+                modulePath = (asIdx != -1) ? pathPart.substring(0, asIdx).trim() : pathPart;
+            }
+
+            if (modulePath == null || modulePath.isEmpty()) {
+                continue;
+            }
+
+            // Handle relative imports
+            String resolvedPath = modulePath;
+            if (modulePath.startsWith(".")) {
+                Optional<String> absolutePath = resolveRelativeImport(sourceFile, modulePath);
+                if (absolutePath.isEmpty()) {
+                    // Conservative: if we can't resolve the relative path, assume it might match.
+                    return true;
+                }
+                resolvedPath = absolutePath.get();
+            }
+
+            // Check for potential dependencies based on module paths.
+            // A dependency exists if:
+            // 1. Exact match: The import targets the file directly (e.g., import mypkg.mod)
+            // 2. Target is within the imported module: The import targets a package containing the file
+            //    (e.g., 'import mypkg' where the target file is 'mypkg/mod.py').
+            // 3. Import is from within the target module: The import targets a sub-module or member of the file
+            //    (e.g., 'from mypkg.mod import func').
+            if (targetFqn.equals(resolvedPath)
+                    || targetFqn.startsWith(resolvedPath + ".")
+                    || resolvedPath.startsWith(targetFqn + ".")) {
+                return true;
+            }
+
+            // Also check if the imported identifier matches the target's module name
+            // (e.g. "from mypackage import utils" where target is mypackage/utils.py)
+            if (imp.identifier() != null) {
+                String fullImportedName = resolvedPath + "." + imp.identifier();
+                // Check if this full name exactly matches the target or is a parent of the target
+                if (targetFqn.equals(fullImportedName) || targetFqn.startsWith(fullImportedName + ".")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 

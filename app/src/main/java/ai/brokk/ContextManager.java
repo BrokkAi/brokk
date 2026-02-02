@@ -31,16 +31,12 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.tools.GitTools;
-import ai.brokk.tools.SearchTools;
-import ai.brokk.tools.ToolRegistry;
-import ai.brokk.tools.UiTools;
+import ai.brokk.tools.*;
 import ai.brokk.util.*;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.FileWatcherHelper;
@@ -68,7 +64,6 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -172,7 +167,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private UUID currentSessionId;
 
     // Context history for undo/redo functionality (stores frozen contexts)
-    private ContextHistory contextHistory;
+    private volatile ContextHistory contextHistory;
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
     private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
     // Listeners that want to be notified when the Service (models/stt) is reinitialized.
@@ -852,7 +847,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return;
             }
             dropAll();
-            setSelectedContext(liveContext());
             return;
         }
 
@@ -929,11 +923,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Blocking
     public boolean undoContext() throws InterruptedException {
         return withContextResolvedAndWatcherPaused(() -> {
-            UndoResult result = contextHistory.undo(1, io, project);
+            var ch = contextHistory;
+            UndoResult result = ch.undo(1, io, project);
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
-                project.getSessionManager()
-                        .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
+                project.getSessionManager().saveHistory(ch, currentSessionId); // Save history of frozen contexts
                 if (!result.changedFiles().isEmpty()) {
                     requireNonNull(analyzerWrapper).updateFiles(result.changedFiles());
                 }
@@ -946,11 +940,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result = withContextResolvedAndWatcherPaused(
-                    () -> contextHistory.undoUntil(targetFrozenContext, io, project));
+            var ch = contextHistory;
+            UndoResult result =
+                    withContextResolvedAndWatcherPaused(() -> ch.undoUntil(targetFrozenContext, io, project));
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
-                project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+                project.getSessionManager().saveHistory(ch, currentSessionId);
                 String message = "Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 if (!result.changedFiles().isEmpty()) {
@@ -966,11 +961,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            ContextHistory.RedoResult redoResult =
-                    withContextResolvedAndWatcherPaused(() -> contextHistory.redo(io, project));
+            var ch = contextHistory;
+            ContextHistory.RedoResult redoResult = withContextResolvedAndWatcherPaused(() -> ch.redo(io, project));
             if (redoResult.wasRedone()) {
-                notifyContextListeners(liveContext());
-                project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+                notifyContextListeners(ch.liveContext());
+                project.getSessionManager().saveHistory(ch, currentSessionId);
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Redo!");
                 if (!redoResult.changedFiles().isEmpty()) {
                     requireNonNull(analyzerWrapper).updateFiles(redoResult.changedFiles());
@@ -991,10 +986,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var newLive = Context.createFrom(
                             targetContext, liveContext(), liveContext().getTaskHistory())
                     .copyAndRefresh();
-            contextHistory.pushContext(newLive);
-            contextHistory.addResetEdge(targetContext, newLive);
+            var ch = contextHistory;
+            ch.pushContext(newLive);
+            ch.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
-            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+            project.getSessionManager().saveHistory(ch, currentSessionId);
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Reset workspace to historical state");
         });
     }
@@ -1078,12 +1074,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> resetContextToIncludingHistoryAsync(Context targetContext) {
         return submitExclusiveAction(() -> {
-            var newLive = Context.createFrom(targetContext, liveContext(), targetContext.getTaskHistory())
+            var ch = contextHistory;
+            var newLive = Context.createFrom(targetContext, ch.liveContext(), targetContext.getTaskHistory())
                     .copyAndRefresh();
-            contextHistory.pushContext(newLive);
-            contextHistory.addResetEdge(targetContext, newLive);
+            ch.pushContext(newLive);
+            ch.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
-            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+            project.getSessionManager().saveHistory(ch, currentSessionId);
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Reset workspace and history to historical state");
         });
     }
@@ -1126,29 +1123,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param text The text to capture.
      */
     public void addPastedTextFragment(String text) {
-        var pasteInfoFuture = new DescribePasteWorker(this, text);
-        pasteInfoFuture.execute();
+        var rawFuture = new DescribePasteWorker(this, text).execute();
 
-        var descriptionFuture = LoggingFuture.supplyAsync(
-                () -> {
-                    try {
-                        return pasteInfoFuture.get().description();
-                    } catch (InterruptedException | ExecutionException e) {
-                        logger.warn("Could not get description for pasted text", e);
-                        return "pasted text";
-                    }
-                },
-                contextActionExecutor);
-        var syntaxStyleFuture = LoggingFuture.supplyAsync(
-                () -> {
-                    try {
-                        return pasteInfoFuture.get().syntaxStyle();
-                    } catch (InterruptedException | ExecutionException e) {
-                        logger.warn("Could not get syntax style for pasted text", e);
-                        return SyntaxConstants.SYNTAX_STYLE_NONE;
-                    }
-                },
-                contextActionExecutor);
+        var descriptionFuture = rawFuture.thenApply(DescribePasteWorker.PasteInfo::description);
+        var syntaxStyleFuture = rawFuture.thenApply(DescribePasteWorker.PasteInfo::syntaxStyle);
 
         var fragment = new ContextFragments.PasteTextFragment(this, text, descriptionFuture, syntaxStyleFuture);
         addFragments(fragment);
@@ -1246,11 +1224,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .ifPresent(methodCu -> {
                         var methodSource = localAnalyzer.getSource(methodCu, true);
                         if (methodSource.isPresent()) {
-                            String className = CodeUnit.toClassname(methodFullName);
-                            localAnalyzer.getDefinitions(className).stream()
-                                    .findFirst()
-                                    .filter(CodeUnit::isClass)
-                                    .ifPresent(sources::add);
+                            localAnalyzer.parentOf(methodCu).ifPresent(sources::add);
                             content.append(methodFullName).append(":\n");
                             content.append(methodSource.get()).append("\n\n");
                         }
@@ -1423,6 +1397,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitSessionSyncIfActive();
     }
 
+    @Override
+    public boolean isTaskInProgress() {
+        return isLlmTaskInProgress() || isTaskScopeInProgress();
+    }
+
     public boolean isLlmTaskInProgress() {
         return userActions.isLlmTaskInProgress();
     }
@@ -1444,51 +1423,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return liveContext().getTaskListDataOrEmpty();
     }
 
-    @Blocking
-    private List<TaskList.TaskItem> summarizeTaskList(List<String> texts) {
-        var cleanedTexts =
-                texts.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (cleanedTexts.isEmpty()) {
-            return List.of();
-        }
-
-        // Kick off title summarizations in parallel for all additions.
-        // Each future completes on Swing EDT (SwingWorker.done). This method is @Blocking,
-        // so it must not be invoked from the EDT to avoid deadlock.
-        var futures = cleanedTexts.stream()
-                .map(text -> Map.entry(text, summarizeTaskForConversation(text)))
-                .toList();
-
-        // Resolve each future with timeout; fallback to title=text on any failure.
-        List<TaskList.TaskItem> items = new ArrayList<>(futures.size());
-        for (var entry : futures) {
-            String text = entry.getKey();
-            String title;
-            try {
-                String summarized =
-                        entry.getValue().get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                title = (summarized == null || summarized.isBlank()) ? text : summarized.strip();
-            } catch (Exception e) {
-                // Timeout, interruption, or execution error: fallback to original text as title
-                title = text;
-            }
-            items.add(new TaskList.TaskItem(UUID.randomUUID().toString(), title, text, false));
-        }
-
-        return items;
-    }
-
+    /**
+     * Create or replace the task list with an optional big picture explanation.
+     */
     @Blocking
     @Override
-    public Context createOrReplaceTaskList(Context context, List<String> tasks) {
-        var items = summarizeTaskList(tasks);
-        if (items.isEmpty()) {
-            // If no valid tasks provided, clear the task list
-            var newData = new TaskList.TaskListData(List.of());
-            return deriveContextWithTaskList(context, newData);
-        }
-
-        var newData = new TaskList.TaskListData(List.copyOf(items));
+    public Context createOrReplaceTaskList(
+            Context context, @Nullable String bigPicture, List<TaskList.TaskItem> tasks) {
+        var newData = new TaskList.TaskListData(bigPicture, List.copyOf(tasks));
         return deriveContextWithTaskList(context, newData);
     }
 
@@ -1502,6 +1444,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    /**
+     * Clear the task list for the current session.
+     */
+    public void clearTaskListAsync() {
+        setTaskListAsync(new TaskList.TaskListData(null, List.of()));
+    }
+
     public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data) {
         return context.withTaskList(data);
     }
@@ -1512,9 +1461,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Notify listeners and UI on the EDT
         SwingUtilities.invokeLater(() -> {
-            notifyContextListeners(liveContext());
-
-            io.updateContextHistoryTable(liveContext());
+            var ch = contextHistory;
+            notifyContextListeners(ch.liveContext());
             if (io instanceof Chrome) {
                 io.enableActionButtons();
             }
@@ -1628,10 +1576,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var updated = new ArrayList<>(tasks);
         var original = tasks.get(idx);
         updated.set(idx, new TaskList.TaskItem(original.id(), original.title(), original.text(), true));
-        return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)));
+        return deriveContextWithTaskList(
+                context,
+                new TaskList.TaskListData(context.getTaskListDataOrEmpty().bigPicture(), List.copyOf(updated)));
     }
 
-    private void captureGitState(Context ctx) {
+    private void captureGitState(ContextHistory ch, Context ctx) {
         if (!project.hasGit()) {
             return;
         }
@@ -1643,7 +1593,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             var gitState = new ContextHistory.GitState(commitHash, diff.isEmpty() ? null : diff);
             logger.trace("Current git HEAD is {}", ((GitRepo) repo).shortHash(commitHash));
-            contextHistory.addGitState(ctx.id(), gitState);
+            ch.addGitState(ctx.id(), gitState);
         } catch (GitAPIException e) {
             logger.error("Failed to capture git state", e);
         }
@@ -1654,9 +1604,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns true if a new context was pushed or replaced.
      */
     private boolean processExternalFileChangesIfNeeded(Set<ProjectFile> changedFiles) {
-        var ctx = contextHistory.processExternalFileChangesIfNeeded(changedFiles);
+        var ch = contextHistory;
+        var ctx = ch.processExternalFileChangesIfNeeded(changedFiles);
         if (ctx != null) {
-            contextPushed(ctx);
+            contextPushed(ch, ctx);
             return true;
         }
         return false;
@@ -1694,24 +1645,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public Context pushContext(Function<Context, Context> contextGenerator) {
         var oldLiveContext = liveContext();
-        var newLiveContext = contextHistory.push(contextGenerator);
+        var ch = contextHistory;
+        var newLiveContext = ch.push(contextGenerator);
         if (oldLiveContext.equals(newLiveContext)) {
             // No change occurred
             return newLiveContext;
         }
 
-        contextPushed(contextHistory.liveContext());
+        contextPushed(ch, newLiveContext);
         return newLiveContext;
     }
 
-    private void contextPushed(Context context) {
-        captureGitState(context);
+    private void contextPushed(ContextHistory ch, Context ctx) {
+        captureGitState(ch, ctx);
         // Ensure listeners are notified on the EDT
-        SwingUtilities.invokeLater(() -> notifyContextListeners(context));
+        SwingUtilities.invokeLater(() -> notifyContextListeners(ctx));
 
         // Defer save until TaskScope closes to ensure group mappings are captured
         if (!taskScopeInProgress.get()) {
-            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+            project.getSessionManager().saveHistory(ch, currentSessionId);
         }
     }
 
@@ -1722,8 +1674,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param contextFromHistory The context selected in the UI.
      */
     public void setSelectedContext(Context contextFromHistory) {
-        contextHistory.setSelectedContext(contextFromHistory);
-        notifyContextListeners(contextFromHistory);
+        if (contextHistory.setSelectedContext(contextFromHistory)) {
+            notifyContextListeners(contextFromHistory);
+        }
     }
 
     /**
@@ -1734,10 +1687,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * or ComputedValue.await()) to retrieve fragment values without blocking the EDT.
      */
     private void notifyContextListeners(Context ctx) {
-        var taskList = ctx.getTaskListDataOrEmpty();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
-            listener.onTaskListChanged(taskList);
         }
     }
 
@@ -1749,21 +1700,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public CompletableFuture<String> summarize(String input, int words) {
-        var future = new CompletableFuture<String>();
+        return LoggingFuture.supplyCallableVirtual(() -> {
+            var msgs = SummarizerPrompts.instance.collectMessages(input, words);
+            // Use quickModel for summarization
+            Llm.StreamingResult result = getLlm(
+                            getService().quickestModel(), "Summarize: " + input, TaskResult.Type.SUMMARIZE)
+                    .sendRequest(msgs);
 
-        var worker = new SummarizeWorker(this, input, words) {
-            @Override
-            protected void done() {
-                try {
-                    future.complete(get()); // complete successfully
-                } catch (Exception ex) {
-                    future.completeExceptionally(ex);
-                }
+            if (result.error() != null) {
+                throw result.error();
             }
-        };
-
-        worker.execute();
-        return future;
+            var summary = result.text().trim();
+            if (summary.endsWith(".")) {
+                return summary.substring(0, summary.length() - 1);
+            }
+            return summary;
+        });
     }
 
     /**
@@ -1786,7 +1738,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var userMessage = UserMessage.from(textContent, imageContent);
                 List<ChatMessage> messages = List.of(userMessage);
 
-                Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Summarize pasted image")
+                Llm.StreamingResult result = getLlm(
+                                serviceProvider.get().summarizeModel(),
+                                "Summarize pasted image",
+                                TaskResult.Type.SUMMARIZE)
                         .sendRequest(messages);
 
                 if (result.error() != null) {
@@ -1867,7 +1822,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             BuildAgent agent = new BuildAgent(
-                    project, getLlm(serviceProvider.get().getScanModel(), "Infer build details"), toolRegistry);
+                    project,
+                    getLlm(serviceProvider.get().getScanModel(), "Infer build details", TaskResult.Type.NONE),
+                    toolRegistry);
             BuildDetails inferredDetails;
             try {
                 inferredDetails = agent.execute();
@@ -2074,7 +2031,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             """
                                     .formatted(codeForLLM)));
 
-            var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide")
+            var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide", TaskResult.Type.NONE)
                     .sendRequest(messages);
             if (result.error() != null) {
                 String message =
@@ -2177,7 +2134,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Compress the log into a summary
         var msgs = SummarizerPrompts.instance.compressHistory(entry.toString());
-        Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Compress history entry")
+        Llm.StreamingResult result = getLlm(
+                        serviceProvider.get().summarizeModel(), "Compress history entry", TaskResult.Type.SUMMARIZE)
                 .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
 
         if (result.error() != null) {
@@ -2276,19 +2234,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             }
 
+            // push context
             logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
-
-            // optionally compress
             var updated = result.context();
             TaskEntry entry = updated.createTaskEntry(result);
-
-            // push context
             var updatedContext = pushContext(currentLiveCtx -> {
                 return updated.addHistoryEntry(entry, result.output());
             });
 
             if (group) {
                 UUID contextId = updatedContext.id();
+                // UI-level session locking should keep contextHistory stable between push and add-to-group
                 contextHistory.addContextToGroup(contextId, groupId, groupLabel);
             }
 
@@ -2320,7 +2276,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         protected void closeInternal() {
             // Save once now that all group mappings are in place
-            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+            var ch = contextHistory;
+            project.getSessionManager().saveHistory(ch, currentSessionId);
 
             SwingUtilities.invokeLater(() -> {
                 // deferred cleanup
@@ -2329,7 +2286,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
 
             if (compress) {
-                var finalCtx = contextHistory.replaceTop(ctx -> {
+                var finalCtx = ch.replaceTop(ctx -> {
                     try {
                         return compressHistory(ctx);
                     } catch (InterruptedException e) {
@@ -2337,7 +2294,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         return ctx;
                     }
                 });
-                captureGitState(finalCtx);
+                captureGitState(ch, finalCtx);
             }
         }
     }
@@ -2430,9 +2387,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             updateActiveSession(sessionInfo.id()); // Mark as active for this project
 
             // initialize history for the session
-            contextHistory = new ContextHistory(new Context(this));
-            project.getSessionManager()
-                    .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
+            var ch = new ContextHistory(new Context(this));
+            contextHistory = ch;
+            project.getSessionManager().saveHistory(ch, currentSessionId); // Save the initial empty/welcome state
 
             // notifications
             notifyContextListeners(liveContext());
@@ -2516,9 +2473,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 4. Save the new session's history (which now contains one entry).
                     // ensureFilesSnapshot() is called internally by ContextHistory.pushLive()
-                    sessionManager.saveHistory(this.contextHistory, this.currentSessionId);
+                    sessionManager.saveHistory(newCh, this.currentSessionId);
 
-                    notifyContextListeners(liveContext());
+                    notifyContextListeners(initialContextForNewSession);
                 })
                 .exceptionally(e -> {
                     logger.error("Failed to create new session from workspace", e);
@@ -2728,26 +2685,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return io;
     }
 
-    public void createHeadless() {
-        createHeadless(BuildDetails.EMPTY);
+    @TestOnly
+    void createHeadless() {
+        createHeadless(BuildDetails.EMPTY, true);
     }
 
-    /**
-     * This should be invoked immediately after constructing the {@code ContextManager} but before any tasks are
-     * submitted, so that all logging and UI callbacks are routed to the desired sink.
-     */
-    public void createHeadless(BuildDetails buildDetails) {
+    public void createHeadless(BuildDetails buildDetails, boolean createNewSession) {
         this.io = new HeadlessConsole();
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
 
-        initializeCurrentSessionAndHistory(true);
+        initializeCurrentSessionAndHistory(createNewSession);
 
         cleanupOldHistoryAsync();
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
         // otherwise we leave them empty
         var mp = project.getMainProject();
-        if (mp.loadBuildDetails().equals(BuildDetails.EMPTY)) {
+        if (mp.loadBuildDetails().isEmpty()) {
             mp.setBuildDetails(buildDetails);
         }
 
@@ -2887,36 +2841,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
-        }
-    }
-
-    public static class SummarizeWorker extends ExceptionAwareSwingWorker<String, String> {
-        private final IContextManager cm;
-        private final String content;
-        private final int words;
-
-        public SummarizeWorker(IContextManager cm, String content, int words) {
-            super(cm.getIo());
-            this.cm = cm;
-            this.content = content;
-            this.words = words;
-        }
-
-        @Override
-        protected String doInBackground() throws Exception {
-            var msgs = SummarizerPrompts.instance.collectMessages(content, words);
-            // Use quickModel for summarization
-            Llm.StreamingResult result = cm.getLlm(cm.getService().quickestModel(), "Summarize: " + content)
-                    .sendRequest(msgs);
-            if (result.error() != null) {
-                logger.warn("Summarization failed or was cancelled.");
-                return "Summarization failed.";
-            }
-            var summary = result.text().trim();
-            if (summary.endsWith(".")) {
-                return summary.substring(0, summary.length() - 1);
-            }
-            return summary;
         }
     }
 

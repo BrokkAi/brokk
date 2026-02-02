@@ -420,110 +420,119 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
 JSON
 ```
 
-## ISSUE Mode: Automated Issue Resolution with Build Verification
+## ISSUE Mode: Automated Issue Resolution with Build Verification (and optional quick mode)
 
-ISSUE mode enables **end-to-end resolution of GitHub Issues**. It fetches the issue content, generates a multi-step plan, executes the changes, and runs a build verification loop to ensure the fix is valid.
+ISSUE mode enables end-to-end resolution of GitHub Issues. The executor fetches the issue content, creates a branch, decomposes the work into tasks, applies changes, and—by default—verifies changes with build/test/lint checks before delivering them (e.g., creating a Pull Request). ISSUE mode also supports a "quick" or skip-verification variant that omits verification and review loops for faster, lower-cost runs.
 
-### How ISSUE Works
+### How ISSUE Works (default — full verification)
 
-When you submit an ISSUE job, the system follows these steps:
-1. **Fetch Issue**: Retrieves the title and body of the GitHub issue.
-2. **Branch Creation**: Creates and checks out a new branch following the convention `brokk/issue-{number}`. If the branch already exists, it appends a suffix to ensure uniqueness.
-3. **Task Planning**: Uses the `plannerModel` to decompose the issue into a series of actionable tasks.
-4. **Execution & Verification Loop**: For each generated task:
-    - **Implementation**: ArchitectAgent implements the task using `plannerModel` and `codeModel`.
-    - **Build Verification**: Runs the project's build/lint command once per task.
-    - **Self-Correction (single fix attempt)**: If verification fails, the executor performs exactly one fix attempt and then re-runs verification once.
-    - **Failure behavior**: If verification still fails after the single fix attempt, the job stops and reports failure (there is no per-task multi-retry loop in headless runs).
-5. **Final Gate & Delivery**: After all tasks verify, the executor runs final checks (full tests + lint) and then—by default—creates a commit and opens a Pull Request on GitHub. PR creation can be disabled via the `issue_delivery` tag (see below).
-6. **Cleanup**: The executor attempts to restore the original branch and remove temporary issue branches when appropriate (best-effort).
+When you submit an ISSUE job using the default behavior (omitting `skipVerification` or setting it to `false`), the system follows these steps:
 
-Note: By default ISSUE mode creates a Pull Request (the recommended end-to-end contract). To override this behavior for special headless runs, set the `issue_delivery` tag to `none` in the job payload or tags to skip commit+PR creation while still running planning, task execution, verification, and cleanup.
+1. Fetch Issue: Retrieves the title and body of the GitHub issue.
+2. Branch Creation: Creates and checks out a new branch named like `brokk/issue-{number}`, guaranteeing uniqueness by appending a suffix if needed.
+3. Task Planning: Uses the `plannerModel` to decompose the issue into an ordered set of actionable tasks.
+4. Execution & Per-Task Verification:
+   - Implementation: ArchitectAgent implements each task using `plannerModel` and `codeModel`.
+   - Build Verification: After implementing a task, the executor runs the configured build/lint/test verification for that task.
+   - Per-task self-correction: If verification fails, the executor performs one (single) automated fix attempt for the task and then re-runs verification. If verification still fails, the job reports failure and halts.
+   - Note: Per-task verification is governed by `buildSettings.maxBuildAttempts` (per-task retry budget).
+5. Final Gate & Delivery:
+   - After all tasks pass per-task verification, the executor runs final checks (full tests + lint).
+   - If delivery is enabled (default), the executor commits, pushes, and opens a Pull Request on GitHub. You can disable PR creation by setting the `issue_delivery` tag to `none` in the job payload.
+6. Cleanup: Restore original branch and remove temporary issue branches as appropriate (best-effort).
 
-Example Pull Request description produced by ISSUE mode:
+### Quick Mode: skipVerification (optional for ISSUE jobs)
 
-```markdown
-Brief summary of the changes and intent (one or two short paragraphs).
+ISSUE jobs support an optional boolean field `skipVerification` on JobSpec. When `skipVerification` is set to `true`, the executor runs a "quick" ISSUE flow:
 
-- Fixed null pointer in UserService by adding a defensive null check.
-- Added unit tests covering the new behavior.
+- The executor still:
+  - Fetches the issue from GitHub.
+  - Creates and checks out the issue branch (e.g., `brokk/issue-{number}`).
+  - Plans tasks and applies code changes produced by the agents.
+  - Performs branch cleanup and can create a Pull Request if delivery is enabled.
+- The executor does NOT run the usual verification and review steps:
+  - Per-task verification gate (the implement → verify → single-fix → re-verify sequence) is skipped.
+  - The per-task test/lint retry loop governed by `buildSettings.maxBuildAttempts` is not executed.
+  - The final tests/lint + review-bot inline comment fix sequence (the final gate) is skipped.
+- Important: `skipVerification` does not change delivery or cleanup semantics — PR creation and branch cleanup still occur when configured.
 
-Fixes #42
-```
+When to use skipVerification:
+- Faster, lower-cost runs that produce candidate fixes for human review.
+- Situations where running repository tests or lint is undesirable or infeasible in the execution environment.
+
+When to avoid skipVerification:
+- If you rely on automated verification to ensure code correctness before opening a PR.
+- When you want the executor to attempt automatic fixes for failing builds (the full verification flow uses per-task and final verification loops and interacts with the review-bot fix sequences).
+
+### How skipVerification interacts with existing retry settings
+
+- buildSettings.maxBuildAttempts controls the per-task verification retry loop in the full verification flow. It is ignored when `skipVerification == true` because the per-task verification loop is not run.
+- maxIssueFixAttempts is a job-level cap on how many overall ISSUE remediation attempts the job may perform during the full verification final gate. It is also not applicable in skip-verification runs because the final verification gate is skipped.
+- In short: when `skipVerification` is true, per-task and final verification/retry budgets (both `buildSettings.maxBuildAttempts` and `maxIssueFixAttempts`) are not exercised; branch creation/cleanup and optional PR creation still proceed.
 
 ### Configuration
 
 ISSUE mode requires:
-- `plannerModel`: The LLM model for planning and reasoning.
-- `codeModel` (optional): The LLM model for code generation; defaults to project default.
-- GitHub Issue metadata: `github_token`, `repo_owner`, `repo_name`, `issue_number`.
-- `buildSettings` (optional): JSON object defining how to verify the project (see below).
-- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap). After it is exhausted, the executor stops and does not create a PR. Default: 20.
+- `plannerModel`: LLM model for planning/reasoning.
+- `codeModel` (optional): LLM model for code generation (defaults to project default if omitted).
+- GitHub issue metadata: `github_token`, `repo_owner`, `repo_name`, `issue_number`.
+- `buildSettings` (optional): JSON object to configure verification commands and per-task `maxBuildAttempts` (used only in full verification mode).
+- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap) — used only in full verification mode. Default: 20.
+- `skipVerification` (optional boolean): When present and `true` (only honored for ISSUE jobs), runs the quick/skip-verification flow described above. Default: `false`.
 
-### Retry limits: per-task vs overall
+### Example: Convenience Endpoint with skipVerification (quick mode)
 
-ISSUE mode has two retry limits: one for repeating build verification for a single task, and one for how many times the overall ISSUE workflow will try before giving up.
-
-| Setting | What it limits | Default |
-|---------|----------------|---------|
-| `buildSettings.maxBuildAttempts` | Per task: how many times to rerun build/lint/test for that task after attempting fixes when verification fails. | 3 |
-| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 20 |
-
-Example: if `maxBuildAttempts=3` and `maxIssueFixAttempts=5`, each task can retry verification up to 3 times, but the job will stop entirely after 5 overall ISSUE attempts.
-
-### Build Settings Structure
-
-The `buildSettings` object configures how Brokk verifies its changes. If provided, these settings override the project defaults for the duration of the job.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `buildLintCommand` | String | The command to run for building and linting (e.g., `./gradlew build` or `npm run lint`). |
-| `testAllCommand` | String | Command to run the full test suite. |
-| `testSomeCommand` | String | Command to run specific tests. |
-| `environmentVariables` | Map | Key-value pairs of environment variables required for the build. |
-| `maxBuildAttempts` | Integer (optional) | Maximum number of build verification attempts per task (default: 3). This controls the per-task build verification retry loop. |
-
-### Example: Using the Convenience Endpoint
-
-The `/v1/jobs/issue` endpoint simplifies job creation by accepting issue metadata directly in the root of the JSON body.
+This example shows `/v1/jobs/issue` with `skipVerification=true`. Compared to the default, this tells the executor to skip per-task and final verification and review loops — it will still create the branch, apply changes, and may open a PR if delivery is enabled.
 
 ```bash
 curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
   -H "Authorization: Bearer my-secret-token" \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-001" \
+  -H "Idempotency-Key: issue-quick-001" \
   --data @- <<'JSON'
 {
   "owner": "myorg",
   "repo": "myrepo",
   "issueNumber": 42,
   "githubToken": "ghp_xxxxxxxxxxxx",
-  "plannerModel": "gpt-4o",
-  "codeModel": "gpt-4o",
+  "plannerModel": "gpt-4",
+  "codeModel": "gpt-4",
   "maxIssueFixAttempts": 20,
   "buildSettings": {
     "buildLintCommand": "./gradlew classes",
+    "testAllCommand": "./gradlew test",
     "environmentVariables": {
       "JAVA_HOME": "/usr/lib/jvm/java-21"
     },
     "maxBuildAttempts": 5
-  }
+  },
+  "skipVerification": true
 }
 JSON
 ```
 
-### Example: Using Tags with Standard Job Endpoint
+### Example: Generic POST /v1/jobs with tags and skipVerification
+
+You may also submit ISSUE jobs via the generic `/v1/jobs` endpoint. For ISSUE-mode jobs, include `tags.mode = "ISSUE"`. The optional top-level `skipVerification` boolean is accepted in the job payload but is only honored when `tags.mode == "ISSUE"`.
 
 ```bash
 curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Authorization: Bearer my-secret-token" \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-002" \
+  -H "Idempotency-Key: issue-quick-002" \
   --data @- <<'JSON'
 {
   "sessionId": "<session-id>",
-  "taskInput": "This field is ignored in ISSUE mode; the issue body is used.",
-  "plannerModel": "gpt-4o",
+  "taskInput": "Ignored for ISSUE mode; issue body drives the work.",
+  "plannerModel": "gpt-4",
+  "codeModel": "gpt-4",
+  "buildSettings": {
+    "buildLintCommand": "./gradlew classes",
+    "testAllCommand": "./gradlew test",
+    "maxBuildAttempts": 3
+  },
+  "maxIssueFixAttempts": 20,
+  "skipVerification": true,
   "tags": {
     "mode": "ISSUE",
     "github_token": "ghp_xxxxxxxxxxxx",
@@ -534,6 +543,12 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
 }
 JSON
 ```
+
+### Notes on behavior and observability
+
+- Event streams for ISSUE jobs will still reflect planning and code changes even in skip-verification mode; however, verification-related events (build runs, test results, review-bot fix attempts) will not be emitted when verification is skipped.
+- If you need automated verification before PR creation, do not set `skipVerification` (or set it to `false`) and tune `buildSettings.maxBuildAttempts` / `maxIssueFixAttempts` as needed.
+- Other modes (ASK, SEARCH, LUTZ, REVIEW, ISSUE_WRITER, CODE, ARCHITECT) are unaffected by `skipVerification` — it is honored only for ISSUE-mode jobs.
 
 ## API Endpoints
 
@@ -568,7 +583,7 @@ Once running, the executor exposes the following endpoints:
   - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
-  - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
+  - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags. ISSUE-mode jobs may include an optional top-level boolean field `skipVerification` in the job JSON; when present and `true` the executor will run the ISSUE quick (skip-verification) flow (see ISSUE Mode section for details). This field is only honored for jobs whose `tags.mode == "ISSUE"`; other modes ignore it.
   - **ISSUE_WRITER mode**: Set `"tags": { "mode": "ISSUE_WRITER" }` to discover evidence in the repo and create a GitHub issue (requires github_token, repo_owner, repo_name in tags).
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 

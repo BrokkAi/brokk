@@ -14,6 +14,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -39,7 +40,6 @@ import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
@@ -48,9 +48,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.*;
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
 import java.util.*;
@@ -58,6 +56,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -85,6 +84,8 @@ public class Chrome
     // Minimum width for the collapsed sidebar icon strip; without this, Swing relayout can compress the
     // left component to 0px, hiding icons and making the sidebar effectively impossible to expand.
     private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
+    /** Gap between collapsed sidebar and main content when side panels are closed. */
+    private static final int COLLAPSED_SIDEBAR_GAP_PX = 6;
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
@@ -97,7 +98,6 @@ public class Chrome
 
     // Dependencies:
     final ContextManager contextManager;
-    private Context activeContext; // Track the currently displayed context
 
     // Global Undo/Redo Actions
     private final GlobalUndoAction globalUndoAction;
@@ -155,7 +155,6 @@ public class Chrome
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.previewManager = new PreviewManager(this);
-        this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI", false);
@@ -456,7 +455,7 @@ public class Chrome
 
     @Override
     public void disableActionButtons() {
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             disableHistoryPanel();
             rightPanel.getInstructionsPanel().disableButtons();
             rightPanel.getTaskListPanel().disablePlay();
@@ -466,7 +465,7 @@ public class Chrome
 
     @Override
     public void enableActionButtons() {
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             rightPanel.getInstructionsPanel().enableButtons();
             rightPanel.getTaskListPanel().enablePlay();
             blitzForgeMenuItem.setEnabled(true);
@@ -738,6 +737,26 @@ public class Chrome
             }
         });
 
+        // Ctrl/Cmd+B => cycle model forward; Ctrl/Cmd+Shift+B => cycle model backward
+        KeyStroke cycleModel = GlobalUiSettings.getKeybinding(
+                "instructions.cycleModel", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_B));
+        bindKey(rootPane, cycleModel, "cycleModel");
+        rootPane.getActionMap().put("cycleModel", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                rightPanel.getInstructionsPanel().cycleModel(true);
+            }
+        });
+        KeyStroke cycleModelBackward = GlobalUiSettings.getKeybinding(
+                "instructions.cycleModelBackward", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_B));
+        bindKey(rootPane, cycleModelBackward, "cycleModelBackward");
+        rootPane.getActionMap().put("cycleModelBackward", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                rightPanel.getInstructionsPanel().cycleModel(false);
+            }
+        });
+
         // Workspace actions
         // Ctrl/Cmd+Shift+I => attach context (add content to workspace)
         KeyStroke attachContextKeyStroke = GlobalUiSettings.getKeybinding(
@@ -993,8 +1012,7 @@ public class Chrome
 
     @Override
     public void contextChanged(Context newCtx) {
-        final boolean updateOutput = (!activeContext.equals(newCtx) && !contextManager.isTaskScopeInProgress());
-        activeContext = newCtx;
+        final boolean updateOutput = !contextManager.isTaskScopeInProgress();
 
         SwingUtilities.invokeLater(() -> {
             globalUndoAction.updateEnabledState();
@@ -1018,16 +1036,15 @@ public class Chrome
                 }
             }
 
+            // Count incomplete tasks and update the badge
+            var taskList = newCtx.getTaskListDataOrEmpty();
+            int incomplete =
+                    (int) taskList.tasks().stream().filter(t -> !t.done()).count();
+            SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
+
             updateCaptureButtons();
             updateContextHistoryTable(newCtx);
         });
-    }
-
-    @Override
-    public void onTaskListChanged(TaskList.TaskListData data) {
-        // Count incomplete tasks and update the badge
-        int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
-        SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
     }
 
     @Override
@@ -1628,7 +1645,7 @@ public class Chrome
         if (collapsed) {
             leftVerticalSplitPane.setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
             toolsPane.getToolsPane().setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
-            horizontalSplitPane.setDividerSize(0);
+            horizontalSplitPane.setDividerSize(COLLAPSED_SIDEBAR_GAP_PX);
             horizontalSplitPane.setDividerLocation(COLLAPSED_SIDEBAR_WIDTH_PX);
             return;
         }
@@ -2077,46 +2094,6 @@ public class Chrome
         }
     }
 
-    /**
-     * Safely reads string data from the system clipboard, handling potential exceptions
-     * when the clipboard is temporarily unavailable or doesn't contain string data.
-     * <p>
-     * <b>Background:</b> On Windows, clipboard access methods like
-     * {@link Clipboard#isDataFlavorAvailable(DataFlavor)} and {@link Clipboard#getData(DataFlavor)}
-     * can throw {@link IllegalStateException} when the clipboard is locked by another process.
-     * This is particularly problematic during rapid focus change events on the EDT.
-     * <p>
-     * <b>Solution:</b> This wrapper catches all clipboard-related exceptions and returns {@code null}
-     * to indicate unavailability, allowing the UI to gracefully handle temporary clipboard locks
-     * without propagating exceptions to users.
-     * <p>
-     * <b>Related JDK Issue:</b> <a href="https://bugs.openjdk.org/browse/JDK-8353950">JDK-8353950</a>
-     * - Windows clipboard interaction instability
-     *
-     * @return The string data from clipboard, or null if unavailable or not a string
-     */
-    @Nullable
-    private static String readStringFromClipboardSafe() {
-        var clipboard = getSystemClipboardSafe();
-        if (clipboard == null) {
-            return null;
-        }
-
-        try {
-            if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
-                return null;
-            }
-            var data = clipboard.getData(DataFlavor.stringFlavor);
-            return (String) data;
-        } catch (UnsupportedFlavorException | IOException | IllegalStateException e) {
-            logger.warn("Failed to read string from clipboard: {}", e.getMessage());
-            return null;
-        } catch (Exception e) {
-            logger.warn("Unexpected error reading clipboard string data", e);
-            return null;
-        }
-    }
-
     // for paste from menubar -- ctrl-v paste is handled in individual components
     private class GlobalPasteAction extends AbstractAction {
         public GlobalPasteAction(String name) {
@@ -2141,9 +2118,13 @@ public class Chrome
             if (lastRelevantFocusOwner == null) {
                 // leave it false
             } else if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
-                // Use safe wrapper instead of direct isDataFlavorAvailable() to avoid Windows clipboard
-                // lock exceptions during rapid focus changes on EDT. See JDK-8353950.
-                canPasteNow = readStringFromClipboardSafe() != null;
+                // Use the safe retry logic from ICM, but without the retries since we're on the EDT here
+                var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+                try {
+                    canPasteNow = clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor);
+                } catch (IllegalStateException ex) {
+                    logger.debug("Clipboard temporarily unavailable");
+                }
             }
             setEnabled(canPasteNow);
         }
@@ -2274,12 +2255,71 @@ public class Chrome
         updateContextHistoryTable();
     }
 
+    private static final Pattern URL_PATTERN =
+            Pattern.compile("(https?://\\S+?(?=[,.?!:;\"']?(\\s|$)))", Pattern.CASE_INSENSITIVE);
+
     @Override
     public void systemNotify(String message, String title, int messageType) {
         SwingUtilities.invokeLater(() -> {
+            Object dialogContent = buildMessageComponentWithLinks(message);
             //noinspection MagicConstant
-            JOptionPane.showMessageDialog(frame, message, title, messageType);
+            JOptionPane.showMessageDialog(frame, dialogContent, title, messageType);
         });
+    }
+
+    private Object buildMessageComponentWithLinks(String message) {
+        // Check if message contains any URLs
+        if (!URL_PATTERN.matcher(message).find()) {
+            return message;
+        }
+
+        // Split by newlines and build a vertical panel
+        var lines = message.split("\n", -1);
+        var panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setOpaque(false);
+
+        for (String line : lines) {
+            if (line.isEmpty()) {
+                // Empty line = vertical spacing
+                panel.add(Box.createVerticalStrut(10));
+                continue;
+            }
+
+            var matcher = URL_PATTERN.matcher(line);
+            if (!matcher.find()) {
+                // No URL in this line - just a JLabel
+                var label = new JLabel(line);
+                label.setAlignmentX(Component.LEFT_ALIGNMENT);
+                panel.add(label);
+            } else {
+                // Line contains URL(s) - build horizontal panel
+                matcher.reset();
+                var linePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                linePanel.setOpaque(false);
+                linePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+                int lastEnd = 0;
+                while (matcher.find()) {
+                    if (matcher.start() > lastEnd) {
+                        String textBefore = line.substring(lastEnd, matcher.start());
+                        linePanel.add(new JLabel(textBefore));
+                    }
+                    String url = matcher.group(1);
+                    linePanel.add(new BrowserLabel(url));
+                    lastEnd = matcher.end();
+                }
+
+                if (lastEnd < line.length()) {
+                    String textAfter = line.substring(lastEnd);
+                    linePanel.add(new JLabel(textAfter));
+                }
+
+                panel.add(linePanel);
+            }
+        }
+
+        return panel;
     }
 
     @Override
@@ -2288,7 +2328,6 @@ public class Chrome
                 switch (role) {
                     case COST -> GlobalUiSettings.isShowCostNotifications();
                     case ERROR -> GlobalUiSettings.isShowErrorNotifications();
-                    case CONFIRM -> GlobalUiSettings.isShowConfirmNotifications();
                     case INFO -> GlobalUiSettings.isShowInfoNotifications();
                 };
         if (!allowed) return;
@@ -2698,6 +2737,17 @@ public class Chrome
 
     private void applyFocusHighlight(Component component) {
         if (component instanceof JComponent jcomp) {
+            // ProjectTree: use 2px line border that replaces (not compounds) the tree's 2px empty
+            // so total insets stay 2px and the tree does not shift on click.
+            if (component == projectFilesPanel.getProjectTree()) {
+                if (jcomp.getClientProperty("originalBorder") == null) {
+                    jcomp.putClientProperty("originalBorder", BorderFactory.createEmptyBorder(2, 2, 2, 2));
+                }
+                jcomp.setBorder(BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2));
+                jcomp.repaint();
+                return;
+            }
+
             // Store original border if not already stored
             if (jcomp.getClientProperty("originalBorder") == null) {
                 jcomp.putClientProperty("originalBorder", jcomp.getBorder());

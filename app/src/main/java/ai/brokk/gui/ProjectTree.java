@@ -17,15 +17,16 @@ import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
 import ai.brokk.watchservice.AbstractWatchService;
 import java.awt.*;
-import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -106,12 +107,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         });
     }
 
-    @Override
-    public void removeNotify() {
-        super.removeNotify();
-        this.contextManager.removeFileChangeListener(this);
-    }
-
     private void initializeTree() {
         Path projectRoot = project.getRoot();
 
@@ -126,6 +121,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         setShowsRootHandles(true);
         getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         setCellRenderer(new ProjectTreeCellRenderer());
+        // Reserve 2px so Chrome's focus border (same thickness) can replace it without changing size
+        setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
         // Load root children immediately, then restore any persisted expansion state
         SwingUtilities.invokeLater(() -> loadChildrenForNodeAsync(treeRoot)
@@ -432,7 +429,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                         final boolean isExcludedNow = directlyExcluded;
                         contextManager.submitContextTask(() -> {
                             try {
-                                var currentDetails = project.loadBuildDetails();
+                                var currentDetails = project.awaitBuildDetails();
                                 Set<String> patternsSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
                                 // Canonicalize existing entries to ensure remove/add works across separators
                                 patternsSet.addAll(PathNormalizer.canonicalizeAllForProject(
@@ -1421,11 +1418,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
      * @return true if clipboard contains file list data
      */
     private boolean hasFilesInClipboard() {
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
         try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             return clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor);
-        } catch (Exception ex) {
-            logger.debug("Error checking clipboard contents", ex);
+        } catch (IllegalStateException e) {
+            logger.debug("Error checking clipboard contents", e);
             return false;
         }
     }
@@ -1437,19 +1434,39 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
      */
     @SuppressWarnings("unchecked")
     private List<File> getFilesFromClipboard() {
-        try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            if (clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor)) {
-                Transferable contents = clipboard.getContents(null);
-                if (contents != null) {
-                    Object data = contents.getTransferData(DataFlavor.javaFileListFlavor);
-                    if (data instanceof List) {
-                        return (List<File>) data;
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        int maxAttempts = 3;
+        int delayMs = 50;
+
+        for (int i = 0; i < maxAttempts; i++) {
+            try {
+                if (clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor)) {
+                    Transferable contents = clipboard.getContents(null);
+                    if (contents != null) {
+                        Object data = contents.getTransferData(DataFlavor.javaFileListFlavor);
+                        if (data instanceof List) {
+                            return (List<File>) data;
+                        }
                     }
                 }
+                return List.of();
+            } catch (IllegalStateException e) {
+                if (i == maxAttempts - 1) {
+                    contextManager
+                            .getIo()
+                            .showNotification(IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
+                    break;
+                }
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return List.of();
+                }
+            } catch (UnsupportedFlavorException | IOException e) {
+                logger.debug("Clipboard does not contain file list data: {}", e.getMessage());
+                break;
             }
-        } catch (Exception ex) {
-            logger.error("Error reading files from clipboard", ex);
         }
         return List.of();
     }
@@ -1757,6 +1774,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 }
             }
 
+            // Override the LAF focus-cell border for all states: use empty so extra insets never
+            // change cell size on click (avoids tree shift) and so the reused renderer does not
+            // carry over a previously set border to other cells.
+            setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             return this;
         }
     }
