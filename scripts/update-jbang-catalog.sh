@@ -111,7 +111,7 @@ NEW_ENTRY=$(jq -n --arg version "brokk-$VERSION" --arg url "$JAR_URL" '{
     ($version): {
         "script-ref": $url,
         "java": "21",
-        "java-options": []
+        "java-options": ["--sun-misc-unsafe-memory-access=allow", "--enable-native-access=ALL-UNNAMED"]
     }
 }')
 
@@ -151,13 +151,14 @@ VERSIONS_TO_KEEP=$(echo "$ALL_VERSIONS" | \
 jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REPO_SLUG" --argjson versions_to_keep "$(echo "$VERSIONS_TO_KEEP" | jq -R -s 'split("\n") | map(select(length > 0))')" '
     # Update main brokk alias to point to new version
     .aliases.brokk."script-ref" = $url |
+    .aliases.brokk."java-options" = ["--sun-misc-unsafe-memory-access=allow", "--enable-native-access=ALL-UNNAMED"] |
     # Create version aliases for the versions we want to keep
     ($versions_to_keep | map({
         key: ("brokk-" + .),
         value: {
             "script-ref": ("https://github.com/" + $repo_slug + "/releases/download/" + . + "/brokk-" + . + ".jar"),
             "java": "21",
-            "java-options": ["--add-modules=jdk.incubator.vector"]
+            "java-options": ["--sun-misc-unsafe-memory-access=allow", "--enable-native-access=ALL-UNNAMED"]
         }
     }) | from_entries) as $version_aliases |
     # Rebuild the aliases object
