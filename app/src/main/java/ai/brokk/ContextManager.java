@@ -2232,7 +2232,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     logger.debug("Empty TaskResult delta, skipping publish");
                     return result.context();
                 } else {
-                    // no messages, push without history
+                    // This is the "content-only change, no messages" path.
+                    // We record the checkpoint but skip conversation history.
                     return publish(result.context());
                 }
             }
