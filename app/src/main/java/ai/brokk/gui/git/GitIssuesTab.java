@@ -1345,14 +1345,14 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 if (ImageUtil.isImageUri(imageUri, clientToUse)) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO, "Downloading image: " + imageUri.toString());
-                    Image image = ImageUtil.downloadImage(imageUri, clientToUse);
-                    if (image != null) {
+                    @Nullable Image image = ImageUtil.downloadImage(imageUri, clientToUse);
+                    if (image == null) {
+                        logger.warn("Failed to download image identified by ImageUtil: {}", imageUri.toString());
+                        chrome.toolError("Failed to download image: " + imageUri.toString());
+                    } else {
                         String description = String.format("Issue %s: Image", header.id());
                         contextManager.addPastedImageFragment(image, description);
                         capturedImageCount++;
-                    } else {
-                        logger.warn("Failed to download image identified by ImageUtil: {}", imageUri.toString());
-                        chrome.toolError("Failed to download image: " + imageUri.toString());
                     }
                 }
             } catch (Exception e) {

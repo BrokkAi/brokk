@@ -602,7 +602,11 @@ public class PreviewManager {
             return;
         }
         try {
-            imagePanel.setImage(ImageUtil.bytesToImage(bytes));
+            var image = ImageUtil.bytesToImage(bytes);
+            if (image == null) {
+                return;
+            }
+            imagePanel.setImage(image);
             imagePanel.revalidate();
             imagePanel.repaint();
         } catch (IOException e) {

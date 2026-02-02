@@ -12,6 +12,7 @@ import dev.langchain4j.data.message.Content;
 import dev.langchain4j.data.message.ImageContent;
 import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
+import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
@@ -459,10 +460,16 @@ public final class WorkspacePrompts {
                             || cf instanceof ContextFragments.AnonymousImageFragment
                     : cf;
             try {
-                var imageBytes = cf.imageBytes();
-                if (imageBytes != null && imageBytes.join() != null) { // 2nd null check is NOT gratuitous
-                    var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytes.join()));
-                    imageList.add(ImageContent.from(l4jImage));
+                var cv = cf.imageBytes();
+                if (cv != null) {
+                    var bytes = cv.join();
+                    if (bytes != null) { // NOT gratuitous
+                        var converted = ImageUtil.bytesToImage(bytes);
+                        if (converted != null) {
+                            var l4jImage = ImageUtil.toL4JImage(converted);
+                            imageList.add(ImageContent.from(l4jImage));
+                        }
+                    }
                 }
                 textBuilder.append(cf.text().join()).append("\n\n");
             } catch (IOException | UncheckedIOException e) {
