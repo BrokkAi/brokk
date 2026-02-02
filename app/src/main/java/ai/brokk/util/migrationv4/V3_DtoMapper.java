@@ -355,6 +355,10 @@ public class V3_DtoMapper {
                         yield null;
                     }
                     var image = ImageUtil.bytesToImage(imageBytes);
+                    if (image == null) {
+                        logger.error("Image deserialized to null for fragment: {}", pasteImageDto.id());
+                        yield null;
+                    }
                     yield new ContextFragments.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,
