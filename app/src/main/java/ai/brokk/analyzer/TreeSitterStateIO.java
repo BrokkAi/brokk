@@ -545,7 +545,7 @@ public final class TreeSitterStateIO {
         }
         PMap<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> codeUnitState = HashTreePMap.from(cuState);
 
-        // Rebuild fileState PMap (TSTree omitted => null)
+        // Rebuild fileState PMap
         Map<ProjectFile, TreeSitterAnalyzer.FileProperties> fileStateMap = new HashMap<>();
         for (var entry : dto.fileState()) {
             var v = entry.value();
@@ -557,11 +557,7 @@ public final class TreeSitterStateIO {
                     .map(TreeSitterStateIO::fromDto)
                     .toList();
 
-            var fp = new TreeSitterAnalyzer.FileProperties(
-                    topLevel,
-                    null, // parsedTree intentionally omitted
-                    imports,
-                    v.containsTests());
+            var fp = new TreeSitterAnalyzer.FileProperties(topLevel, imports, v.containsTests());
             fileStateMap.put(fromDto(entry.key()), fp);
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
