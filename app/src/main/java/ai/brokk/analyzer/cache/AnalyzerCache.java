@@ -20,12 +20,14 @@ public final class AnalyzerCache {
     public AnalyzerCache() {
         this.trees = new CaffeineSimpleCache<>(1000);
         this.rawSupertypes = new CaffeineSimpleCache<>(5000);
-        this.imports = new ConcurrentBidirectionalCache<>(
+        this.imports = new CaffeineBidirectionalCache<>(
+                10000,
                 (cache, resolved) -> {
                     // Logic for reverse population is handled by the caller during resolve
                 },
                 Collections::emptySet);
-        this.typeHierarchy = new ConcurrentBidirectionalCache<>(
+        this.typeHierarchy = new CaffeineBidirectionalCache<>(
+                10000,
                 (cache, supers) -> {
                     // Logic for reverse population is handled by the caller during resolve
                 },
