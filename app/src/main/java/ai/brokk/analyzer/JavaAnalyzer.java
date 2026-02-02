@@ -651,7 +651,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
-        // Pull raw supertypes lazily
+        // Pull raw supertypes lazily. This extracts the names from the AST on-demand.
         var rawNames = getRawSupertypesLazily(cu);
 
         if (rawNames.isEmpty()) {

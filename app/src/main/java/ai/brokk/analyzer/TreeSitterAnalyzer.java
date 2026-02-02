@@ -2527,12 +2527,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             String signature =
                     buildSignatureString(node, simpleName, sourceContent, primaryCaptureName, modifierKeywords, file);
 
-            if (cu.isClass()) {
-                List<String> rawSupers = extractRawSupertypesForClassLike(cu, node, signature, sourceContent);
-                if (!rawSupers.isEmpty()) {
-                    lazyRawSupertypes.put(cu, rawSupers);
-                }
-            }
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
