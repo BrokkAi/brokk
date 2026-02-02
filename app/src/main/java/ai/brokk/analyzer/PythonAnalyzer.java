@@ -1159,9 +1159,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
-        // Get raw supertype names from CodeUnitProperties
-        var rawNames = withCodeUnitProperties(
-                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).rawSupertypes());
+        // Get raw supertype names lazily
+        var rawNames = getRawSupertypesLazily(cu);
 
         if (rawNames.isEmpty()) {
             return List.of();

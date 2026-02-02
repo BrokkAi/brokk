@@ -98,6 +98,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     private final LazyTreeCache lazyTrees = new LazyTreeCache();
 
+    /**
+     * Helper util for lazy raw supertypes extraction.
+     */
+    private final LazyRawSupertypesCache lazyRawSupertypes = new LazyRawSupertypesCache();
+
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -254,6 +259,32 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Helper class to encapsulate lazy supertype and subtype caching and recursion detection.
      */
+    /**
+     * Helper class to encapsulate lazy raw supertype extraction caching with bounded size.
+     */
+    private static final class LazyRawSupertypesCache {
+        private static final int MAX_CACHE_SIZE = 5000;
+        private final Cache<CodeUnit, List<String>> cache =
+                Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).build();
+
+        @Nullable
+        List<String> get(CodeUnit cu) {
+            return cache.getIfPresent(cu);
+        }
+
+        void put(CodeUnit cu, List<String> rawSupertypes) {
+            cache.put(cu, rawSupertypes);
+        }
+
+        boolean isEmpty() {
+            return cache.estimatedSize() == 0;
+        }
+
+        void forEach(BiConsumer<? super CodeUnit, ? super List<String>> action) {
+            cache.asMap().forEach(action);
+        }
+    }
+
     private static final class LazyTypeHierarchyCache {
         private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> supertypeCache = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<CodeUnit, Set<CodeUnit>> subtypeCache = new ConcurrentHashMap<>();
@@ -812,20 +843,33 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty() && lazyTrees.isEmpty()) {
+        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty() && lazyTrees.isEmpty() && lazyRawSupertypes.isEmpty()) {
             return this.state;
         }
 
-        PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState = this.state.codeUnitState();
-        if (!lazyHierarchy.isEmpty()) {
-            // Efficiently merge lazy-computed supertypes into the snapshot state using PMap structural sharing.
-            // Instead of copying the entire map (O(N)), we collect only the updates (O(M)) and apply them (O(M log N)).
-            Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>();
+        final PMap<CodeUnit, CodeUnitProperties> baseCUState = this.state.codeUnitState();
+        Map<CodeUnit, CodeUnitProperties> cuUpdates = new HashMap<>();
 
+        if (!lazyRawSupertypes.isEmpty()) {
+            lazyRawSupertypes.forEach((cu, rawSupers) -> {
+                CodeUnitProperties existing = baseCUState.get(cu);
+                if (existing != null && existing.rawSupertypes().isEmpty() && !rawSupers.isEmpty()) {
+                    cuUpdates.put(
+                            cu,
+                            new CodeUnitProperties(
+                                    existing.children(),
+                                    existing.signatures(),
+                                    existing.ranges(),
+                                    rawSupers,
+                                    existing.superTypes(),
+                                    existing.hasBody()));
+                }
+            });
+        }
+        if (!lazyHierarchy.isEmpty()) {
             lazyHierarchy.forEachSupertype((cu, supers) -> {
-                CodeUnitProperties existing = this.state.codeUnitState().get(cu);
+                CodeUnitProperties existing = cuUpdates.getOrDefault(cu, baseCUState.get(cu));
                 if (existing != null) {
-                    // Create new record with Computed supertypes
                     var newProps = new CodeUnitProperties(
                             existing.children(),
                             existing.signatures(),
@@ -833,11 +877,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             existing.rawSupertypes(),
                             new SuperTypeInfo.Computed(supers),
                             existing.hasBody());
-                    updates.put(cu, newProps);
+                    cuUpdates.put(cu, newProps);
                 }
             });
-            nextCodeUnitState = nextCodeUnitState.plusAll(updates);
         }
+        PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState = baseCUState.plusAll(cuUpdates);
 
         TypeHierarchyGraph nextTypeHierarchyGraph = this.state.typeHierarchyGraph();
         if (!lazyHierarchy.isEmpty()) {
@@ -2184,7 +2228,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
         Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
         Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
-        Map<CodeUnit, List<String>> localRawSupertypes = new HashMap<>();
         Map<String, Set<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>();
         List<ImportInfo> localImportInfos = new ArrayList<>();
@@ -2515,6 +2558,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             String signature =
                     buildSignatureString(node, simpleName, sourceContent, primaryCaptureName, modifierKeywords, file);
+
+            if (cu.isClass()) {
+                List<String> rawSupers = extractRawSupertypesForClassLike(cu, node, signature, sourceContent);
+                if (!rawSupers.isEmpty()) {
+                    lazyRawSupertypes.put(cu, rawSupers);
+                }
+            }
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -2528,13 +2578,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         node.getType(),
                         primaryCaptureName,
                         simpleName);
-            }
-
-            if (cu.isClass()) {
-                List<String> rawSupers = extractRawSupertypesForClassLike(cu, node, signature, sourceContent);
-                if (!rawSupers.isEmpty()) {
-                    localRawSupertypes.put(cu, rawSupers);
-                }
             }
 
             if (existingCUforKeyLookup != null
@@ -2692,15 +2735,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             var kids = finalLocalChildren.getOrDefault(cu, List.of());
             var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
-            var rawSupers = localRawSupertypes.getOrDefault(cu, List.of());
             boolean hasBody = localHasBody.getOrDefault(cu, false);
+            List<String> rawSupers = lazyRawSupertypes.get(cu);
             localStates.put(
                     cu,
                     new CodeUnitProperties(
                             List.copyOf(kids),
                             List.copyOf(sigs),
                             List.copyOf(rngs),
-                            List.copyOf(rawSupers),
+                            rawSupers != null ? rawSupers : List.of(),
                             new SuperTypeInfo.Uncomputed(),
                             hasBody));
         }
@@ -2761,6 +2804,46 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected String determineClassChainSegmentName(String nodeType, String shortName) {
         return determineClassName(nodeType, shortName);
+    }
+
+    /**
+     * Returns raw supertype names (extends/implements) for a class-like entity, computing them lazily if necessary.
+     */
+    protected List<String> getRawSupertypesLazily(CodeUnit cu) {
+        if (!cu.isClass()) {
+            return List.of();
+        }
+
+        List<String> cached = lazyRawSupertypes.get(cu);
+        if (cached != null) {
+            return cached;
+        }
+
+        TSTree tree = treeOf(cu.source());
+        if (tree == null) {
+            return List.of();
+        }
+
+        SourceContent sc = SourceContent.read(cu.source()).orElse(null);
+        if (sc == null) {
+            return List.of();
+        }
+
+        List<Range> ranges = rangesOf(cu);
+        if (ranges.isEmpty()) {
+            return List.of();
+        }
+
+        Range primary = ranges.getFirst();
+        TSNode node = tree.getRootNode().getDescendantForByteRange(primary.startByte(), primary.endByte());
+        if (node == null || node.isNull()) {
+            return List.of();
+        }
+
+        List<String> extracted =
+                extractRawSupertypesForClassLike(cu, node, cu.signature() != null ? cu.signature() : "", sc);
+        lazyRawSupertypes.put(cu, extracted);
+        return extracted;
     }
 
     /**
@@ -3787,15 +3870,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 List<String> mergedRawSupers = existing.rawSupertypes();
                 var newRawSupers = newState.rawSupertypes();
                 if (!newRawSupers.isEmpty()) {
-                    var tmp = new ArrayList<String>(existing.rawSupertypes().size() + newRawSupers.size());
-                    tmp.addAll(existing.rawSupertypes());
-                    for (var s : newRawSupers) if (!tmp.contains(s)) tmp.add(s);
+                    var tmp = new LinkedHashSet<>(existing.rawSupertypes());
+                    tmp.addAll(newRawSupers);
                     mergedRawSupers = List.copyOf(tmp);
                 }
 
                 SuperTypeInfo mergedSuperTypes = existing.superTypes();
-                // If raw supertypes or ranges have changed, invalidate previously computed supertypes
-                if (!mergedRawSupers.equals(existing.rawSupertypes()) || !mergedRanges.equals(existing.ranges())) {
+                // If ranges have changed, invalidate previously computed supertypes
+                if (!mergedRanges.equals(existing.ranges())) {
                     mergedSuperTypes = new SuperTypeInfo.Uncomputed();
                 } else if (newState.superTypes() instanceof SuperTypeInfo.Computed newComputed) {
                     if (mergedSuperTypes instanceof SuperTypeInfo.Computed existingComputed) {
