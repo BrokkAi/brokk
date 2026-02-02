@@ -720,9 +720,10 @@ public class TreeSitterStateIOTest {
         legacyProps.put("children", List.of());
         legacyProps.put("signatures", List.of());
         legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 1, 0, 1, 0)));
-        legacyProps.put("supertypesComputed", false);
         legacyProps.put("hasBody", false);
         legacyProps.put("rawSupertypes", List.of("BaseClass", "InterfaceA")); // Field removed from DTO
+        legacyProps.put("supertypes", List.of()); // Field removed from DTO
+        legacyProps.put("supertypesComputed", true); // Field removed from DTO
 
         Map<String, Object> entry = Map.of("key", cuDto, "value", legacyProps);
 
