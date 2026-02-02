@@ -123,14 +123,103 @@ public class StackTrace {
     private static final String STACK_TRACE_LINE_REGEX = ".*\\s+at\\s+([^(]+)\\((?:([^:]+):([0-9]+)|([^)]+))\\).*$";
     private static final Pattern STACK_TRACE_LINE_PATTERN = Pattern.compile(STACK_TRACE_LINE_REGEX);
 
-    private static @Nullable String parseExceptionType(String firstLine) {
-        List<String> parts = Splitter.on(':').splitToList(firstLine);
+    // Jackson metadata lines look like: "at [Source: ...]" or "at [through reference chain: ...]"
+    private static final Pattern JACKSON_METADATA_PATTERN = Pattern.compile(".*\\s+at\\s+\\[.*\\](?:\\s+\\(.*\\))?.*$");
+
+    private static final Pattern EXCEPTION_TOKEN_PATTERN =
+            Pattern.compile("([A-Za-z0-9_.$/]+(?:Exception|Error))(?:[:\\s].*)?$");
+
+    private static final Pattern LAMBDA_METHOD_PATTERN = Pattern.compile("^lambda\\$(.+?)\\$\\d+$");
+
+    private static String normalizeLineForParsing(String line) {
+        return line.stripTrailing();
+    }
+
+    private static String normalizeMethodName(String methodName) {
+        Matcher matcher = LAMBDA_METHOD_PATTERN.matcher(methodName);
+        if (matcher.matches()) {
+            return matcher.group(1);
+        }
+        return methodName;
+    }
+
+    private static @Nullable String parseExceptionType(String line) {
+        String header = normalizeLineForParsing(line).strip();
+        if (header.isEmpty()) {
+            return null;
+        }
+
+        if (JACKSON_METADATA_PATTERN.matcher(header).matches() || header.startsWith("at ")) {
+            return null;
+        }
+
+        int lastDash = header.lastIndexOf(" - ");
+        if (lastDash != -1) {
+            header = header.substring(lastDash + 3).strip();
+        }
+
+        int closingBracket = header.indexOf(']');
+        if (header.startsWith("[") && closingBracket != -1 && closingBracket < 32) {
+            header = header.substring(closingBracket + 1).strip();
+        }
+
+        Matcher tokenMatcher = EXCEPTION_TOKEN_PATTERN.matcher(header);
+        String lastToken = null;
+        while (tokenMatcher.find()) {
+            lastToken = tokenMatcher.group(1);
+        }
+        if (lastToken != null) {
+            int lastSlash = lastToken.lastIndexOf('/');
+            String withoutModule = lastSlash == -1 ? lastToken : lastToken.substring(lastSlash + 1);
+            int lastDot = withoutModule.lastIndexOf('.');
+            return lastDot == -1 ? withoutModule : withoutModule.substring(lastDot + 1);
+        }
+
+        List<String> parts = Splitter.on(':').splitToList(header);
         if (parts.isEmpty()) {
             return null;
         }
 
-        List<String> typeParts = Splitter.on('.').splitToList(parts.get(0));
-        return typeParts.getLast();
+        String typePart = parts.getFirst().trim();
+        int lastSpace = typePart.lastIndexOf(' ');
+        if (lastSpace != -1) {
+            typePart = typePart.substring(lastSpace + 1);
+        }
+
+        List<String> dots = Splitter.on('.').splitToList(typePart);
+        if (dots.isEmpty()) {
+            return null;
+        }
+
+        String name = dots.getLast().trim();
+        return name.endsWith("Exception") || name.endsWith("Error") ? name : null;
+    }
+
+    private static @Nullable String findExceptionLine(
+            List<String> lines, int firstAtLine, int firstStandardFrameIndex) {
+        for (int i = firstAtLine - 1; i >= 0; i--) {
+            String candidate = normalizeLineForParsing(lines.get(i));
+            if (parseExceptionType(candidate) != null) {
+                return candidate;
+            }
+        }
+
+        int forwardLimit = firstStandardFrameIndex != -1 ? firstStandardFrameIndex : lines.size();
+        for (int i = firstAtLine; i < forwardLimit; i++) {
+            String candidate = normalizeLineForParsing(lines.get(i));
+            if (parseExceptionType(candidate) != null) {
+                return candidate;
+            }
+        }
+
+        for (int i = 0; i < lines.size(); i++) {
+            String candidate = normalizeLineForParsing(lines.get(i));
+            if (parseExceptionType(candidate) != null) {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -142,71 +231,86 @@ public class StackTrace {
      *     stack trace could be parsed
      */
     public static @Nullable StackTrace parse(String stackTraceString) {
-        List<String> lines = Splitter.on('\n').splitToList(stackTraceString);
+        List<String> lines = Splitter.onPattern("\\R").splitToList(stackTraceString);
 
-        // Find the exception line (which might have a prefix) and the first stack trace line
-        // int exceptionLineIndex = -1; // Unused variable
-        int firstStackLineIndex = -1;
+        int firstStandardFrameIndex = -1;
+        int firstJacksonLineIndex = -1;
 
-        // First find a stack trace line ("... at ...")
         for (int i = 0; i < lines.size(); i++) {
-            if (STACK_TRACE_LINE_PATTERN.matcher(lines.get(i)).matches()) {
-                firstStackLineIndex = i;
+            String line = normalizeLineForParsing(lines.get(i));
+
+            if (firstJacksonLineIndex == -1
+                    && JACKSON_METADATA_PATTERN.matcher(line).matches()) {
+                firstJacksonLineIndex = i;
+            }
+
+            if (firstStandardFrameIndex == -1
+                    && STACK_TRACE_LINE_PATTERN.matcher(line).matches()
+                    && !JACKSON_METADATA_PATTERN.matcher(line).matches()) {
+                firstStandardFrameIndex = i;
+            }
+
+            if (firstJacksonLineIndex != -1 && firstStandardFrameIndex != -1) {
                 break;
             }
         }
 
-        // If we didn't find a stack trace line, return null
-        if (firstStackLineIndex == -1 || firstStackLineIndex == 0) {
+        if (firstStandardFrameIndex == -1 && firstJacksonLineIndex == -1) {
             return null;
         }
 
-        // Check the line before the stack trace line for exception type
-        String firstLine = lines.get(firstStackLineIndex - 1);
-        String exceptionType = parseExceptionType(firstLine);
-        if (exceptionType == null) {
+        int firstAtLine;
+        if (firstStandardFrameIndex != -1 && firstJacksonLineIndex != -1) {
+            firstAtLine = Math.min(firstStandardFrameIndex, firstJacksonLineIndex);
+        } else if (firstStandardFrameIndex != -1) {
+            firstAtLine = firstStandardFrameIndex;
+        } else {
+            firstAtLine = firstJacksonLineIndex;
+        }
+
+        String exceptionLine = findExceptionLine(lines, firstAtLine, firstStandardFrameIndex);
+        if (exceptionLine == null) {
             return null;
         }
 
-        // Parse stack trace lines
         List<StackTraceElement> stackTraceLines = new ArrayList<>();
-        for (int i = firstStackLineIndex; i < lines.size(); i++) {
-            Matcher matcher = STACK_TRACE_LINE_PATTERN.matcher(lines.get(i));
-            if (!matcher.matches()) {
-                continue;
-            }
+        if (firstStandardFrameIndex != -1) {
+            for (int i = firstStandardFrameIndex; i < lines.size(); i++) {
+                String line = normalizeLineForParsing(lines.get(i));
+                Matcher matcher = STACK_TRACE_LINE_PATTERN.matcher(line);
+                if (!matcher.matches() || JACKSON_METADATA_PATTERN.matcher(line).matches()) {
+                    continue;
+                }
 
-            String classAndMethod = matcher.group(1).trim();
-            int lastDot = classAndMethod.lastIndexOf('.');
-            String className = lastDot > 0 ? classAndMethod.substring(0, lastDot) : classAndMethod;
-            String methodName = lastDot > 0 ? classAndMethod.substring(lastDot + 1) : "unknown";
+                String classAndMethod = matcher.group(1).trim();
+                int lastDot = classAndMethod.lastIndexOf('.');
+                String className = lastDot > 0 ? classAndMethod.substring(0, lastDot) : classAndMethod;
+                String methodName = lastDot > 0 ? classAndMethod.substring(lastDot + 1) : "unknown";
+                methodName = normalizeMethodName(methodName);
 
-            String fileName = matcher.group(2);
-            int lineNumber = -1;
+                String fileName = matcher.group(2);
+                int lineNumber = -1;
 
-            if (matcher.group(3) != null) {
-                lineNumber = Integer.parseInt(matcher.group(3));
-            } else if (matcher.group(4) != null && matcher.group(4).equals("Native Method")) {
-                lineNumber = -2;
-            }
+                if (matcher.group(3) != null) {
+                    lineNumber = Integer.parseInt(matcher.group(3));
+                } else if ("Native Method".equals(matcher.group(4))) {
+                    lineNumber = -2;
+                }
 
-            StackTraceElement element = new StackTraceElement(className, methodName, fileName, lineNumber);
-
-            stackTraceLines.add(element);
-        }
-
-        // Build original stack trace from the relevant lines only
-        StringBuilder relevantTrace = new StringBuilder();
-        relevantTrace.append(firstLine).append("\n");
-        for (int i = firstStackLineIndex; i < lines.size(); i++) {
-            if (STACK_TRACE_LINE_PATTERN.matcher(lines.get(i)).matches()) {
-                relevantTrace.append(lines.get(i)).append("\n");
+                stackTraceLines.add(new StackTraceElement(className, methodName, fileName, lineNumber));
             }
         }
-        String cleanedTrace = relevantTrace.length() > 0
-                ? relevantTrace.substring(0, relevantTrace.length() - 1)
-                : relevantTrace.toString();
 
-        return new StackTrace(firstLine, stackTraceLines, cleanedTrace);
+        var relevantLines = new ArrayList<String>();
+        relevantLines.add(exceptionLine);
+        for (int i = firstAtLine; i < lines.size(); i++) {
+            String line = normalizeLineForParsing(lines.get(i));
+            if (STACK_TRACE_LINE_PATTERN.matcher(line).matches()
+                    || JACKSON_METADATA_PATTERN.matcher(line).matches()) {
+                relevantLines.add(line);
+            }
+        }
+
+        return new StackTrace(exceptionLine, stackTraceLines, String.join("\n", relevantLines));
     }
 }
