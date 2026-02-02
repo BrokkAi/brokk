@@ -25,4 +25,14 @@ public interface BidirectionalCache<K, V, RV> {
     void forEachForward(BiConsumer<? super K, ? super V> action);
 
     void forEachReverse(BiConsumer<? super K, ? super RV> action);
+
+    /**
+     * Atomically updates the reverse mapping for a key.
+     */
+    void updateReverse(K key, Function<@Nullable RV, RV> updater);
+
+    /**
+     * Performs any pending maintenance operations or clears transient state.
+     */
+    void cleanUp();
 }

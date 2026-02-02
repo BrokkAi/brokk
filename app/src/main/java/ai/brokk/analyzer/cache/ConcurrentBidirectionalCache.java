@@ -41,9 +41,7 @@ public final class ConcurrentBidirectionalCache<K, V, RV> implements Bidirection
         return reverseCache.get(key);
     }
 
-    /**
-     * Internal access for the reverse populator to update the reverse map.
-     */
+    @Override
     public void updateReverse(K key, Function<@Nullable RV, RV> updater) {
         reverseCache.compute(key, (k, existing) -> updater.apply(existing));
     }
@@ -85,5 +83,10 @@ public final class ConcurrentBidirectionalCache<K, V, RV> implements Bidirection
     @Override
     public void forEachReverse(BiConsumer<? super K, ? super RV> action) {
         reverseCache.forEach(action);
+    }
+
+    @Override
+    public void cleanUp() {
+        // No-op for this implementation as it's primarily used for transient session state
     }
 }

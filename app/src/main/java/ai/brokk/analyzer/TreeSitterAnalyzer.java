@@ -1,7 +1,6 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
-import ai.brokk.analyzer.cache.ConcurrentBidirectionalCache;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
@@ -809,15 +808,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return cache.imports().computeForwardIfAbsent(file, f -> {
             Set<CodeUnit> resolved = resolveImports(f, importStatementsOf(f));
             // Update reverse cache for BidirectionalCache manually since the populator is NO-OP
-            if (cache.imports()
-                    instanceof ConcurrentBidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> cbc) {
-                for (CodeUnit cu : resolved) {
-                    cbc.updateReverse(cu.source(), existing -> {
-                        Set<ProjectFile> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
-                        set.add(f);
-                        return set;
-                    });
-                }
+            for (CodeUnit cu : resolved) {
+                cache.imports().updateReverse(cu.source(), existing -> {
+                    Set<ProjectFile> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(f);
+                    return set;
+                });
             }
             return resolved;
         });
@@ -3399,15 +3395,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<CodeUnit> supertypes = computed.supertypes();
             // Ensure the reverse subtype index is populated in the transient cache
             // if it hasn't been already, so that getDirectDescendants can find this child.
-            if (cache.typeHierarchy()
-                    instanceof ConcurrentBidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> cbc) {
-                for (CodeUnit ancestor : supertypes) {
-                    cbc.updateReverse(ancestor, (existing) -> {
-                        Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
-                        set.add(cu);
-                        return set;
-                    });
-                }
+            for (CodeUnit ancestor : supertypes) {
+                cache.typeHierarchy().updateReverse(ancestor, (existing) -> {
+                    Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(cu);
+                    return set;
+                });
             }
             return supertypes;
         }
@@ -3416,15 +3409,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return cache.typeHierarchy().computeForwardIfAbsent(cu, k -> {
             List<CodeUnit> supertypes = computeSupertypes(k);
             // Update reverse index for BidirectionalCache manually since populator is NO-OP
-            if (cache.typeHierarchy()
-                    instanceof ConcurrentBidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> cbc) {
-                for (CodeUnit ancestor : supertypes) {
-                    cbc.updateReverse(ancestor, (existing) -> {
-                        Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
-                        set.add(k);
-                        return set;
-                    });
-                }
+            for (CodeUnit ancestor : supertypes) {
+                cache.typeHierarchy().updateReverse(ancestor, (existing) -> {
+                    Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(k);
+                    return set;
+                });
             }
             return supertypes;
         });
