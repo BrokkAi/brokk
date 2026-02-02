@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.nio.file.ClosedWatchServiceException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -243,6 +244,93 @@ class ExceptionReporterAsyncTest {
                 2,
                 serviceSpy.getCalls().size(),
                 "Service should be called twice for same exception type from different locations");
+    }
+
+    @Test
+    @DisplayName("Should enrich ClosedWatchServiceException with OS/JRE/watch-service telemetry")
+    void shouldEnrichClosedWatchServiceExceptionWithTelemetry() throws Exception {
+        Exception testException = new ClosedWatchServiceException();
+
+        exceptionReporter.reportException(testException);
+        Thread.sleep(500);
+
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+
+        // Verify OS/JRE telemetry fields are present and non-empty
+        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
+        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
+        assertFalse(call.optionalFields.get("osDescription").isEmpty(), "osDescription should not be empty");
+        assertFalse(call.optionalFields.get("jreDescription").isEmpty(), "jreDescription should not be empty");
+
+        // Verify watch-service config fields are present
+        assertTrue(call.optionalFields.containsKey("watchServiceSysProp"), "Should include watchServiceSysProp");
+        assertTrue(call.optionalFields.containsKey("watchServiceEnvVar"), "Should include watchServiceEnvVar");
+        assertTrue(
+                call.optionalFields.containsKey("watchServicePersistedPref"), "Should include watchServicePersistedPref");
+    }
+
+    @Test
+    @DisplayName("Should enrich wrapped ClosedWatchServiceException with telemetry")
+    void shouldEnrichWrappedClosedWatchServiceExceptionWithTelemetry() throws Exception {
+        Exception cause = new ClosedWatchServiceException();
+        Exception wrapper = new RuntimeException("Wrapper exception", cause);
+
+        exceptionReporter.reportException(wrapper);
+        Thread.sleep(500);
+
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+
+        // Verify telemetry fields are present even when ClosedWatchServiceException is wrapped
+        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription for wrapped cause");
+        assertTrue(
+                call.optionalFields.containsKey("jreDescription"), "Should include jreDescription for wrapped cause");
+        assertTrue(
+                call.optionalFields.containsKey("watchServiceSysProp"),
+                "Should include watchServiceSysProp for wrapped cause");
+    }
+
+    @Test
+    @DisplayName("Should not enrich non-ClosedWatchServiceException with watch telemetry")
+    void shouldNotEnrichNonClosedWatchServiceException() throws Exception {
+        Exception testException = new RuntimeException("Regular exception");
+
+        exceptionReporter.reportException(testException);
+        Thread.sleep(500);
+
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+
+        // Verify telemetry fields are NOT present for regular exceptions
+        assertFalse(call.optionalFields.containsKey("osDescription"), "Should not include osDescription");
+        assertFalse(call.optionalFields.containsKey("jreDescription"), "Should not include jreDescription");
+        assertFalse(call.optionalFields.containsKey("watchServiceSysProp"), "Should not include watchServiceSysProp");
+    }
+
+    @Test
+    @DisplayName("Should merge caller-provided fields with telemetry for ClosedWatchServiceException")
+    void shouldMergeCallerFieldsWithTelemetry() throws Exception {
+        Exception testException = new ClosedWatchServiceException();
+        Map<String, String> callerFields = Map.of("customField", "customValue", "anotherField", "anotherValue");
+
+        exceptionReporter.reportException(testException, callerFields);
+        Thread.sleep(500);
+
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+
+        // Verify caller-provided fields are preserved
+        assertEquals("customValue", call.optionalFields.get("customField"), "Caller field should be preserved");
+        assertEquals("anotherValue", call.optionalFields.get("anotherField"), "Caller field should be preserved");
+
+        // Verify telemetry fields are also present
+        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
+        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
     }
 
     // Helper methods

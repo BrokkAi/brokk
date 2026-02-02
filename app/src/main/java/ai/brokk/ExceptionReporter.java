@@ -5,11 +5,14 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.ClosedWatchServiceException;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -18,6 +21,7 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Reports uncaught exceptions to the Brokk server for monitoring and debugging purposes. This class handles
@@ -65,6 +69,9 @@ public class ExceptionReporter {
      */
     @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
+        // Enrich with watch-service telemetry if this is a ClosedWatchServiceException
+        Map<String, String> enrichedFields = enrichFieldsForWatchServiceException(throwable, optionalFields);
+
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
 
@@ -85,7 +92,7 @@ public class ExceptionReporter {
         reportedExceptions.put(signature, currentTime);
 
         // Also write to local log file for debugging
-        writeLocalErrorReport(throwable, optionalFields);
+        writeLocalErrorReport(throwable, enrichedFields);
 
         // Clean up old entries from the deduplication map (keep it bounded)
         if (reportedExceptions.size() > 1000) {
@@ -98,7 +105,7 @@ public class ExceptionReporter {
         try {
             String clientVersion = BuildInfo.version;
             ReportingService service = serviceSupplier.get();
-            service.reportClientException(stacktrace, clientVersion, optionalFields);
+            service.reportClientException(stacktrace, clientVersion, enrichedFields);
             logger.debug(
                     "Successfully reported exception: {} - {}",
                     throwable.getClass().getSimpleName(),
@@ -132,6 +139,55 @@ public class ExceptionReporter {
         }
 
         return fullStacktrace;
+    }
+
+    /**
+     * Checks if the throwable or any of its causes is a ClosedWatchServiceException.
+     */
+    private static boolean isCausedByClosedWatchServiceException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof ClosedWatchServiceException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    /**
+     * Enriches the optional fields with OS/JRE/watch-service configuration telemetry
+     * if the throwable is or is caused by a ClosedWatchServiceException.
+     *
+     * @param throwable The exception being reported
+     * @param originalFields The original optional fields (may be empty)
+     * @return Enriched fields if ClosedWatchServiceException detected, otherwise original fields
+     */
+    private static Map<String, String> enrichFieldsForWatchServiceException(
+            Throwable throwable, Map<String, String> originalFields) {
+        if (!isCausedByClosedWatchServiceException(throwable)) {
+            return originalFields;
+        }
+
+        var enriched = new HashMap<>(originalFields);
+        enriched.put("osDescription", Environment.getOsDescription());
+        enriched.put("jreDescription", Environment.getJreDescription());
+
+        // Collect watch-service selection signals
+        @Nullable String sysProp = System.getProperty("brokk.watchservice.impl");
+        @Nullable String envVar = System.getenv("BROKK_WATCHSERVICE_IMPL");
+        String persistedPref;
+        try {
+            persistedPref = MainProject.getWatchServiceImplPreference();
+        } catch (Throwable t) {
+            persistedPref = "(unavailable)";
+        }
+
+        enriched.put("watchServiceSysProp", sysProp != null ? sysProp : "(not set)");
+        enriched.put("watchServiceEnvVar", envVar != null ? envVar : "(not set)");
+        enriched.put("watchServicePersistedPref", persistedPref.isBlank() ? "(blank)" : persistedPref);
+
+        return enriched;
     }
 
     /**
