@@ -138,40 +138,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
-     * Sealed interface for supertype computation state.
-     */
-    public sealed interface SuperTypeInfo {
-        record Computed(List<CodeUnit> supertypes) implements SuperTypeInfo {}
-
-        record Uncomputed() implements SuperTypeInfo {}
-    }
-
-    /**
-     * Per-CodeUnit state: children, signatures, ranges, supertypes, and AST-derived hasBody flag.
+     * Per-CodeUnit state: children, signatures, ranges, and AST-derived hasBody flag.
      * <p>
      * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
      * During incremental updates and multi-file merges, hasBody is combined using logical OR so that a single
      * definition anywhere marks the CodeUnit as having a body.
      */
     public record CodeUnitProperties(
-            List<CodeUnit> children,
-            List<String> signatures,
-            List<Range> ranges,
-            P,
-            boolean hasBody) {
+            List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
 
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(
-                    Collections.emptyList(),
-                    Collections.emptyList(),
-                    Collections.emptyList(),
-                    new SuperTypeInfo.Uncomputed(),
-                    false);
-        }
-
-        // Convenience for accessing supertypes if computed, or empty list if uncomputed or not applicable.
-        public List<CodeUnit> supertypes() {
-            return superTypes instanceof SuperTypeInfo.Computed c ? c.supertypes() : Collections.emptyList();
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false);
         }
     }
 
@@ -612,7 +590,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected List<CodeUnit> supertypesOf(CodeUnit codeUnit) {
-        return codeUnitProperties(codeUnit).supertypes();
+        return performGetDirectAncestors(codeUnit);
     }
 
     private FileProperties fileProperties(ProjectFile file) {
@@ -635,23 +613,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (cache.isEmpty()) {
             return this.state;
         }
-
-        final PMap<CodeUnit, CodeUnitProperties> baseCUState = this.state.codeUnitState();
-        Map<CodeUnit, CodeUnitProperties> cuUpdates = new HashMap<>();
-
-        cache.typeHierarchy().forEachForward((cu, supers) -> {
-            CodeUnitProperties existing = cuUpdates.getOrDefault(cu, baseCUState.get(cu));
-            if (existing != null) {
-                var newProps = new CodeUnitProperties(
-                        existing.children(),
-                        existing.signatures(),
-                        existing.ranges(),
-                        new SuperTypeInfo.Computed(supers),
-                        existing.hasBody());
-                cuUpdates.put(cu, newProps);
-            }
-        });
-        PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState = baseCUState.plusAll(cuUpdates);
 
         TypeHierarchyGraph nextTypeHierarchyGraph = this.state.typeHierarchyGraph();
         if (!cache.typeHierarchy().isEmpty()) {
@@ -708,7 +669,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         return new AnalyzerState(
                 this.state.symbolIndex(),
-                nextCodeUnitState,
+                this.state.codeUnitState(),
                 nextFileState,
                 nextImportGraph,
                 nextTypeHierarchyGraph,
@@ -2512,13 +2473,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
             boolean hasBody = localHasBody.getOrDefault(cu, false);
             localStates.put(
-                    cu,
-                    new CodeUnitProperties(
-                            List.copyOf(kids),
-                            List.copyOf(sigs),
-                            List.copyOf(rngs),
-                            new SuperTypeInfo.Uncomputed(),
-                            hasBody));
+                    cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody));
         }
 
         for (var cu : localStates.keySet()) {
@@ -3387,20 +3342,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Check persistent state
-        CodeUnitProperties props = codeUnitProperties(cu);
-        if (props.superTypes() instanceof SuperTypeInfo.Computed computed) {
-            List<CodeUnit> supertypes = computed.supertypes();
+        // 2. Check persistent TypeHierarchyGraph state
+        List<CodeUnit> persisted = this.state.typeHierarchyGraph().supertypesOf(cu);
+        if (!persisted.isEmpty()) {
             // Ensure the reverse subtype index is populated in the transient cache
-            // if it hasn't been already, so that getDirectDescendants can find this child.
-            for (CodeUnit ancestor : supertypes) {
-                cache.typeHierarchy().updateReverse(ancestor, (existing) -> {
+            for (CodeUnit ancestor : persisted) {
+                cache.typeHierarchy().updateReverse(ancestor, existing -> {
                     Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
                     set.add(cu);
                     return set;
                 });
             }
-            return supertypes;
+            return persisted;
         }
 
         // 3. Compute lazily (atomic per key)
@@ -3613,11 +3566,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             targetCodeUnitState.compute(mergeKey, (k, existing) -> {
                 if (existing == null) {
                     return new CodeUnitProperties(
-                            newState.children(),
-                            newState.signatures(),
-                            newState.ranges(),
-                            newState.superTypes(),
-                            newState.hasBody());
+                            newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
                 }
                 List<CodeUnit> mergedKids = existing.children();
                 var newKids = newState.children();
@@ -3644,24 +3593,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     mergedRanges = List.copyOf(tmp);
                 }
 
-                SuperTypeInfo mergedSuperTypes = existing.superTypes();
-                // If ranges have changed, invalidate previously computed supertypes
-                if (!mergedRanges.equals(existing.ranges())) {
-                    mergedSuperTypes = new SuperTypeInfo.Uncomputed();
-                } else if (newState.superTypes() instanceof SuperTypeInfo.Computed newComputed) {
-                    if (mergedSuperTypes instanceof SuperTypeInfo.Computed existingComputed) {
-                        var tmp = new ArrayList<>(existingComputed.supertypes());
-                        for (var r : newComputed.supertypes()) if (!tmp.contains(r)) tmp.add(r);
-                        mergedSuperTypes = new SuperTypeInfo.Computed(List.copyOf(tmp));
-                    } else {
-                        mergedSuperTypes = newComputed;
-                    }
-                }
-
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
-                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedSuperTypes, mergedHasBody);
+                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedHasBody);
             });
 
             if (cu.isModule()) {
@@ -3749,7 +3684,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                                         List.copyOf(filteredKids),
                                                         state.signatures(),
                                                         state.ranges(),
-                                                        state.superTypes(),
                                                         state.hasBody());
                                     });
                                     // Purge from symbol index
@@ -4009,28 +3943,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Combined post-processing pipeline. All hierarchy computation is deferred to lazy on-demand resolution.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new HashMap<>();
-
-        baseState.codeUnitState().forEach((cu, props) -> {
-            if (cu.isClass() && !(props.superTypes() instanceof SuperTypeInfo.Uncomputed)) {
-                updatedCodeUnitState.put(
-                        cu,
-                        new CodeUnitProperties(
-                                props.children(),
-                                props.signatures(),
-                                props.ranges(),
-                                new SuperTypeInfo.Uncomputed(),
-                                props.hasBody()));
-            }
-        });
-
-        PMap<CodeUnit, CodeUnitProperties> finalCodeUnitState = updatedCodeUnitState.isEmpty()
-                ? baseState.codeUnitState()
-                : baseState.codeUnitState().plusAll(updatedCodeUnitState);
-
         return new AnalyzerState(
                 baseState.symbolIndex(),
-                finalCodeUnitState,
+                baseState.codeUnitState(),
                 baseState.fileState(),
                 baseState.importGraph(),
                 TypeHierarchyGraph.empty(),

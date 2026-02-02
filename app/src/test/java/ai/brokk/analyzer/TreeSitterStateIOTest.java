@@ -166,11 +166,7 @@ public class TreeSitterStateIOTest {
         var cu = CodeUnit.cls(projectFile, "com.example", "Test");
 
         var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                List.of(),
-                List.of("public class Test"),
-                List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)),
-                new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed(),
-                true);
+                List.of(), List.of("public class Test"), List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
 
         var stateMap = Map.of(cu, props);
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
@@ -672,8 +668,6 @@ public class TreeSitterStateIOTest {
         legacyProps.put("signatures", List.of("sig"));
         legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 10, 0, 1, 0)));
         legacyProps.put("hasBody", true);
-        legacyProps.put("supertypes", List.of(cuDto)); // Simulated legacy computed list
-        legacyProps.put("supertypesComputed", true); // Simulated legacy flag
 
         // Entry as Map to bypass CodeUnitEntryDto's type check
         Map<String, Object> entry = new HashMap<>();
@@ -712,7 +706,6 @@ public class TreeSitterStateIOTest {
 
         assertEquals("Test", loadedCu.shortName());
         assertEquals(1, loadedProps.ranges().size());
-        // Implicitly verified that 'supertypes' field was ignored (no crash, no field in domain object)
     }
 
     @Test
