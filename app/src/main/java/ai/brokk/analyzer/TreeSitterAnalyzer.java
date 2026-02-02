@@ -808,30 +808,27 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState = this.state.codeUnitState();
+        TypeHierarchyGraph nextTypeHierarchyGraph = this.state.typeHierarchyGraph();
         if (!lazyHierarchy.isEmpty()) {
-            // Efficiently merge lazy-computed supertypes into the snapshot state using PMap structural sharing.
-            // Instead of copying the entire map (O(N)), we collect only the updates (O(M)) and apply them (O(M log N)).
+            // Merge lazy-computed supertypes into CodeUnitProperties
             Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>();
-
             lazyHierarchy.forEachSupertype((cu, supers) -> {
                 CodeUnitProperties existing = this.state.codeUnitState().get(cu);
                 if (existing != null) {
-                    // Create new record with Computed supertypes
-                    var newProps = new CodeUnitProperties(
-                            existing.children(),
-                            existing.signatures(),
-                            existing.ranges(),
-                            existing.rawSupertypes(),
-                            new SuperTypeInfo.Computed(supers),
-                            existing.hasBody());
-                    updates.put(cu, newProps);
+                    updates.put(
+                            cu,
+                            new CodeUnitProperties(
+                                    existing.children(),
+                                    existing.signatures(),
+                                    existing.ranges(),
+                                    existing.rawSupertypes(),
+                                    new SuperTypeInfo.Computed(supers),
+                                    existing.hasBody()));
                 }
             });
             nextCodeUnitState = nextCodeUnitState.plusAll(updates);
-        }
 
-        TypeHierarchyGraph nextTypeHierarchyGraph = this.state.typeHierarchyGraph();
-        if (!lazyHierarchy.isEmpty()) {
+            // Merge into TypeHierarchyGraph
             Map<CodeUnit, List<CodeUnit>> superUpdates =
                     new HashMap<>(this.state.typeHierarchyGraph().supertypes());
             Map<CodeUnit, Set<CodeUnit>> subUpdates =
@@ -846,7 +843,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     return merged;
                 });
             });
-
             nextTypeHierarchyGraph = TypeHierarchyGraph.from(superUpdates, subUpdates);
         }
 
