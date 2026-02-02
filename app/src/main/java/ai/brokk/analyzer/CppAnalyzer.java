@@ -1351,5 +1351,4 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         return identifiers;
     }
-
 }

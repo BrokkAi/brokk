@@ -4,7 +4,6 @@ import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.TextCanonicalizer;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
@@ -140,13 +139,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * This is safe and intentional; clients must not assume parsedTree is non-null.
      *
      * @param topLevelCodeUnits the top-level code units.
-     * @param parsedTree        the corresponding parse tree (transient; null after load from storage).
      * @param importStatements  imports found on this file.
      */
     public record FileProperties(
-            List<CodeUnit> topLevelCodeUnits,
-            List<ImportInfo> importStatements,
-            boolean containsTests) {
+            List<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
 
         public static FileProperties empty() {
             return new FileProperties(Collections.emptyList(), Collections.emptyList(), false);
@@ -183,14 +179,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         void put(ProjectFile file, TSTree tree) {
             cache.put(file, tree);
-        }
-
-        boolean isEmpty() {
-            return cache.estimatedSize() == 0;
-        }
-
-        void forEach(BiConsumer<? super ProjectFile, ? super TSTree> action) {
-            cache.asMap().forEach(action);
         }
     }
 
