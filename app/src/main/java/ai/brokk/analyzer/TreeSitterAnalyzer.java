@@ -1020,7 +1020,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Parse on-demand if file exists
+        // 2. Parse on-demand if file exists and cache result
         if (Files.exists(file.absPath())) {
             try {
                 byte[] bytes = readFileBytes(file, null);
