@@ -351,26 +351,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<CodeUnit> children,
             List<String> signatures,
             List<Range> ranges,
-            List<String> rawSupertypes,
             SuperTypeInfo superTypes,
             boolean hasBody) {
 
-        /**
-         * Compatibility constructor for legacy deserialization logic that provides raw supertypes
-         * but not the computed SuperTypeInfo. Initializes superTypes as Uncomputed.
-         */
-        public CodeUnitProperties(
-                List<CodeUnit> children,
-                List<String> signatures,
-                List<Range> ranges,
-                List<String> rawSupertypes,
-                boolean hasBody) {
-            this(children, signatures, ranges, rawSupertypes, new SuperTypeInfo.Uncomputed(), hasBody);
-        }
-
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(
-                    Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
@@ -850,22 +835,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         final PMap<CodeUnit, CodeUnitProperties> baseCUState = this.state.codeUnitState();
         Map<CodeUnit, CodeUnitProperties> cuUpdates = new HashMap<>();
 
-        if (!lazyRawSupertypes.isEmpty()) {
-            lazyRawSupertypes.forEach((cu, rawSupers) -> {
-                CodeUnitProperties existing = baseCUState.get(cu);
-                if (existing != null && existing.rawSupertypes().isEmpty() && !rawSupers.isEmpty()) {
-                    cuUpdates.put(
-                            cu,
-                            new CodeUnitProperties(
-                                    existing.children(),
-                                    existing.signatures(),
-                                    existing.ranges(),
-                                    rawSupers,
-                                    existing.superTypes(),
-                                    existing.hasBody()));
-                }
-            });
-        }
         if (!lazyHierarchy.isEmpty()) {
             lazyHierarchy.forEachSupertype((cu, supers) -> {
                 CodeUnitProperties existing = cuUpdates.getOrDefault(cu, baseCUState.get(cu));
@@ -874,7 +843,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             existing.children(),
                             existing.signatures(),
                             existing.ranges(),
-                            existing.rawSupertypes(),
                             new SuperTypeInfo.Computed(supers),
                             existing.hasBody());
                     cuUpdates.put(cu, newProps);
@@ -2743,7 +2711,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             List.copyOf(kids),
                             List.copyOf(sigs),
                             List.copyOf(rngs),
-                            rawSupers != null ? rawSupers : List.of(),
                             new SuperTypeInfo.Uncomputed(),
                             hasBody));
         }
@@ -3663,10 +3630,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // 3. Filter candidate classes by checking rawSupertypes text (cheap pre-filter)
         String targetName = cu.shortName();
-        List<CodeUnit> candidates = this.state.codeUnitState().entrySet().stream()
-                .filter(entry -> entry.getKey().isClass())
-                .filter(entry -> entry.getValue().rawSupertypes().stream().anyMatch(raw -> raw.contains(targetName)))
-                .map(Map.Entry::getKey)
+        List<CodeUnit> candidates = this.state.codeUnitState().keySet().stream()
+                .filter(CodeUnit::isClass)
+                .filter(candidate ->
+                        getRawSupertypesLazily(candidate).stream().anyMatch(raw -> raw.contains(targetName)))
                 .toList();
 
         // 4. Resolve ancestors for candidates to populate the reverse index (lazyHierarchy.subtypeCache)
@@ -3839,7 +3806,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             newState.children(),
                             newState.signatures(),
                             newState.ranges(),
-                            newState.rawSupertypes(),
                             newState.superTypes(),
                             newState.hasBody());
                 }
@@ -3867,13 +3833,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     for (var r : newRngs) if (!tmp.contains(r)) tmp.add(r);
                     mergedRanges = List.copyOf(tmp);
                 }
-                List<String> mergedRawSupers = existing.rawSupertypes();
-                var newRawSupers = newState.rawSupertypes();
-                if (!newRawSupers.isEmpty()) {
-                    var tmp = new LinkedHashSet<>(existing.rawSupertypes());
-                    tmp.addAll(newRawSupers);
-                    mergedRawSupers = List.copyOf(tmp);
-                }
 
                 SuperTypeInfo mergedSuperTypes = existing.superTypes();
                 // If ranges have changed, invalidate previously computed supertypes
@@ -3892,8 +3851,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
-                return new CodeUnitProperties(
-                        mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSuperTypes, mergedHasBody);
+                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedSuperTypes, mergedHasBody);
             });
 
             if (cu.isModule()) {
@@ -3983,7 +3941,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                                         List.copyOf(filteredKids),
                                                         state.signatures(),
                                                         state.ranges(),
-                                                        state.rawSupertypes(),
                                                         state.superTypes(),
                                                         state.hasBody());
                                     });
@@ -4254,7 +4211,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                 props.children(),
                                 props.signatures(),
                                 props.ranges(),
-                                props.rawSupertypes(),
                                 new SuperTypeInfo.Uncomputed(),
                                 props.hasBody()));
             }

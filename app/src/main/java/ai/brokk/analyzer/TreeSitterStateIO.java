@@ -244,7 +244,6 @@ public final class TreeSitterStateIO {
             List<CodeUnitDto> children,
             List<String> signatures,
             List<IAnalyzer.Range> ranges,
-            List<String> rawSupertypes,
             @Nullable List<CodeUnitDto> supertypes,
             boolean supertypesComputed,
             boolean hasBody) {
@@ -414,13 +413,7 @@ public final class TreeSitterStateIO {
             }
 
             var propsDto = new CodeUnitPropertiesDto(
-                    childrenDtos,
-                    props.signatures(),
-                    props.ranges(),
-                    props.rawSupertypes(),
-                    supertypesDto,
-                    computed,
-                    props.hasBody());
+                    childrenDtos, props.signatures(), props.ranges(), supertypesDto, computed, props.hasBody());
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
@@ -537,7 +530,6 @@ public final class TreeSitterStateIO {
                     v.children().stream().map(TreeSitterStateIO::fromDto).toList(),
                     v.signatures(),
                     v.ranges(),
-                    v.rawSupertypes(),
                     superTypeInfo,
                     v.hasBody());
 

@@ -169,7 +169,7 @@ public class TreeSitterStateIOTest {
                 List.of(),
                 List.of("public class Test"),
                 List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)),
-                List.of("Base"),
+                new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed(),
                 true);
 
         var stateMap = Map.of(cu, props);
@@ -192,7 +192,6 @@ public class TreeSitterStateIOTest {
         var loadedProps = loadedState.codeUnitState().get(cu);
 
         assertNotNull(loadedProps);
-        assertEquals(props.rawSupertypes(), loadedProps.rawSupertypes());
         assertEquals(props.ranges(), loadedProps.ranges());
         assertEquals(props.signatures(), loadedProps.signatures());
         assertEquals(props.children(), loadedProps.children());
@@ -672,7 +671,6 @@ public class TreeSitterStateIOTest {
         legacyProps.put("children", List.of());
         legacyProps.put("signatures", List.of("sig"));
         legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 10, 0, 1, 0)));
-        legacyProps.put("rawSupertypes", List.of("RawBase"));
         legacyProps.put("hasBody", true);
         legacyProps.put("supertypes", List.of(cuDto)); // Simulated legacy computed list
         legacyProps.put("supertypesComputed", true); // Simulated legacy flag
@@ -710,7 +708,6 @@ public class TreeSitterStateIOTest {
         var loadedProps = loadedState.codeUnitState().get(loadedCu);
 
         assertEquals("Test", loadedCu.shortName());
-        assertEquals(List.of("RawBase"), loadedProps.rawSupertypes());
         assertEquals(1, loadedProps.ranges().size());
         // Implicitly verified that 'supertypes' field was ignored (no crash, no field in domain object)
     }
