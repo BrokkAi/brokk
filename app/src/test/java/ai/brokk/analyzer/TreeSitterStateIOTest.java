@@ -668,11 +668,16 @@ public class TreeSitterStateIOTest {
         legacyProps.put("signatures", List.of("sig"));
         legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 10, 0, 1, 0)));
         legacyProps.put("hasBody", true);
+        legacyProps.put("rawSupertypes", List.of("RawBase")); // Field removed from record
+        legacyProps.put("superTypes", Map.of("supertypes", List.of())); // Field removed from record
 
         // Entry as Map to bypass CodeUnitEntryDto's type check
         Map<String, Object> entry = new HashMap<>();
         entry.put("key", cuDto);
         entry.put("value", legacyProps);
+
+        // Simulate a legacy hierarchy graph as well to verify it's still loaded
+        Map<String, Object> supertypeEntry = Map.of("key", cuDto, "value", List.of());
 
         // AnalyzerStateDto as Map
         Map<String, Object> stateDtoMap = new HashMap<>();
@@ -681,9 +686,8 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("fileState", List.of());
         stateDtoMap.put("imports", List.of());
         stateDtoMap.put("reverseImports", List.of());
-        // Simulate missing hierarchy graphs in older state
-        stateDtoMap.put("supertypes", null);
-        stateDtoMap.put("subtypes", null);
+        stateDtoMap.put("supertypes", List.of(supertypeEntry));
+        stateDtoMap.put("subtypes", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 12345L);
 
@@ -706,6 +710,47 @@ public class TreeSitterStateIOTest {
 
         assertEquals("Test", loadedCu.shortName());
         assertEquals(1, loadedProps.ranges().size());
+
+        // Verify TypeHierarchyGraph data is still present
+        var hierarchy = loadedState.typeHierarchyGraph();
+        assertTrue(hierarchy.supertypes().containsKey(loadedCu), "Hierarchy data should be loaded");
+    }
+
+    @Test
+    void loadLegacyStateWithPerCodeUnitSupertypes(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("legacy_per_cu_supertypes.smile.gz");
+
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        // Simulate removed 'supertypes' and 'supertypesComputed' fields
+        Map<String, Object> legacyProps = new HashMap<>();
+        legacyProps.put("children", List.of());
+        legacyProps.put("signatures", List.of());
+        legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 1, 0, 1, 0)));
+        legacyProps.put("hasBody", false);
+        legacyProps.put("supertypes", List.of(cuDto));
+        legacyProps.put("supertypesComputed", true);
+
+        Map<String, Object> entry = Map.of("key", cuDto, "value", legacyProps);
+
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 1L);
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, stateDtoMap);
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Should successfully load state ignoring legacy supertype fields");
     }
 
     @Test
