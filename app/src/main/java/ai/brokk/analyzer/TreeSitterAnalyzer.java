@@ -3853,14 +3853,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         });
 
         // Filter symbol index
-        List<String> symbolsToRemove = new ArrayList<>();
-        newSymbolIndex.replaceAll((symbol, cus) -> {
-            Set<CodeUnit> remaining =
-                    cus.stream().filter(cu -> !codeUnitsToRemove.contains(cu)).collect(Collectors.toSet());
-            if (remaining.isEmpty()) symbolsToRemove.add(symbol);
-            return remaining;
-        });
-        symbolsToRemove.forEach(newSymbolIndex::remove);
+        newSymbolIndex.replaceAll((symbol, cus) ->
+                cus.stream().filter(cu -> !codeUnitsToRemove.contains(cu)).collect(Collectors.toSet()));
+        newSymbolIndex.entrySet().removeIf(e -> e.getValue().isEmpty());
 
         long cleanupNanos = System.nanoTime() - cleanupStart;
 
