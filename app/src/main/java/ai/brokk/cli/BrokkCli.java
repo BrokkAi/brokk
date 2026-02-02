@@ -40,6 +40,7 @@ import picocli.CommandLine;
 @SuppressWarnings("NullAway.Init")
 @CommandLine.Command(
         name = "brokk",
+        version = "Brokk " + ai.brokk.BuildInfo.version,
         mixinStandardHelpOptions = true,
         description = "Brokk CLI - AI-powered code assistant.",
         footerHeading = "%nAvailable Models:%n",
