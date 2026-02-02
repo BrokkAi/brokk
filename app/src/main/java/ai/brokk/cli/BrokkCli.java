@@ -17,6 +17,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
@@ -26,6 +27,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -94,18 +96,23 @@ public final class BrokkCli implements Callable<Integer> {
     private final BuildTestConfig buildTestConfig = new BuildTestConfig();
 
     static final class BuildTestConfig {
-        @CommandLine.Option(names = "--build-only-cmd", description = "Build/lint command (no tests).")
+        @CommandLine.Option(
+                names = "--build-only-cmd",
+                description = "Build/lint command (no tests). e.g. 'mvn compile' or 'cargo check'.")
         @Nullable
         String buildOnlyCmd;
 
-        @CommandLine.Option(names = "--test-all-cmd", description = "Command to run all tests.")
+        @CommandLine.Option(
+                names = "--test-all-cmd",
+                description =
+                        "Command to run all tests. WARNING: This may take minutes or hours in large repositories.")
         @Nullable
         String testAllCmd;
 
         @CommandLine.Option(
                 names = "--test-some-cmd",
                 description =
-                        "Mustache template for specific tests. Variables: {{#files}}, {{#classes}}, {{#fqclasses}}.")
+                        "Mustache template for running specific tests. Supports {{#files}}, {{#classes}}, {{#fqclasses}}, and {{#modules}} (Python).")
         @Nullable
         String testSomeCmd;
     }
@@ -250,6 +257,23 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         lines.add("");
+        lines.add("How Test Templating Works (--test-some-cmd):");
+        lines.add("  Brokk uses Mustache templates to run specific tests based on your workspace context.");
+        lines.add("  Variables available:");
+        lines.add("    {{#files}}      The relative paths of identified test files (e.g. src/test/FooTest.java).");
+        lines.add("    {{#classes}}    The simple names of test classes (e.g. FooTest).");
+        lines.add("    {{#fqclasses}}  The fully qualified names of test classes (e.g. com.example.FooTest).");
+        lines.add("    {{#modules}}    (Python) Dotted module labels (e.g. tests.test_foo).");
+        lines.add("                    Derived relative to a detected module anchor (like a 'tests/' directory or");
+        lines.add("                    the root of a package chain containing __init__.py files).");
+        lines.add("");
+        lines.add("  Mustache 'DecoratedCollection' is used for lists. You can use {{value}} for the item,");
+        lines.add("  and {{^last}},{{/last}} to handle separators between items.");
+        lines.add("");
+        lines.add("  Example (Maven):");
+        lines.add(
+                "    --test-some-cmd \"mvn --quiet test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}\"");
+        lines.add("");
         lines.add("Actions requiring --goal:");
         lines.add("  " + GOAL_REQUIRED_ACTIONS.stream().sorted().collect(Collectors.joining(", ")));
 
@@ -382,6 +406,17 @@ public final class BrokkCli implements Callable<Integer> {
         final String finalGoal = goal != null ? goal : "";
 
         // --- Build Command Validation ---
+        if (buildTestConfig.testAllCmd != null && buildTestConfig.testSomeCmd != null) {
+            System.err.println(
+                    """
+                    Error: Mutually exclusive test command options.
+
+                    Cannot specify both --test-all-cmd and --test-some-cmd.
+                    Choose one depending on whether you want to run all tests or specific workspace tests.
+                    """);
+            return 1;
+        }
+
         int buildCmdCount = 0;
         if (buildTestConfig.buildOnlyCmd != null) buildCmdCount++;
         if (buildTestConfig.testAllCmd != null) buildCmdCount++;
@@ -435,41 +470,80 @@ public final class BrokkCli implements Callable<Integer> {
         cm = new ContextManager(project);
 
         // --- Build Details ---
-        boolean hasCliDetails = buildTestConfig.buildOnlyCmd != null
+        var existingDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+        BuildAgent.BuildDetails bd = existingDetails;
+        if (buildTestConfig.buildOnlyCmd != null
                 || buildTestConfig.testAllCmd != null
-                || buildTestConfig.testSomeCmd != null;
-        var existingDetails = project.loadBuildDetails();
-        BuildAgent.BuildDetails bd;
+                || buildTestConfig.testSomeCmd != null) {
+            // If a command is provided on CLI, it overwrites existing.
+            // If one command type is provided, we clear the others to ensure the mode selection is unambiguous.
+            String buildCmd = buildTestConfig.buildOnlyCmd != null
+                    ? buildTestConfig.buildOnlyCmd
+                    : existingDetails.buildLintCommand();
+            String testAll = existingDetails.testAllCommand();
+            String testSome = existingDetails.testSomeCommand();
+            if (buildTestConfig.testAllCmd != null) {
+                testAll = buildTestConfig.testAllCmd;
+                testSome = ""; // Mutually exclusive in CLI logic
+            } else if (buildTestConfig.testSomeCmd != null) {
+                testSome = buildTestConfig.testSomeCmd;
+                testAll = ""; // Mutually exclusive in CLI logic
+            }
 
-        if (hasCliDetails) {
-            bd = createBuildDetails();
-        } else {
-            bd = existingDetails.orElse(BuildAgent.BuildDetails.EMPTY);
+            Map<String, String> env = existingDetails.environmentVariables();
+            if (!env.containsKey("VIRTUAL_ENV")) {
+                var newEnv = new HashMap<>(env);
+                newEnv.put("VIRTUAL_ENV", ".venv");
+                env = Map.copyOf(newEnv);
+            }
+
+            bd = new BuildAgent.BuildDetails(
+                    buildCmd,
+                    testAll,
+                    testSome,
+                    existingDetails.exclusionPatterns(),
+                    env,
+                    existingDetails.maxBuildAttempts());
+            project.setBuildDetails(bd);
+            project.saveBuildDetails(bd);
+
+            // Configure test scope based on which test command was provided
+            if (buildTestConfig.testAllCmd != null) {
+                project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+            } else if (buildTestConfig.testSomeCmd != null) {
+                project.setCodeAgentTestScope(IProject.CodeAgentTestScope.WORKSPACE);
+            }
         }
 
         // Validate build details for coding/build modes
-        if ((code || build) && bd.equals(BuildAgent.BuildDetails.EMPTY)) {
-            String modeName = code ? "--code" : "--build";
-            System.err.printf(
-                    """
-                                      Error: %s requires build details, but none were provided or configured.
+        if (code || build) {
+            if (bd.equals(BuildAgent.BuildDetails.EMPTY)
+                    || bd.buildLintCommand().isBlank()) {
+                String modeName = code ? "--code" : "--build";
+                System.err.printf(
+                        """
+                                          Error: %s requires a build command, but none was provided or configured.
 
-                                      Fix this by doing ONE of the following:
-                                        1) Provide a build command on the CLI:
+                                          Fix this by providing a build command on the CLI:
                                              --build-only-cmd "..."
-                                           OR --test-all-cmd "..."
-                                           OR --test-some-cmd "..."
 
-                                        2) Configure build details in the project (so CLI can reuse them next time).
+                                          Example:
+                                            brokk --project . %s --goal "Refactor" --build-only-cmd "mvn compile" --test-some-cmd "..."
+                                          %n""",
+                        modeName, modeName);
+                return 1;
+            }
 
-                                      Why this is required:
-                                        %s requires a command to verify changes or run the build.
+            if (code && (bd.testAllCommand().isBlank() && bd.testSomeCommand().isBlank())) {
+                System.err.println(
+                        """
+                                          Error: --code requires both a build-only command and a test command (either --test-some-cmd or --test-all-cmd) to be configured.
 
-                                      Example:
-                                        brokk --project . %s --goal "Refactor" --test-all-cmd "mvn test"
-                                      %n""",
-                    modeName, modeName, modeName);
-            return 1;
+                                          Example:
+                                            brokk --project . --code --goal "Refactor" --build-only-cmd "mvn compile" --test-some-cmd "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}"
+                                          """);
+                return 1;
+            }
         }
 
         cm.createHeadless(bd, taskConfig.newSession);
@@ -661,14 +735,6 @@ public final class BrokkCli implements Callable<Integer> {
             io.showNotification(NotificationRole.ERROR, "Build verification failed:\n" + buildError);
         }
         return buildError.isEmpty() ? 0 : 1;
-    }
-
-    private BuildAgent.BuildDetails createBuildDetails() {
-        String buildCmd = buildTestConfig.buildOnlyCmd != null ? buildTestConfig.buildOnlyCmd : "";
-        String testAll = buildTestConfig.testAllCmd != null ? buildTestConfig.testAllCmd : "";
-        String testSome = buildTestConfig.testSomeCmd != null ? buildTestConfig.testSomeCmd : "";
-
-        return new BuildAgent.BuildDetails(buildCmd, testAll, testSome, Set.of(), Map.of("VIRTUAL_ENV", ".venv"));
     }
 
     private ContextAgent.RecommendationResult runContextAgentScan(StreamingChatModel model, String goalText)
