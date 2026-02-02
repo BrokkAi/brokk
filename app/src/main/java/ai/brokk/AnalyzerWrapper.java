@@ -502,6 +502,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                         var sub = analyzer.subAnalyzer(lang).orElse(analyzer);
                         lang.saveAnalyzer(sub, project);
                     } catch (Throwable t) {
+                        // Not the end of the world, but worth reporting as it possibly hurts performance later
                         logger.debug("Failed persisting analyzer state for {}: {}", lang.name(), t.toString());
                     }
                 }))
