@@ -106,9 +106,32 @@ public final class BrokkCli implements Callable<Integer> {
                 description = "Standalone symbol search using comma-delimited regex patterns.")
         List<String> listSymbolsPatterns = new ArrayList<>();
 
-        @CommandLine.Option(names = "--skim-directory", description = "Standalone directory listing.")
+        @CommandLine.Option(
+                names = "--list-directory",
+                description = "Lists all identifiers in each file within a directory (lightweight summary).")
         @Nullable
-        String skimDirectoryPath;
+        String listDirectoryPath;
+
+        @CommandLine.Option(
+                names = "--list-source",
+                split = ",",
+                arity = "1..*",
+                description = "Returns the full source code of specific classes or methods.")
+        List<String> listSourceTargets = new ArrayList<>();
+
+        @CommandLine.Option(
+                names = "--list-usages",
+                split = ",",
+                arity = "1..*",
+                description = "Returns the source code of blocks where symbols are used.")
+        List<String> listUsagesTargets = new ArrayList<>();
+
+        @CommandLine.Option(
+                names = "--list-summary",
+                split = ",",
+                arity = "1..*",
+                description = "Returns all declarations (public/private) for specified files or classes.")
+        List<String> listSummaryTargets = new ArrayList<>();
     }
 
     static final class AgenticResearchGroup {
@@ -135,6 +158,11 @@ public final class BrokkCli implements Callable<Integer> {
 
         @CommandLine.Option(names = "--build", description = "Run build verification without making changes.")
         boolean build = false;
+
+        @CommandLine.Option(
+                names = "--autocommit",
+                description = "Automatically commit changes after a successful task. Default: false.")
+        boolean autocommit = false;
     }
 
     @CommandLine.ArgGroup(exclusive = false, heading = "%nWorkspace Content (optional context):%n")
@@ -147,34 +175,6 @@ public final class BrokkCli implements Callable<Integer> {
                 arity = "1..*",
                 description = "Add files for editing (comma-delimited or repeatable).")
         List<String> files = new ArrayList<>();
-
-        @CommandLine.Option(
-                names = "--class",
-                split = ",",
-                arity = "1..*",
-                description = "Add class sources by FQCN (comma-delimited or repeatable).")
-        List<String> classes = new ArrayList<>();
-
-        @CommandLine.Option(
-                names = "--method",
-                split = ",",
-                arity = "1..*",
-                description = "Add method sources by FQ name (comma-delimited or repeatable).")
-        List<String> methods = new ArrayList<>();
-
-        @CommandLine.Option(
-                names = "--usage",
-                split = ",",
-                arity = "1..*",
-                description = "Add symbol usages (comma-delimited or repeatable).")
-        List<String> usages = new ArrayList<>();
-
-        @CommandLine.Option(
-                names = "--summary",
-                split = ",",
-                arity = "1..*",
-                description = "Add summaries - tries as class first, then as file (comma-delimited or repeatable).")
-        List<String> summaries = new ArrayList<>();
     }
 
     @CommandLine.ArgGroup(exclusive = false, heading = "%nModel Selection:%n")
@@ -255,9 +255,13 @@ public final class BrokkCli implements Callable<Integer> {
         boolean lutz;
         boolean merge;
         boolean build;
+        boolean autocommit;
 
         List<String> listSymbolsPatterns;
-        @Nullable String skimDirectoryPath;
+        @Nullable String listDirectoryPath;
+        List<String> listSourceTargets;
+        List<String> listUsagesTargets;
+        List<String> listSummaryTargets;
 
         scan = actionMode.agenticResearch != null && actionMode.agenticResearch.scan;
         search = actionMode.agenticResearch != null && actionMode.agenticResearch.search;
@@ -265,19 +269,44 @@ public final class BrokkCli implements Callable<Integer> {
         lutz = actionMode.agenticCoding != null && actionMode.agenticCoding.lutz;
         merge = actionMode.agenticCoding != null && actionMode.agenticCoding.merge;
         build = actionMode.agenticCoding != null && actionMode.agenticCoding.build;
-        listSymbolsPatterns = actionMode.contextEngine != null
-                ? actionMode.contextEngine.listSymbolsPatterns.stream()
-                        .filter(s -> !s.isBlank())
-                        .toList()
-                : List.of();
-        skimDirectoryPath = actionMode.contextEngine != null ? actionMode.contextEngine.skimDirectoryPath : null;
+        autocommit = actionMode.agenticCoding != null && actionMode.agenticCoding.autocommit;
+
+        if (actionMode.contextEngine != null) {
+            listSymbolsPatterns = actionMode.contextEngine.listSymbolsPatterns.stream()
+                    .filter(s -> !s.isBlank())
+                    .toList();
+            listDirectoryPath = actionMode.contextEngine.listDirectoryPath;
+            listSourceTargets = actionMode.contextEngine.listSourceTargets.stream()
+                    .filter(s -> !s.isBlank())
+                    .toList();
+            listUsagesTargets = actionMode.contextEngine.listUsagesTargets.stream()
+                    .filter(s -> !s.isBlank())
+                    .toList();
+            listSummaryTargets = actionMode.contextEngine.listSummaryTargets.stream()
+                    .filter(s -> !s.isBlank())
+                    .toList();
+        } else {
+            listSymbolsPatterns = List.of();
+            listDirectoryPath = null;
+            listSourceTargets = List.of();
+            listUsagesTargets = List.of();
+            listSummaryTargets = List.of();
+        }
 
         boolean hasListSymbols = !listSymbolsPatterns.isEmpty();
-        boolean hasSkimDirectory = skimDirectoryPath != null && !skimDirectoryPath.isBlank();
+        boolean hasListDirectory = listDirectoryPath != null && !listDirectoryPath.isBlank();
+        boolean hasListSource = !listSourceTargets.isEmpty();
+        boolean hasListUsages = !listUsagesTargets.isEmpty();
+        boolean hasListSummary = !listSummaryTargets.isEmpty();
+        boolean hasContextEngine =
+                hasListSymbols || hasListDirectory || hasListSource || hasListUsages || hasListSummary;
 
         var selectedActions = new ArrayList<String>();
         if (hasListSymbols) selectedActions.add("--list-symbols");
-        if (hasSkimDirectory) selectedActions.add("--skim-directory");
+        if (hasListDirectory) selectedActions.add("--list-directory");
+        if (hasListSource) selectedActions.add("--list-source");
+        if (hasListUsages) selectedActions.add("--list-usages");
+        if (hasListSummary) selectedActions.add("--list-summary");
         if (scan) selectedActions.add("--scan");
         if (search) selectedActions.add("--search");
         if (code) selectedActions.add("--code");
@@ -293,8 +322,11 @@ public final class BrokkCli implements Callable<Integer> {
                     Specify exactly one of:
 
                     Context Engine:
-                      --list-symbols=<patterns>[,<patterns>...]
-                      --skim-directory=<path>
+                      --list-symbols=<patterns>
+                      --list-directory=<path>
+                      --list-source=<fqns>
+                      --list-usages=<symbols>
+                      --list-summary=<targets>
 
                     Agentic Research:
                       --scan
@@ -326,14 +358,13 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Goal Validation ---
-        boolean needsGoal = scan || code || search || lutz; // --merge/--build do not strictly require a goal
+        boolean needsGoal = scan || code || search || lutz || hasContextEngine;
         if (needsGoal && (goal == null || goal.isBlank())) {
             System.err.println(
                     """
                     Error: Missing required --goal.
 
-                    --goal is required for:
-                      --scan, --search, --code, --lutz
+                    --goal is required for all research, coding, and context engine actions.
 
                     Notes:
                       - You can pass a literal string: --goal "Explain how X works"
@@ -341,6 +372,9 @@ public final class BrokkCli implements Callable<Integer> {
                     """);
             return 1;
         }
+
+        // Final goal for use in requireNonNull calls or search tools
+        final String finalGoal = goal != null ? goal : "";
 
         // --- Build Command Validation ---
         int buildCmdCount = 0;
@@ -490,37 +524,77 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Search Tool Actions (standalone) ---
-        if (hasListSymbols) {
+        if (hasContextEngine) {
             var searchTools = new SearchTools(cm);
-            String reasoning = goal != null ? goal : "CLI symbol search";
-            var result = searchTools.searchSymbols(listSymbolsPatterns, reasoning);
-            System.out.println(result);
-            return 0;
-        }
 
-        if (hasSkimDirectory) {
-            var searchTools = new SearchTools(cm);
-            String reasoning = goal != null ? goal : "CLI directory listing";
-            var result = searchTools.skimDirectory(requireNonNull(skimDirectoryPath), reasoning);
-            System.out.println(result);
+            if (hasListSymbols) {
+                System.out.println(searchTools.searchSymbols(listSymbolsPatterns, finalGoal));
+            }
+            if (hasListDirectory) {
+                System.out.println(searchTools.skimDirectory(requireNonNull(listDirectoryPath), finalGoal));
+            }
+            if (hasListSource) {
+                // Try as classes first, then as methods
+                var analyzer = cm.getAnalyzer();
+                var allDecls = analyzer.getAllDeclarations();
+                var classNames = allDecls.stream()
+                        .filter(CodeUnit::isClass)
+                        .map(CodeUnit::fqName)
+                        .collect(Collectors.toSet());
+
+                var classes =
+                        listSourceTargets.stream().filter(classNames::contains).toList();
+                var methods = listSourceTargets.stream()
+                        .filter(t -> !classNames.contains(t))
+                        .toList();
+
+                if (!classes.isEmpty()) {
+                    System.out.println(searchTools.getClassSources(classes, finalGoal));
+                }
+                if (!methods.isEmpty()) {
+                    System.out.println(searchTools.getMethodSources(methods));
+                }
+            }
+            if (hasListUsages) {
+                System.out.println(searchTools.getUsages(listUsagesTargets, finalGoal));
+            }
+            if (hasListSummary) {
+                // Use getFileSummaries if it matches a path pattern, else try getClassSkeletons
+                var classNames = cm.getAnalyzer().getAllDeclarations().stream()
+                        .filter(CodeUnit::isClass)
+                        .map(CodeUnit::fqName)
+                        .collect(Collectors.toSet());
+
+                var filePatterns = new ArrayList<String>();
+                var classes = new ArrayList<String>();
+
+                for (var target : listSummaryTargets) {
+                    if (classNames.contains(target)) {
+                        classes.add(target);
+                    } else {
+                        filePatterns.add(target);
+                    }
+                }
+
+                if (!filePatterns.isEmpty()) {
+                    System.out.println(searchTools.getFileSummaries(filePatterns));
+                }
+                if (!classes.isEmpty()) {
+                    System.out.println(searchTools.getClassSkeletons(classes));
+                }
+            }
             return 0;
         }
 
         // --- Context Injection ---
         var tools = new WorkspaceTools(cm.liveContext());
 
-        if (code
-                && !lutz
-                && workspaceContext.files.isEmpty()
-                && workspaceContext.classes.isEmpty()
-                && workspaceContext.methods.isEmpty()
-                && workspaceContext.usages.isEmpty()
-                && workspaceContext.summaries.isEmpty()) {
+        if (code && !lutz && workspaceContext.files.isEmpty()) {
             System.err.println(
                     """
                     Error: --code requires an existing workspace context.
 
-                    You invoked --code without providing any files, classes, or methods to the workspace.
+                    You invoked --code without providing any files to the workspace.
                     If you don't know which files need changing, use --lutz instead.
 
                     Example:
@@ -533,39 +607,18 @@ public final class BrokkCli implements Callable<Integer> {
             tools.addFilesToWorkspace(workspaceContext.files);
         }
 
-        if (!workspaceContext.classes.isEmpty()) {
-            tools.addClassesToWorkspace(workspaceContext.classes);
-        }
-
-        if (!workspaceContext.methods.isEmpty()) {
-            tools.addMethodsToWorkspace(workspaceContext.methods);
-        }
-
-        if (!workspaceContext.usages.isEmpty()) {
-            for (var symbol : workspaceContext.usages) {
-                tools.addSymbolUsagesToWorkspace(symbol);
-            }
-        }
-
-        if (!workspaceContext.summaries.isEmpty()) {
-            var result = resolveSummaries(workspaceContext.summaries, tools);
-            if (result != 0) {
-                return result;
-            }
-        }
-
         cm.pushContext(ctx -> tools.getContext());
 
         // --- Run Primary Mode ---
         if (scan) {
-            var scanResult = runContextAgentScan(planModel, requireNonNull(goal));
+            var scanResult = runContextAgentScan(planModel, finalGoal);
             return scanResult.success() ? 0 : 1;
         } else if (lutz) {
-            return runCodeMode(planModel, codeModel, requireNonNull(goal), true);
+            return runCodeMode(planModel, codeModel, finalGoal, true, autocommit);
         } else if (code) {
-            return runCodeMode(planModel, codeModel, requireNonNull(goal), false);
+            return runCodeMode(planModel, codeModel, finalGoal, false, autocommit);
         } else if (search) {
-            return runSearchMode(planModel, requireNonNull(goal));
+            return runSearchMode(planModel, finalGoal);
         } else if (merge) {
             return runMergeMode(planModel, codeModel);
         } else if (build) {
@@ -649,7 +702,11 @@ public final class BrokkCli implements Callable<Integer> {
     }
 
     private int runCodeMode(
-            StreamingChatModel planModel, StreamingChatModel codeModel, String goalText, boolean forceScan) {
+            StreamingChatModel planModel,
+            StreamingChatModel codeModel,
+            String goalText,
+            boolean forceScan,
+            boolean autocommit) {
         var io = cm.getIo();
 
         // Check if editable context exists
@@ -673,6 +730,11 @@ public final class BrokkCli implements Callable<Integer> {
                 var agent = new SearchAgent(context, goalText, planModel, SearchPrompts.Objective.CODE_ONLY, scope);
                 result = agent.execute();
             }
+
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS && autocommit) {
+                new ai.brokk.git.GitWorkflow(cm).performAutoCommit(goalText);
+            }
+
             scope.append(result);
         } catch (Exception e) {
             System.err.println("Error during code execution: " + e.getMessage());
@@ -733,44 +795,6 @@ public final class BrokkCli implements Callable<Integer> {
             System.err.println(
                     "\nSearch completed with status: " + result.stopDetails().reason());
             return 1;
-        }
-
-        return 0;
-    }
-
-    private int resolveSummaries(List<String> targets, WorkspaceTools tools) throws InterruptedException {
-        var analyzer = cm.getAnalyzer();
-        var allDeclarations = analyzer.getAllDeclarations();
-        var classNames = allDeclarations.stream()
-                .filter(CodeUnit::isClass)
-                .map(CodeUnit::fqName)
-                .collect(Collectors.toSet());
-
-        var classTargets = new ArrayList<String>();
-        var fileTargets = new ArrayList<String>();
-
-        for (var target : targets) {
-            if (classNames.contains(target)) {
-                classTargets.add(target);
-            } else {
-                // Try as file
-                var pf = cm.toFile(target);
-                if (pf.exists()) {
-                    fileTargets.add(target);
-                } else {
-                    System.err.println(
-                            "Error: --summary target '" + target + "' is neither a known class nor an existing file.");
-                    return 1;
-                }
-            }
-        }
-
-        if (!classTargets.isEmpty()) {
-            tools.addClassSummariesToWorkspace(classTargets);
-        }
-
-        if (!fileTargets.isEmpty()) {
-            tools.addFileSummariesToWorkspace(fileTargets);
         }
 
         return 0;
