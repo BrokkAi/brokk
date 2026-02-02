@@ -3,6 +3,7 @@ package ai.brokk.cli;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
@@ -710,7 +711,7 @@ public final class BrokkCli implements Callable<Integer> {
         var io = cm.getIo();
         io.showNotification(ai.brokk.IConsoleIO.NotificationRole.INFO, "Running context scan...");
 
-        var agent = new ContextAgent(cm, model, goalText);
+        var agent = new ContextAgent(cm, model, goalText, new MutedConsoleIO(io));
         var recommendations = agent.getRecommendations(cm.liveContext());
 
         if (recommendations.success()) {
@@ -746,13 +747,22 @@ public final class BrokkCli implements Callable<Integer> {
                         forceScan
                                 ? "Running ArchitectAgent (lutz mode)..."
                                 : "Running ArchitectAgent with existing editable context...");
-                var agent = new ArchitectAgent(cm, planModel, codeModel, goalText, scope);
+                var agent = new ArchitectAgent(
+                        cm, planModel, codeModel, goalText, scope, cm.liveContext(), new MutedConsoleIO(io));
                 result = agent.executeWithScan();
             } else {
                 io.showNotification(
                         ai.brokk.IConsoleIO.NotificationRole.INFO,
                         "No editable context - running SearchAgent with CODE_ONLY objective...");
-                var agent = new SearchAgent(context, goalText, planModel, SearchPrompts.Objective.CODE_ONLY, scope);
+                var agent = new SearchAgent(
+                        context,
+                        goalText,
+                        planModel,
+                        SearchPrompts.Objective.CODE_ONLY,
+                        scope,
+                        new MutedConsoleIO(io),
+                        SearchAgent.ScanConfig.defaults(),
+                        null);
                 result = agent.execute();
             }
 

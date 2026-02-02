@@ -123,11 +123,25 @@ public class ArchitectAgent {
             String goal,
             ContextManager.TaskScope scope,
             Context initialContext) {
+        this(contextManager, planningModel, codeModel, goal, scope, initialContext, contextManager.getIo());
+    }
+
+    /**
+     * Constructs a BrokkAgent with an explicit IConsoleIO.
+     */
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            IConsoleIO io) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
         this.goal = goal;
-        this.io = contextManager.getIo();
+        this.io = io;
         this.scope = scope;
         this.context = initialContext;
     }
