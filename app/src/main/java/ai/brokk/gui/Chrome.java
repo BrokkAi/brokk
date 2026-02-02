@@ -2326,7 +2326,6 @@ public class Chrome
                 switch (role) {
                     case COST -> GlobalUiSettings.isShowCostNotifications();
                     case ERROR -> GlobalUiSettings.isShowErrorNotifications();
-                    case CONFIRM -> GlobalUiSettings.isShowConfirmNotifications();
                     case INFO -> GlobalUiSettings.isShowInfoNotifications();
                 };
         if (!allowed) return;
