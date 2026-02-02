@@ -408,7 +408,7 @@ public class TreeSitterStateIOTest {
             // 5. Create new analyzer from loaded state
             JavaAnalyzer loadedAnalyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
 
-            // 6. Verify that FileProperties exists but has no parsedTree field
+            // 6. Verify that FileProperties exists
             var initialSnapshot = loadedAnalyzer.snapshotState();
             var initialFileProps = initialSnapshot.fileState().get(file);
             assertNotNull(initialFileProps, "File properties should exist in loaded state");
