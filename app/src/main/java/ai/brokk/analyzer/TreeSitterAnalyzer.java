@@ -172,6 +172,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Limit cache size to prevent unbounded native memory growth
         private static final int MAX_CACHE_SIZE = 1000;
 
+        // Limit for module key cache to prevent memory pressure on very large projects
+        private static final int MODULE_KEY_CACHE_SIZE = 10000;
+
         // Note: TSTree native memory is managed by the Tree-sitter JNI binding's garbage collection.
         // The Caffeine cache provides bounded size to limit memory growth during long sessions.
         private final Cache<ProjectFile, TSTree> cache =
@@ -548,6 +551,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var localSymbolIndex = new ConcurrentHashMap<String, Set<CodeUnit>>();
         var localCodeUnitState = new ConcurrentHashMap<CodeUnit, CodeUnitProperties>();
         var localFileState = new ConcurrentHashMap<ProjectFile, FileProperties>();
+        var moduleKeyCache = Caffeine.newBuilder()
+                .maximumSize(LazyTreeCache.MODULE_KEY_CACHE_SIZE)
+                .<String, CodeUnit>build();
         List<CompletableFuture<?>> futures = new ArrayList<>();
         int totalFiles = filesToProcess.size();
         var progressReporter = new DebouncedProgressReporter(totalFiles, "Parsing " + language.name() + " files", 100);
@@ -574,7 +580,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         timing,
                                         localSymbolIndex,
                                         localCodeUnitState,
-                                        localFileState),
+                                        localFileState,
+                                        moduleKeyCache),
                                 ingestExecutor)
                         .whenComplete((ignored, ex) -> {
                             progressReporter.increment();
@@ -3708,7 +3715,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             @Nullable ConstructionTiming timing,
             Map<String, Set<CodeUnit>> targetSymbolIndex,
             Map<CodeUnit, CodeUnitProperties> targetCodeUnitState,
-            Map<ProjectFile, FileProperties> targetFileState) {
+            Map<ProjectFile, FileProperties> targetFileState,
+            Cache<String, CodeUnit> moduleKeyCache) {
         if (analysisResult.topLevelCUs().isEmpty()
                 && analysisResult.codeUnitState().isEmpty()) {
             log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
@@ -3735,14 +3743,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             // so that children from multiple files aggregate under a single module entry.
             CodeUnit mergeKey = cu;
             if (cu.isModule()) {
-                for (CodeUnit existingKey : targetCodeUnitState.keySet()) {
-                    if (existingKey.isModule() && existingKey.fqName().equals(cu.fqName())) {
-                        mergeKey = existingKey; // use the canonical key already present
-                        break;
-                    }
+                CodeUnit existingKey = moduleKeyCache.getIfPresent(cu.fqName());
+                if (existingKey != null) {
+                    mergeKey = existingKey;
                 }
             }
 
+            final CodeUnit finalMergeKey = mergeKey;
             targetCodeUnitState.compute(mergeKey, (k, existing) -> {
                 if (existing == null) {
                     return new CodeUnitProperties(
@@ -3806,6 +3813,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 return new CodeUnitProperties(
                         mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSuperTypes, mergedHasBody);
             });
+
+            if (cu.isModule()) {
+                // Assignment is here to pass linting
+                var unused = moduleKeyCache.get(cu.fqName(), k -> finalMergeKey);
+            }
         });
 
         // Update file state
@@ -3857,6 +3869,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var newSymbolIndex = new ConcurrentHashMap<>(base.symbolIndex());
         var newCodeUnitState = new ConcurrentHashMap<>(base.codeUnitState());
         var newFileState = new ConcurrentHashMap<>(base.fileState());
+        var moduleKeyCache = Caffeine.newBuilder()
+                .maximumSize(LazyTreeCache.MODULE_KEY_CACHE_SIZE)
+                .<String, CodeUnit>build();
 
         int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
@@ -3916,7 +3931,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                                     null,
                                                     newSymbolIndex,
                                                     newCodeUnitState,
-                                                    newFileState);
+                                                    newFileState,
+                                                    moduleKeyCache);
                                             reanalyzedCount.incrementAndGet();
                                         } catch (UncheckedIOException e) {
                                             log.warn("IO error re-analysing {}: {}", file, e.getMessage());
