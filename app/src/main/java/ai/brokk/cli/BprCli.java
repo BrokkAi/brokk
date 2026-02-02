@@ -366,7 +366,7 @@ public final class BprCli implements Callable<Integer> {
                 Map.of("VIRTUAL_ENV", ".venv")); // venv is hardcoded to override swebench task runner
         logger.info("Build Details: " + buildDetails);
 
-        cm.createHeadless(buildDetails);
+        cm.createHeadless(buildDetails, true);
         var io = cm.getIo();
 
         //  Model Overrides initialization
