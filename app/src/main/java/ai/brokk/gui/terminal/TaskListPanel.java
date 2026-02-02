@@ -1145,14 +1145,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             boolean shouldRefreshUi = false;
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS && Objects.equals(runningIndex, idx)) {
-                var items = new ArrayList<>(cm.getTaskList().tasks());
-                if (idx >= 0 && idx < items.size()) {
-                    var it = items.get(idx);
-                    items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
-                    cm.setTaskListAsync(
-                            new TaskList.TaskListData(cm.getTaskList().bigPicture(), items));
-                    shouldRefreshUi = true;
-                }
+                shouldRefreshUi = true;
             }
 
             boolean finalShouldRefreshUi = shouldRefreshUi;
