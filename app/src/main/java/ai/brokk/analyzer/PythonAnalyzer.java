@@ -596,6 +596,20 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         // Pattern: class Child(Parent1, Parent2): ...
         var query = getThreadLocalQuery();
 
+        // Use the actual definition node for range matching.
+        // If classNode is a decorated_definition, we must find the inner class_definition node
+        // to match the 'type.decl' capture in python.scm.
+        TSNode matchNode = classNode;
+        if (DECORATED_DEFINITION.equals(classNode.getType())) {
+            for (int i = 0; i < classNode.getNamedChildCount(); i++) {
+                TSNode child = classNode.getNamedChild(i);
+                if (CLASS_DEFINITION.equals(child.getType())) {
+                    matchNode = child;
+                    break;
+                }
+            }
+        }
+
         // Ascend to root node for matching
         TSNode root = classNode;
         while (root.getParent() != null && !root.getParent().isNull()) {
@@ -608,8 +622,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         var match = new TSQueryMatch();
         List<TSNode> aggregateSuperNodes = new ArrayList<>();
 
-        final int targetStart = classNode.getStartByte();
-        final int targetEnd = classNode.getEndByte();
+        final int targetStart = matchNode.getStartByte();
+        final int targetEnd = matchNode.getEndByte();
 
         while (cursor.nextMatch(match)) {
             TSNode declNode = null;
