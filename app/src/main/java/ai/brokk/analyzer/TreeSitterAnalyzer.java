@@ -146,8 +146,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         record Uncomputed() implements SuperTypeInfo {}
     }
 
-    // Inner cache classes removed in favor of ai.brokk.analyzer.cache package.
-
     /**
      * Per-CodeUnit state: children, signatures, ranges, supertypes, and AST-derived hasBody flag.
      * <p>
@@ -159,7 +157,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<CodeUnit> children,
             List<String> signatures,
             List<Range> ranges,
-            SuperTypeInfo superTypes,
+            P,
             boolean hasBody) {
 
         public static CodeUnitProperties empty() {
