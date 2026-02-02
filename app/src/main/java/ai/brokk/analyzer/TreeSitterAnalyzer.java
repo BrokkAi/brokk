@@ -548,6 +548,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var localSymbolIndex = new ConcurrentHashMap<String, Set<CodeUnit>>();
         var localCodeUnitState = new ConcurrentHashMap<CodeUnit, CodeUnitProperties>();
         var localFileState = new ConcurrentHashMap<ProjectFile, FileProperties>();
+        var moduleKeyCache = new ConcurrentHashMap<String, CodeUnit>();
         List<CompletableFuture<?>> futures = new ArrayList<>();
         int totalFiles = filesToProcess.size();
         var progressReporter = new DebouncedProgressReporter(totalFiles, "Parsing " + language.name() + " files", 100);
@@ -574,7 +575,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         timing,
                                         localSymbolIndex,
                                         localCodeUnitState,
-                                        localFileState),
+                                        localFileState,
+                                        moduleKeyCache),
                                 ingestExecutor)
                         .whenComplete((ignored, ex) -> {
                             progressReporter.increment();
@@ -3708,7 +3710,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             @Nullable ConstructionTiming timing,
             Map<String, Set<CodeUnit>> targetSymbolIndex,
             Map<CodeUnit, CodeUnitProperties> targetCodeUnitState,
-            Map<ProjectFile, FileProperties> targetFileState) {
+            Map<ProjectFile, FileProperties> targetFileState,
+            Map<String, CodeUnit> moduleKeyCache) {
         if (analysisResult.topLevelCUs().isEmpty()
                 && analysisResult.codeUnitState().isEmpty()) {
             log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
@@ -3735,11 +3738,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             // so that children from multiple files aggregate under a single module entry.
             CodeUnit mergeKey = cu;
             if (cu.isModule()) {
-                for (CodeUnit existingKey : targetCodeUnitState.keySet()) {
-                    if (existingKey.isModule() && existingKey.fqName().equals(cu.fqName())) {
-                        mergeKey = existingKey; // use the canonical key already present
-                        break;
-                    }
+                CodeUnit existingKey = moduleKeyCache.get(cu.fqName());
+                if (existingKey != null) {
+                    mergeKey = existingKey;
                 }
             }
 
@@ -3806,6 +3807,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 return new CodeUnitProperties(
                         mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSuperTypes, mergedHasBody);
             });
+
+            if (cu.isModule()) {
+                moduleKeyCache.putIfAbsent(cu.fqName(), mergeKey);
+            }
         });
 
         // Update file state
@@ -3857,6 +3862,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var newSymbolIndex = new ConcurrentHashMap<>(base.symbolIndex());
         var newCodeUnitState = new ConcurrentHashMap<>(base.codeUnitState());
         var newFileState = new ConcurrentHashMap<>(base.fileState());
+        var moduleKeyCache = new ConcurrentHashMap<String, CodeUnit>();
 
         int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
@@ -3916,7 +3922,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                                     null,
                                                     newSymbolIndex,
                                                     newCodeUnitState,
-                                                    newFileState);
+                                                    newFileState,
+                                                    moduleKeyCache);
                                             reanalyzedCount.incrementAndGet();
                                         } catch (UncheckedIOException e) {
                                             log.warn("IO error re-analysing {}: {}", file, e.getMessage());
