@@ -1496,6 +1496,7 @@ public final class JobRunner {
                                                         // best-effort only
                                                     }
                                                 }
+                                                scope.compressTop();
                                             }
                                         } finally {
                                             boolean forceDelete = "always"
