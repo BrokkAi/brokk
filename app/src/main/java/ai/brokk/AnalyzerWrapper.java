@@ -9,6 +9,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingExecutorService;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.IProject;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
@@ -298,11 +299,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     "Created new analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
                     project.getRoot());
+            // Persist analyzer snapshots by language (best-effort)
+            persistAnalyzerState(analyzer);
             needsRebuild = false;
         }
-
-        // Persist analyzer snapshots by language (best-effort)
-        persistAnalyzerState(analyzer);
 
         logger.debug("Analyzer became ready, notifying listeners");
         listener.onAnalyzerReady();
@@ -495,13 +495,18 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             return;
         }
 
-        for (var lang : langs) {
-            try {
-                var sub = analyzer.subAnalyzer(lang).orElse(analyzer);
-                lang.saveAnalyzer(sub, project);
-            } catch (Throwable t) {
-                logger.debug("Failed persisting analyzer state for {}: {}", lang.name(), t.toString());
-            }
-        }
+        // Persist each language in parallel since saveAnalyzer is I/O bound
+        var futures = langs.stream()
+                .map(lang -> LoggingFuture.runAsync(() -> {
+                    try {
+                        var sub = analyzer.subAnalyzer(lang).orElse(analyzer);
+                        lang.saveAnalyzer(sub, project);
+                    } catch (Throwable t) {
+                        logger.debug("Failed persisting analyzer state for {}: {}", lang.name(), t.toString());
+                    }
+                }))
+                .toArray(CompletableFuture[]::new);
+
+        LoggingFuture.allOf(futures).join();
     }
 }
