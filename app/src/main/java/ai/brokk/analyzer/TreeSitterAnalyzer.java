@@ -145,12 +145,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     public record FileProperties(
             List<CodeUnit> topLevelCodeUnits,
-            @JsonIgnore @Nullable TSTree parsedTree,
             List<ImportInfo> importStatements,
             boolean containsTests) {
 
         public static FileProperties empty() {
-            return new FileProperties(Collections.emptyList(), null, Collections.emptyList(), false);
+            return new FileProperties(Collections.emptyList(), Collections.emptyList(), false);
         }
     }
 
@@ -417,7 +416,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, Set<CodeUnit>> codeUnitsBySymbol,
             List<ImportInfo> importStatements,
-            @Nullable TSTree parsedTree,
             boolean containsTests) {}
 
     // Public record for stage timing information exposed to external tools
@@ -805,7 +803,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty() && lazyTrees.isEmpty()) {
+        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty()) {
             return this.state;
         }
 
@@ -865,30 +863,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             nextImportGraph = ImportGraph.from(forwardUpdates, reverseUpdates);
         }
 
-        PMap<ProjectFile, FileProperties> nextFileState = this.state.fileState();
-        if (!lazyTrees.isEmpty()) {
-            Map<ProjectFile, FileProperties> fileUpdates = new HashMap<>();
-            lazyTrees.forEach((file, tree) -> {
-                FileProperties existing = this.state.fileState().get(file);
-                if (existing != null && existing.parsedTree() == null) {
-                    fileUpdates.put(
-                            file,
-                            new FileProperties(
-                                    existing.topLevelCodeUnits(),
-                                    tree,
-                                    existing.importStatements(),
-                                    existing.containsTests()));
-                }
-            });
-            if (!fileUpdates.isEmpty()) {
-                nextFileState = nextFileState.plusAll(fileUpdates);
-            }
-        }
-
         return new AnalyzerState(
                 this.state.symbolIndex(),
                 nextCodeUnitState,
-                nextFileState,
+                this.state.fileState(),
                 nextImportGraph,
                 nextTypeHierarchyGraph,
                 this.state.symbolKeyIndex(),
@@ -1042,13 +1020,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Fall back to snapshot properties
-        TSTree snapshotTree = fileProperties(file).parsedTree();
-        if (snapshotTree != null) {
-            return snapshotTree;
-        }
-
-        // 3. Parse on-demand if file exists
+        // 2. Parse on-demand if file exists
         if (Files.exists(file.absPath())) {
             try {
                 byte[] bytes = readFileBytes(file, null);
@@ -2166,7 +2138,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
         if (fileBytes.length == 0) {
             log.trace("Skipping binary/empty file: {}", file);
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null, false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         }
 
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
@@ -2201,7 +2173,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), tree, false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         }
         String rootNodeType = rootNode.getType();
         log.trace("Root node type for {}: {}", file, rootNodeType);
@@ -2735,7 +2707,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportInfos),
-                tree,
                 containsTests);
     }
 
@@ -3813,7 +3784,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 pf,
                 new FileProperties(
                         analysisResult.topLevelCUs(),
-                        analysisResult.parsedTree(),
                         analysisResult.importStatements(),
                         analysisResult.containsTests()));
 

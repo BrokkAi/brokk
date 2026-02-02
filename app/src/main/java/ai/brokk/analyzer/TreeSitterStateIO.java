@@ -559,7 +559,6 @@ public final class TreeSitterStateIO {
 
             var fp = new TreeSitterAnalyzer.FileProperties(
                     topLevel,
-                    null, // parsedTree intentionally omitted
                     imports,
                     v.containsTests());
             fileStateMap.put(fromDto(entry.key()), fp);

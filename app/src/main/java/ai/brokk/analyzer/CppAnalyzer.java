@@ -1353,9 +1353,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     public String getCacheStatistics() {
-        int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
-                .filter(fp -> fp.parsedTree() != null)
-                .count());
-        return "ParsedTrees: %d".formatted(parsedTreeCount);
+        return "ParsedTrees: N/A";
     }
 }
