@@ -246,7 +246,8 @@ class SessionSynchronizerTest {
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
             } catch (IOException ioe) {
-                // Mimic ContextManager: treat I/O errors (including SocketTimeoutException) as transient and do not rethrow
+                // Mimic ContextManager: treat I/O errors (including SocketTimeoutException) as transient and do not
+                // rethrow
             }
         });
     }
@@ -257,12 +258,13 @@ class SessionSynchronizerTest {
         syncCallbacks.throwOnList = true;
 
         // Re-create synchronizer under test using the existing TestContextManager and FakeSyncCallbacks
-        SessionSynchronizer timeoutSynchronizer = new SessionSynchronizer(new TestContextManager(project, null), syncCallbacks) {
-            @Override
-            protected Map<UUID, IContextManager> getOpenContextManagers() {
-                return Map.of();
-            }
-        };
+        SessionSynchronizer timeoutSynchronizer =
+                new SessionSynchronizer(new TestContextManager(project, null), syncCallbacks) {
+                    @Override
+                    protected Map<UUID, IContextManager> getOpenContextManagers() {
+                        return Map.of();
+                    }
+                };
 
         // Act: run the helper twice to simulate repeated sync submissions
         CompletableFuture<Void> first = runSyncIgnoringIo(timeoutSynchronizer);
