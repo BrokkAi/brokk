@@ -114,6 +114,31 @@ public final class GitWorkflow {
     }
 
     /**
+     * Design Note: Error Propagation for Streaming Commit Suggestions (Issue #2577)
+     * ---------------------------------------------------------------------------
+     * Current chain: StreamingChatModel -> Llm.doSingleStreamingCallInternal / Llm.onError ->
+     * GitWorkflow.suggestCommitMessageStreaming -> CommitDialog's ExceptionAwareSwingWorker ->
+     * GlobalExceptionHandler/ExceptionReporter.
+     *
+     * Classifications by ExceptionMapper:
+     * - InternalServerException (5xx), RateLimitException (429), PaymentRequiredException (402),
+     *   AuthenticationException (401/403), ModelNotFoundException (404), TimeoutException (408),
+     *   ContextTooLargeException (413/context errors) -> Currently reportable.
+     * - InvalidRequestException (other 4xx) or unexpected RuntimeExceptions -> Reportable.
+     *
+     * suggestCommitMessageStreaming currently wraps Llm.StreamingResult.error() in a RuntimeException,
+     * which triggers a client bug report. Planned change: Treat provider/backend failures (RetriableException
+     * subclasses like RateLimit, InternalServer, PaymentRequired) as non-reportable. They should show
+     * notifications via Llm.onError but not be reported as client bugs. Programming/usage errors (InvalidRequest)
+     * remain reportable.
+     *
+     * Candidates for behavior changes:
+     * - ai.brokk.git.GitWorkflow.suggestCommitMessageStreaming
+     * - ai.brokk.gui.CommitDialog (the commit suggestion SwingWorker)
+     * - ai.brokk.Llm.doSingleStreamingCallInternal / onError
+     * - ai.brokk.ExceptionReporter / ai.brokk.Service.reportClientException
+     */
+    /**
      * Streaming variant of suggestCommitMessage. Streams tokens to the provided IConsoleIO while the LLM runs.
      * Blocks and should be executed off the EDT. Throws RuntimeException on LLM errors.
      */
