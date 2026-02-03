@@ -76,9 +76,14 @@ public class JdtUsageAnalyzer {
     }
 
     private static String[] inferSourceRoots(IProject project) {
-        // Standard directory heuristic: check existence of common source roots relative to project root.
-        // This is O(1) regarding project file count and avoids scanning thousands of files.
+        // We include the project root to ensure we don't filter out any source files or test directories,
+        // regardless of layout.
         Set<String> roots = new HashSet<>();
+        roots.add(project.getRoot().toAbsolutePath().toString());
+
+        // We also add standard directory heuristics. While the root covers everything,
+        // explicitly providing known source roots can help JDT's resolution performance
+        // and package name mapping in some nested scenarios.
         String[] standardPaths = {"src/main/java", "src/test/java", "src/main/kotlin", "src/test/kotlin"};
 
         for (String path : standardPaths) {
@@ -86,11 +91,6 @@ public class JdtUsageAnalyzer {
             if (java.nio.file.Files.exists(sourcePath)) {
                 roots.add(sourcePath.toAbsolutePath().toString());
             }
-        }
-
-        // Fallback to project root if no standard structure is detected.
-        if (roots.isEmpty()) {
-            roots.add(project.getRoot().toAbsolutePath().toString());
         }
 
         return roots.toArray(String[]::new);
