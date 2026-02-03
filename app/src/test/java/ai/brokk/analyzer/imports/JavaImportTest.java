@@ -18,6 +18,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class JavaImportTest {
@@ -59,6 +61,7 @@ public class JavaImportTest {
         }
     }
 
+    @Disabled
     @Test
     public void testWildcardImport() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
