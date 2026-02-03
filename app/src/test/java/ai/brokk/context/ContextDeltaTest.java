@@ -5,16 +5,21 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.IStringDiskCache;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -457,5 +462,75 @@ class ContextDeltaTest {
         assertTrue(delta.modifiedFragments().isEmpty());
         assertTrue(delta.addedFragments().isEmpty(), "Same source should not appear as added");
         assertTrue(delta.removedFragments().isEmpty(), "Same source should not appear as removed");
+    }
+
+    @Test
+    void testDeltaDescription_concurrentAccessWithCacheContention() throws Exception {
+        // We use a real MainProject for this test to exercise the disk cache locking logic
+        try (var mainProject = MainProject.forTests(tempDir)) {
+            var analyzer = new TestAnalyzer(List.of(), Map.of());
+            var cm = new TestContextManager(mainProject, new NoOpConsoleIO(), Set.of(), analyzer);
+
+            // Create a delta with a task that triggers buildTaskDescription (and thus cache access)
+            var ctx1 = new Context(cm);
+            var taskFrag = new ContextFragments.TaskFragment(
+                    cm, List.of(UserMessage.from("Prompt")), "Long task text that exceeds cache threshold");
+            var entry = new TaskEntry(1, taskFrag, null);
+            var ctx2 = ctx1.addHistoryEntry(entry, taskFrag);
+            var delta = ContextDelta.between(ctx1, ctx2).join();
+
+            // Simulate high concurrency calling description()
+            int threadCount = 20;
+            List<CompletableFuture<String>> futures = new ArrayList<>();
+            for (int i = 0; i < threadCount; i++) {
+                futures.add(CompletableFuture.supplyAsync(
+                        () -> delta.description(cm).join()));
+            }
+
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            for (var future : futures) {
+                String desc = future.join();
+                assertNotNull(desc);
+                assertFalse(
+                        desc.contains("OverlappingFileLockException"),
+                        "Description should not contain lock exceptions");
+            }
+        }
+    }
+
+    @Test
+    void testMainProject_sequentialCacheAccess() throws Exception {
+        Path projectRoot = tempDir.resolve("project-a");
+        Files.createDirectories(projectRoot);
+
+        // Opening and closing should release the lock reliably
+        for (int i = 0; i < 3; i++) {
+            try (var p = new MainProject(projectRoot)) {
+                IStringDiskCache cache = p.getDiskCache();
+                cache.put("key" + i, "val" + i);
+                assertEquals("val" + i, cache.get("key" + i).orElseThrow());
+            }
+        }
+    }
+
+    @Test
+    void testMainProject_concurrentInstancesFallback() throws Exception {
+        Path projectRoot = tempDir.resolve("project-b");
+        Files.createDirectories(projectRoot);
+
+        try (var p1 = new MainProject(projectRoot)) {
+            IStringDiskCache cache1 = p1.getDiskCache();
+            cache1.put("p1", "v1");
+
+            // Second instance for same root should fallback to temp or Noop instead of crashing
+            try (var p2 = new MainProject(projectRoot)) {
+                IStringDiskCache cache2 = p2.getDiskCache();
+                assertNotNull(cache2);
+                cache2.put("p2", "v2");
+                // p1 should still work
+                assertEquals("v1", cache1.get("p1").orElseThrow());
+            }
+        }
     }
 }

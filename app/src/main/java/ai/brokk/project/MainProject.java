@@ -34,6 +34,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -279,9 +280,9 @@ public final class MainProject extends AbstractProject {
     /**
      * Returns the disk cache for this project.
      * <p>
-     * Initialization is synchronized to prevent multiple threads within the same {@link MainProject} 
-     * instance from competing for the lock. If the primary cache is already locked by another 
-     * process or another {@link MainProject} instance in this JVM, it falls back to a 
+     * Initialization is synchronized to prevent multiple threads within the same {@link MainProject}
+     * instance from competing for the lock. If the primary cache is already locked by another
+     * process or another {@link MainProject} instance in this JVM, it falls back to a
      * temporary directory, and finally to a no-op cache.
      * </p>
      */
@@ -313,71 +314,71 @@ public final class MainProject extends AbstractProject {
     }
 
     private boolean tryOpenCache(Path cacheDir) {
-            Path lockFile = cacheDir.resolve("cache.lock");
-            FileChannel channel = null;
-            FileLock lock = null;
+        Path lockFile = cacheDir.resolve("cache.lock");
+        FileChannel channel = null;
+        FileLock lock = null;
+        try {
+            Files.createDirectories(cacheDir);
+
+            channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
             try {
-                    Files.createDirectories(cacheDir);
-
-                    channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-                    try {
-                            lock = channel.tryLock();
-                    } catch (OverlappingFileLockException e) {
-                            logger.debug("Cache lock already held in this JVM for {}: {}", lockFile, e.toString());
-                            channel.close();
-                            return false;
-                    } catch (RuntimeException e) {
-                            logger.warn("Unexpected runtime error while acquiring cache lock for {}: {}", lockFile, e.toString());
-                            channel.close();
-                            return false;
-                    }
-
-                    if (lock == null) {
-                            logger.debug("Cache lock already held by another process: {}", lockFile);
-                            channel.close();
-                            return false;
-                    }
-
-                    DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
-
-                    // Only assign to fields after everything is successfully opened
-                    this.diskCache = new StringDiskCache(dlc);
-                    this.cacheLockChannel = channel;
-                    this.cacheFileLock = lock;
-
-                    logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
-                    return true;
-            } catch (IOException e) {
-                    logger.warn("I/O error initializing cache at {}: {}", cacheDir, e.toString());
-                    // Cleanup local resources on failure
-                    try {
-                            if (lock != null) {
-                                    lock.release();
-                            }
-                    } catch (IOException ignored) {
-                    }
-                    try {
-                            if (channel != null) {
-                                    channel.close();
-                            }
-                    } catch (IOException ignored) {
-                    }
-                    return false;
+                lock = channel.tryLock();
+            } catch (OverlappingFileLockException e) {
+                logger.debug("Cache lock already held in this JVM for {}: {}", lockFile, e.toString());
+                channel.close();
+                return false;
+            } catch (RuntimeException e) {
+                logger.warn("Unexpected runtime error while acquiring cache lock for {}: {}", lockFile, e.toString());
+                channel.close();
+                return false;
             }
+
+            if (lock == null) {
+                logger.debug("Cache lock already held by another process: {}", lockFile);
+                channel.close();
+                return false;
+            }
+
+            DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+
+            // Only assign to fields after everything is successfully opened
+            this.diskCache = new StringDiskCache(dlc);
+            this.cacheLockChannel = channel;
+            this.cacheFileLock = lock;
+
+            logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
+            return true;
+        } catch (IOException e) {
+            logger.warn("I/O error initializing cache at {}: {}", cacheDir, e.toString());
+            // Cleanup local resources on failure
+            try {
+                if (lock != null) {
+                    lock.release();
+                }
+            } catch (IOException ignored) {
+            }
+            try {
+                if (channel != null) {
+                    channel.close();
+                }
+            } catch (IOException ignored) {
+            }
+            return false;
+        }
     }
 
     /**
-            * Releases the file lock and closes the channel. Called on shutdown and after failures
-            * to ensure no stale locks are left behind.
-            */
+     * Releases the file lock and closes the channel. Called on shutdown and after failures
+     * to ensure no stale locks are left behind.
+     */
     private void closeCacheLock() {
-                                    try {
-                                                                    var lock = cacheFileLock;
-                                                                    if (lock != null) {
-                                                                                                    cacheFileLock = null;
-                                                                                                    lock.release();
-                                                                    }
-                                    } catch (IOException e) {
+        try {
+            var lock = cacheFileLock;
+            if (lock != null) {
+                cacheFileLock = null;
+                lock.release();
+            }
+        } catch (IOException e) {
             logger.warn("Error releasing cache file lock: {}", e.getMessage());
         } finally {
             try {
