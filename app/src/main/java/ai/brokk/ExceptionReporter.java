@@ -22,6 +22,24 @@ import org.jetbrains.annotations.Blocking;
 /**
  * Reports uncaught exceptions to the Brokk server for monitoring and debugging purposes. This class handles
  * asynchronous reporting with deduplication to avoid flooding the server.
+ *
+ * <p><b>Design Note: LLM Provider Error Flow (Issue #2578)</b>
+ * <ul>
+ *   <li><b>Source:</b> Provider errors (e.g., Anthropic 500) are caught by {@code JdkHttpClient} and passed to
+ *   {@code StreamingChatResponseHandler.onError} in {@code Llm.java}.</li>
+ *   <li><b>Mapping:</b> {@code dev.langchain4j.internal.ExceptionMapper} converts HTTP 5xx responses into
+ *   {@code dev.langchain4j.exception.InternalServerException}.</li>
+ *   <li><b>Reporting Path:</b> These exceptions are currently reported as client exceptions because:
+ *     <ol>
+ *       <li>They may be surfaced via {@code ContextManager.reportException} if caught in background tasks.</li>
+ *       <li>The {@code ExceptionReporter} does not distinguish between operational provider noise (like transient
+ *       500s or 503s) and actual client-side logic bugs.</li>
+ *     </ol>
+ *   </li>
+ *   <li><b>Current Behavior:</b> Any {@code Throwable} passed to {@code reportException} is sent to the backend,
+ *   including {@code InternalServerException}, {@code HttpException}, and {@code RetriableException}. This leads
+ *   to "pollution" of client error logs with provider-side issues.</li>
+ * </ul>
  */
 public class ExceptionReporter {
     private static final Logger logger = LogManager.getLogger(ExceptionReporter.class);
