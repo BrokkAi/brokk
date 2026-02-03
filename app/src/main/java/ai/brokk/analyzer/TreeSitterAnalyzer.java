@@ -3611,62 +3611,61 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var relevantFiles = filterRelevantFiles(changedFiles);
         if (relevantFiles.isEmpty()) return this;
 
-        int total = relevantFiles.size();
-        var reanalyzedCount = new AtomicInteger(0);
-        var deletedCount = new AtomicInteger(0);
-        var cleanupNanos = new AtomicLong(0L);
-        var reanalyzeNanos = new AtomicLong(0L);
-
         final var base = this.state;
+        long cleanupStart = System.nanoTime();
+
+        // 1. Identify all CodeUnits and files to remove
+        Set<CodeUnit> codeUnitsToRemove = new HashSet<>();
+        for (ProjectFile file : relevantFiles) {
+            FileProperties props = base.fileState().get(file);
+            if (props != null) {
+                for (CodeUnit topCu : props.topLevelCodeUnits()) {
+                    collectCodeUnitAndDescendants(topCu, base.codeUnitState(), codeUnitsToRemove);
+                }
+            }
+        }
+
+        // 2. Perform cleanup once
         var newSymbolIndex = new ConcurrentHashMap<>(base.symbolIndex());
         var newCodeUnitState = new ConcurrentHashMap<>(base.codeUnitState());
         var newFileState = new ConcurrentHashMap<>(base.fileState());
         var moduleKeyCache = Caffeine.newBuilder().maximumSize(10000).<String, CodeUnit>build();
 
+        relevantFiles.forEach(newFileState::remove);
+        codeUnitsToRemove.forEach(newCodeUnitState::remove);
+
+        // Filter children lists in remaining entries
+        newCodeUnitState.replaceAll((cu, props) -> {
+            List<CodeUnit> children = props.children();
+            List<CodeUnit> filtered = children.stream()
+                    .filter(child -> !codeUnitsToRemove.contains(child))
+                    .toList();
+            return (filtered.size() == children.size())
+                    ? props
+                    : new CodeUnitProperties(filtered, props.signatures(), props.ranges(), props.hasBody());
+        });
+
+        // Filter symbol index
+        newSymbolIndex.replaceAll((symbol, cus) ->
+                cus.stream().filter(cu -> !codeUnitsToRemove.contains(cu)).collect(Collectors.toSet()));
+        newSymbolIndex.entrySet().removeIf(e -> e.getValue().isEmpty());
+
+        long cleanupNanos = System.nanoTime() - cleanupStart;
+
+        // 3. Re-analyze changed files in parallel
+        int total = relevantFiles.size();
+        var reanalyzedCount = new AtomicInteger(0);
+        var deletedCount = new AtomicInteger(0);
+        var reanalyzeNanos = new AtomicLong(0L);
+
         int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
-
-        // Progress reporter for incremental updates
         var progressReporter = new DebouncedProgressReporter(total, "Updating " + language.name() + " files", 100);
 
         try (var executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
             for (var file : relevantFiles) {
                 futures.add(CompletableFuture.runAsync(
                                 () -> {
-                                    long cleanupStart = System.nanoTime();
-
-                                    // Remove old entries for this file
-                                    Predicate<CodeUnit> fromFile =
-                                            cu -> cu.source().equals(file);
-                                    newFileState.remove(file);
-                                    // Purge CodeUnitState entries for this file and prune children lists
-                                    newCodeUnitState.keySet().removeIf(fromFile);
-                                    newCodeUnitState.replaceAll((parent, state) -> {
-                                        var filteredKids = state.children().stream()
-                                                .filter(fromFile.negate())
-                                                .toList();
-                                        return filteredKids.equals(state.children())
-                                                ? state
-                                                : new CodeUnitProperties(
-                                                        List.copyOf(filteredKids),
-                                                        state.signatures(),
-                                                        state.ranges(),
-                                                        state.hasBody());
-                                    });
-                                    // Purge from symbol index
-                                    var symbolsToRemove = new ArrayList<String>();
-                                    newSymbolIndex.replaceAll((symbol, cus) -> {
-                                        var remaining = cus.stream()
-                                                .filter(fromFile.negate())
-                                                .collect(Collectors.toSet());
-                                        if (remaining.isEmpty()) symbolsToRemove.add(symbol);
-                                        return remaining;
-                                    });
-                                    for (var s : symbolsToRemove) newSymbolIndex.remove(s);
-
-                                    cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
-
-                                    // Re-analyze if file still exists
                                     if (Files.exists(file.absPath())) {
                                         long reanStart = System.nanoTime();
                                         try {
@@ -3725,7 +3724,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 snapshotNanos);
 
         long totalMs = System.currentTimeMillis() - overallStartMs;
-        long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos.get());
+        long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos);
         long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos.get());
         log.debug(
                 "[{}] TreeSitter incremental update: relevantFiles={}, reanalyzed={}, deleted={}, cleanup={} ms, reanalyze={} ms, total={} ms",
@@ -3741,6 +3740,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var typedState = runPostProcessing(nextState);
 
         return newSnapshot(typedState);
+    }
+
+    private void collectCodeUnitAndDescendants(
+            CodeUnit cu, Map<CodeUnit, CodeUnitProperties> state, Set<CodeUnit> out) {
+        if (!out.add(cu)) return;
+        CodeUnitProperties props = state.get(cu);
+        if (props != null) {
+            for (CodeUnit child : props.children()) {
+                collectCodeUnitAndDescendants(child, state, out);
+            }
+        }
     }
 
     /**

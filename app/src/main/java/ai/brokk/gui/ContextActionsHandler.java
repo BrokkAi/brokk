@@ -589,7 +589,7 @@ public class ContextActionsHandler {
                     if (flavor.isFlavorJavaFileListType()
                             || flavor.getMimeType().startsWith("image/")) {
                         Object data = contents.getTransferData(flavor);
-                        Image image = null;
+                        @Nullable Image image = null;
 
                         switch (data) {
                             case Image image1 -> image = image1;
@@ -664,20 +664,20 @@ public class ContextActionsHandler {
                         try {
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO, "Fetching image from " + clipboardText);
-                            Image image = ImageUtil.downloadImage(uri, httpClient);
-                            if (image != null) {
-                                contextManager.addPastedImageFragment(image);
-                                chrome.showNotification(
-                                        IConsoleIO.NotificationRole.INFO, "Pasted image from URL added to context");
-                                chrome.actionComplete();
-                                return;
-                            } else {
+                            @Nullable Image image = ImageUtil.downloadImage(uri, httpClient);
+                            if (image == null) {
                                 logger.warn(
                                         "URL {} identified as image by ImageUtil, but downloadImage returned null. Falling back to text.",
                                         clipboardText);
                                 chrome.showNotification(
                                         IConsoleIO.NotificationRole.INFO,
                                         "Could not load image from URL. Trying to fetch as text.");
+                            } else {
+                                contextManager.addPastedImageFragment(image);
+                                chrome.showNotification(
+                                        IConsoleIO.NotificationRole.INFO, "Pasted image from URL added to context");
+                                chrome.actionComplete();
+                                return;
                             }
                         } catch (Exception e) {
                             logger.warn(

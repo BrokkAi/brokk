@@ -83,6 +83,9 @@ export type BubbleState = Bubble & {
 
   // Optional reasoning state - presence indicates this is a reasoning bubble
   reasoningState?: ReasoningState;
+
+  /** Tracks whether this bubble ends inside an unclosed code fence */
+  insideFence?: boolean;
 };
 
 /**

@@ -71,17 +71,17 @@ else
             # Validate the extraction worked
             if [ "$REPO_SLUG" = "$REPO_URL" ]; then
                 echo "Warning: Could not parse repository from git remote: $REPO_URL"
-                REPO_SLUG="BrokkAi/brokk"
+                REPO_SLUG="BrokkAi/brokk-releases"
             fi
             echo "Using repository from git remote: $REPO_SLUG"
         else
             echo "Warning: Remote is not a GitHub repository: $REPO_URL"
-            REPO_SLUG="BrokkAi/brokk"
+            REPO_SLUG="BrokkAi/brokk-releases"
             echo "Using default repository: $REPO_SLUG"
         fi
     else
         echo "Warning: No git remote found, using default repository"
-        REPO_SLUG="BrokkAi/brokk"
+        REPO_SLUG="BrokkAi/brokk-releases"
 
         echo "Using default repository: $REPO_SLUG"
     fi
@@ -111,7 +111,7 @@ NEW_ENTRY=$(jq -n --arg version "brokk-$VERSION" --arg url "$JAR_URL" '{
     ($version): {
         "script-ref": $url,
         "java": "21",
-        "java-options": []
+        "java-options": ["--sun-misc-unsafe-memory-access=allow", "--enable-native-access=ALL-UNNAMED"]
     }
 }')
 
@@ -151,13 +151,14 @@ VERSIONS_TO_KEEP=$(echo "$ALL_VERSIONS" | \
 jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REPO_SLUG" --argjson versions_to_keep "$(echo "$VERSIONS_TO_KEEP" | jq -R -s 'split("\n") | map(select(length > 0))')" '
     # Update main brokk alias to point to new version
     .aliases.brokk."script-ref" = $url |
+    .aliases.brokk."java-options" = ["--sun-misc-unsafe-memory-access=allow", "--enable-native-access=ALL-UNNAMED"] |
     # Create version aliases for the versions we want to keep
     ($versions_to_keep | map({
         key: ("brokk-" + .),
         value: {
             "script-ref": ("https://github.com/" + $repo_slug + "/releases/download/" + . + "/brokk-" + . + ".jar"),
             "java": "21",
-            "java-options": ["--add-modules=jdk.incubator.vector"]
+            "java-options": ["--sun-misc-unsafe-memory-access=allow", "--enable-native-access=ALL-UNNAMED"]
         }
     }) | from_entries) as $version_aliases |
     # Rebuild the aliases object

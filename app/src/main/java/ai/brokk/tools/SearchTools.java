@@ -8,9 +8,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.usages.FuzzyResult;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
-import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
@@ -245,7 +242,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
+                    Finds and returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
                     Use this for questions like “how is X used/accessed/obtained/wired”.
                     If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
                     """)
@@ -255,6 +252,10 @@ public class SearchTools {
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning)
             throws InterruptedException {
+        return getUsages(symbols, reasoning, false);
+    }
+
+    public String getUsages(List<String> symbols, String reasoning, boolean includeTests) {
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -264,33 +265,27 @@ public class SearchTools {
             logger.warn("Missing reasoning for getUsages call");
         }
 
-        List<CodeUnit> allUses = new ArrayList<>();
-
+        List<String> results = new ArrayList<>();
         for (String symbol : symbols) {
-            if (!symbol.isBlank()) {
-                FuzzyResult usageResult =
-                        FuzzyUsageFinder.create(contextManager).findUsages(symbol, 100, 1000);
-                var either = usageResult.toEither();
-                if (either.hasErrorMessage()) {
-                    return either.getErrorMessage();
-                }
-                allUses.addAll(
-                        either.getUsages().stream().map(UsageHit::enclosing).toList());
+            if (symbol.isBlank()) continue;
+
+            var fragment = new ContextFragments.UsageFragment(contextManager, symbol, includeTests);
+            String text = fragment.text().join();
+            if (!text.isEmpty()) {
+                results.add(text);
             }
         }
 
-        if (allUses.isEmpty()) {
+        if (results.isEmpty()) {
             return "No usages found for: " + String.join(", ", symbols);
         }
 
-        var cwsList = AnalyzerUtil.processUsages(getAnalyzer(), allUses);
-        var processedUsages = AnalyzerUtil.CodeWithSource.text(getAnalyzer(), cwsList);
-        return "Usages of " + String.join(", ", symbols) + ":\n\n" + processedUsages;
+        return "Usages of " + String.join(", ", symbols) + ":\n\n" + String.join("\n\n", results);
     }
 
     @Tool(
             """
-                    Returns an overview of classes' contents, including fields and method signatures.
+                    Returns a summary of classes' contents, including fields and method signatures.
                     Use this to understand class structures and APIs much faster than fetching full source code.
                     """)
     public String getClassSkeletons(
@@ -520,17 +515,11 @@ public class SearchTools {
 
     // --- Text search tools
 
-    @Tool(
-            """
-                    Returns file names (paths relative to the project root) whose text contents match Java regular expression patterns.
-                    This is slower than searchSymbols but can find references to external dependencies and comment strings.
-                    """)
-    public String searchSubstrings(
-            @P(
-                            "Java-style regex patterns to search for within file contents. Unlike searchSymbols this does not automatically include any implicit anchors or case insensitivity.")
-                    List<String> patterns,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
+    /**
+     * Helper for searching substrings across all project files.
+     * Maintained for test compatibility.
+     */
+    public String searchSubstrings(List<String> patterns, String reasoning) {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search substrings: patterns list is empty");
         }
@@ -538,32 +527,21 @@ public class SearchTools {
             logger.warn("Missing reasoning for searchSubstrings call");
         }
 
-        logger.debug("Searching file contents for patterns: {}", patterns);
+        Set<ProjectFile> allFiles = contextManager.getProject().getAllFiles();
+        Set<ProjectFile> matchingFiles = searchSubstrings(patterns, allFiles);
 
-        List<Predicate<String>> predicates = compilePatternsWithFallback(patterns);
-        if (predicates.isEmpty()) {
-            throw new IllegalArgumentException("No valid patterns provided");
+        if (matchingFiles.isEmpty()) {
+            return "No files found containing substrings: " + String.join(", ", patterns);
         }
 
-        var matchingFilenames = searchSubstrings(
-                        patterns, contextManager.getProject().getAllFiles())
-                .stream()
-                .map(ProjectFile::toString)
-                .collect(Collectors.toSet());
-
-        if (matchingFilenames.isEmpty()) {
-            return "No files found with content matching patterns: " + String.join(", ", patterns);
-        }
-
-        var msg = "Files with content matching patterns: " + String.join(", ", matchingFilenames);
-        logger.debug(msg);
-        return msg;
+        return "Files containing substrings: "
+                + matchingFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
     }
 
     public static Set<ProjectFile> searchSubstrings(List<String> patterns, Set<ProjectFile> filesToSearch) {
         List<Predicate<String>> predicates = compilePatternsWithFallback(patterns);
         if (predicates.isEmpty()) {
-            throw new IllegalArgumentException("No valid patterns provided");
+            return Set.of();
         }
 
         return filesToSearch.parallelStream()
@@ -571,7 +549,7 @@ public class SearchTools {
                     if (!file.isText()) {
                         return null;
                     }
-                    var fileContentsOpt = file.read(); // Optional<String> from ProjectFile.read()
+                    var fileContentsOpt = file.read();
                     if (fileContentsOpt.isEmpty()) {
                         return null;
                     }

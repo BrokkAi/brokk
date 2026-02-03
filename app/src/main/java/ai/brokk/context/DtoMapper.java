@@ -323,6 +323,10 @@ public class DtoMapper {
                         yield null;
                     }
                     var image = ImageUtil.bytesToImage(imageBytes);
+                    if (image == null) {
+                        logger.error("Failed to decode image for fragment: {}", pasteImageDto.id());
+                        yield null;
+                    }
                     yield new ContextFragments.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,

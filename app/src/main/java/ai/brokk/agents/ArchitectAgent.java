@@ -193,7 +193,7 @@ public class ArchitectAgent {
         // Record planning history before invoking CodeAgent
         addPlanningToHistory();
 
-        io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
         var agent = new CodeAgent(cm, codeModel);
         var opts = new HashSet<CodeAgent.Option>();
         if (deferBuild) {
@@ -431,7 +431,7 @@ public class ArchitectAgent {
 
             // Only the winner prints the "engaged" message
             if (shouldEcho) {
-                io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.AI, LlmOutputMeta.newMessage());
+                io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
             }
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
@@ -489,10 +489,15 @@ public class ArchitectAgent {
      * results are appended to the provided scope.
      */
     public TaskResult executeWithScan() throws InterruptedException {
+        return executeWithScan(
+                Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2);
+    }
+
+    public TaskResult executeWithScan(boolean pruneFirst) throws InterruptedException {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(context, goal, scanModel, this.scope);
-        if (Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2) {
+        if (pruneFirst) {
             searchAgent.pruneContext();
         }
         // (appends prune + scan results to scope)

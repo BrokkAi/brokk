@@ -5,6 +5,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
@@ -221,7 +222,7 @@ public final class HeadlessExecutorMain {
         this.initThread = new Thread(
                 () -> {
                     try {
-                        this.contextManager.createHeadless();
+                        this.contextManager.createHeadless(BuildAgent.BuildDetails.EMPTY, true);
                         headlessInit.complete(null);
                         logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {
