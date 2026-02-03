@@ -219,6 +219,11 @@ public record ContextDelta(
         return parts.isEmpty() ? "(No changes detected)" : String.join("; ", parts);
     }
 
+    /**
+     * Builds a description for a task entry, using a disk cache to store summaries of long task texts.
+     * This may be called from multiple threads (e.g. virtual threads via LoggingFuture) when
+     * UI components or background processes request descriptions of different ContextDeltas.
+     */
     @Blocking
     private String buildTaskDescription(TaskEntry entry, IContextManager icm) throws InterruptedException {
         String prefix = (entry.meta() == null) ? "" : entry.meta().type().displayName() + ": ";

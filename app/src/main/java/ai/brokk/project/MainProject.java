@@ -276,6 +276,15 @@ public final class MainProject extends AbstractProject {
         return this;
     }
 
+    /**
+     * Returns the disk cache for this project.
+     * <p>
+     * Initialization is synchronized to prevent multiple threads within the same {@link MainProject} 
+     * instance from competing for the lock. If the primary cache is already locked by another 
+     * process or another {@link MainProject} instance in this JVM, it falls back to a 
+     * temporary directory, and finally to a no-op cache.
+     * </p>
+     */
     @Override
     public synchronized IStringDiskCache getDiskCache() {
         if (diskCache != null) {
@@ -311,7 +320,14 @@ public final class MainProject extends AbstractProject {
             Files.createDirectories(cacheDir);
 
             channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            lock = channel.tryLock();
+            try {
+                lock = channel.tryLock();
+            } catch (OverlappingFileLockException e) {
+                // This happens if another MainProject instance in the same JVM already has the lock.
+                logger.debug("Overlapping lock detected for {}", lockFile);
+                channel.close();
+                return false;
+            }
 
             if (lock == null) {
                 logger.debug("Unable to acquire lock on {}", lockFile);
