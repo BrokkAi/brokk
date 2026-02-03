@@ -152,6 +152,7 @@ public class ExceptionReporter {
         // Always add OS/JRE telemetry (but don't overwrite caller-provided values)
         enriched.putIfAbsent("osDescription", Environment.getOsDescription());
         enriched.putIfAbsent("jreDescription", Environment.getJreDescription());
+        enriched.putIfAbsent("activeWatchServiceImpl", Environment.getActiveWatchServiceImpl());
 
         return enriched;
     }

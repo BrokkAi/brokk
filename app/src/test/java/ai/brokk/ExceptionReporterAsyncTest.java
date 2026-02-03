@@ -6,7 +6,6 @@ import ai.brokk.util.Environment;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.nio.file.ClosedWatchServiceException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -185,9 +184,10 @@ class ExceptionReporterAsyncTest {
         // Verify caller-provided fields are preserved
         assertEquals("user123", call.optionalFields.get("userId"), "Caller field userId should be preserved");
         assertEquals("test-operation", call.optionalFields.get("context"), "Caller field context should be preserved");
-        // Verify OS/JRE telemetry is also present
+        // Verify OS/JRE/watchService telemetry is also present
         assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
         assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
+        assertTrue(call.optionalFields.containsKey("activeWatchServiceImpl"), "Should include activeWatchServiceImpl");
         assertTrue(call.stacktrace.contains("RuntimeException"));
     }
 
@@ -205,12 +205,10 @@ class ExceptionReporterAsyncTest {
         assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
 
         ServiceCall call = serviceSpy.getCalls().get(0);
-        // Even with empty caller fields, OS/JRE telemetry should be present
+        // Even with empty caller fields, telemetry should be present
         assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
         assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-        // Watch-service fields should NOT be present for regular exceptions
-        assertFalse(call.optionalFields.containsKey("watchServiceSysProp"), "Should not include watchServiceSysProp");
-        assertFalse(call.optionalFields.containsKey("watchServiceEnvVar"), "Should not include watchServiceEnvVar");
+        assertTrue(call.optionalFields.containsKey("activeWatchServiceImpl"), "Should include activeWatchServiceImpl");
     }
 
     @Test
@@ -231,14 +229,15 @@ class ExceptionReporterAsyncTest {
         assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
 
         ServiceCall call = serviceSpy.getCalls().get(0);
-        // 4 caller fields + 2 telemetry fields (osDescription, jreDescription)
-        assertEquals(6, call.optionalFields.size(), "Should have 6 optional fields (4 caller + 2 telemetry)");
+        // 4 caller fields + 3 telemetry fields (osDescription, jreDescription, activeWatchServiceImpl)
+        assertEquals(7, call.optionalFields.size(), "Should have 7 optional fields (4 caller + 3 telemetry)");
         assertEquals("user123", call.optionalFields.get("userId"));
         assertEquals("sess456", call.optionalFields.get("sessionId"));
         assertEquals("codeAnalysis", call.optionalFields.get("operationType"));
         assertEquals("TestProject", call.optionalFields.get("projectName"));
         assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
         assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
+        assertTrue(call.optionalFields.containsKey("activeWatchServiceImpl"), "Should include activeWatchServiceImpl");
     }
 
     @Test
@@ -261,59 +260,8 @@ class ExceptionReporterAsyncTest {
     }
 
     @Test
-    @DisplayName("Should treat ClosedWatchServiceException like any other exception")
-    void shouldTreatClosedWatchServiceExceptionLikeAnyOther() throws Exception {
-        Exception testException = new ClosedWatchServiceException();
-
-        exceptionReporter.reportException(testException);
-        Thread.sleep(500);
-
-        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
-
-        ServiceCall call = serviceSpy.getCalls().get(0);
-
-        // Verify OS/JRE telemetry fields are present and match Environment methods
-        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
-        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-        assertEquals(
-                Environment.getOsDescription(),
-                call.optionalFields.get("osDescription"),
-                "osDescription should match Environment.getOsDescription()");
-        assertEquals(
-                Environment.getJreDescription(),
-                call.optionalFields.get("jreDescription"),
-                "jreDescription should match Environment.getJreDescription()");
-
-        // Verify watch-service config fields are NOT present (no special treatment)
-        assertFalse(call.optionalFields.containsKey("watchServiceSysProp"), "Should not include watchServiceSysProp");
-        assertFalse(call.optionalFields.containsKey("watchServiceEnvVar"), "Should not include watchServiceEnvVar");
-    }
-
-    @Test
-    @DisplayName("Should treat wrapped ClosedWatchServiceException like any other exception")
-    void shouldTreatWrappedClosedWatchServiceExceptionLikeAnyOther() throws Exception {
-        Exception cause = new ClosedWatchServiceException();
-        Exception wrapper = new RuntimeException("Wrapper exception", cause);
-
-        exceptionReporter.reportException(wrapper);
-        Thread.sleep(500);
-
-        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
-
-        ServiceCall call = serviceSpy.getCalls().get(0);
-
-        // Verify OS/JRE telemetry fields are present
-        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
-        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-
-        // Verify watch-service config fields are NOT present (no special treatment)
-        assertFalse(call.optionalFields.containsKey("watchServiceSysProp"), "Should not include watchServiceSysProp");
-        assertFalse(call.optionalFields.containsKey("watchServiceEnvVar"), "Should not include watchServiceEnvVar");
-    }
-
-    @Test
-    @DisplayName("Should not enrich non-ClosedWatchServiceException with watch telemetry")
-    void shouldNotEnrichNonClosedWatchServiceException() throws Exception {
+    @DisplayName("Should enrich all exceptions with Environment telemetry")
+    void shouldEnrichAllExceptionsWithEnvironmentTelemetry() throws Exception {
         Exception testException = new RuntimeException("Regular exception");
 
         exceptionReporter.reportException(testException);
@@ -323,9 +271,10 @@ class ExceptionReporterAsyncTest {
 
         ServiceCall call = serviceSpy.getCalls().get(0);
 
-        // Verify OS/JRE telemetry fields ARE present for all exceptions
+        // Verify all Environment telemetry fields are present and match
         assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
         assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
+        assertTrue(call.optionalFields.containsKey("activeWatchServiceImpl"), "Should include activeWatchServiceImpl");
         assertEquals(
                 Environment.getOsDescription(),
                 call.optionalFields.get("osDescription"),
@@ -334,36 +283,10 @@ class ExceptionReporterAsyncTest {
                 Environment.getJreDescription(),
                 call.optionalFields.get("jreDescription"),
                 "jreDescription should match Environment.getJreDescription()");
-
-        // Verify watch-service fields are NOT present for regular exceptions
-        assertFalse(call.optionalFields.containsKey("watchServiceSysProp"), "Should not include watchServiceSysProp");
-        assertFalse(call.optionalFields.containsKey("watchServiceEnvVar"), "Should not include watchServiceEnvVar");
-    }
-
-    @Test
-    @DisplayName("Should merge caller-provided fields with telemetry for ClosedWatchServiceException")
-    void shouldMergeCallerFieldsWithTelemetry() throws Exception {
-        Exception testException = new ClosedWatchServiceException();
-        Map<String, String> callerFields = Map.of("customField", "customValue", "anotherField", "anotherValue");
-
-        exceptionReporter.reportException(testException, callerFields);
-        Thread.sleep(500);
-
-        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
-
-        ServiceCall call = serviceSpy.getCalls().get(0);
-
-        // Verify caller-provided fields are preserved
-        assertEquals("customValue", call.optionalFields.get("customField"), "Caller field should be preserved");
-        assertEquals("anotherValue", call.optionalFields.get("anotherField"), "Caller field should be preserved");
-
-        // Verify OS/JRE telemetry fields are present
-        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
-        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-
-        // Verify watch-service config fields are NOT present (no special treatment)
-        assertFalse(call.optionalFields.containsKey("watchServiceSysProp"), "Should not include watchServiceSysProp");
-        assertFalse(call.optionalFields.containsKey("watchServiceEnvVar"), "Should not include watchServiceEnvVar");
+        assertEquals(
+                Environment.getActiveWatchServiceImpl(),
+                call.optionalFields.get("activeWatchServiceImpl"),
+                "activeWatchServiceImpl should match Environment.getActiveWatchServiceImpl()");
     }
 
     @Test
@@ -372,7 +295,8 @@ class ExceptionReporterAsyncTest {
         Exception testException = new RuntimeException("Test exception");
         Map<String, String> callerFields = Map.of(
                 "osDescription", "caller-provided-os",
-                "jreDescription", "caller-provided-jre");
+                "jreDescription", "caller-provided-jre",
+                "activeWatchServiceImpl", "caller-provided-impl");
 
         exceptionReporter.reportException(testException, callerFields);
         Thread.sleep(500);
@@ -390,6 +314,10 @@ class ExceptionReporterAsyncTest {
                 "caller-provided-jre",
                 call.optionalFields.get("jreDescription"),
                 "Caller-provided jreDescription should be preserved");
+        assertEquals(
+                "caller-provided-impl",
+                call.optionalFields.get("activeWatchServiceImpl"),
+                "Caller-provided activeWatchServiceImpl should be preserved");
     }
 
     // Helper methods
@@ -465,10 +393,6 @@ class ExceptionReporterAsyncTest {
         final String stacktrace;
         final String clientVersion;
         final Map<String, String> optionalFields;
-
-        ServiceCall(String stacktrace, String clientVersion) {
-            this(stacktrace, clientVersion, Map.of());
-        }
 
         ServiceCall(String stacktrace, String clientVersion, Map<String, String> optionalFields) {
             this.stacktrace = stacktrace;

@@ -114,33 +114,32 @@ public class WatchServiceFactory {
             String implProp,
             String os) {
 
+        AbstractWatchService watcher;
         if (WATCH_SERVICE_IMPL_LEGACY.equalsIgnoreCase(implProp)) {
             logger.debug("Using legacy watch service (forced by configuration)");
-            return new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
-        }
-        if (WATCH_SERVICE_IMPL_NATIVE.equalsIgnoreCase(implProp)) {
+            watcher = new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+        } else if (WATCH_SERVICE_IMPL_NATIVE.equalsIgnoreCase(implProp)) {
             logger.debug("Using native watch service (forced by configuration)");
-            return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
-        }
-
-        // Platform-based selection
-        if (os.contains("mac")) {
+            watcher = createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
+        } else if (os.contains("mac")) {
             // macOS benefits most from native FSEvents implementation
             logger.debug("Detected macOS, using native watch service (FSEvents)");
-            return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
+            watcher = createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         } else if (os.contains("linux")) {
             // Linux: Java WatchService is more stable across distributions
             logger.debug("Detected Linux, using java watch service (default)");
-            return new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+            watcher = new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         } else if (os.contains("win")) {
             // Windows: Java WatchService is the standard default
             logger.debug("Detected Windows, using java watch service (default)");
-            return new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+            watcher = new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+        } else {
+            // Default to native with fallback for unknown platforms
+            logger.debug("Using native watch service (default)");
+            watcher = createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         }
-
-        // Default to native with fallback for unknown platforms
-        logger.debug("Using native watch service (default)");
-        return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
+        Environment.setActiveWatchServiceImpl(watcher.getClass().getSimpleName());
+        return watcher;
     }
 
     /**
