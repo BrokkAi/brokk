@@ -59,19 +59,19 @@ public final class AnalyzerCache {
 
         previous.rawSupertypes.forEach((cu, supers) -> {
             if (!changedFiles.contains(cu.source())) {
-                this.rawSupertypes.put(cu, supers);
+                this.rawSupertypes.put(cu, List.copyOf(supers));
             }
         });
 
         previous.imports.forEachForward((file, units) -> {
             if (!changedFiles.contains(file)) {
-                this.imports.computeForwardIfAbsent(file, k -> units);
+                this.imports.computeForwardIfAbsent(file, k -> Set.copyOf(units));
             }
         });
 
         previous.typeHierarchy.forEachForward((cu, supers) -> {
             if (!changedFiles.contains(cu.source())) {
-                this.typeHierarchy.computeForwardIfAbsent(cu, k -> supers);
+                this.typeHierarchy.computeForwardIfAbsent(cu, k -> List.copyOf(supers));
             }
         });
     }
