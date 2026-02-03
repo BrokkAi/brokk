@@ -48,44 +48,8 @@ fi
 
 echo "Updating JBang catalog for version $VERSION..."
 
-# Detect GitHub repository from multiple sources (in priority order)
-if [ -n "$REPO_SLUG_OVERRIDE" ]; then
-    # 1. Command line override (highest priority)
-    REPO_SLUG="$REPO_SLUG_OVERRIDE"
-    echo "Using repository from command line: $REPO_SLUG"
-elif [ -n "${BROKK_REPO_SLUG:-}" ]; then
-    # 2. Environment variable override
-    REPO_SLUG="$BROKK_REPO_SLUG"
-    echo "Using repository from BROKK_REPO_SLUG: $REPO_SLUG"
-elif [ -n "${GITHUB_REPOSITORY:-}" ]; then
-    # 3. GitHub Actions environment variable
-    REPO_SLUG="$GITHUB_REPOSITORY"
-    echo "Using repository from GITHUB_REPOSITORY: $REPO_SLUG"
-else
-    # 4. Auto-detect from git remote
-    REPO_URL=$(git config --get remote.origin.url 2>/dev/null || echo "")
-    if [ -n "$REPO_URL" ]; then
-        # Extract owner/repo from various Git URL formats using sed
-        if echo "$REPO_URL" | grep -q "github.com"; then
-            REPO_SLUG=$(echo "$REPO_URL" | sed -E 's|.*github\.com[:/]([^/]+)/([^/.]+)(\.git)?.*|\1/\2|')
-            # Validate the extraction worked
-            if [ "$REPO_SLUG" = "$REPO_URL" ]; then
-                echo "Warning: Could not parse repository from git remote: $REPO_URL"
-                REPO_SLUG="BrokkAi/brokk-releases"
-            fi
-            echo "Using repository from git remote: $REPO_SLUG"
-        else
-            echo "Warning: Remote is not a GitHub repository: $REPO_URL"
-            REPO_SLUG="BrokkAi/brokk-releases"
-            echo "Using default repository: $REPO_SLUG"
-        fi
-    else
-        echo "Warning: No git remote found, using default repository"
-        REPO_SLUG="BrokkAi/brokk-releases"
-
-        echo "Using default repository: $REPO_SLUG"
-    fi
-fi
+REPO_SLUG="BrokkAi/brokk-releases"
+echo "Using repository for releases: $REPO_SLUG"
 
 # Create the new JAR URL
 JAR_URL="https://github.com/${REPO_SLUG}/releases/download/${VERSION}/brokk-${VERSION}.jar"
