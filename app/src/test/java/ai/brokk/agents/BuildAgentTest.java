@@ -18,7 +18,6 @@ import java.util.function.Predicate;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
@@ -303,7 +302,6 @@ class BuildAgentTest {
         assertEquals("uv run tests.e2e", result);
     }
 
-    @Disabled("Regression test: fails until DecoratedCollection {{.}} bug is fixed")
     @Test
     void testInterpolateDotSyntaxRendersRawStrings() {
         // Regression test: {{.}} should render the raw string value, not Element@...
@@ -319,7 +317,6 @@ class BuildAgentTest {
         assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
     }
 
-    @Disabled("Regression test: fails until DecoratedCollection {{.}} bug is fixed")
     @Test
     void testInterpolateDotSyntaxWithSeparator() {
         // Regression test: {{.}} with {{^last}} separator should work correctly
@@ -334,7 +331,6 @@ class BuildAgentTest {
         assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
     }
 
-    @Disabled("Regression test: fails until DecoratedCollection {{.}} bug is fixed")
     @Test
     void testInterpolateDotSyntaxSingleItem() {
         // Regression test: {{.}} with single item should work and not have trailing separator
@@ -347,7 +343,6 @@ class BuildAgentTest {
         assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
     }
 
-    @Disabled("Regression test: fails until DecoratedCollection {{.}} bug is fixed")
     @Test
     void testInterpolateDotSyntaxWithSpaceSeparator() {
         // Regression test: common pattern for file-based test runners
