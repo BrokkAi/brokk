@@ -2238,16 +2238,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             }
 
-            var updatedContext = publishWithHistory(result);
-
-            // prepare MOP to display new history with the next streamed message
-            // needed because after the last append (before close) the MOP should not update
-            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
-
-            return updatedContext;
-        }
-
-        private Context publishWithHistory(TaskResult result) {
             assert !closed.get() : "TaskScope already closed";
             // push context
             logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
@@ -2262,6 +2252,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // UI-level session locking should keep contextHistory stable between push and add-to-group
                 contextHistory.addContextToGroup(contextId, groupId, groupLabel);
             }
+
+            // prepare MOP to display new history with the next streamed message
+            // needed because after the last append (before close) the MOP should not update
+            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
 
             return updatedContext;
         }
