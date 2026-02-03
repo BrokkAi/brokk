@@ -126,6 +126,39 @@ public class JdtUsageAnalyzerTest {
     }
 
     @Test
+    public void testUsageOutsideMethodOrType() throws Exception {
+        // Test that usages in field initializers (outside a specific method) still work
+        // or are handled gracefully according to the new logic.
+        String source = "package com.example; public class Target { public static int VAL = 1; }";
+        String consumer =
+                """
+                package com.example;
+                public class FieldConsumer {
+                    private int external = Target.VAL;
+                }
+                """;
+
+        try (IProject project = InlineTestProjectCreator.code(source, "com/example/Target.java")
+                .addFileContents(consumer, "com/example/FieldConsumer.java")
+                .build()) {
+
+            ProjectFile targetFile = project.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().contains("Target.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            CodeUnit targetUnit = new CodeUnit(targetFile, CodeUnitType.FIELD, "com.example", "Target.VAL");
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(targetUnit, project.getAllFiles(), project);
+
+            // The usage is inside FieldConsumer (TypeDeclaration), so it should have an enclosing context.
+            assertFalse(hits.isEmpty(), "Should find usage in field initializer");
+            assertEquals(
+                    "com.example.FieldConsumer",
+                    hits.iterator().next().enclosing().fqName());
+        }
+    }
+
+    @Test
     public void testAnonymousClassUsage() throws Exception {
         String source = "package com.example; public class Base { public void doWork() {} }";
         String consumer =

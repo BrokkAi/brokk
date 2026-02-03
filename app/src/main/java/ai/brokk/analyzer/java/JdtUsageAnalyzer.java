@@ -162,6 +162,9 @@ public class JdtUsageAnalyzer {
                 }
 
                 private void recordHit(ASTNode node) {
+                    CodeUnit enclosing = resolveEnclosing(node);
+                    if (enclosing == null) return;
+
                     int start = node.getStartPosition();
                     int end = start + node.getLength();
                     int lineIdx = ast.getLineNumber(start) - 1;
@@ -174,12 +177,10 @@ public class JdtUsageAnalyzer {
                         if (i < endLine) snippet.append("\n");
                     }
 
-                    CodeUnit enclosing = resolveEnclosing(node);
-
                     hits.add(new UsageHit(file, lineIdx + 1, start, end, enclosing, 1.0, snippet.toString()));
                 }
 
-                private CodeUnit resolveEnclosing(ASTNode node) {
+                private @Nullable CodeUnit resolveEnclosing(ASTNode node) {
                     ASTNode current = node.getParent();
                     while (current != null) {
                         if (current instanceof MethodDeclaration md) {
@@ -191,7 +192,7 @@ public class JdtUsageAnalyzer {
                         }
                         current = current.getParent();
                     }
-                    return new CodeUnit(file, CodeUnitType.CLASS, "", "Unknown");
+                    return null;
                 }
 
                 private CodeUnit createCodeUnit(IBinding binding, CodeUnitType type) {
