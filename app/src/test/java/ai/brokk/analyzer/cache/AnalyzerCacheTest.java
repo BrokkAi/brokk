@@ -56,9 +56,11 @@ class AnalyzerCacheTest {
         // 1. Setup files and CodeUnits
         ProjectFile pfUnchanged = new ProjectFile(tempDir, "Unchanged.java");
         ProjectFile pfChanged = new ProjectFile(tempDir, "Changed.java");
+        ProjectFile pfAliasToChanged = pfChanged;
 
         CodeUnit cuUnchanged = CodeUnit.cls(pfUnchanged, "com.test", "Unchanged");
         CodeUnit cuChanged = CodeUnit.cls(pfChanged, "com.test", "Changed");
+        CodeUnit cuAlsoFromChanged = CodeUnit.cls(pfAliasToChanged, "com.test", "AlsoChanged");
 
         // 2. Create real TSTree objects
         TSParser parser = new TSParser();
@@ -76,6 +78,7 @@ class AnalyzerCacheTest {
         // rawSupertypes
         previous.rawSupertypes().put(cuUnchanged, List.of("BaseU"));
         previous.rawSupertypes().put(cuChanged, List.of("BaseC"));
+        previous.rawSupertypes().put(cuAlsoFromChanged, List.of("BaseAlsoC"));
 
         // imports
         previous.imports().computeForwardIfAbsent(pfUnchanged, k -> Set.of(cuUnchanged));
@@ -84,9 +87,10 @@ class AnalyzerCacheTest {
         // typeHierarchy
         previous.typeHierarchy().computeForwardIfAbsent(cuUnchanged, k -> List.of(cuUnchanged));
         previous.typeHierarchy().computeForwardIfAbsent(cuChanged, k -> List.of(cuChanged));
+        previous.typeHierarchy().computeForwardIfAbsent(cuAlsoFromChanged, k -> List.of(cuAlsoFromChanged));
 
         // 4. Create next cache via transfer constructor
-        AnalyzerCache next = new AnalyzerCache(previous, Set.of(pfChanged));
+        AnalyzerCache next = new AnalyzerCache(previous, Set.of(pfAliasToChanged));
 
         // 5. Assertions
         // (a) Unchanged entries are preserved
@@ -105,6 +109,9 @@ class AnalyzerCacheTest {
         assertNull(next.rawSupertypes().get(cuChanged), "Changed rawSupertypes should be excluded");
         assertNull(next.imports().getForward(pfChanged), "Changed imports should be excluded");
         assertNull(next.typeHierarchy().getForward(cuChanged), "Changed typeHierarchy should be excluded");
+
+        assertNull(next.rawSupertypes().get(cuAlsoFromChanged), "AlsoChanged rawSupertypes should be excluded");
+        assertNull(next.typeHierarchy().getForward(cuAlsoFromChanged), "AlsoChanged typeHierarchy should be excluded");
 
         // (c) Specifically validate CodeUnit filtering uses cu.source()
         // cuChanged entries were removed because cuChanged.source() == pfChanged which is in changedFiles.
