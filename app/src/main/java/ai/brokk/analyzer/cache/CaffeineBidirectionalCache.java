@@ -84,7 +84,7 @@ public final class CaffeineBidirectionalCache<K, V, RV> implements Bidirectional
 
     @Override
     public boolean isEmpty() {
-        return forwardCache.estimatedSize() == 0;
+        return forwardCache.estimatedSize() == 0 && reverseCache.estimatedSize() == 0;
     }
 
     @Override
