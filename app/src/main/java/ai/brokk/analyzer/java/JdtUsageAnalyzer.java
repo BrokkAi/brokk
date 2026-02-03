@@ -76,22 +76,21 @@ public class JdtUsageAnalyzer {
     }
 
     private static String[] inferSourceRoots(IProject project) {
-        Set<ProjectFile> allFiles = project.getAllFiles();
+        // Standard directory heuristic: check existence of common source roots relative to project root.
+        // This is O(1) regarding project file count and avoids scanning thousands of files.
         Set<String> roots = new HashSet<>();
+        String[] standardPaths = {"src/main/java", "src/test/java", "src/main/kotlin", "src/test/kotlin"};
 
-        for (ProjectFile pf : allFiles) {
-            String path = pf.relPath().toString().replace('\\', '/');
-            if (path.contains("src/main/java/")) {
-                int idx = path.indexOf("src/main/java/");
-                roots.add(project.getRoot().resolve(path.substring(0, idx + 13)).toString());
-            } else if (path.contains("src/test/java/")) {
-                int idx = path.indexOf("src/test/java/");
-                roots.add(project.getRoot().resolve(path.substring(0, idx + 13)).toString());
+        for (String path : standardPaths) {
+            java.nio.file.Path sourcePath = project.getRoot().resolve(path);
+            if (java.nio.file.Files.exists(sourcePath)) {
+                roots.add(sourcePath.toAbsolutePath().toString());
             }
         }
 
+        // Fallback to project root if no standard structure is detected.
         if (roots.isEmpty()) {
-            roots.add(project.getRoot().toString());
+            roots.add(project.getRoot().toAbsolutePath().toString());
         }
 
         return roots.toArray(String[]::new);

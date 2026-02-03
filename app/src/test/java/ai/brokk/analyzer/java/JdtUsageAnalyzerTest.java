@@ -45,7 +45,7 @@ public class JdtUsageAnalyzerTest {
                 .build()) {
 
             ProjectFile targetFile = project.getAllFiles().stream()
-                    .filter(f -> f.relPath().toString().contains("Target.java"))
+                    .filter(f -> f.getRelPath().toString().contains("Target.java"))
                     .findFirst()
                     .orElseThrow();
 
@@ -111,7 +111,7 @@ public class JdtUsageAnalyzerTest {
                 .build()) {
 
             ProjectFile targetFile = project.getAllFiles().stream()
-                    .filter(f -> f.relPath().toString().contains("Target.java"))
+                    .filter(f -> f.getRelPath().toString().contains("Target.java"))
                     .findFirst()
                     .orElseThrow();
 
@@ -149,7 +149,7 @@ public class JdtUsageAnalyzerTest {
                 .build()) {
 
             ProjectFile baseFile = project.getAllFiles().stream()
-                    .filter(f -> f.relPath().toString().contains("Base.java"))
+                    .filter(f -> f.getRelPath().toString().contains("Base.java"))
                     .findFirst()
                     .orElseThrow();
 
@@ -234,11 +234,11 @@ public class JdtUsageAnalyzerTest {
                 .build()) {
 
             ProjectFile targetFile = project.getAllFiles().stream()
-                    .filter(f -> f.relPath().toString().contains("Target.java"))
+                    .filter(f -> f.getRelPath().toString().contains("Target.java"))
                     .findFirst()
                     .orElseThrow();
             ProjectFile consumerFile = project.getAllFiles().stream()
-                    .filter(f -> f.relPath().toString().contains("Main.java"))
+                    .filter(f -> f.getRelPath().toString().contains("Main.java"))
                     .findFirst()
                     .orElseThrow();
 
@@ -265,7 +265,7 @@ public class JdtUsageAnalyzerTest {
             // but was required for resolution.
             CodeUnit libraryExec = new CodeUnit(
                     project.getAllFiles().stream()
-                            .filter(f -> f.relPath().toString().contains("Library.java"))
+                            .filter(f -> f.getRelPath().toString().contains("Library.java"))
                             .findFirst()
                             .get(),
                     CodeUnitType.FUNCTION,
