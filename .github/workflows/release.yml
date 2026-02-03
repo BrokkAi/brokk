@@ -68,6 +68,16 @@ jobs:
           files: ${{ steps.jar.outputs.jar_file }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Upload JAR to brokk-releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          repository: BrokkAi/brokk-releases
+          draft: false
+          prerelease: false
+          files: ${{ steps.jar.outputs.jar_file }}
+          token: ${{ secrets.BROKK_RELEASES_TOKEN }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
