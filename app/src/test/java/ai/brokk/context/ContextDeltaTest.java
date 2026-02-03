@@ -159,6 +159,25 @@ class ContextDeltaTest {
     }
 
     @Test
+    void testDelta_specialFragmentContentChange_marksUpdatedAndNotEmpty() {
+        var ctx1 = new Context(contextManager).withSpecial(SpecialTextType.SEARCH_NOTES, "Old Notes");
+        var ctx2 = ctx1.withSpecial(SpecialTextType.SEARCH_NOTES, "New Notes");
+
+        var delta = ContextDelta.between(ctx1, ctx2).join();
+
+        // No added/removed fragments for this special; only the content changed.
+        assertTrue(delta.addedFragments().isEmpty(), "Special content change should not appear as added fragment");
+        assertTrue(delta.removedFragments().isEmpty(), "Special content change should not appear as removed fragment");
+
+        assertFalse(delta.updatedSpecialFragments().isEmpty(), "Updated specials should capture the content change");
+        assertFalse(delta.isEmpty(), "Delta must not be empty when special content changes");
+
+        var desc = delta.description(contextManager).join();
+        assertFalse(desc.contains("(No changes)"));
+        assertTrue(desc.contains("Update"), "Description should describe an update");
+    }
+
+    @Test
     void testDelta_detectsExternalChanges() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Main.java");
         Files.createDirectories(pf.absPath().getParent());
