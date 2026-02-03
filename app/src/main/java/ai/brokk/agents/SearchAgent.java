@@ -762,7 +762,7 @@ public class SearchAgent {
                                     .getOrDefault("reasoning", "")
                                     .toString();
                             display = agent.summarizeResult(agent.goal, req, display, reasoning);
-                            finalResult = ToolExecutionResult.create(req, toolResult.status(), display);
+                            finalResult = new ToolExecutionResult(req, toolResult.status(), display);
                         }
                     }
 
