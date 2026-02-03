@@ -68,7 +68,7 @@ if [ "$HTTP_STATUS" != "200" ]; then
     exit 1
 fi
 
-echo "✓ JAR confirmed to exist at $JAR_URL"
+echo "OK: JAR confirmed to exist at $JAR_URL"
 
 # Create new entry for this version
 NEW_ENTRY=$(jq -n --arg version "brokk-$VERSION" --arg url "$JAR_URL" '{
@@ -86,7 +86,7 @@ ALL_VERSIONS=$(git tag -l | grep -E '^v?[0-9]' | sort -V)
 CURRENT_PREFIX=$(echo "$VERSION" | sed -E 's/^v?([0-9]+\.[0-9]+\.[0-9]+).*$/\1/')
 
 # Get latest version from each minor series, excluding current series entirely
-VERSIONS_TO_KEEP=$(echo "$ALL_VERSIONS" | \
+CANDIDATE_VERSIONS=$(echo "$ALL_VERSIONS" | \
     awk -F'.' -v current_prefix="$CURRENT_PREFIX" '
     {
         # Extract major.minor.patch prefix (pad with .0 if needed)
@@ -108,7 +108,26 @@ VERSIONS_TO_KEEP=$(echo "$ALL_VERSIONS" | \
         for (prefix in versions) {
             print versions[prefix]
         }
-    }' | sort -rV | head -n $((MAX_VERSIONS - 1)))
+    }' | sort -rV)
+
+# Filter to only versions whose JARs actually exist in brokk-releases
+VERSIONS_TO_KEEP=""
+KEPT=0
+NEEDED=$((MAX_VERSIONS - 1))
+for V in $CANDIDATE_VERSIONS; do
+    if [ "$KEPT" -ge "$NEEDED" ]; then
+        break
+    fi
+    V_URL="https://github.com/${REPO_SLUG}/releases/download/${V}/brokk-${V}.jar"
+    V_STATUS=$(curl -s -I -L --max-time 10 -w "%{http_code}" -o /dev/null "$V_URL" 2>/dev/null || echo "000")
+    if [ "$V_STATUS" = "200" ]; then
+        VERSIONS_TO_KEEP="${VERSIONS_TO_KEEP}${V}"$'\n'
+        KEPT=$((KEPT + 1))
+        echo "  OK: $V JAR exists"
+    else
+        echo "  SKIP: $V JAR not found (HTTP $V_STATUS)"
+    fi
+done
 
 
 # Process the catalog: update main alias, keep the most recent N-1 other versions

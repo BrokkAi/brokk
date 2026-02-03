@@ -79,6 +79,41 @@ jobs:
           files: ${{ steps.jar.outputs.jar_file }}
           token: ${{ secrets.BROKK_RELEASES_TOKEN }}
 
+      - name: Update jbang catalog in brokk-releases
+        env:
+          BROKK_RELEASES_TOKEN: ${{ secrets.BROKK_RELEASES_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Clone brokk-releases (shallow)
+          git clone --depth 1 \
+            "https://x-access-token:${BROKK_RELEASES_TOKEN}@github.com/BrokkAi/brokk-releases.git" \
+            /tmp/brokk-releases
+
+          # Seed catalog if it doesn't exist yet
+          if [ ! -f /tmp/brokk-releases/jbang-catalog.json ]; then
+            echo '{"catalogs": {}, "aliases": {"brokk": {"script-ref": "", "java": "21", "java-options": []}}, "templates": {}}' \
+              > /tmp/brokk-releases/jbang-catalog.json
+          fi
+
+          # Reuse existing update script (runs in brokk checkout for git tags)
+          bash scripts/update-jbang-catalog.sh \
+            "$VERSION" \
+            /tmp/brokk-releases/jbang-catalog.json \
+            3
+
+          # Commit and push to brokk-releases
+          cd /tmp/brokk-releases
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add jbang-catalog.json
+          if git diff --cached --quiet; then
+            echo "No changes to jbang-catalog.json"
+          else
+            git commit -m "Update jbang-catalog.json for ${VERSION}"
+            git push
+          fi
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
