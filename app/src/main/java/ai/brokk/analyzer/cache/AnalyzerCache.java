@@ -65,13 +65,13 @@ public final class AnalyzerCache {
 
         previous.imports.forEachForward((file, units) -> {
             if (!changedFiles.contains(file)) {
-                this.imports.computeForwardIfAbsent(file, k -> Set.copyOf(units));
+                this.imports.putForward(file, Set.copyOf(units));
             }
         });
 
         previous.typeHierarchy.forEachForward((cu, supers) -> {
             if (!changedFiles.contains(cu.source())) {
-                this.typeHierarchy.computeForwardIfAbsent(cu, k -> List.copyOf(supers));
+                this.typeHierarchy.putForward(cu, List.copyOf(supers));
             }
         });
     }

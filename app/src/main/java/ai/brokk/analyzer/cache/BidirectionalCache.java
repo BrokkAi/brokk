@@ -21,6 +21,12 @@ public interface BidirectionalCache<K, V, RV> {
     V computeForwardIfAbsent(K key, Function<K, V> computer);
 
     /**
+     * Explicitly sets a forward mapping without triggering reverse population.
+     * This is intended for cache transfers and low-level maintenance.
+     */
+    void putForward(K key, V value);
+
+    /**
      * Copies all forward entries from the source cache into this cache.
      * Note: Reverse mappings are not automatically copied and will be populated
      * lazily or manually as entries are accessed or resolved.
