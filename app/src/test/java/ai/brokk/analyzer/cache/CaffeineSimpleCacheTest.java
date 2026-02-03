@@ -24,6 +24,19 @@ class CaffeineSimpleCacheTest {
     }
 
     @Test
+    void testPutAll() {
+        SimpleCache<String, Integer> source = new CaffeineSimpleCache<>(10);
+        source.put("key1", 1);
+        source.put("key2", 2);
+
+        SimpleCache<String, Integer> target = new CaffeineSimpleCache<>(10);
+        target.putAll(source);
+
+        assertEquals(1, target.get("key1"));
+        assertEquals(2, target.get("key2"));
+    }
+
+    @Test
     void testForEach() {
         SimpleCache<String, Integer> cache = new CaffeineSimpleCache<>(10);
         cache.put("a", 1);

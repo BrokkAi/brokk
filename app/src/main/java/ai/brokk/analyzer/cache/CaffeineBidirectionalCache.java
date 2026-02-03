@@ -47,6 +47,11 @@ public final class CaffeineBidirectionalCache<K, V, RV> implements Bidirectional
     }
 
     @Override
+    public void putAllForward(BidirectionalCache<K, V, RV> source) {
+        source.forEachForward(forwardCache::put);
+    }
+
+    @Override
     public V computeForwardIfAbsent(K key, Function<K, V> computer) {
         V existing = forwardCache.getIfPresent(key);
         if (existing != null) {

@@ -12,6 +12,24 @@ import org.junit.jupiter.api.Test;
 class CaffeineBidirectionalCacheTest {
 
     @Test
+    void testPutAllForward() {
+        CaffeineBidirectionalCache<String, String, String> source =
+                new CaffeineBidirectionalCache<>(100, (self, v) -> {}, () -> "");
+        source.computeForwardIfAbsent("key1", k -> "val1");
+        source.computeForwardIfAbsent("key2", k -> "val2");
+
+        CaffeineBidirectionalCache<String, String, String> target =
+                new CaffeineBidirectionalCache<>(100, (self, v) -> {}, () -> "");
+
+        target.putAllForward(source);
+
+        assertEquals("val1", target.getForward("key1"));
+        assertEquals("val2", target.getForward("key2"));
+        // Reverse should be null as it is populated lazily by the populator during computation
+        assertNull(target.getReverse("key1"));
+    }
+
+    @Test
     void testBasicForwardAndReverse() {
         CaffeineBidirectionalCache<String, List<String>, Set<String>> cache = new CaffeineBidirectionalCache<>(
                 100,
