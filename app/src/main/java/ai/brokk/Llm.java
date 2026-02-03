@@ -461,13 +461,15 @@ public class Llm {
             @Override
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
-                    logger.debug(th);
                     var mapped = ExceptionMapper.DEFAULT.mapException(th);
+                    logger.debug("LLM Error handled in stream: {}", mapped.toString());
+
                     var retryable = !(mapped instanceof NonRetriableException);
                     // Immediate feedback for user
                     String message =
                             "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+
                     errorRef.set(mapped);
                     if (echo && addJsonFence && fenceOpen.get()) {
                         io.llmOutput(
@@ -488,18 +490,21 @@ public class Llm {
             var mapped = ExceptionMapper.DEFAULT.mapException(t);
             lock.lock();
             try {
-                cancelled.set(true);
-                logger.debug(mapped);
-                var retryable = !(mapped instanceof NonRetriableException);
-                String message =
-                        "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
-                io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-                errorRef.set(mapped);
-                if (echo && addJsonFence && fenceOpen.get()) {
-                    io.llmOutput("\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
-                    fenceOpen.set(false);
+                if (!cancelled.get()) {
+                    cancelled.set(true);
+                    logger.debug("LLM Chat call threw exception: {}", mapped.toString());
+                    var retryable = !(mapped instanceof NonRetriableException);
+                    String message =
+                            "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                    errorRef.set(mapped);
+                    if (echo && addJsonFence && fenceOpen.get()) {
+                        io.llmOutput(
+                                "\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+                        fenceOpen.set(false);
+                    }
+                    completed.set(true);
                 }
-                completed.set(true);
             } finally {
                 lock.unlock();
                 tick.release();

@@ -172,7 +172,7 @@ public final class GitWorkflow {
         llm.setOutput(streamingOutput);
         var result = llm.sendRequest(messages);
 
-        if (result.error() != null) {
+        if (result.error() != null && !(result.error() instanceof dev.langchain4j.exception.RetriableException)) {
             throw new RuntimeException("LLM error while generating commit message", result.error());
         }
 

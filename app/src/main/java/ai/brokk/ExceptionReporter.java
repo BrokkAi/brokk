@@ -65,6 +65,12 @@ public class ExceptionReporter {
      */
     @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
+        // Do not report LLM provider-side or transient network failures as client exceptions
+        if (isProviderFailure(throwable)) {
+            logger.debug("Skipping exception report for provider/transient failure: {}", throwable.toString());
+            return;
+        }
+
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
 
@@ -132,6 +138,17 @@ public class ExceptionReporter {
         }
 
         return fullStacktrace;
+    }
+
+    private boolean isProviderFailure(Throwable th) {
+        if (th instanceof dev.langchain4j.exception.RetriableException) return true;
+        if (th instanceof dev.langchain4j.exception.HttpException h && h.statusCode() >= 500) return true;
+
+        Throwable cause = th.getCause();
+        if (cause != null && cause != th) {
+            return isProviderFailure(cause);
+        }
+        return false;
     }
 
     /**

@@ -195,29 +195,38 @@ public class CommitDialog extends BaseThemedDialog {
 
             @Override
             protected void done() {
-                super.done(); // centralized exception handling
+                // We do NOT call super.done() here because we want fine-grained control
+                // over which errors are reported as client exceptions.
                 try {
-                    get();
+                    String result = get();
                     SwingUtilities.invokeLater(() -> {
                         streamingIO.onComplete();
-                        regenerateButton.setVisible(true); // Show after first successful generation
+                        regenerateButton.setVisible(true);
                         commitMessageArea.requestFocusInWindow();
                         commitMessageArea.setCaretPosition(0);
-                        checkCommitButtonState();
                     });
-                } catch (InterruptedException | ExecutionException ignored) {
-                    // ExceptionAwareSwingWorker.done() already handled logging/notifications
-                    // Ensure text area is usable so user can type manually
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException ee) {
+                    Throwable cause = (ee.getCause() != null) ? ee.getCause() : ee;
+                    if (cause instanceof RuntimeException
+                            && cause.getCause() instanceof dev.langchain4j.exception.RetriableException) {
+                        // This is a handled provider error (e.g. 500 or Rate Limit).
+                        // Llm.onError has already shown a notification.
+                        logger.debug("Commit message suggestion failed due to provider error: {}", cause.getMessage());
+                    } else {
+                        // True programming or unexpected error
+                        ai.brokk.exception.GlobalExceptionHandler.handle(
+                                cause, st -> chrome.showNotification(IConsoleIO.NotificationRole.ERROR, st));
+                    }
                     SwingUtilities.invokeLater(() -> {
                         streamingIO.onComplete();
-                        commitMessageArea.setText("");
+                        regenerateButton.setVisible(true); // Still allow regeneration after transient failure
                         commitMessageArea.requestFocusInWindow();
                     });
                 } finally {
-                    // Clear streaming flag regardless of success/failure/cancel.
                     streamingSuggestionInProgress = false;
                     currentWorker = null;
-                    // Re-evaluate button state on the EDT to ensure UI consistency.
                     SwingUtilities.invokeLater(CommitDialog.this::checkCommitButtonState);
                 }
             }
