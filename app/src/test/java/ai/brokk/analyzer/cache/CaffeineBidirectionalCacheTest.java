@@ -30,6 +30,27 @@ class CaffeineBidirectionalCacheTest {
     }
 
     @Test
+    void testPutAllForwardInvalidatesStaleReverse() {
+        CaffeineBidirectionalCache<String, String, String> source =
+                new CaffeineBidirectionalCache<>(100, (self, v) -> {}, () -> "");
+        source.computeForwardIfAbsent("key1", k -> "new_val");
+
+        CaffeineBidirectionalCache<String, String, String> target =
+                new CaffeineBidirectionalCache<>(100, (self, v) -> {}, () -> "");
+
+        // 1. Target has existing stale reverse entry
+        target.updateReverse("key1", existing -> "stale_reverse");
+        assertEquals("stale_reverse", target.getReverse("key1"));
+
+        // 2. Call putAllForward
+        target.putAllForward(source);
+
+        // 3. Assert reverse is cleared and forward is updated
+        assertEquals("new_val", target.getForward("key1"));
+        assertNull(target.getReverse("key1"), "Reverse cache should have been invalidated to prevent stale data");
+    }
+
+    @Test
     void testBasicForwardAndReverse() {
         CaffeineBidirectionalCache<String, List<String>, Set<String>> cache = new CaffeineBidirectionalCache<>(
                 100,

@@ -48,6 +48,8 @@ public final class CaffeineBidirectionalCache<K, V, RV> implements Bidirectional
 
     @Override
     public void putAllForward(BidirectionalCache<K, V, RV> source) {
+        forwardCache.invalidateAll();
+        reverseCache.invalidateAll();
         source.forEachForward(forwardCache::put);
     }
 
