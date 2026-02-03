@@ -3,6 +3,7 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -120,5 +121,55 @@ public class TaskListUIRefreshTest {
         // Replace with empty (via withTaskList)
         var c2 = c1.withTaskList(new TaskList.TaskListData(List.of()));
         assertFalse(c2.getTaskListFragment().isPresent(), "Fragment should be removed on empty replacement");
+    }
+
+    @Test
+    void taskListChanges_produceNonEmptyDeltaAndMeaningfulAction() {
+        var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
+        var ctx0 = new Context(cm);
+
+        // Step 1: Add a new task list to an empty context
+        var data1 = new TaskList.TaskListData(List.of(
+                new TaskList.TaskItem("T1", "First task", false), new TaskList.TaskItem("T2", "Second task", false)));
+        var ctx1 = ctx0.withTaskList(data1);
+
+        var delta1 = ContextDelta.between(ctx0, ctx1).join();
+        var action1 = ctx1.getAction(ctx0).join();
+
+        assertFalse(delta1.isEmpty(), "Delta should not be empty after adding task list");
+        assertNotNull(action1);
+        assertFalse(action1.isBlank());
+        assertNotEquals("(No changes)", action1);
+        assertTrue(action1.contains("Task List"), "Action should mention Task List: " + action1);
+
+        // Step 2: Update the existing task list (content change)
+        var data2 = new TaskList.TaskListData(
+                "Big picture",
+                List.of(
+                        new TaskList.TaskItem("T1", "First task", true), // mark done
+                        new TaskList.TaskItem("T2", "Second task", false)));
+        var ctx2 = ctx1.withTaskList(data2);
+
+        var delta2 = ContextDelta.between(ctx1, ctx2).join();
+        var action2 = ctx2.getAction(ctx1).join();
+
+        assertFalse(delta2.isEmpty(), "Delta should not be empty after updating task list content");
+        assertNotNull(action2);
+        assertFalse(action2.isBlank());
+        assertNotEquals("(No changes)", action2);
+        assertTrue(action2.contains("Task List"), "Action should mention Task List: " + action2);
+
+        // Step 3: Clear the task list
+        var data3 = new TaskList.TaskListData(List.of());
+        var ctx3 = ctx2.withTaskList(data3);
+
+        var delta3 = ContextDelta.between(ctx2, ctx3).join();
+        var action3 = ctx3.getAction(ctx2).join();
+
+        assertFalse(delta3.isEmpty(), "Delta should not be empty after clearing task list");
+        assertNotNull(action3);
+        assertFalse(action3.isBlank());
+        assertNotEquals("(No changes)", action3);
+        assertTrue(action3.contains("Task List"), "Action should mention Task List: " + action3);
     }
 }
