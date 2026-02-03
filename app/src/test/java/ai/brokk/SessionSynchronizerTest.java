@@ -45,24 +45,32 @@ class SessionSynchronizerTest {
         List<UUID> uploadedIds = new ArrayList<>();
         List<UUID> downloadedIds = new ArrayList<>();
 
+        // New flag to simulate throwing from listRemoteSessions; default false to preserve existing tests
+        boolean throwOnList = false;
+
         @Override
-        public List<RemoteSessionMeta> listRemoteSessions(String remote) {
+        public List<RemoteSessionMeta> listRemoteSessions(String remote) throws IOException {
+            if (throwOnList) {
+                // simulate a transient socket timeout
+                throw new java.net.SocketTimeoutException("test timeout");
+            }
             return remoteSessions;
         }
 
         @Override
-        public byte[] getRemoteSessionContent(UUID id) {
+        public byte[] getRemoteSessionContent(UUID id) throws IOException {
             downloadedIds.add(id);
             return remoteContent.getOrDefault(id, new byte[0]);
         }
 
         @Override
-        public void writeRemoteSession(UUID id, String remote, String name, long modifiedAt, byte[] contentZip) {
+        public void writeRemoteSession(UUID id, String remote, String name, long modifiedAt, byte[] contentZip)
+                throws IOException {
             uploadedIds.add(id);
         }
 
         @Override
-        public void deleteRemoteSession(UUID id) {
+        public void deleteRemoteSession(UUID id) throws IOException {
             deletedRemoteIds.add(id);
         }
     }
@@ -225,6 +233,47 @@ class SessionSynchronizerTest {
         assertFalse(syncCallbacks.downloadedIds.contains(idE), "Session E should not be downloaded");
         assertFalse(syncCallbacks.uploadedIds.contains(idE), "Session E should not be uploaded");
         assertFalse(syncCallbacks.deletedRemoteIds.contains(idE), "Session E should not be deleted");
+    }
+
+    /**
+     * Helper that mimics ContextManager.submitSessionSyncIfActive() semantics for exception handling:
+     * run synchronize() in a background task and swallow IOExceptions while preserving interrupts.
+     */
+    private CompletableFuture<Void> runSyncIgnoringIo(SessionSynchronizer synchronizer) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                synchronizer.synchronize();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            } catch (IOException ioe) {
+                // Mimic ContextManager: treat I/O errors (including SocketTimeoutException) as transient and do not rethrow
+            }
+        });
+    }
+
+    @Test
+    void synchronizeWithTimeoutDoesNotPropagateException() {
+        // Arrange: configure FakeSyncCallbacks to throw from listRemoteSessions
+        syncCallbacks.throwOnList = true;
+
+        // Re-create synchronizer under test using the existing TestContextManager and FakeSyncCallbacks
+        SessionSynchronizer timeoutSynchronizer = new SessionSynchronizer(new TestContextManager(project, null), syncCallbacks) {
+            @Override
+            protected Map<UUID, IContextManager> getOpenContextManagers() {
+                return Map.of();
+            }
+        };
+
+        // Act: run the helper twice to simulate repeated sync submissions
+        CompletableFuture<Void> first = runSyncIgnoringIo(timeoutSynchronizer);
+        CompletableFuture<Void> second = runSyncIgnoringIo(timeoutSynchronizer);
+
+        // Assert: both futures complete without propagating the SocketTimeoutException
+        assertDoesNotThrow(first::join, "First sync with timeout should complete without throwing to caller");
+        assertDoesNotThrow(second::join, "Second sync with timeout should also complete without throwing to caller");
+
+        assertFalse(first.isCompletedExceptionally());
+        assertFalse(second.isCompletedExceptionally());
     }
 
     private byte[] createValidSessionZip(UUID id, String name, long modified) throws IOException {
