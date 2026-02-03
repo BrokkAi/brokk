@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -66,17 +67,19 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         super(project, Languages.PYTHON, listener);
     }
 
-    private PythonAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.PYTHON, state, listener);
+    private PythonAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.PYTHON, state, listener, cache);
     }
 
     public static PythonAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new PythonAnalyzer(project, state, listener);
+        return new PythonAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new PythonAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new PythonAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override

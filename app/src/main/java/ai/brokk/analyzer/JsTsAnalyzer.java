@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_CALL_CAPTURE_NAME;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -45,7 +46,16 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     protected JsTsAnalyzer(IProject project, Language language, AnalyzerState state, ProgressListener listener) {
-        super(project, language, state, listener);
+        this(project, language, state, listener, null);
+    }
+
+    protected JsTsAnalyzer(
+            IProject project,
+            Language language,
+            AnalyzerState state,
+            ProgressListener listener,
+            @Nullable AnalyzerCache cache) {
+        super(project, language, state, listener, cache);
     }
 
     @Override

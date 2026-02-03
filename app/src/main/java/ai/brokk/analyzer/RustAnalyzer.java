@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,17 +48,19 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.RUST, listener);
     }
 
-    private RustAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.RUST, state, listener);
+    private RustAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.RUST, state, listener, cache);
     }
 
     public static RustAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new RustAnalyzer(project, state, listener);
+        return new RustAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new RustAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new RustAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override

@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
@@ -123,20 +124,22 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         super(project, Languages.TYPESCRIPT, listener);
     }
 
-    private TypescriptAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.TYPESCRIPT, state, listener);
+    private TypescriptAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.TYPESCRIPT, state, listener, cache);
     }
 
     /**
      * Factory to create a snapshot-based analyzer from a prebuilt AnalyzerState.
      */
     public static TypescriptAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new TypescriptAnalyzer(project, state, listener);
+        return new TypescriptAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected TypescriptAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new TypescriptAnalyzer(getProject(), state, listener);
+    protected TypescriptAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new TypescriptAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
