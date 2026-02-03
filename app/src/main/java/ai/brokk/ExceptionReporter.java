@@ -173,19 +173,12 @@ public class ExceptionReporter {
         enriched.put("osDescription", Environment.getOsDescription());
         enriched.put("jreDescription", Environment.getJreDescription());
 
-        // Collect watch-service selection signals
+        // Collect watch-service selection signals (process-local only)
         @Nullable String sysProp = System.getProperty("brokk.watchservice.impl");
         @Nullable String envVar = System.getenv("BROKK_WATCHSERVICE_IMPL");
-        String persistedPref;
-        try {
-            persistedPref = MainProject.getWatchServiceImplPreference();
-        } catch (Throwable t) {
-            persistedPref = "(unavailable)";
-        }
 
         enriched.put("watchServiceSysProp", sysProp != null ? sysProp : "(not set)");
         enriched.put("watchServiceEnvVar", envVar != null ? envVar : "(not set)");
-        enriched.put("watchServicePersistedPref", persistedPref.isBlank() ? "(blank)" : persistedPref);
 
         return enriched;
     }

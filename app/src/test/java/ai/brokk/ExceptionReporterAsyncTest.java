@@ -271,11 +271,9 @@ class ExceptionReporterAsyncTest {
                 call.optionalFields.get("jreDescription"),
                 "jreDescription should match Environment.getJreDescription()");
 
-        // Verify watch-service config fields are present
+        // Verify watch-service config fields are present (process-local signals only)
         assertTrue(call.optionalFields.containsKey("watchServiceSysProp"), "Should include watchServiceSysProp");
         assertTrue(call.optionalFields.containsKey("watchServiceEnvVar"), "Should include watchServiceEnvVar");
-        assertTrue(
-                call.optionalFields.containsKey("watchServicePersistedPref"), "Should include watchServicePersistedPref");
     }
 
     @Test
@@ -298,6 +296,9 @@ class ExceptionReporterAsyncTest {
         assertTrue(
                 call.optionalFields.containsKey("watchServiceSysProp"),
                 "Should include watchServiceSysProp for wrapped cause");
+        assertTrue(
+                call.optionalFields.containsKey("watchServiceEnvVar"),
+                "Should include watchServiceEnvVar for wrapped cause");
     }
 
     @Test
