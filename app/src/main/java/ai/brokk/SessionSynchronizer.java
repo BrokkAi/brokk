@@ -436,25 +436,53 @@ class SessionSynchronizer {
 
             // Fetch state
             List<RemoteSessionMeta> remoteSessions;
-            try {
-                remoteSessions = syncCallbacks.listRemoteSessions(remoteProject);
-            } catch (IOException e) {
-                // Distinguish timeouts for clearer debugging; still treat as a single-cycle abort.
-                if (e instanceof SocketTimeoutException) {
-                    logger.warn(
-                            "Session sync aborted: timed out while listing remote sessions for project '{}': {}: {}",
-                            remoteProject,
-                            e.getClass().getSimpleName(),
-                            e.getMessage());
-                } else {
-                    logger.warn(
-                            "Session sync aborted: failed to list remote sessions for project '{}': {}: {}",
-                            remoteProject,
-                            e.getClass().getSimpleName(),
-                            e.getMessage());
+            // Implement a minimal, bounded retry strategy for transient SocketTimeoutException from listing.
+            final int LIST_MAX_ATTEMPTS = 2; // initial try + 1 retry
+            final long BASE_BACKOFF_MS = 250L;
+            int attempt = 0;
+            while (true) {
+                attempt++;
+                try {
+                    remoteSessions = syncCallbacks.listRemoteSessions(remoteProject);
+                    break;
+                } catch (IOException e) {
+                    boolean isTimeout = e instanceof SocketTimeoutException;
+                    if (isTimeout) {
+                        logger.warn(
+                                "Attempt {}/{}: timed out while listing remote sessions for project '{}': {}: {}",
+                                attempt,
+                                LIST_MAX_ATTEMPTS,
+                                remoteProject,
+                                e.getClass().getSimpleName(),
+                                e.getMessage());
+                        if (attempt >= LIST_MAX_ATTEMPTS) {
+                            logger.warn(
+                                    "Session sync aborted after {} attempt(s) due to repeated timeouts listing remote sessions for project '{}'.",
+                                    attempt,
+                                    remoteProject);
+                            // Abort this sync cycle gracefully without throwing further.
+                            return;
+                        }
+                        // Back off a little before retrying, but respect interruption.
+                        try {
+                            long backoff = BASE_BACKOFF_MS * attempt;
+                            Thread.sleep(backoff);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw ie;
+                        }
+                        // retry
+                        continue;
+                    } else {
+                        // Non-timeout IO failures should abort the sync cycle as before and be logged.
+                        logger.warn(
+                                "Session sync aborted: failed to list remote sessions for project '{}': {}: {}",
+                                remoteProject,
+                                e.getClass().getSimpleName(),
+                                e.getMessage());
+                        return;
+                    }
                 }
-                // Do not propagate this exception — abort this sync cycle gracefully.
-                return;
             }
             Map<UUID, SessionInfo> localSessions = new HashMap<>(sessionManager.getSessionsCache());
 
