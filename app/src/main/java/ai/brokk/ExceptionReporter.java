@@ -10,7 +10,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.nio.file.ClosedWatchServiceException;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -21,7 +20,6 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Reports uncaught exceptions to the Brokk server for monitoring and debugging purposes. This class handles
@@ -69,8 +67,8 @@ public class ExceptionReporter {
      */
     @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
-        // Enrich with always-on OS/JRE telemetry and conditional watch-service telemetry
-        Map<String, String> enrichedFields = enrichFields(throwable, optionalFields);
+        // Enrich with always-on OS/JRE telemetry
+        Map<String, String> enrichedFields = enrichFields(optionalFields);
 
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
@@ -142,43 +140,18 @@ public class ExceptionReporter {
     }
 
     /**
-     * Checks if the throwable or any of its causes is a ClosedWatchServiceException.
-     */
-    private static boolean isCausedByClosedWatchServiceException(Throwable throwable) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (current instanceof ClosedWatchServiceException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    /**
-     * Enriches the optional fields with always-on OS/JRE telemetry, plus conditional
-     * watch-service configuration telemetry if the throwable is or is caused by a
-     * ClosedWatchServiceException. Uses putIfAbsent to preserve caller-provided keys.
+     * Enriches the optional fields with always-on OS/JRE telemetry.
+     * Uses putIfAbsent to preserve caller-provided keys.
      *
-     * @param throwable The exception being reported
      * @param originalFields The original optional fields (may be empty)
      * @return Enriched fields with telemetry added
      */
-    private static Map<String, String> enrichFields(Throwable throwable, Map<String, String> originalFields) {
+    private static Map<String, String> enrichFields(Map<String, String> originalFields) {
         var enriched = new HashMap<>(originalFields);
 
         // Always add OS/JRE telemetry (but don't overwrite caller-provided values)
         enriched.putIfAbsent("osDescription", Environment.getOsDescription());
         enriched.putIfAbsent("jreDescription", Environment.getJreDescription());
-
-        // Conditionally add watch-service telemetry for ClosedWatchServiceException
-        if (isCausedByClosedWatchServiceException(throwable)) {
-            @Nullable String sysProp = System.getProperty("brokk.watchservice.impl");
-            @Nullable String envVar = System.getenv("BROKK_WATCHSERVICE_IMPL");
-
-            enriched.putIfAbsent("watchServiceSysProp", sysProp != null ? sysProp : "(not set)");
-            enriched.putIfAbsent("watchServiceEnvVar", envVar != null ? envVar : "(not set)");
-        }
 
         return enriched;
     }

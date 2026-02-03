@@ -261,8 +261,8 @@ class ExceptionReporterAsyncTest {
     }
 
     @Test
-    @DisplayName("Should enrich ClosedWatchServiceException with OS/JRE/watch-service telemetry")
-    void shouldEnrichClosedWatchServiceExceptionWithTelemetry() throws Exception {
+    @DisplayName("Should treat ClosedWatchServiceException like any other exception")
+    void shouldTreatClosedWatchServiceExceptionLikeAnyOther() throws Exception {
         Exception testException = new ClosedWatchServiceException();
 
         exceptionReporter.reportException(testException);
@@ -284,14 +284,14 @@ class ExceptionReporterAsyncTest {
                 call.optionalFields.get("jreDescription"),
                 "jreDescription should match Environment.getJreDescription()");
 
-        // Verify watch-service config fields are present (process-local signals only)
-        assertTrue(call.optionalFields.containsKey("watchServiceSysProp"), "Should include watchServiceSysProp");
-        assertTrue(call.optionalFields.containsKey("watchServiceEnvVar"), "Should include watchServiceEnvVar");
+        // Verify watch-service config fields are NOT present (no special treatment)
+        assertFalse(call.optionalFields.containsKey("watchServiceSysProp"), "Should not include watchServiceSysProp");
+        assertFalse(call.optionalFields.containsKey("watchServiceEnvVar"), "Should not include watchServiceEnvVar");
     }
 
     @Test
-    @DisplayName("Should enrich wrapped ClosedWatchServiceException with telemetry")
-    void shouldEnrichWrappedClosedWatchServiceExceptionWithTelemetry() throws Exception {
+    @DisplayName("Should treat wrapped ClosedWatchServiceException like any other exception")
+    void shouldTreatWrappedClosedWatchServiceExceptionLikeAnyOther() throws Exception {
         Exception cause = new ClosedWatchServiceException();
         Exception wrapper = new RuntimeException("Wrapper exception", cause);
 
@@ -302,16 +302,13 @@ class ExceptionReporterAsyncTest {
 
         ServiceCall call = serviceSpy.getCalls().get(0);
 
-        // Verify telemetry fields are present even when ClosedWatchServiceException is wrapped
-        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription for wrapped cause");
-        assertTrue(
-                call.optionalFields.containsKey("jreDescription"), "Should include jreDescription for wrapped cause");
-        assertTrue(
-                call.optionalFields.containsKey("watchServiceSysProp"),
-                "Should include watchServiceSysProp for wrapped cause");
-        assertTrue(
-                call.optionalFields.containsKey("watchServiceEnvVar"),
-                "Should include watchServiceEnvVar for wrapped cause");
+        // Verify OS/JRE telemetry fields are present
+        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
+        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
+
+        // Verify watch-service config fields are NOT present (no special treatment)
+        assertFalse(call.optionalFields.containsKey("watchServiceSysProp"), "Should not include watchServiceSysProp");
+        assertFalse(call.optionalFields.containsKey("watchServiceEnvVar"), "Should not include watchServiceEnvVar");
     }
 
     @Test
@@ -360,11 +357,13 @@ class ExceptionReporterAsyncTest {
         assertEquals("customValue", call.optionalFields.get("customField"), "Caller field should be preserved");
         assertEquals("anotherValue", call.optionalFields.get("anotherField"), "Caller field should be preserved");
 
-        // Verify telemetry fields are also present
+        // Verify OS/JRE telemetry fields are present
         assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
         assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-        assertTrue(call.optionalFields.containsKey("watchServiceSysProp"), "Should include watchServiceSysProp");
-        assertTrue(call.optionalFields.containsKey("watchServiceEnvVar"), "Should include watchServiceEnvVar");
+
+        // Verify watch-service config fields are NOT present (no special treatment)
+        assertFalse(call.optionalFields.containsKey("watchServiceSysProp"), "Should not include watchServiceSysProp");
+        assertFalse(call.optionalFields.containsKey("watchServiceEnvVar"), "Should not include watchServiceEnvVar");
     }
 
     @Test
