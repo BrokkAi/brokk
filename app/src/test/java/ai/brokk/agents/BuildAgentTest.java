@@ -18,6 +18,7 @@ import java.util.function.Predicate;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
@@ -300,6 +301,63 @@ class BuildAgentTest {
         String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "");
 
         assertEquals("uv run tests.e2e", result);
+    }
+
+    @Disabled("Regression test: fails until DecoratedCollection {{.}} bug is fixed")
+    @Test
+    void testInterpolateDotSyntaxRendersRawStrings() {
+        // Regression test: {{.}} should render the raw string value, not Element@...
+        String template = "pytest {{#files}}{{.}}{{/files}}";
+        List<String> files = List.of("tests/test_foo.py", "tests/test_bar.py");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
+
+        // Must contain actual file paths
+        assertTrue(result.contains("tests/test_foo.py"), "Result should contain first file path");
+        assertTrue(result.contains("tests/test_bar.py"), "Result should contain second file path");
+        // Must NOT contain Element@ toString representation
+        assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
+    }
+
+    @Disabled("Regression test: fails until DecoratedCollection {{.}} bug is fixed")
+    @Test
+    void testInterpolateDotSyntaxWithSeparator() {
+        // Regression test: {{.}} with {{^last}} separator should work correctly
+        String template = "go test -run '{{#classes}}{{.}}{{^last}}|{{/last}}{{/classes}}'";
+        List<String> classes = List.of("TestFoo", "TestBar", "TestBaz");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
+
+        // Should produce pipe-separated list without trailing separator
+        assertEquals("go test -run 'TestFoo|TestBar|TestBaz'", result);
+        // Must NOT contain Element@ toString representation
+        assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
+    }
+
+    @Disabled("Regression test: fails until DecoratedCollection {{.}} bug is fixed")
+    @Test
+    void testInterpolateDotSyntaxSingleItem() {
+        // Regression test: {{.}} with single item should work and not have trailing separator
+        String template = "mvn test -Dtest={{#classes}}{{.}}{{^last}},{{/last}}{{/classes}}";
+        List<String> classes = List.of("MyTest");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
+
+        assertEquals("mvn test -Dtest=MyTest", result);
+        assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
+    }
+
+    @Disabled("Regression test: fails until DecoratedCollection {{.}} bug is fixed")
+    @Test
+    void testInterpolateDotSyntaxWithSpaceSeparator() {
+        // Regression test: common pattern for file-based test runners
+        String template = "jest {{#files}}{{.}}{{^last}} {{/last}}{{/files}}";
+        List<String> files = List.of("src/app.test.js", "src/util.test.js");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
+
+        assertEquals("jest src/app.test.js src/util.test.js", result);
+        assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
     }
 
     @Test
