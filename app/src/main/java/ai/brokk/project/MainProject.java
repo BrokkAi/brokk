@@ -313,59 +313,82 @@ public final class MainProject extends AbstractProject {
     }
 
     private boolean tryOpenCache(Path cacheDir) {
-        Path lockFile = cacheDir.resolve("cache.lock");
-        FileChannel channel = null;
-        FileLock lock = null;
-        try {
-            Files.createDirectories(cacheDir);
-
-            channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            Path lockFile = cacheDir.resolve("cache.lock");
+            FileChannel channel = null;
+            FileLock lock = null;
             try {
-                lock = channel.tryLock();
-            } catch (OverlappingFileLockException e) {
-                // This happens if another MainProject instance in the same JVM already has the lock.
-                logger.debug("Overlapping lock detected for {}", lockFile);
-                channel.close();
-                return false;
-            }
+                    Files.createDirectories(cacheDir);
 
-            if (lock == null) {
-                logger.debug("Unable to acquire lock on {}", lockFile);
-                channel.close();
-                return false;
-            }
+                    channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                    try {
+                            lock = channel.tryLock();
+                    } catch (OverlappingFileLockException e) {
+                            logger.debug("Cache lock already held in this JVM for {}: {}", lockFile, e.toString());
+                            channel.close();
+                            return false;
+                    } catch (RuntimeException e) {
+                            logger.warn("Unexpected runtime error while acquiring cache lock for {}: {}", lockFile, e.toString());
+                            channel.close();
+                            return false;
+                    }
 
-            DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
-            this.diskCache = new StringDiskCache(dlc);
-            this.cacheLockChannel = channel;
-            this.cacheFileLock = lock;
+                    if (lock == null) {
+                            logger.debug("Cache lock already held by another process: {}", lockFile);
+                            channel.close();
+                            return false;
+                    }
 
-            logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
-            return true;
-        } catch (IOException e) {
-            logger.warn("Failed to initialize cache at {}: {}", cacheDir, e.getMessage());
-            try {
-                if (lock != null) lock.release();
-                if (channel != null) channel.close();
-            } catch (IOException cleanupEx) {
-                // Ignore cleanup errors
+                    DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+
+                    // Only assign to fields after everything is successfully opened
+                    this.diskCache = new StringDiskCache(dlc);
+                    this.cacheLockChannel = channel;
+                    this.cacheFileLock = lock;
+
+                    logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
+                    return true;
+            } catch (IOException e) {
+                    logger.warn("I/O error initializing cache at {}: {}", cacheDir, e.toString());
+                    // Cleanup local resources on failure
+                    try {
+                            if (lock != null) {
+                                    lock.release();
+                            }
+                    } catch (IOException ignored) {
+                    }
+                    try {
+                            if (channel != null) {
+                                    channel.close();
+                            }
+                    } catch (IOException ignored) {
+                    }
+                    return false;
             }
-            return false;
-        }
     }
 
+    /**
+            * Releases the file lock and closes the channel. Called on shutdown and after failures
+            * to ensure no stale locks are left behind.
+            */
     private void closeCacheLock() {
-        try {
-            if (cacheFileLock != null) {
-                cacheFileLock.release();
-                cacheFileLock = null;
+                                    try {
+                                                                    var lock = cacheFileLock;
+                                                                    if (lock != null) {
+                                                                                                    cacheFileLock = null;
+                                                                                                    lock.release();
+                                                                    }
+                                    } catch (IOException e) {
+            logger.warn("Error releasing cache file lock: {}", e.getMessage());
+        } finally {
+            try {
+                var channel = cacheLockChannel;
+                if (channel != null) {
+                    cacheLockChannel = null;
+                    channel.close();
+                }
+            } catch (IOException e) {
+                logger.warn("Error closing cache lock channel: {}", e.getMessage());
             }
-            if (cacheLockChannel != null) {
-                cacheLockChannel.close();
-                cacheLockChannel = null;
-            }
-        } catch (IOException e) {
-            logger.warn("Error releasing cache lock: {}", e.getMessage());
         }
     }
 
@@ -2179,9 +2202,11 @@ public final class MainProject extends AbstractProject {
 
         // Close disk cache if open
         try {
-            if (diskCache != null) {
-                diskCache.close();
+            var cache = diskCache;
+            if (cache != null) {
+                // Null out before closing to prevent reuse of a closed cache instance
                 diskCache = null;
+                cache.close();
                 logger.debug("Closed disk cache for project {}", root.getFileName());
             }
         } catch (Exception e) {
