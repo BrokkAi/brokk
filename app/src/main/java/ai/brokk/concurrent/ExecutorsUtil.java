@@ -1,6 +1,7 @@
 package ai.brokk.concurrent;
 
 import ai.brokk.exception.GlobalExceptionHandler;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
@@ -21,10 +22,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 4. {@code ExecutorsUtil.newVirtualThreadExecutor}
  * 5. {@code Semaphore.acquire()} (inside the ThreadFactory)
  *
- * <p>If interrupted at step 5, the {@code InterruptedException} is wrapped in a {@code RuntimeException}.
- * This bubbles up through {@link LoggingFuture} and is eventually handled by {@link UserActionManager}'s
- * error consumer, which currently reports it as a client exception because it doesn't recognize the
- * wrapped interruption as a normal cancellation.
+ * <p>If interrupted at step 5, the {@code InterruptedException} is caught, the interrupt flag is re-set,
+ * and a {@link CancellationException} is thrown. This is intended to be interpreted by callers
+ * (especially {@link UserActionManager} and {@link GlobalExceptionHandler}) as a normal
+ * cancellation rather than a client crash.
  */
 public final class ExecutorsUtil {
 
@@ -64,11 +65,13 @@ public final class ExecutorsUtil {
             @Override
             public synchronized Thread newThread(Runnable r) {
                 try {
-                    // Block creation if we've reached the cap
+                    // Block creation if we've reached the cap. If interrupted (e.g. via
+                    // UserActionManager.cancelActiveAction), we preserve interrupt status
+                    // and throw CancellationException to signal a benign cancellation.
                     permits.acquire();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    throw new RuntimeException("Interrupted while acquiring virtual-thread permit", e);
+                    throw new CancellationException("Interrupted while acquiring virtual-thread permit");
                 }
 
                 // Ensure the permit is released when the task completes
