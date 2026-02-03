@@ -34,6 +34,35 @@ public final class AnalyzerCache {
                 Collections::emptyList);
     }
 
+    public AnalyzerCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        this();
+        previous.trees.forEach((file, tree) -> {
+            if (!changedFiles.contains(file)) {
+                this.trees.put(file, tree);
+            }
+        });
+
+        previous.rawSupertypes.forEach((cu, supers) -> {
+            if (!changedFiles.contains(cu.source())) {
+                this.rawSupertypes.put(cu, supers);
+            }
+        });
+
+        previous.imports.forEachForward((file, units) -> {
+            if (!changedFiles.contains(file)) {
+                this.imports.computeForwardIfAbsent(file, k -> units);
+                // Reverse is derived lazily or manually populated by callers;
+                // copying forward is sufficient for transfer.
+            }
+        });
+
+        previous.typeHierarchy.forEachForward((cu, supers) -> {
+            if (!changedFiles.contains(cu.source())) {
+                this.typeHierarchy.computeForwardIfAbsent(cu, k -> supers);
+            }
+        });
+    }
+
     public SimpleCache<ProjectFile, TSTree> trees() {
         return trees;
     }
