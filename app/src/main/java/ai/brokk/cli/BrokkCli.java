@@ -1014,14 +1014,14 @@ public final class BrokkCli implements Callable<Integer> {
                 name: brokk
                 description: Code search and editing. Faster and more accurate than builtins.
                 ---
-               
+
                # Using Brokk
-               
+
                Brokk is as smart as you are, so you only have to describe what you want and
                he will perform the changes. However! Brokk does not have access to your session
                or your thinking process, and he starts fresh with each command, so your requests
                to him must be self-contained, complete, and unambiguous.
-               
+
                You should ALWAYS use Brokk for code discovery and editing.
 
                """
