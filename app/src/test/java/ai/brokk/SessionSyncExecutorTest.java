@@ -377,6 +377,149 @@ class SessionSyncExecutorTest {
         return Files.readAllBytes(tempZip);
     }
 
+    // --- Additional timeout / IO handling tests ---
+
+    @Test
+    void synchronize_handlesSocketTimeoutOnListRemoteSessions_viaSynchronizer() {
+        // Arrange: create callbacks that throw SocketTimeoutException on listing.
+        class TimeoutCallbacks implements SyncCallbacks {
+            int listAttempts = 0;
+            boolean getCalled = false;
+            boolean writeCalled = false;
+            boolean deleteCalled = false;
+
+            @Override
+            public List<RemoteSessionMeta> listRemoteSessions(String remote) throws IOException {
+                listAttempts++;
+                throw new java.net.SocketTimeoutException("simulated timeout");
+            }
+
+            @Override
+            public byte[] getRemoteSessionContent(UUID id) throws IOException {
+                getCalled = true;
+                return new byte[0];
+            }
+
+            @Override
+            public void writeRemoteSession(UUID id, String remote, String name, long modifiedAt, byte[] contentZip)
+                    throws IOException {
+                writeCalled = true;
+            }
+
+            @Override
+            public void deleteRemoteSession(UUID id) {
+                deleteCalled = true;
+            }
+        }
+
+        TimeoutCallbacks callbacks = new TimeoutCallbacks();
+        TestContextManager cm = new TestContextManager(projectStub, UUID.randomUUID());
+        SessionSynchronizer localSync = new SessionSynchronizer(cm, callbacks) {
+            @Override
+            protected Map<UUID, IContextManager> getOpenContextManagers() {
+                return Map.of();
+            }
+        };
+
+        // Act & Assert: should not throw and should not invoke per-session callbacks
+        assertDoesNotThrow(() -> localSync.synchronize());
+        // The retry policy uses LIST_MAX_ATTEMPTS = 2 (initial try + 1 retry)
+        assertEquals(2, callbacks.listAttempts, "listRemoteSessions should be attempted exactly twice on timeout");
+        assertFalse(callbacks.getCalled, "getRemoteSessionContent must not be called when listing fails");
+        assertFalse(callbacks.writeCalled, "writeRemoteSession must not be called when listing fails");
+        assertFalse(callbacks.deleteCalled, "deleteRemoteSession must not be called when listing fails");
+        // Also assert no sessions added locally
+        assertTrue(sessionManager.getSessionsCache().isEmpty(), "No sessions should be added on listing failure");
+    }
+
+    @Test
+    void synchronize_retriesAfterTimeoutAndThenSucceeds_viaSynchronizer() throws IOException, InterruptedException {
+        // Arrange: callbacks that fail once then succeed
+        final UUID remoteId = UUID.randomUUID();
+        final String timeStr = Instant.now().toString();
+        final RemoteSessionMeta meta = new RemoteSessionMeta(
+                remoteId.toString(),
+                "u1",
+                "o1",
+                REMOTE_PROJECT,
+                "Recovered Session",
+                "private",
+                timeStr,
+                timeStr,
+                timeStr,
+                null);
+
+        class FlakyCallbacks implements SyncCallbacks {
+            int attempts = 0;
+            List<RemoteSessionMeta> remoteSessions = new ArrayList<>();
+            Map<UUID, byte[]> remoteContent = new HashMap<>();
+            List<UUID> downloadedIds = new ArrayList<>();
+            List<UUID> uploadedIds = new ArrayList<>();
+            List<UUID> deletedIds = new ArrayList<>();
+
+            @Override
+            public List<RemoteSessionMeta> listRemoteSessions(String remote) throws IOException {
+                attempts++;
+                if (attempts == 1) {
+                    // First attempt simulates transient timeout
+                    throw new java.net.SocketTimeoutException("simulated transient timeout");
+                } else {
+                    // Subsequent attempts succeed and return one remote-only session
+                    return List.of(meta);
+                }
+            }
+
+            @Override
+            public byte[] getRemoteSessionContent(UUID id) throws IOException {
+                downloadedIds.add(id);
+                try {
+                    // Reuse helper to build a valid small session zip
+                    return createValidSessionZip(id, "Recovered Session", System.currentTimeMillis());
+                } catch (IOException e) {
+                    throw new IOException("failed to create test zip", e);
+                }
+            }
+
+            @Override
+            public void writeRemoteSession(UUID id, String remote, String name, long modifiedAt, byte[] contentZip)
+                    throws IOException {
+                uploadedIds.add(id);
+            }
+
+            @Override
+            public void deleteRemoteSession(UUID id) throws IOException {
+                deletedIds.add(id);
+            }
+        }
+
+        FlakyCallbacks callbacks = new FlakyCallbacks();
+        TestContextManager cm = new TestContextManager(projectStub, UUID.randomUUID());
+        SessionSynchronizer localSync = new SessionSynchronizer(cm, callbacks) {
+            @Override
+            protected Map<UUID, IContextManager> getOpenContextManagers() {
+                return Map.of();
+            }
+        };
+
+        // Sanity check: ensure remote session is not already present locally
+        assertFalse(sessionManager.getSessionsCache().containsKey(remoteId));
+
+        // Act: should retry once and then succeed
+        assertDoesNotThrow(() -> localSync.synchronize());
+
+        // Verify it retried exactly twice (first failed, second succeeded)
+        assertEquals(2, callbacks.attempts, "listRemoteSessions should be attempted twice (timeout then success)");
+
+        // Verify the remote-only session was downloaded and persisted locally
+        assertTrue(callbacks.downloadedIds.contains(remoteId), "Remote session should have been downloaded");
+        assertTrue(
+                sessionManager.getSessionsCache().containsKey(remoteId), "Downloaded session should be in local cache");
+
+        // No uploads or deletes should have been invoked for this scenario
+        assertTrue(callbacks.uploadedIds.isEmpty(), "No uploads expected");
+        assertTrue(callbacks.deletedIds.isEmpty(), "No deletes expected");
+    }
+
     // --- Stubs ---
 
     private static class FakeSyncCallbacks implements SyncCallbacks {

@@ -293,8 +293,17 @@ class SessionSynchronizerTest {
         // Arrange: callbacks that fail once then succeed
         final UUID remoteId = UUID.randomUUID();
         final String timeStr = Instant.now().toString();
-        final RemoteSessionMeta meta =
-                new RemoteSessionMeta(remoteId.toString(), "u1", "o1", "remote", "Recovered Session", "private", timeStr, timeStr, timeStr, null);
+        final RemoteSessionMeta meta = new RemoteSessionMeta(
+                remoteId.toString(),
+                "u1",
+                "o1",
+                "remote",
+                "Recovered Session",
+                "private",
+                timeStr,
+                timeStr,
+                timeStr,
+                null);
 
         class FlakyCallbacks implements SyncCallbacks {
             int attempts = 0;
@@ -359,7 +368,8 @@ class SessionSynchronizerTest {
 
         // Verify the remote-only session was downloaded and persisted locally
         assertTrue(callbacks.downloadedIds.contains(remoteId), "Remote session should have been downloaded");
-        assertTrue(sessionManager.getSessionsCache().containsKey(remoteId), "Downloaded session should be in local cache");
+        assertTrue(
+                sessionManager.getSessionsCache().containsKey(remoteId), "Downloaded session should be in local cache");
 
         // No uploads or deletes should have been invoked for this scenario
         assertTrue(callbacks.uploadedIds.isEmpty(), "No uploads expected");
