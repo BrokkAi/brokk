@@ -3761,7 +3761,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Re-run combined post-processing (imports + type analysis) after ingesting updates
         var typedState = runPostProcessing(nextState);
 
-        var filteredCache = new AnalyzerCache(this.cache, relevantFiles);
+        var filteredCache = new AnalyzerCache(this.cache, changedFiles);
         return newSnapshot(typedState, getProgressListener(), filteredCache);
     }
 
