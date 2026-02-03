@@ -69,8 +69,8 @@ public class ExceptionReporter {
      */
     @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
-        // Enrich with watch-service telemetry if this is a ClosedWatchServiceException
-        Map<String, String> enrichedFields = enrichFieldsForWatchServiceException(throwable, optionalFields);
+        // Enrich with always-on OS/JRE telemetry and conditional watch-service telemetry
+        Map<String, String> enrichedFields = enrichFields(throwable, optionalFields);
 
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
@@ -156,29 +156,29 @@ public class ExceptionReporter {
     }
 
     /**
-     * Enriches the optional fields with OS/JRE/watch-service configuration telemetry
-     * if the throwable is or is caused by a ClosedWatchServiceException.
+     * Enriches the optional fields with always-on OS/JRE telemetry, plus conditional
+     * watch-service configuration telemetry if the throwable is or is caused by a
+     * ClosedWatchServiceException. Uses putIfAbsent to preserve caller-provided keys.
      *
      * @param throwable The exception being reported
      * @param originalFields The original optional fields (may be empty)
-     * @return Enriched fields if ClosedWatchServiceException detected, otherwise original fields
+     * @return Enriched fields with telemetry added
      */
-    private static Map<String, String> enrichFieldsForWatchServiceException(
-            Throwable throwable, Map<String, String> originalFields) {
-        if (!isCausedByClosedWatchServiceException(throwable)) {
-            return originalFields;
-        }
-
+    private static Map<String, String> enrichFields(Throwable throwable, Map<String, String> originalFields) {
         var enriched = new HashMap<>(originalFields);
-        enriched.put("osDescription", Environment.getOsDescription());
-        enriched.put("jreDescription", Environment.getJreDescription());
 
-        // Collect watch-service selection signals (process-local only)
-        @Nullable String sysProp = System.getProperty("brokk.watchservice.impl");
-        @Nullable String envVar = System.getenv("BROKK_WATCHSERVICE_IMPL");
+        // Always add OS/JRE telemetry (but don't overwrite caller-provided values)
+        enriched.putIfAbsent("osDescription", Environment.getOsDescription());
+        enriched.putIfAbsent("jreDescription", Environment.getJreDescription());
 
-        enriched.put("watchServiceSysProp", sysProp != null ? sysProp : "(not set)");
-        enriched.put("watchServiceEnvVar", envVar != null ? envVar : "(not set)");
+        // Conditionally add watch-service telemetry for ClosedWatchServiceException
+        if (isCausedByClosedWatchServiceException(throwable)) {
+            @Nullable String sysProp = System.getProperty("brokk.watchservice.impl");
+            @Nullable String envVar = System.getenv("BROKK_WATCHSERVICE_IMPL");
+
+            enriched.putIfAbsent("watchServiceSysProp", sysProp != null ? sysProp : "(not set)");
+            enriched.putIfAbsent("watchServiceEnvVar", envVar != null ? envVar : "(not set)");
+        }
 
         return enriched;
     }
