@@ -5,10 +5,7 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.dom.AST;
@@ -56,7 +53,7 @@ public class JdtUsageAnalyzer {
         parser.setKind(ASTParser.K_COMPILATION_UNIT);
 
         Map<String, String> options = JavaCore.getOptions();
-        JavaCore.setComplianceOptions(JavaCore.VERSION_21, options);
+        JavaCore.setComplianceOptions(JavaCore.latestSupportedJavaVersion(), options);
         parser.setCompilerOptions(options);
 
         parser.setEnvironment(classpath, sourceRoots, null, true);
@@ -127,8 +124,8 @@ public class JdtUsageAnalyzer {
                     if (node.isDeclaration()) return true;
 
                     ASTNode parent = node.getParent();
-                    if (parent instanceof MethodInvocation mi && mi.getName() == node) return true;
-                    if (parent instanceof MethodDeclaration md && md.getName() == node) return true;
+                    if (parent instanceof MethodInvocation mi && Objects.equals(mi.getName(), node)) return true;
+                    if (parent instanceof MethodDeclaration md && Objects.equals(md.getName(), node)) return true;
 
                     ASTNode walk = node;
                     while (walk != null) {
