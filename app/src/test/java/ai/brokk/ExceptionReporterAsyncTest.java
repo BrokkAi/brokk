@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.InternalServerException;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -228,9 +229,11 @@ class ExceptionReporterAsyncTest {
     }
 
     @Test
-    @DisplayName("Should NOT report InternalServerException (provider 5xx) to backend")
+    @DisplayName("Should NOT report InternalServerException (provider 5xx) to backend (Issue #2578)")
     void shouldNotReportInternalServerException() throws Exception {
-        Exception providerError = new InternalServerException("Provider 500 error");
+        // Simulate a 500 error mapped to InternalServerException
+        Exception providerError =
+                new InternalServerException(new HttpException(500, "Internal Server Error from Anthropic"));
 
         exceptionReporter.reportException(providerError);
         Thread.sleep(200); // small delay, consistent with other tests using sleep

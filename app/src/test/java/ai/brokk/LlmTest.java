@@ -15,8 +15,11 @@ import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
+import dev.langchain4j.exception.HttpException;
+import dev.langchain4j.exception.InternalServerException;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -585,6 +588,68 @@ public class LlmTest {
         assertFalse(ai9.hasToolExecutionRequests(), "AI message should not contain native tool requests");
         assertEquals(Messages.getRepr(aiWithToolCalls), ai9.text());
         assertEquals(user2, result9.get(3));
+    }
+
+    @Test
+    void testStreamingErrorAnthropic500MapsToInternalServerExceptionAndNotifiesUser() throws InterruptedException {
+        var console = new CapturingConsoleIO();
+        var cm = new TestContextManager(tempDir, console);
+        StreamingChatModel model = new ErrorStreamingModel();
+
+        // Create an Llm bound to our stub model and context manager
+        Llm llm = cm.getLlm(model, "Anthropic 500 test", TaskResult.Type.NONE);
+
+        var messages = List.<ChatMessage>of(new UserMessage("hello"));
+
+        // Use the sendRequest variant with explicit maxAttempts=1 to avoid backoff and retries
+        Llm.StreamingResult result = llm.sendRequest(messages, 1);
+
+        // Assertions about the error mapping
+        assertNotNull(result.error(), "StreamingResult should carry an error");
+        assertInstanceOf(InternalServerException.class, result.error());
+
+        // No response content since the error came before any tokens
+        assertTrue(result.isEmpty(), "Result should be empty when error occurs before any partial tokens");
+        assertNull(result.chatResponse(), "chatResponse should be null in pure-error case");
+
+        // Assertions about the user notification
+        String notification = console.getLastNotification();
+        assertNotNull(notification, "User notification should be emitted for LLM error");
+        assertTrue(notification.contains("LLM Error"), "Notification should mention LLM Error");
+        assertTrue(
+                notification.contains("retry-able"),
+                "Anthropic 500 (mapped to InternalServerException) should be reported as retry-able");
+    }
+
+    static class ErrorStreamingModel implements StreamingChatModel {
+        @Override
+        public void chat(dev.langchain4j.model.chat.request.ChatRequest request, StreamingChatResponseHandler handler) {
+            handler.onError(new HttpException(500, "Anthropic 500 Internal Server Error"));
+        }
+
+        @Override
+        public void chat(List<ChatMessage> messages, StreamingChatResponseHandler handler) {
+            handler.onError(new HttpException(500, "Anthropic 500 Internal Server Error"));
+        }
+    }
+
+    static class CapturingConsoleIO implements IConsoleIO {
+        private final List<String> notifications = new ArrayList<>();
+
+        @Override
+        public void toolError(String msg, String title) {}
+
+        @Override
+        public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {}
+
+        @Override
+        public void showNotification(NotificationRole role, String message) {
+            notifications.add(message);
+        }
+
+        public String getLastNotification() {
+            return notifications.isEmpty() ? null : notifications.get(notifications.size() - 1);
+        }
     }
 
     @Test
