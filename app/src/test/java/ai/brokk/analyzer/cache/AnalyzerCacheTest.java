@@ -8,15 +8,16 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class AnalyzerCacheTest {
 
     @Test
-    void testIsEmpty() {
+    void testIsEmpty(@TempDir Path tempDir) {
         AnalyzerCache cache = new AnalyzerCache();
         assertTrue(cache.isEmpty(), "Cache should be empty initially");
 
-        ProjectFile pf = new ProjectFile(Path.of("/"), "Test.java");
+        ProjectFile pf = new ProjectFile(tempDir, "Test.java");
         CodeUnit cu = CodeUnit.cls(pf, "com.test", "Test");
 
         // Reset and check rawSupertypes
