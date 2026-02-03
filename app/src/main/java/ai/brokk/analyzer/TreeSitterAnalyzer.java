@@ -70,13 +70,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private final ProgressListener progressListener;
 
     /**
-     * Unified transient cache for lazy computations (trees, imports, hierarchies).
+     * Unified transient but transferable cache for lazy computations (trees, imports, hierarchies).
      *
-     * <p>DESIGN NOTE: This cache is transient and specific to this analyzer instance.
-     * It is NOT invalidated when files change because update() returns a fresh Analyzer instance
-     * and discards the current one (along with this cache).
-     * The new analyzer is initialized from 'this.state', effectively resetting any lazy computations.
-     * This prevents stale data from persisting across updates when sources change.
+     * <p>DESIGN NOTE: This cache is transient to an analyzer snapshot but is structurally shared or
+     * transferred during {@link #update(Set)}. When an update occurs, a filtered version of this
+     * cache is passed to the new analyzer snapshot, excluding entries for changed files or
+     * CodeUnits sourced from those files.
+     *
+     * <p>For {@link ai.brokk.analyzer.cache.BidirectionalCache} instances (imports, hierarchies),
+     * only forward mappings are transferred; reverse mappings are cleared and repopulated lazily
+     * to ensure correctness after incremental changes.
      */
     private final AnalyzerCache cache;
 
