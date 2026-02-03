@@ -75,7 +75,7 @@ public final class JobStore {
 
         // Check if this idempotency key has been seen before
         if (Files.exists(idempFile)) {
-            var existingEntry = objectMapper.readValue(idempFile.toFile(), IdempotencyEntry.class);
+            var existingEntry = objectMapper.readValue(Files.readAllBytes(idempFile), IdempotencyEntry.class);
             logger.info("Idempotency hit for key {}: returning existing job {}", idempKey, existingEntry.jobId);
             return new JobCreateResult(existingEntry.jobId, false);
         }
@@ -106,20 +106,20 @@ public final class JobStore {
                 spec.temperatureCode(),
                 spec.skipVerification(),
                 spec.maxIssueFixAttempts());
-        objectMapper.writeValue(tempMetaFile.toFile(), specForPersistence);
+        Files.write(tempMetaFile, objectMapper.writeValueAsBytes(specForPersistence));
         Files.move(tempMetaFile, metaFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         // Write initial status.json
         var initialStatus = JobStatus.queued(jobId);
         var statusFile = jobDir.resolve("status.json");
         var tempStatusFile = jobDir.resolve(".status.json.tmp");
-        objectMapper.writeValue(tempStatusFile.toFile(), initialStatus);
+        Files.write(tempStatusFile, objectMapper.writeValueAsBytes(initialStatus));
         Files.move(tempStatusFile, statusFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         // Write idempotency entry
         var idempEntry = new IdempotencyEntry(jobId, System.currentTimeMillis());
         var tempIdempFile = idempotencyDir.resolve("." + hash + ".json.tmp");
-        objectMapper.writeValue(tempIdempFile.toFile(), idempEntry);
+        Files.write(tempIdempFile, objectMapper.writeValueAsBytes(idempEntry));
         Files.move(tempIdempFile, idempFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         // Initialize sequence counter for this job
@@ -168,7 +168,7 @@ public final class JobStore {
         var tempStatusFile = jobDir.resolve(".status.json.tmp");
 
         Files.createDirectories(jobDir);
-        objectMapper.writeValue(tempStatusFile.toFile(), status);
+        Files.write(tempStatusFile, objectMapper.writeValueAsBytes(status));
         Files.move(tempStatusFile, statusFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         logger.debug("Updated status for job {} to {}", jobId, status.state());
@@ -186,7 +186,7 @@ public final class JobStore {
         if (!Files.exists(statusFile)) {
             return null;
         }
-        return objectMapper.readValue(statusFile.toFile(), JobStatus.class);
+        return objectMapper.readValue(Files.readAllBytes(statusFile), JobStatus.class);
     }
 
     /**
@@ -244,7 +244,7 @@ public final class JobStore {
         if (!Files.exists(metaFile)) {
             return null;
         }
-        return objectMapper.readValue(metaFile.toFile(), JobSpec.class);
+        return objectMapper.readValue(Files.readAllBytes(metaFile), JobSpec.class);
     }
 
     /**
