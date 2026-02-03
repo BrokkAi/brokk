@@ -69,11 +69,7 @@ public final class AnalyzerCache {
             }
         });
 
-        previous.typeHierarchy.forEachForward((cu, supers) -> {
-            if (!changedFiles.contains(cu.source())) {
-                this.typeHierarchy.putForward(cu, List.copyOf(supers));
-            }
-        });
+        // Do not transfer type hierarchy as it's rather expensive to evaluate stale entries for
     }
 
     public SimpleCache<ProjectFile, TSTree> trees() {
