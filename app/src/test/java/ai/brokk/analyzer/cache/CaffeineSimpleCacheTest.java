@@ -30,10 +30,12 @@ class CaffeineSimpleCacheTest {
         source.put("key2", 2);
 
         SimpleCache<String, Integer> target = new CaffeineSimpleCache<>(10);
+        target.put("extra", 99);
         target.putAll(source);
 
         assertEquals(1, target.get("key1"));
         assertEquals(2, target.get("key2"));
+        assertNull(target.get("extra"), "Existing entries should be replaced/cleared by putAll");
     }
 
     @Test
