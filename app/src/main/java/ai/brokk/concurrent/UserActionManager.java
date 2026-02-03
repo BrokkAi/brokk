@@ -139,6 +139,12 @@ public class UserActionManager {
 
     private LoggingExecutorService createLoggingExecutor(ExecutorService delegate) {
         Consumer<Throwable> onError = th -> {
+            if (th instanceof RuntimeException
+                    && th.getMessage() != null
+                    && th.getMessage().contains("Interrupted while acquiring virtual-thread permit")) {
+                logger.debug("Caught wrapped permit acquisition interruption during cancellation");
+            }
+
             if (GlobalExceptionHandler.isCausedBy(th, InterruptedException.class)
                     || GlobalExceptionHandler.isCausedBy(th, CancellationException.class)) {
                 // UAM-specific policy: log and upload InterruptedException for telemetry because this indicates that a

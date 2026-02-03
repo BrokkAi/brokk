@@ -6,6 +6,26 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Utility for creating specialized executors.
+ *
+ * <p><b>Note on Interruption Path:</b>
+ * When a user cancels an LLM action (e.g., via the "Stop" button), {@link UserActionManager#cancelActiveAction()}
+ * interrupts the worker thread. If that thread is currently computing a {@link ai.brokk.context.ContextDelta}
+ * (triggered by {@link ai.brokk.agents.SearchAgent#applyPinning}), it may call {@link #newVirtualThreadExecutor}.
+ *
+ * <p>The call chain is:
+ * 1. {@code InstructionsPanel.executeSearchInternal}
+ * 2. {@code SearchAgent.execute} -> {@code applyPinning}
+ * 3. {@code ContextDelta.between}
+ * 4. {@code ExecutorsUtil.newVirtualThreadExecutor}
+ * 5. {@code Semaphore.acquire()} (inside the ThreadFactory)
+ *
+ * <p>If interrupted at step 5, the {@code InterruptedException} is wrapped in a {@code RuntimeException}.
+ * This bubbles up through {@link LoggingFuture} and is eventually handled by {@link UserActionManager}'s
+ * error consumer, which currently reports it as a client exception because it doesn't recognize the
+ * wrapped interruption as a normal cancellation.
+ */
 public final class ExecutorsUtil {
 
     private ExecutorsUtil() {}
