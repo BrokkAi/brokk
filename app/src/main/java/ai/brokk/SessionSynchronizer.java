@@ -9,6 +9,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.HistoryIo;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -434,7 +435,27 @@ class SessionSynchronizer {
             }
 
             // Fetch state
-            List<RemoteSessionMeta> remoteSessions = syncCallbacks.listRemoteSessions(remoteProject);
+            List<RemoteSessionMeta> remoteSessions;
+            try {
+                remoteSessions = syncCallbacks.listRemoteSessions(remoteProject);
+            } catch (IOException e) {
+                // Distinguish timeouts for clearer debugging; still treat as a single-cycle abort.
+                if (e instanceof SocketTimeoutException) {
+                    logger.warn(
+                            "Session sync aborted: timed out while listing remote sessions for project '{}': {}: {}",
+                            remoteProject,
+                            e.getClass().getSimpleName(),
+                            e.getMessage());
+                } else {
+                    logger.warn(
+                            "Session sync aborted: failed to list remote sessions for project '{}': {}: {}",
+                            remoteProject,
+                            e.getClass().getSimpleName(),
+                            e.getMessage());
+                }
+                // Do not propagate this exception — abort this sync cycle gracefully.
+                return;
+            }
             Map<UUID, SessionInfo> localSessions = new HashMap<>(sessionManager.getSessionsCache());
 
             Set<UUID> tombstones = new HashSet<>();

@@ -12,6 +12,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.HistoryIo;
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -225,6 +226,104 @@ class SessionSynchronizerTest {
         assertFalse(syncCallbacks.downloadedIds.contains(idE), "Session E should not be downloaded");
         assertFalse(syncCallbacks.uploadedIds.contains(idE), "Session E should not be uploaded");
         assertFalse(syncCallbacks.deletedRemoteIds.contains(idE), "Session E should not be deleted");
+    }
+
+    @Test
+    void synchronize_handlesSocketTimeoutOnListRemoteSessions() {
+        // Arrange: create callbacks that throw SocketTimeoutException on listing
+        class TimeoutCallbacks implements SyncCallbacks {
+            boolean getCalled = false;
+            boolean writeCalled = false;
+            boolean deleteCalled = false;
+
+            @Override
+            public List<RemoteSessionMeta> listRemoteSessions(String remote) throws IOException {
+                throw new SocketTimeoutException("simulated timeout");
+            }
+
+            @Override
+            public byte[] getRemoteSessionContent(UUID id) throws IOException {
+                getCalled = true;
+                return new byte[0];
+            }
+
+            @Override
+            public void writeRemoteSession(UUID id, String remote, String name, long modifiedAt, byte[] contentZip)
+                    throws IOException {
+                writeCalled = true;
+            }
+
+            @Override
+            public void deleteRemoteSession(UUID id) throws IOException {
+                deleteCalled = true;
+            }
+        }
+
+        TimeoutCallbacks callbacks = new TimeoutCallbacks();
+        TestContextManager cm = new TestContextManager(project, UUID.randomUUID());
+        SessionSynchronizer localSync = new SessionSynchronizer(cm, callbacks) {
+            @Override
+            protected Map<UUID, IContextManager> getOpenContextManagers() {
+                return Map.of();
+            }
+        };
+
+        // Act & Assert: should not throw and should not invoke per-session callbacks
+        assertDoesNotThrow(() -> localSync.synchronize());
+        assertFalse(callbacks.getCalled, "getRemoteSessionContent must not be called when listing fails");
+        assertFalse(callbacks.writeCalled, "writeRemoteSession must not be called when listing fails");
+        assertFalse(callbacks.deleteCalled, "deleteRemoteSession must not be called when listing fails");
+        // Also assert no sessions added locally
+        assertTrue(sessionManager.getSessionsCache().isEmpty(), "No sessions should be added on listing failure");
+    }
+
+    @Test
+    void synchronize_handlesIOExceptionOnListRemoteSessions() {
+        // Arrange: create callbacks that throw generic IOException on listing
+        class IoErrorCallbacks implements SyncCallbacks {
+            boolean getCalled = false;
+            boolean writeCalled = false;
+            boolean deleteCalled = false;
+
+            @Override
+            public List<RemoteSessionMeta> listRemoteSessions(String remote) throws IOException {
+                throw new IOException("simulated IO error");
+            }
+
+            @Override
+            public byte[] getRemoteSessionContent(UUID id) throws IOException {
+                getCalled = true;
+                return new byte[0];
+            }
+
+            @Override
+            public void writeRemoteSession(UUID id, String remote, String name, long modifiedAt, byte[] contentZip)
+                    throws IOException {
+                writeCalled = true;
+            }
+
+            @Override
+            public void deleteRemoteSession(UUID id) throws IOException {
+                deleteCalled = true;
+            }
+        }
+
+        IoErrorCallbacks callbacks = new IoErrorCallbacks();
+        TestContextManager cm = new TestContextManager(project, UUID.randomUUID());
+        SessionSynchronizer localSync = new SessionSynchronizer(cm, callbacks) {
+            @Override
+            protected Map<UUID, IContextManager> getOpenContextManagers() {
+                return Map.of();
+            }
+        };
+
+        // Act & Assert: should not throw and should not invoke per-session callbacks
+        assertDoesNotThrow(() -> localSync.synchronize());
+        assertFalse(callbacks.getCalled, "getRemoteSessionContent must not be called when listing fails");
+        assertFalse(callbacks.writeCalled, "writeRemoteSession must not be called when listing fails");
+        assertFalse(callbacks.deleteCalled, "deleteRemoteSession must not be called when listing fails");
+        // Also assert no sessions added locally
+        assertTrue(sessionManager.getSessionsCache().isEmpty(), "No sessions should be added on listing failure");
     }
 
     private byte[] createValidSessionZip(UUID id, String name, long modified) throws IOException {
