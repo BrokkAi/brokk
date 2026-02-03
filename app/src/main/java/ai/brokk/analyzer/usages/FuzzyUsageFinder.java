@@ -11,6 +11,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
+import ai.brokk.analyzer.java.JdtUsageAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
@@ -130,6 +131,21 @@ public final class FuzzyUsageFinder {
             // Case 1: Too many call sites
             logger.debug("Too many call sites found for {}: {} files matched", target, candidateFiles.size());
             return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
+        }
+
+        // --- Precise Java Analysis Path ---
+        if (lang.equals(Languages.JAVA)) {
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, candidateFiles, project).stream()
+                    .filter(h -> !h.enclosing().fqName().equals(target.fqName()))
+                    .collect(Collectors.toSet());
+
+            logger.debug(
+                    "Extracted {} precise JDT usage hits for {} from {} candidate files",
+                    hits.size(),
+                    target.fqName(),
+                    candidateFiles.size());
+
+            return new FuzzyResult.Success(hits);
         }
 
         // Extract raw usage hits from candidate files using the provided patterns
