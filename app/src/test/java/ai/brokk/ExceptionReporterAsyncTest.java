@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.exception.InternalServerException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -224,6 +225,28 @@ class ExceptionReporterAsyncTest {
         assertEquals("sess456", call.optionalFields.get("sessionId"));
         assertEquals("codeAnalysis", call.optionalFields.get("operationType"));
         assertEquals("TestProject", call.optionalFields.get("projectName"));
+    }
+
+    @Test
+    @DisplayName("Should NOT report InternalServerException (provider 5xx) to backend")
+    void shouldNotReportInternalServerException() throws Exception {
+        Exception providerError = new InternalServerException("Provider 500 error");
+
+        exceptionReporter.reportException(providerError);
+        Thread.sleep(200); // small delay, consistent with other tests using sleep
+
+        assertEquals(0, serviceSpy.getCalls().size(), "InternalServerException should be suppressed from reporting");
+    }
+
+    @Test
+    @DisplayName("Should still report non-provider exceptions")
+    void shouldStillReportNonProviderExceptions() throws Exception {
+        Exception testException = new IllegalStateException("Non-provider error");
+
+        exceptionReporter.reportException(testException);
+        Thread.sleep(200);
+
+        assertEquals(1, serviceSpy.getCalls().size(), "Non-provider exceptions should still be reported");
     }
 
     @Test

@@ -6,6 +6,7 @@ import ai.brokk.gui.SwingUtil;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.langchain4j.exception.InternalServerException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -83,6 +84,15 @@ public class ExceptionReporter {
      */
     @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
+        // Always write to local log file first for debugging, even if we don't report to backend
+        writeLocalErrorReport(throwable, optionalFields);
+
+        if (!shouldReport(throwable)) {
+            logger.debug(
+                    "Suppressing client exception report for provider internal server error: {}", throwable.toString());
+            return;
+        }
+
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
 
@@ -101,9 +111,6 @@ public class ExceptionReporter {
 
         // Mark this exception as reported
         reportedExceptions.put(signature, currentTime);
-
-        // Also write to local log file for debugging
-        writeLocalErrorReport(throwable, optionalFields);
 
         // Clean up old entries from the deduplication map (keep it bounded)
         if (reportedExceptions.size() > 1000) {
@@ -129,6 +136,14 @@ public class ExceptionReporter {
                     e.getMessage(),
                     throwable.getClass().getSimpleName());
         }
+    }
+
+    private boolean shouldReport(Throwable throwable) {
+        // Return false for provider-side internal server errors (InternalServerException), true otherwise.
+        // We treat InternalServerException (produced by dev.langchain4j.internal.ExceptionMapper for HTTP 5xx)
+        // as expected provider-side operational noise: we still notify the user and log locally, but we do not
+        // want to pollute client exception telemetry with them.
+        return !(throwable instanceof InternalServerException);
     }
 
     /**
