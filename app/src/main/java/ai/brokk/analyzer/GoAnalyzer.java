@@ -42,17 +42,17 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     private static final Pattern GO_COMMENT_PATTERN = Pattern.compile("//[^\r\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/");
 
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(TYPE_SPEC, TYPE_ALIAS), // classLikeNodeTypes
-            Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
-            Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
+            Set.of(TYPE_SPEC, TYPE_ALIAS),
+            Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION),
+            Set.of("var_spec", "const_spec"),
             Set.of(),
-            Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
-            CaptureNames.IMPORT_DECLARATION, // importNodeType - matches @import.declaration capture in go.scm
-            "name", // identifierFieldName (used as fallback if specific .name capture is missing)
-            "body", // bodyFieldName (e.g. function_declaration.body -> block)
-            "parameters", // parametersFieldName
-            "result", // returnTypeFieldName (Go's grammar uses "result" for return types)
-            "type_parameters", // typeParametersFieldName (Go generics)
+            Set.of(),
+            CaptureNames.IMPORT_DECLARATION,
+            "name",
+            "body",
+            "parameters",
+            "result",
+            "type_parameters",
             Map.of(
                     CaptureNames.FUNCTION_DEFINITION,
                     SkeletonType.FUNCTION_LIKE,
@@ -67,11 +67,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     CaptureNames.METHOD_DEFINITION,
                     SkeletonType.FUNCTION_LIKE,
                     "interface.method.definition",
-                    SkeletonType.FUNCTION_LIKE // Added for interface methods
-                    ), // captureConfiguration
-            "", // asyncKeywordNodeType (Go uses 'go' keyword, not an async modifier on func signature)
-            Set.of() // modifierNodeTypes (Go visibility is by capitalization)
-            );
+                    SkeletonType.FUNCTION_LIKE),
+            "",
+            Set.of());
 
     public GoAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);

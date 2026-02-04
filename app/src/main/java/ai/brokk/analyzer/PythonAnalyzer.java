@@ -46,18 +46,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             Set.of(),
             Set.of(DECORATOR),
             IMPORT_DECLARATION,
-            "name", // identifierFieldName
-            "body", // bodyFieldName
-            "parameters", // parametersFieldName
-            "return_type", // returnTypeFieldName
-            "", // typeParametersFieldName (Python doesn't have explicit type parameters)
-            Map.of( // captureConfiguration
+            "name",
+            "body",
+            "parameters",
+            "return_type",
+            "",
+            Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
-            "async", // asyncKeywordNodeType
-            Set.of() // modifierNodeTypes
-            );
+            "async",
+            Set.of());
 
     public PythonAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);

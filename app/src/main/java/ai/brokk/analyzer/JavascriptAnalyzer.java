@@ -22,21 +22,20 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
             Set.of(VARIABLE_DECLARATOR),
             Set.of(),
-            Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
+            Set.of(),
             IMPORT_DECLARATION,
-            "name", // identifierFieldName
-            "body", // bodyFieldName
-            "parameters", // parametersFieldName
-            "", // returnTypeFieldName (JS doesn't have a standard named child for return type)
-            "", // typeParametersFieldName (JS doesn't have type parameters)
+            "name",
+            "body",
+            "parameters",
+            "",
+            "",
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
-            "async", // asyncKeywordNodeType
-            Set.of() // modifierNodeTypes
-            );
+            "async",
+            Set.of());
 
     public JavascriptAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);

@@ -16,34 +16,31 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     private static final String NODE_TYPE_READONLY_MODIFIER = "readonly_modifier";
 
     private static final LanguageSyntaxProfile PHP_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, TRAIT_DECLARATION), // classLikeNodeTypes
-            Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), // functionLikeNodeTypes
-            Set.of(PROPERTY_DECLARATION, CONST_DECLARATION), // fieldLikeNodeTypes (capturing the whole declaration)
+            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, TRAIT_DECLARATION),
+            Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION),
+            Set.of(PROPERTY_DECLARATION, CONST_DECLARATION),
             Set.of(),
-            Set.of("attribute_list"), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
+            Set.of("attribute_list"),
             IMPORT_DECLARATION,
-            "name", // identifierFieldName
-            "body", // bodyFieldName (applies to functions/methods, class body is declaration_list)
-            "parameters", // parametersFieldName
-            "return_type", // returnTypeFieldName (for return type declaration)
-            "", // typeParametersFieldName (PHP doesn't have generics)
-            Map.of( // captureConfiguration
+            "name",
+            "body",
+            "parameters",
+            "return_type",
+            "",
+            Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.TRAIT_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
-                    CaptureNames.ATTRIBUTE_DEFINITION,
-                            SkeletonType.UNSUPPORTED // Attributes are handled by getPrecedingDecorators
-                    ),
-            "", // asyncKeywordNodeType (PHP has no async/await keywords for functions)
+                    CaptureNames.ATTRIBUTE_DEFINITION, SkeletonType.UNSUPPORTED),
+            "",
             Set.of(
                     "visibility_modifier",
                     "static_modifier",
                     "abstract_modifier",
                     "final_modifier",
-                    NODE_TYPE_READONLY_MODIFIER) // modifierNodeTypes
-            );
+                    NODE_TYPE_READONLY_MODIFIER));
 
     @Nullable
     private final Map<ProjectFile, String> fileScopedPackageNames = new ConcurrentHashMap<>();
