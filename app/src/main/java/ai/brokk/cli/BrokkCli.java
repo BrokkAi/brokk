@@ -1335,6 +1335,7 @@ public final class BrokkCli implements Callable<Integer> {
                 ## Requirements
 
                 Brokk requires a Git repository associated with your project.
+                `brokk` is installed in your PATH, you do not need to specify a full path or wrapper script.
 
                 # Example
 
