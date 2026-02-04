@@ -153,6 +153,7 @@ public class FeedbackDialog extends BaseThemedDialog {
 
         JPanel root = getContentRoot();
         root.setLayout(new BorderLayout());
+        root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         root.add(form, BorderLayout.CENTER);
         root.add(bottomPanel, BorderLayout.SOUTH);
     }
