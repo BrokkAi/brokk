@@ -941,6 +941,25 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void explicitConstructorPreventsImplicitSynthesis() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code("public class Bar { public Bar(int x) {} }", "Bar.java")
+                .build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            var definitions = analyzer.getDefinitions("Bar.Bar");
+
+            // Should only have the explicit one
+            assertEquals(1, definitions.size(), "Should have exactly one definition for Bar.Bar (the explicit one)");
+
+            var constructorCu = definitions.iterator().next();
+            assertTrue(
+                    analyzer.getSource(constructorCu, true).isPresent(),
+                    "The constructor should have source (meaning it's the explicit one, not synthetic)");
+        }
+    }
+
+    @Test
     public void implicitConstructor_returnsEmptySource() throws IOException {
         try (var testProject =
                 InlineTestProjectCreator.code("public class Foo {}", "Foo.java").build()) {
