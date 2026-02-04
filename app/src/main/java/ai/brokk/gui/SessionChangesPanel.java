@@ -346,15 +346,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             public void navigateToFile(int fileIndex) {
                 codeReviewPanel.clearSelection();
                 activeExcerpt = null;
-                if (fileIndex == -1) {
-                    diffContainer.removeAll();
-                    diffActive = false;
-                    updateDiffToolbarVisibility();
-                    diffContainer.revalidate();
-                    diffContainer.repaint();
-                } else {
-                    diffCore.showFile(fileIndex);
-                }
+                diffCore.showFile(fileIndex);
             }
 
             @Override
@@ -948,10 +940,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void showCommitDialog() {
-        var selectedFiles = fileTreePanel.getSelectedProjectFiles();
-        var filesToCommit =
-                selectedFiles.isEmpty() ? cm.getProject().getRepo().getModifiedProjectFiles() : selectedFiles;
-
+        var filesToCommit = cm.getProject().getRepo().getModifiedProjectFiles();
         if (filesToCommit.isEmpty()) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No uncommitted changes to commit.");
             return;
@@ -1549,19 +1538,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void handleCaptureDiff() {
-        var selectedFiles = fileTreePanel.getSelectedProjectFiles();
-        if (!selectedFiles.isEmpty()) {
-            cm.submitExclusiveAction(() -> {
-                String diff = repo.diffFiles(selectedFiles);
-                SwingUtilities.invokeLater(() -> {
-                    var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
-                    cm.addFragments(diffFragment);
-                });
-                return null;
-            });
-            return;
-        }
-
         var changes = lastCumulativeChanges;
         if (changes == null || changes.filesChanged() == 0) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No changes to capture.");
