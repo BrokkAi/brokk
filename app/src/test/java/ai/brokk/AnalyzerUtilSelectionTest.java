@@ -82,6 +82,26 @@ public class AnalyzerUtilSelectionTest {
         assertTrue(frag.isEmpty(), "Expected empty Optional for non-existent file");
     }
 
+    @Test
+    void fileFound_withDistinctRootPathObject() {
+        // Create a new ContextManager where the project root is a distinct Path object (different instance, same value)
+        Path distinctRoot = Path.of(projectRoot.toString());
+        assertNotSame(projectRoot, distinctRoot, "Test requires a distinct Path instance");
+
+        TestContextManager distinctCm = new TestContextManager(distinctRoot, new NoOpConsoleIO(), analyzer);
+
+        Optional<ContextFragment> frag = AnalyzerUtil.selectFileFragment(distinctCm, "src/main/java/A.java", false);
+        assertTrue(frag.isPresent(), "Should find file even if Root Path instances are distinct");
+        assertInstanceOf(ContextFragments.ProjectPathFragment.class, frag.get());
+        assertEquals(
+                "src/main/java/A.java",
+                ((ContextFragments.ProjectPathFragment) frag.get())
+                        .file()
+                        .getRelPath()
+                        .toString()
+                        .replace('\\', '/'));
+    }
+
     // (b) Folder selection
 
     @Test
