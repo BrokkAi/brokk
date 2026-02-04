@@ -56,7 +56,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     protected final IGitRepo repo;
     protected final Path workspacePropertiesFile;
     protected final Properties workspaceProps;
-    protected final Path masterRootPathForConfig;
+    protected Path masterRootPathForConfig;
 
     // File filtering service that encapsulates baseline exclusions + gitignore handling.
     protected final FileFilteringService fileFilteringService;
@@ -751,12 +751,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         var allDeps = getAllOnDiskDependencies();
         selected = allDeps.stream()
                 .filter(dep -> {
-                    // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
+                    // relPath is .brokk/dependencies/dep-name
                     if (dep.getRelPath().getNameCount() < 3) {
                         return false;
                     }
-                    // relPath is relative to masterRootPathForConfig, so .brokk is first component
-                    var depName = dep.getRelPath().getName(2).toString();
+                    var depName = dep.getRelPath().getFileName().toString();
                     return liveNamesSet.contains(depName);
                 })
                 .collect(Collectors.toSet());

@@ -24,6 +24,8 @@ public final class WorktreeProject extends AbstractProject {
     public WorktreeProject(Path root, MainProject parent) {
         super(root);
         this.parent = parent;
+        // Ensure our master root for config matches the parent's
+        this.masterRootPathForConfig = parent.getMasterRootPathForConfig();
     }
 
     @Override
@@ -283,5 +285,10 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public Set<ProjectFile> getAllOnDiskDependencies() {
         return parent.getAllOnDiskDependencies();
+    }
+
+    @Override
+    public Path getMasterRootPathForConfig() {
+        return parent.getMasterRootPathForConfig();
     }
 }

@@ -6,6 +6,7 @@ import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
@@ -250,6 +251,63 @@ class DependencyDefaultCheckedBehaviorTest {
             worktreeProject.close();
         } finally {
             // Cleanup
+            Files.walk(worktreeRoot).sorted((a, b) -> b.compareTo(a)).forEach(path -> {
+                try {
+                    Files.delete(path);
+                } catch (IOException ignored) {
+                }
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("Worktree getAllFiles() includes dependency files with correct absolute paths")
+    void worktreeGetAllFilesIncludesDependencyFiles() throws IOException {
+        // Setup: Create a MainProject with a dependency containing a source file
+        String depName = "shared-dep";
+        createDependencyDirectory(mainProject, depName);
+
+        Path dependenciesDir = mainProject
+                .getMasterRootPathForConfig()
+                .resolve(AbstractProject.BROKK_DIR)
+                .resolve(AbstractProject.DEPENDENCIES_DIR);
+        Path depSourceFile = dependenciesDir.resolve(depName).resolve("Main.java");
+
+        // Act: Create a WorktreeProject
+        Path worktreeRoot = Files.createTempDirectory("worktree-files");
+        try {
+            Files.createDirectories(worktreeRoot.resolve(AbstractProject.BROKK_DIR));
+            WorktreeProject worktreeProject = new WorktreeProject(worktreeRoot, mainProject);
+
+            // Enable the dependency as live in the worktree
+            simulateDependencyImport(worktreeProject, depName);
+
+            // Call getAllFiles()
+            Set<ProjectFile> allFiles = worktreeProject.getAllFiles();
+
+            // Assert: The dependency file is included
+            Optional<ProjectFile> depFileOpt = allFiles.stream()
+                    .filter(pf -> pf.getRelPath().toString().contains("Main.java"))
+                    .findFirst();
+
+            assertTrue(depFileOpt.isPresent(), "Dependency source file should be included in getAllFiles()");
+
+            ProjectFile depFile = depFileOpt.get();
+
+            // Assert: The dependency file's absPath() resolves to the correct physical location
+            assertEquals(
+                    depSourceFile.toAbsolutePath(),
+                    depFile.absPath().toAbsolutePath(),
+                    "Dependency file absolute path should resolve to the MainProject's dependency directory");
+
+            // Assert: The root is the MainProject root
+            assertEquals(
+                    mainProject.getRoot(),
+                    depFile.getRoot(),
+                    "Dependency ProjectFile root should be the MainProject root");
+
+            worktreeProject.close();
+        } finally {
             Files.walk(worktreeRoot).sorted((a, b) -> b.compareTo(a)).forEach(path -> {
                 try {
                     Files.delete(path);
