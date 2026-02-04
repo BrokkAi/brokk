@@ -92,6 +92,26 @@ public class ContentDiffUtils {
             String newContent,
             @Nullable String oldName,
             @Nullable String newName) {
+        return computeReviewDiffResult(analyzer, currentFile, oldContent, newContent, oldName, newName, null);
+    }
+
+    /**
+     * Compute a unified diff for code review with optional refactoring masking.
+     * <p>
+     * When refactoringLineRanges is provided, deltas that are entirely covered by
+     * detected refactorings will be filtered out, reducing noise for rename/move/extract
+     * operations.
+     *
+     * @param refactoringLineRanges line ranges from detected refactorings, or null for no masking
+     */
+    public static DiffComputationResult computeReviewDiffResult(
+            @Nullable IAnalyzer analyzer,
+            @Nullable ProjectFile currentFile,
+            String oldContent,
+            String newContent,
+            @Nullable String oldName,
+            @Nullable String newName,
+            @Nullable ai.brokk.agents.RefactoringService.RefactoringLineRanges refactoringLineRanges) {
         var oldLines = toLines(oldContent);
         var newLines = toLines(newContent);
 
@@ -101,6 +121,15 @@ public class ContentDiffUtils {
         }
 
         List<AbstractDelta<String>> deltas = patch.getDeltas();
+
+        // Filter out deltas that are entirely covered by refactorings
+        if (refactoringLineRanges != null && (oldName != null || newName != null)) {
+            deltas = filterRefactoringDeltas(deltas, oldName, newName, refactoringLineRanges);
+            if (deltas.isEmpty()) {
+                return new DiffComputationResult("", 0, 0);
+            }
+        }
+
         int totalAdded = 0;
         int totalDeleted = 0;
 
@@ -164,6 +193,68 @@ public class ContentDiffUtils {
 
         List<String> finalDiffLines = withMethodNamesInHunkHeaders(analyzer, currentFile, unifiedDiffLines);
         return new DiffComputationResult(String.join("\n", finalDiffLines), totalAdded, totalDeleted);
+    }
+
+    /**
+     * Filters out deltas that are entirely covered by detected refactorings.
+     * A delta is considered covered if both its source (old) and target (new) line ranges
+     * fall within refactoring-affected regions.
+     */
+    private static List<AbstractDelta<String>> filterRefactoringDeltas(
+            List<AbstractDelta<String>> deltas,
+            @Nullable String oldFileName,
+            @Nullable String newFileName,
+            ai.brokk.agents.RefactoringService.RefactoringLineRanges ranges) {
+
+        return deltas.stream()
+                .filter(delta -> !isDeltaCoveredByRefactoring(delta, oldFileName, newFileName, ranges))
+                .toList();
+    }
+
+    /**
+     * Checks if a delta is entirely explained by a refactoring.
+     * We use "covered" (entirely within) rather than "overlaps" to be conservative -
+     * partial overlaps may contain behavioral changes mixed with refactoring.
+     */
+    private static boolean isDeltaCoveredByRefactoring(
+            AbstractDelta<String> delta,
+            @Nullable String oldFileName,
+            @Nullable String newFileName,
+            ai.brokk.agents.RefactoringService.RefactoringLineRanges ranges) {
+
+        // Get delta line positions (0-indexed positions + 1 for 1-indexed lines)
+        int sourceStart = delta.getSource().getPosition() + 1;
+        int sourceEnd = sourceStart + Math.max(1, delta.getSource().size()) - 1;
+
+        int targetStart = delta.getTarget().getPosition() + 1;
+        int targetEnd = targetStart + Math.max(1, delta.getTarget().size()) - 1;
+
+        // Check if source lines are covered (for deletions and changes)
+        boolean sourceCovered = false;
+        if (oldFileName != null && delta.getSource().size() > 0) {
+            sourceCovered = ranges.isOldRangeCovered(oldFileName, sourceStart, sourceEnd);
+        }
+
+        // Check if target lines are covered (for insertions and changes)
+        boolean targetCovered = false;
+        if (newFileName != null && delta.getTarget().size() > 0) {
+            targetCovered = ranges.isNewRangeCovered(newFileName, targetStart, targetEnd);
+        }
+
+        // For a delta to be "explained by refactoring":
+        // - Deletions: source must be covered
+        // - Insertions: target must be covered
+        // - Changes: both must be covered (or the relevant side)
+        if (delta.getSource().size() == 0) {
+            // Pure insertion - target must be covered
+            return targetCovered;
+        } else if (delta.getTarget().size() == 0) {
+            // Pure deletion - source must be covered
+            return sourceCovered;
+        } else {
+            // Change - both sides must be covered
+            return sourceCovered && targetCovered;
+        }
     }
 
     private static final Pattern UNIFIED_HUNK_HEADER =

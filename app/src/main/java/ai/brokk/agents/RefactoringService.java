@@ -240,4 +240,101 @@ public class RefactoringService {
     public boolean hasSupportedFiles(List<FileDiff> fileDiffs) {
         return fileDiffs.stream().anyMatch(this::isSupportedLanguage);
     }
+
+    /**
+     * Line ranges affected by refactorings, keyed by file path.
+     * Used to filter diff hunks that are entirely explained by refactorings.
+     */
+    public record RefactoringLineRanges(
+            Map<String, List<LineRange>> oldFileRanges,
+            Map<String, List<LineRange>> newFileRanges) {
+
+        public record LineRange(int startLine, int endLine) {
+            /**
+             * Returns true if the given line range is entirely contained within this range.
+             */
+            public boolean contains(int start, int end) {
+                return start >= startLine && end <= endLine;
+            }
+
+            /**
+             * Returns true if the given line range overlaps with this range.
+             */
+            public boolean overlaps(int start, int end) {
+                return start <= endLine && end >= startLine;
+            }
+        }
+
+        public static RefactoringLineRanges empty() {
+            return new RefactoringLineRanges(Map.of(), Map.of());
+        }
+
+        /**
+         * Checks if the given line range in the old version is covered by a refactoring.
+         */
+        public boolean isOldRangeCovered(String filePath, int startLine, int endLine) {
+            var ranges = oldFileRanges.get(filePath);
+            if (ranges == null) return false;
+            return ranges.stream().anyMatch(r -> r.contains(startLine, endLine));
+        }
+
+        /**
+         * Checks if the given line range in the new version is covered by a refactoring.
+         */
+        public boolean isNewRangeCovered(String filePath, int startLine, int endLine) {
+            var ranges = newFileRanges.get(filePath);
+            if (ranges == null) return false;
+            return ranges.stream().anyMatch(r -> r.contains(startLine, endLine));
+        }
+
+        /**
+         * Checks if the given line range in the old version overlaps with a refactoring.
+         */
+        public boolean oldRangeOverlaps(String filePath, int startLine, int endLine) {
+            var ranges = oldFileRanges.get(filePath);
+            if (ranges == null) return false;
+            return ranges.stream().anyMatch(r -> r.overlaps(startLine, endLine));
+        }
+
+        /**
+         * Checks if the given line range in the new version overlaps with a refactoring.
+         */
+        public boolean newRangeOverlaps(String filePath, int startLine, int endLine) {
+            var ranges = newFileRanges.get(filePath);
+            if (ranges == null) return false;
+            return ranges.stream().anyMatch(r -> r.overlaps(startLine, endLine));
+        }
+    }
+
+    /**
+     * Extracts line ranges from detected refactorings for use in diff filtering.
+     * The ranges represent code regions that are "explained" by the refactoring
+     * and can potentially be masked from the diff.
+     */
+    public RefactoringLineRanges extractLineRanges(RefactoringResult result) {
+        if (!result.hasRefactorings()) {
+            return RefactoringLineRanges.empty();
+        }
+
+        Map<String, List<RefactoringLineRanges.LineRange>> oldRanges = new java.util.HashMap<>();
+        Map<String, List<RefactoringLineRanges.LineRange>> newRanges = new java.util.HashMap<>();
+
+        for (var ref : result.refactorings()) {
+            // Add left-side locations (old file positions)
+            for (var loc : ref.leftSideLocations()) {
+                oldRanges.computeIfAbsent(loc.filePath(), k -> new ArrayList<>())
+                        .add(new RefactoringLineRanges.LineRange(loc.startLine(), loc.endLine()));
+            }
+
+            // Add right-side locations (new file positions)
+            for (var loc : ref.rightSideLocations()) {
+                newRanges.computeIfAbsent(loc.filePath(), k -> new ArrayList<>())
+                        .add(new RefactoringLineRanges.LineRange(loc.startLine(), loc.endLine()));
+            }
+        }
+
+        return new RefactoringLineRanges(
+                Map.copyOf(oldRanges),
+                Map.copyOf(newRanges));
+    }
 }

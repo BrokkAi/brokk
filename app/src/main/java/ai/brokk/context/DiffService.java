@@ -414,6 +414,22 @@ public final class DiffService {
 
         @NotNull
         public String toReviewDiff(IAnalyzer analyzer) {
+            return toReviewDiff(analyzer, null);
+        }
+
+        /**
+         * Generates a review diff with optional refactoring masking.
+         * When refactoringLineRanges is provided, diff hunks that are entirely
+         * covered by detected refactorings will be filtered out.
+         *
+         * @param analyzer the analyzer for method name detection in hunk headers
+         * @param refactoringLineRanges line ranges from detected refactorings, or null for no masking
+         * @return the diff text with refactoring-related hunks optionally masked
+         */
+        @NotNull
+        public String toReviewDiff(
+                IAnalyzer analyzer,
+                @Nullable ai.brokk.agents.RefactoringService.RefactoringLineRanges refactoringLineRanges) {
             return perFileChanges().stream()
                     .map(fd -> {
                         String oldName =
@@ -421,7 +437,8 @@ public final class DiffService {
                         String newName =
                                 fd.newFile() == null ? null : fd.newFile().toString();
                         return ContentDiffUtils.computeReviewDiffResult(
-                                        analyzer, fd.newFile(), fd.oldText(), fd.newText(), oldName, newName)
+                                        analyzer, fd.newFile(), fd.oldText(), fd.newText(), oldName, newName,
+                                        refactoringLineRanges)
                                 .diff();
                     })
                     .collect(Collectors.joining("\n\n"));

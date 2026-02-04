@@ -136,22 +136,34 @@ public class ReviewAgent {
     public ReviewResult execute() throws InterruptedException, ReviewGenerationException {
         long startTime = System.currentTimeMillis();
 
-        // Prepare the initial context with the diff pinned
-        String diff = changes.toReviewDiff(cm.getAnalyzer());
-        var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
-
-        // Detect refactorings in the changes
+        // Detect refactorings in the changes first
         var refactoringService = new RefactoringService();
         var refactoringResult = refactoringService.detectRefactorings(changes.perFileChanges());
         logger.info(
                 "Refactoring detection completed: {} refactorings found",
                 refactoringResult.refactorings().size());
 
+        // Extract line ranges for diff masking
+        var refactoringLineRanges = refactoringResult.hasRefactorings()
+                ? refactoringService.extractLineRanges(refactoringResult)
+                : null;
+
+        // Prepare the initial context with the masked diff pinned
+        // When refactorings are detected, the diff will have refactoring-related hunks filtered out
+        String diff = changes.toReviewDiff(cm.getAnalyzer(), refactoringLineRanges);
+
+        // If refactorings were detected, prepend a summary to the diff
+        if (refactoringResult.hasRefactorings()) {
+            diff = refactoringResult.summary() + "\n---\n\n" + diff;
+        }
+
+        var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
+
         try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
             var contextBuilder = new Context(cm).addFragments(diffFragment);
 
-            // Add refactoring summary if any refactorings were detected
+            // Add refactoring summary as separate context fragment for visibility in Context panel
             if (refactoringResult.hasRefactorings()) {
                 var refactoringSummaryFragment =
                         SpecialTextType.REFACTORING_SUMMARY.create(cm, refactoringResult.summary());
