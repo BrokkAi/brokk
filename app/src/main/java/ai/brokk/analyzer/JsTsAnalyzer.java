@@ -355,4 +355,9 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             }
         }
     }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return "constructor".equals(candidate.identifier());
+    }
 }

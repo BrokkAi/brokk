@@ -387,11 +387,6 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
-        return "constructor".equals(candidate.identifier());
-    }
-
-    @Override
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         // JavaScript package naming is directory-based, relative to the project root.
