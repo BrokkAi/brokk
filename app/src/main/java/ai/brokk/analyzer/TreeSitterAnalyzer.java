@@ -4281,10 +4281,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Determines if a CodeUnit is a constructor for the given enclosing class.
      * Checks the language profile's constructorNodeTypes first, then falls back to custom logic.
      *
-     * @param nodeType usually the Tree-sitter capture name or raw node type
+     * @param captureName the Tree-sitter capture name (e.g., "constructor.definition")
      */
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
-        if (getLanguageSyntaxProfile().constructorNodeTypes().contains(nodeType)) {
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        if (getLanguageSyntaxProfile().constructorNodeTypes().contains(captureName)) {
             return true;
         }
         // Fallback: If no node types are specified in the profile, check for name matching

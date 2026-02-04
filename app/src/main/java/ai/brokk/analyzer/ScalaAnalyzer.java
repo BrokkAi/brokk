@@ -199,7 +199,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
         return false;
     }
 

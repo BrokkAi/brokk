@@ -387,7 +387,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
         return "constructor".equals(candidate.identifier());
     }
 

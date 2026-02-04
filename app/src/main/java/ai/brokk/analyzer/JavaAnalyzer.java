@@ -67,7 +67,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                     ANNOTATION_TYPE_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT, CONSTANT_DECLARATION),
-            Set.of(CONSTRUCTOR_DECLARATION),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of(ANNOTATION, MARKER_ANNOTATION),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -1327,8 +1327,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
-        return CONSTRUCTOR_DECLARATION.equals(nodeType);
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
     }
 
     @Override

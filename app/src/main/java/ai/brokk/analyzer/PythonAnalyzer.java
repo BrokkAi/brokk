@@ -1171,7 +1171,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
         return "__init__".equals(candidate.identifier());
     }
 
