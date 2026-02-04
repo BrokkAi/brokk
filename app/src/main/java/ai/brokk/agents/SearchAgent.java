@@ -118,7 +118,7 @@ public class SearchAgent {
     private final SearchPrompts.Objective objective;
 
     SearchState currentState;
-    private @Nullable SearchState checkpointState;
+    private SearchState checkpointState;
 
     private final Set<ContextFragment> originalPinnedFragments;
     private final List<ContextFragment> droppedFragments = new ArrayList<>();
@@ -189,6 +189,7 @@ public class SearchAgent {
 
         this.mcpTools = initMcpTools(cm.getProject());
         this.currentState = SearchState.initial(initialContext);
+        this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.scanConfig = scanConfig;
         this.staticTools = initStaticTools(staticTools, cm.getProject(), mcpTools);
@@ -298,7 +299,15 @@ public class SearchAgent {
                 }
                 case TurnOutcome.Overflow overflow -> {
                     assert pendingTerminal == null;
-                    assert checkpointState != null;
+                    if (currentState.equals(checkpointState)) {
+                        // our checkpoint is bad, this can happen if the initial context given to SearchAgent is too large
+                        return errorResult(
+                                new TaskResult.StopDetails(
+                                        TaskResult.StopReason.LLM_CONTEXT_SIZE,
+                                        "Context limit exceeded before search started"),
+                                taskMeta(),
+                                currentState.context());
+                    }
 
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
