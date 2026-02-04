@@ -284,9 +284,4 @@ public final class WorktreeProject extends AbstractProject {
     public Set<ProjectFile> getAllOnDiskDependencies() {
         return parent.getAllOnDiskDependencies();
     }
-
-    @Override
-    public Path getMasterRootPathForConfig() {
-        return parent.getMasterRootPathForConfig();
-    }
 }
