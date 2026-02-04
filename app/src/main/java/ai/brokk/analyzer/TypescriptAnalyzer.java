@@ -726,12 +726,6 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
-        return super.isConstructor(candidate, enclosingClass, captureName)
-                || "constructor".equals(candidate.identifier());
-    }
-
-    @Override
     protected Set<String> getIgnoredCaptures() {
         // e.g., @parameters, @return_type_node if they are only for context and not main definitions
         return Set.of(
