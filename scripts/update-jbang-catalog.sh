@@ -75,8 +75,8 @@ NEW_ENTRY=$(jq -n --arg version "brokk-$VERSION" --arg url "$JAR_URL" '{
     ($version): {
         "script-ref": $url,
         "java": "21",
-        "java-options": ["--enable-native-access=javafx.graphics,javafx.media,javafx.web,ALL-UNNAMED"],
-        "dependencies": ["org.openjfx:javafx-controls:22", "org.openjfx:javafx-fxml:22", "org.openjfx:javafx-swing:22", "org.openjfx:javafx-web:22"]
+        "main": "ai.brokk.cli.BrokkCli",
+        "java-options": ["--enable-native-access=ALL-UNNAMED"]
     }
 }')
 
@@ -135,16 +135,17 @@ done
 jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REPO_SLUG" --argjson versions_to_keep "$(echo "$VERSIONS_TO_KEEP" | jq -R -s 'split("\n") | map(select(length > 0))')" '
     # Update main brokk alias to point to new version
     .aliases.brokk."script-ref" = $url |
-    .aliases.brokk."java-options" = ["--enable-native-access=javafx.graphics,javafx.media,javafx.web,ALL-UNNAMED"] |
-    .aliases.brokk.dependencies = ["org.openjfx:javafx-controls:22", "org.openjfx:javafx-fxml:22", "org.openjfx:javafx-swing:22", "org.openjfx:javafx-web:22"] |
+    .aliases.brokk."main" = "ai.brokk.cli.BrokkCli" |
+    .aliases.brokk."java-options" = ["--enable-native-access=ALL-UNNAMED"] |
+    del(.aliases.brokk.dependencies) |
     # Create version aliases for the versions we want to keep
     ($versions_to_keep | map({
         key: ("brokk-" + .),
         value: {
             "script-ref": ("https://github.com/" + $repo_slug + "/releases/download/" + . + "/brokk-" + . + ".jar"),
             "java": "21",
-            "java-options": ["--enable-native-access=javafx.graphics,javafx.media,javafx.web,ALL-UNNAMED"],
-            "dependencies": ["org.openjfx:javafx-controls:22", "org.openjfx:javafx-fxml:22", "org.openjfx:javafx-swing:22", "org.openjfx:javafx-web:22"]
+            "main": "ai.brokk.cli.BrokkCli",
+            "java-options": ["--enable-native-access=ALL-UNNAMED"]
         }
     }) | from_entries) as $version_aliases |
     # Rebuild the aliases object
