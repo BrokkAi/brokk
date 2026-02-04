@@ -419,6 +419,7 @@ public class BuildAgent {
                 - `{{^last}}separator{{/last}}` — render separator between items (not after last)
 
                 Use `{{pyver}}` for the version string when needed (e.g. for Python projects: `python{{pyver}} -m pytest`).
+                Only these variables are supported; do not use other Mustache variables.
 
                 Examples:
 
@@ -1047,10 +1048,19 @@ public class BuildAgent {
 
     /**
      * Interpolates a Mustache template with the given list of items and optional Python version.
-     * Supports {{files}}, {{classes}}, {{fqclasses}}, {{modules}}, and {{pyver}} variables.
+     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#modules}}},
+     * and {@code {{pyver}}} variables.
      *
-     * Note: mustache.java's DecoratedCollection does not support the -last feature like Handlebars does,
-     * so we post-process to clean up trailing separators that result from the final iteration.
+     * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
+     * <ul>
+     *   <li>{@code {{.}}}  — the string value (via {@code toString()})</li>
+     *   <li>{@code {{value}}} — the string value (explicit field)</li>
+     *   <li>{@code {{first}}} — boolean, true for the first item</li>
+     *   <li>{@code {{last}}} — boolean, true for the last item</li>
+     *   <li>{@code {{index}}} — 0-based position in the list</li>
+     * </ul>
+     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
+     * constitute an API change and require corresponding test updates.
      */
     public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
         return interpolateMustacheTemplate(template, items, listKey, null);
@@ -1058,7 +1068,19 @@ public class BuildAgent {
 
     /**
      * Interpolates a Mustache template with the given list of items and optional Python version.
-     * Supports {{files}}, {{classes}}, {{fqclasses}}, {{modules}}, and {{pyver}} variables.
+     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#modules}}},
+     * and {@code {{pyver}}} variables.
+     *
+     * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
+     * <ul>
+     *   <li>{@code {{.}}}  — the string value (via {@code toString()})</li>
+     *   <li>{@code {{value}}} — the string value (explicit field)</li>
+     *   <li>{@code {{first}}} — boolean, true for the first item</li>
+     *   <li>{@code {{last}}} — boolean, true for the last item</li>
+     *   <li>{@code {{index}}} — 0-based position in the list</li>
+     * </ul>
+     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
+     * constitute an API change and require corresponding test updates.
      */
     public static String interpolateMustacheTemplate(
             String template, List<String> items, String listKey, @Nullable String pythonVersion) {
