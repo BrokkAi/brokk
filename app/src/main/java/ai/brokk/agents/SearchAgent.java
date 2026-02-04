@@ -115,6 +115,8 @@ public class SearchAgent {
     private boolean scanPerformed;
     private boolean contextPruned;
 
+    private boolean terminalCompletionReported = false;
+
     private final SearchPrompts.Objective objective;
 
     SearchState currentState;
@@ -256,17 +258,31 @@ public class SearchAgent {
     }
 
     public TaskResult execute() {
+        TaskResult tr;
         try {
-            var tr = executeInternal();
+            tr = executeInternal();
             if (metrics instanceof SearchMetrics.Tracking) {
                 var json = metrics.toJson(goal, tr.stopDetails().reason() == TaskResult.StopReason.SUCCESS);
                 System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
             }
-            return tr;
         } catch (InterruptedException e) {
             logger.debug("Search interrupted", e);
-            return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+            tr = errorResult(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
+
+        var details = tr.stopDetails();
+        if (details.reason() != TaskResult.StopReason.SUCCESS || !terminalCompletionReported) {
+            var message =
+                    switch (details.reason()) {
+                        case SUCCESS -> "Search finished.";
+                        case INTERRUPTED -> "Cancelled by user.";
+                        default ->
+                            details.explanation().isBlank() ? details.reason().name() : details.explanation();
+                    };
+            reportComplete(details.reason(), message);
+        }
+
+        return tr;
     }
 
     private boolean shouldAutomaticallyScan() {
@@ -300,7 +316,8 @@ public class SearchAgent {
                 case TurnOutcome.Overflow overflow -> {
                     assert pendingTerminal == null;
                     if (currentState.equals(checkpointState)) {
-                        // our checkpoint is bad, this can happen if the initial context given to SearchAgent is too large
+                        // our checkpoint is bad, this can happen if the initial context given to SearchAgent is too
+                        // large
                         return errorResult(
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.LLM_CONTEXT_SIZE,
@@ -313,8 +330,7 @@ public class SearchAgent {
                             IConsoleIO.NotificationRole.INFO,
                             "Context limit exceeded. Restoring last successful checkpoint and entering recovery mode.");
 
-                    currentState = Objects.requireNonNull(checkpointState);
-
+                    currentState = checkpointState;
                     if (!hasDroppableFragments(currentState.context())) {
                         return errorResult(
                                 new TaskResult.StopDetails(
@@ -691,7 +707,7 @@ public class SearchAgent {
 
                 if (result.error() != null) {
                     var details = TaskResult.StopDetails.fromResponse(result);
-                    if (details.reason() == TaskResult.StopReason.LLM_CONTEXT_SIZE && agent.checkpointState != null) {
+                    if (details.reason() == TaskResult.StopReason.LLM_CONTEXT_SIZE) {
                         assert pendingTerminal == null;
                         return TurnOutcome.Overflow.INSTANCE;
                     }
@@ -913,6 +929,7 @@ public class SearchAgent {
         @SuppressWarnings("UnusedMethod")
         public String abortSearch(
                 @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
+            agent.terminalCompletionReported = true;
             agent.io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
             return explanation;
         }
@@ -950,6 +967,7 @@ public class SearchAgent {
                 @P(
                                 "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
                         String explanation) {
+            agent.terminalCompletionReported = true;
             agent.io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
             return explanation;
         }
@@ -959,6 +977,7 @@ public class SearchAgent {
         @SuppressWarnings("UnusedMethod")
         public String askForClarification(
                 @P("A concise question or clarification request for the human user.") String queryForUser) {
+            agent.terminalCompletionReported = true;
             agent.io.llmOutput(queryForUser, ChatMessageType.AI, LlmOutputMeta.newMessage());
             return queryForUser;
         }
@@ -967,6 +986,7 @@ public class SearchAgent {
                 "Issue Writer final output. Provide EXACTLY the JSON string. No markdown fences, no preamble, no additional text.")
         @SuppressWarnings("UnusedMethod")
         public String issueWriterOutput(@P("A single JSON object string.") String json) {
+            agent.terminalCompletionReported = true;
             agent.io.llmOutput(json, ChatMessageType.AI, LlmOutputMeta.newMessage());
             return json;
         }
@@ -1334,5 +1354,14 @@ public class SearchAgent {
 
     private TaskResult.TaskMeta taskMeta() {
         return new TaskResult.TaskMeta(TaskResult.Type.SEARCH, Service.ModelConfig.from(model, cm.getService()));
+    }
+
+    void reportComplete(TaskResult.StopReason reason, String message) {
+        logger.debug("SearchAgent completed: {}: {}", reason, message);
+        var badge = StatusBadge.badgeFor(reason);
+        io.llmOutput(
+                "\n## Search Agent Finished\n" + badge + "\n\n**Reason:** " + message,
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.DEFAULT);
     }
 }

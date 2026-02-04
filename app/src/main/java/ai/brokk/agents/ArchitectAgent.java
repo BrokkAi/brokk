@@ -110,6 +110,8 @@ public class ArchitectAgent {
     @Nullable
     private StopReason lastFatalReason = null;
 
+    private boolean terminalCompletionReported = false;
+
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
 
@@ -172,10 +174,8 @@ public class ArchitectAgent {
     public String projectFinished(
             @P("A final explanation or summary addressing all tasks. Format it in Markdown if desired.")
                     String finalExplanation) {
-        var msg = "# Architect complete\n\n%s".formatted(finalExplanation);
-        logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.newMessage());
-
+        terminalCompletionReported = true;
+        reportComplete(StopReason.SUCCESS, "Architect complete", finalExplanation);
         return finalExplanation;
     }
 
@@ -185,10 +185,8 @@ public class ArchitectAgent {
     @Tool(
             "Abort the entire project. Use this if the tasks are impossible or out of scope. Do not combine with other tools.")
     public String abortProject(@P("Explain why the project must be aborted.") String reason) {
-        var msg = "# Architect aborted\n\n%s".formatted(reason);
-        logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.newMessage());
-
+        terminalCompletionReported = true;
+        reportComplete(StopReason.LLM_ABORTED, "Architect aborted", reason);
         return reason;
     }
 
@@ -495,11 +493,26 @@ public class ArchitectAgent {
             throw new IllegalArgumentException(); // Architect should only be invoked by Task List harness
         }
 
+        TaskResult tr;
         try {
-            return executeInternal();
+            tr = executeInternal();
         } catch (InterruptedException e) {
-            return resultWithMessages(StopReason.INTERRUPTED);
+            tr = resultWithMessages(StopReason.INTERRUPTED);
         }
+
+        if (!terminalCompletionReported) {
+            var details = tr.stopDetails();
+            var message =
+                    switch (details.reason()) {
+                        case SUCCESS -> goal;
+                        case INTERRUPTED -> "Cancelled by user.";
+                        default ->
+                            details.explanation().isBlank() ? details.reason().name() : details.explanation();
+                    };
+            reportComplete(details.reason(), "Architect finished", message);
+        }
+
+        return tr;
     }
 
     /**
@@ -1000,6 +1013,13 @@ public class ArchitectAgent {
     private TaskResult resultWithMessages(StopReason reason) {
         // include the messages we exchanged with the LLM for any planning steps since we ran a sub-agent
         return resultWithMessages(reason, "Architect: " + goal);
+    }
+
+    void reportComplete(StopReason reason, String heading, String message) {
+        logger.debug("ArchitectAgent completed: {}: {}", reason, message);
+        var badge = StatusBadge.badgeFor(reason);
+        io.llmOutput(
+                "\n# " + heading + "\n\n" + badge + "\n\n" + message, ChatMessageType.AI, LlmOutputMeta.newMessage());
     }
 
     /**
