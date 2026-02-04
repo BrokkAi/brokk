@@ -3,6 +3,7 @@ package ai.brokk.agents;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.git.GitRepoData.FileDiff;
+import gr.uom.java.xmi.diff.CodeRange;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -15,7 +16,6 @@ import org.jetbrains.annotations.Blocking;
 import org.refactoringminer.api.GitHistoryRefactoringMiner;
 import org.refactoringminer.api.Refactoring;
 import org.refactoringminer.api.RefactoringHandler;
-import gr.uom.java.xmi.diff.CodeRange;
 import org.refactoringminer.rm1.GitHistoryRefactoringMinerImpl;
 
 /**
@@ -38,17 +38,10 @@ public class RefactoringService {
      * A detected refactoring with its location and description.
      */
     public record DetectedRefactoring(
-            String type,
-            String description,
-            List<Location> leftSideLocations,
-            List<Location> rightSideLocations) {
+            String type, String description, List<Location> leftSideLocations, List<Location> rightSideLocations) {
 
         public record Location(
-                String filePath,
-                int startLine,
-                int endLine,
-                String codeElementType,
-                String codeElement) {}
+                String filePath, int startLine, int endLine, String codeElementType, String codeElement) {}
     }
 
     /**
@@ -85,9 +78,8 @@ public class RefactoringService {
     @Blocking
     public RefactoringResult detectRefactorings(List<FileDiff> fileDiffs) {
         // Filter to supported languages only
-        List<FileDiff> supportedDiffs = fileDiffs.stream()
-                .filter(this::isSupportedLanguage)
-                .toList();
+        List<FileDiff> supportedDiffs =
+                fileDiffs.stream().filter(this::isSupportedLanguage).toList();
 
         if (supportedDiffs.isEmpty()) {
             logger.debug("No files in supported languages for refactoring detection");
@@ -98,16 +90,12 @@ public class RefactoringService {
         Map<String, String> beforeContents = supportedDiffs.stream()
                 .filter(fd -> fd.oldFile() != null && !fd.oldText().isEmpty())
                 .collect(Collectors.toMap(
-                        fd -> fd.oldFile().toString(),
-                        FileDiff::oldText,
-                        (a, b) -> a)); // Handle duplicate keys
+                        fd -> fd.oldFile().toString(), FileDiff::oldText, (a, b) -> a)); // Handle duplicate keys
 
         Map<String, String> afterContents = supportedDiffs.stream()
                 .filter(fd -> fd.newFile() != null && !fd.newText().isEmpty())
                 .collect(Collectors.toMap(
-                        fd -> fd.newFile().toString(),
-                        FileDiff::newText,
-                        (a, b) -> a)); // Handle duplicate keys
+                        fd -> fd.newFile().toString(), FileDiff::newText, (a, b) -> a)); // Handle duplicate keys
 
         if (beforeContents.isEmpty() && afterContents.isEmpty()) {
             return RefactoringResult.empty();
@@ -116,9 +104,8 @@ public class RefactoringService {
         try {
             List<Refactoring> refactorings = runRefactoringMiner(beforeContents, afterContents);
 
-            List<DetectedRefactoring> detected = refactorings.stream()
-                    .map(this::toDetectedRefactoring)
-                    .toList();
+            List<DetectedRefactoring> detected =
+                    refactorings.stream().map(this::toDetectedRefactoring).toList();
 
             String summary = buildSummary(detected);
 
@@ -140,9 +127,8 @@ public class RefactoringService {
         return SUPPORTED_LANGUAGES.contains(lang);
     }
 
-    private List<Refactoring> runRefactoringMiner(
-            Map<String, String> beforeContents,
-            Map<String, String> afterContents) throws Exception {
+    private List<Refactoring> runRefactoringMiner(Map<String, String> beforeContents, Map<String, String> afterContents)
+            throws Exception {
         GitHistoryRefactoringMiner miner = new GitHistoryRefactoringMinerImpl();
         List<Refactoring> result = new ArrayList<>();
 
@@ -168,10 +154,7 @@ public class RefactoringService {
                 .toList();
 
         return new DetectedRefactoring(
-                ref.getRefactoringType().getDisplayName(),
-                ref.toString(),
-                leftLocations,
-                rightLocations);
+                ref.getRefactoringType().getDisplayName(), ref.toString(), leftLocations, rightLocations);
     }
 
     private DetectedRefactoring.Location toLocation(CodeRange codeRange) {
@@ -203,8 +186,8 @@ public class RefactoringService {
         sb.append("Refactorings are typically behavior-preserving transformations.\n\n");
 
         // Group by refactoring type
-        Map<String, List<DetectedRefactoring>> byType = refactorings.stream()
-                .collect(Collectors.groupingBy(DetectedRefactoring::type));
+        Map<String, List<DetectedRefactoring>> byType =
+                refactorings.stream().collect(Collectors.groupingBy(DetectedRefactoring::type));
 
         for (var entry : byType.entrySet()) {
             String type = entry.getKey();
@@ -246,8 +229,7 @@ public class RefactoringService {
      * Used to filter diff hunks that are entirely explained by refactorings.
      */
     public record RefactoringLineRanges(
-            Map<String, List<LineRange>> oldFileRanges,
-            Map<String, List<LineRange>> newFileRanges) {
+            Map<String, List<LineRange>> oldFileRanges, Map<String, List<LineRange>> newFileRanges) {
 
         public record LineRange(int startLine, int endLine) {
             /**
@@ -322,19 +304,19 @@ public class RefactoringService {
         for (var ref : result.refactorings()) {
             // Add left-side locations (old file positions)
             for (var loc : ref.leftSideLocations()) {
-                oldRanges.computeIfAbsent(loc.filePath(), k -> new ArrayList<>())
+                oldRanges
+                        .computeIfAbsent(loc.filePath(), k -> new ArrayList<>())
                         .add(new RefactoringLineRanges.LineRange(loc.startLine(), loc.endLine()));
             }
 
             // Add right-side locations (new file positions)
             for (var loc : ref.rightSideLocations()) {
-                newRanges.computeIfAbsent(loc.filePath(), k -> new ArrayList<>())
+                newRanges
+                        .computeIfAbsent(loc.filePath(), k -> new ArrayList<>())
                         .add(new RefactoringLineRanges.LineRange(loc.startLine(), loc.endLine()));
             }
         }
 
-        return new RefactoringLineRanges(
-                Map.copyOf(oldRanges),
-                Map.copyOf(newRanges));
+        return new RefactoringLineRanges(Map.copyOf(oldRanges), Map.copyOf(newRanges));
     }
 }

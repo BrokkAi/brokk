@@ -437,7 +437,12 @@ public final class DiffService {
                         String newName =
                                 fd.newFile() == null ? null : fd.newFile().toString();
                         return ContentDiffUtils.computeReviewDiffResult(
-                                        analyzer, fd.newFile(), fd.oldText(), fd.newText(), oldName, newName,
+                                        analyzer,
+                                        fd.newFile(),
+                                        fd.oldText(),
+                                        fd.newText(),
+                                        oldName,
+                                        newName,
                                         refactoringLineRanges)
                                 .diff();
                     })

@@ -234,7 +234,8 @@ class RefactoringServiceTest {
             assertNotNull(refactoring.description());
             // At least one side should have locations
             assertFalse(
-                    refactoring.leftSideLocations().isEmpty() && refactoring.rightSideLocations().isEmpty(),
+                    refactoring.leftSideLocations().isEmpty()
+                            && refactoring.rightSideLocations().isEmpty(),
                     "Refactoring should have at least one location");
         }
     }

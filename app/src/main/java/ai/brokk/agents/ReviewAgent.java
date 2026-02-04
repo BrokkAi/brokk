@@ -144,9 +144,8 @@ public class ReviewAgent {
                 refactoringResult.refactorings().size());
 
         // Extract line ranges for diff masking
-        var refactoringLineRanges = refactoringResult.hasRefactorings()
-                ? refactoringService.extractLineRanges(refactoringResult)
-                : null;
+        var refactoringLineRanges =
+                refactoringResult.hasRefactorings() ? refactoringService.extractLineRanges(refactoringResult) : null;
 
         // Prepare the initial context with the masked diff pinned
         // When refactorings are detected, the diff will have refactoring-related hunks filtered out
