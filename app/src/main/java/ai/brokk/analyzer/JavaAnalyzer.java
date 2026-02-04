@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import ai.brokk.project.IProject;
 import java.util.*;
@@ -30,17 +31,19 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         super(project, Languages.JAVA, listener);
     }
 
-    private JavaAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.JAVA, state, listener);
+    private JavaAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.JAVA, state, listener, cache);
     }
 
     public static JavaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new JavaAnalyzer(project, state, listener);
+        return new JavaAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new JavaAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new JavaAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override

@@ -27,6 +27,12 @@ public final class CaffeineSimpleCache<K, V> implements SimpleCache<K, V> {
     }
 
     @Override
+    public void putAll(SimpleCache<K, V> source) {
+        cache.invalidateAll();
+        source.forEach(this::put);
+    }
+
+    @Override
     public boolean isEmpty() {
         return cache.estimatedSize() == 0;
     }

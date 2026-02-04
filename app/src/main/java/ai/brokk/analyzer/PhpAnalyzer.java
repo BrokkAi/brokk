@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -67,18 +68,20 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
-    private PhpAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.PHP, state, listener);
+    private PhpAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.PHP, state, listener, cache);
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
     public static PhpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new PhpAnalyzer(project, state, listener);
+        return new PhpAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new PhpAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new PhpAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override

@@ -12,6 +12,11 @@ public interface SimpleCache<K, V> {
 
     void put(K key, V value);
 
+    /**
+     * Copies all entries from the source cache into this cache.
+     */
+    void putAll(SimpleCache<K, V> source);
+
     boolean isEmpty();
 
     void forEach(BiConsumer<? super K, ? super V> action);

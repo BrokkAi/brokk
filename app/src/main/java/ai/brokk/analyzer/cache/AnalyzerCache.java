@@ -9,6 +9,10 @@ import org.treesitter.TSTree;
 
 /**
  * Composes all analyzer-specific caches into a single helper object.
+ *
+ * <p>Caches in this class are designed to be transferable across analyzer snapshots.
+ * The {@link #AnalyzerCache(AnalyzerCache, Set)} constructor enables incremental updates
+ * by transferring only those entries that remain valid given a set of changed files.
  */
 public final class AnalyzerCache {
 
@@ -32,6 +36,44 @@ public final class AnalyzerCache {
                     // Logic for reverse population is handled by the caller during resolve
                 },
                 Collections::emptyList);
+    }
+
+    /**
+     * Transfer constructor for incremental updates.
+     *
+     * <p>Copies valid entries from the {@code previous} cache that are not affected by
+     * the {@code changedFiles}. For bidirectional caches (imports and typeHierarchy),
+     * only the forward mappings are transferred. Reverse mappings are left empty and
+     * will be repopulated lazily as the new analyzer snapshot performs lookups.
+     *
+     * @param previous the cache from the preceding analyzer snapshot
+     * @param changedFiles the set of files that were modified, added, or removed
+     */
+    public AnalyzerCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        this();
+        previous.trees.forEach((file, tree) -> {
+            if (!changedFiles.contains(file)) {
+                this.trees.put(file, tree);
+            }
+        });
+
+        previous.rawSupertypes.forEach((cu, supers) -> {
+            if (!changedFiles.contains(cu.source())) {
+                this.rawSupertypes.put(cu, List.copyOf(supers));
+            }
+        });
+
+        previous.imports.forEachForward((file, units) -> {
+            if (!changedFiles.contains(file)) {
+                this.imports.putForward(file, Set.copyOf(units));
+            }
+        });
+
+        previous.typeHierarchy.forEachForward((cu, supers) -> {
+            if (!changedFiles.contains(cu.source())) {
+                this.typeHierarchy.putForward(cu, List.copyOf(supers));
+            }
+        });
     }
 
     public SimpleCache<ProjectFile, TSTree> trees() {
