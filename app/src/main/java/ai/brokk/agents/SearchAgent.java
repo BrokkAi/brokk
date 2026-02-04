@@ -282,14 +282,14 @@ public class SearchAgent {
         @Nullable PendingTerminal pendingTerminal = null;
 
         while (true) {
-            Context contextAtTurnStart = currentState.context();
+            SearchState stateAtTurnStart = currentState;
 
             if (pendingTerminal != null) {
                 assert dropOnlyMode;
-                assert hasDroppableFragments(contextAtTurnStart);
+                assert hasDroppableFragments(currentState.context());
             }
 
-            var sta = new SingleTurnAgent(this, currentState, dropOnlyMode, pendingTerminal);
+            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropOnlyMode, pendingTerminal);
             var outcome = sta.executeTurn();
 
             switch (outcome) {
@@ -322,14 +322,14 @@ public class SearchAgent {
                     performAutoScan();
                 }
                 case TurnOutcome.Continue c -> {
-                    currentState =
-                            new SearchState(c.contextAfterTurn(), c.sessionMessagesAfterTurn(), contextAtTurnStart);
-                    checkpointState = currentState;
+                    currentState = new SearchState(
+                            c.contextAfterTurn(), c.sessionMessagesAfterTurn(), stateAtTurnStart.context());
+                    checkpointState = stateAtTurnStart;
                     dropOnlyMode = false;
                 }
                 case TurnOutcome.PendingTerminal pt -> {
                     currentState = new SearchState(
-                            pt.contextAfterTurn(), pt.sessionMessagesAfterTurn(), currentState.lastTurnContext());
+                            pt.contextAfterTurn(), pt.sessionMessagesAfterTurn(), stateAtTurnStart.lastTurnContext());
                     pendingTerminal = pt.pendingTerminal();
                     dropOnlyMode = true;
                 }
