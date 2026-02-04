@@ -3,6 +3,7 @@ package ai.brokk;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -372,11 +373,25 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             throws IOException {
         var kp = parseKey(MainProject.getBrokkKey());
 
+        // Resolve version and environment, defaulting to "Unknown" if blank/null
+        String version = BuildInfo.version;
+        if (version == null || version.isBlank()) {
+            version = "Unknown";
+        }
+        String environment = Environment.getOsDescription();
+        if (environment == null || environment.isBlank()) {
+            environment = "Unknown";
+        }
+        LogManager.getLogger(Service.class)
+                .debug("Sending feedback with version={}, environment={}", version, environment);
+
         var bodyBuilder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("category", category)
                 .addFormDataPart("feedback_text", feedbackText)
-                .addFormDataPart("user_id", kp.userId().toString());
+                .addFormDataPart("user_id", kp.userId().toString())
+                .addFormDataPart("version", version)
+                .addFormDataPart("environment", environment);
 
         if (includeDebugLog) {
             var debugLogPath =
