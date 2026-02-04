@@ -944,7 +944,21 @@ public class CodeAgent {
                         cs.taskMessages().add(retryMessages.taggedAiMessage());
                     }
 
-                    csForStep = cs.withNextRequest(retryMessages.retryRequest());
+                    UserMessage retryRequest = retryMessages.retryRequest();
+                    if (!es.lastBuildError().isBlank()) {
+                        String harnessNote =
+                                """
+                                [HARNESS NOTE: Apply did not fully succeed. I applied %d of %d of your SEARCH/REPLACE blocks, but I have NOT rerun the build yet.
+                                I will rerun the build once all of your proposed edits apply cleanly.
+                                If you believe no further edits are required and I should run the build now, simply explain why and do NOT provide any further SEARCH/REPLACE blocks.]
+                                """
+                                        .formatted(succeededCount, attemptedBlockCount)
+                                        .stripIndent()
+                                        .trim();
+                        retryRequest = new UserMessage(Messages.getText(retryRequest) + "\n\n" + harnessNote);
+                    }
+
+                    csForStep = cs.withNextRequest(retryRequest);
                     esForStep = es.afterApply(
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
