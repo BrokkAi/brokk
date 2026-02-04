@@ -172,6 +172,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             Set.of(CLASS_DEFINITION, OBJECT_DEFINITION, INTERFACE_DEFINITION, ENUM_DEFINITION),
             Set.of(FUNCTION_DEFINITION),
             Set.of(VAL_DEFINITION, VAR_DEFINITION, SIMPLE_ENUM_CASE),
+            Set.of(),
             Set.of("annotation", "marker_annotation"),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -198,10 +199,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
-        // Intentionally conservative: Scala permits term members (methods/vals) named the same as
-        // the class, so `Foo.Foo` can be either a constructor (normalized by createCodeUnit)
-        // or a real member. Without capture-name or AST context here, we cannot disambiguate safely.
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
         return false;
     }
 

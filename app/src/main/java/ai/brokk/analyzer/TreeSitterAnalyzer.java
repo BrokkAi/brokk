@@ -199,6 +199,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Set<String> classLikeNodeTypes,
             Set<String> functionLikeNodeTypes,
             Set<String> fieldLikeNodeTypes,
+            Set<String> constructorNodeTypes,
             Set<String> decoratorNodeTypes,
             String importNodeType,
             String identifierFieldName,
@@ -2424,7 +2425,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         for (CodeUnit cu : List.copyOf(localCuByFqName.values())) {
             if (cu.isClass()) {
                 List<CodeUnit> kids = localChildren.getOrDefault(cu, List.of());
-                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> isConstructor(k, cu));
+                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
+                    // Use the capture name stored during analysis to identify constructors
+                    String capture = cuToCaptureName.getOrDefault(k, "");
+                    return isConstructor(k, cu, capture);
+                });
 
                 if (!hasExplicitConstructor) {
                     String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
@@ -4274,9 +4279,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Determines if a CodeUnit is a constructor for the given enclosing class.
-     * Default implementation is false.
+     * Checks the language profile's constructorNodeTypes first, then falls back to custom logic.
+     *
+     * @param nodeType usually the Tree-sitter capture name or raw node type
      */
-    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
+        if (getLanguageSyntaxProfile().constructorNodeTypes().contains(nodeType)) {
+            return true;
+        }
+        // Fallback: If no node types are specified in the profile, check for name matching
+        if (getLanguageSyntaxProfile().constructorNodeTypes().isEmpty() && enclosingClass != null) {
+            return candidate.isFunction() && candidate.identifier().equals(enclosingClass.identifier());
+        }
         return false;
     }
 

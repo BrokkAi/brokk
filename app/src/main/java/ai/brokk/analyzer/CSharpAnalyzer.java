@@ -32,6 +32,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                     RECORD_STRUCT_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION, LOCAL_FUNCTION_STATEMENT),
             Set.of(FIELD_DECLARATION, PROPERTY_DECLARATION, EVENT_FIELD_DECLARATION),
+            Set.of(CONSTRUCTOR_DECLARATION),
             Set.of("attribute_list"),
             IMPORT_DECLARATION,
             "name",
@@ -249,8 +250,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
-        return candidate.isFunction() && candidate.identifier().equals(enclosingClass.identifier());
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
+        return super.isConstructor(candidate, enclosingClass, nodeType);
     }
 
     @Override

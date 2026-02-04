@@ -260,8 +260,8 @@ public class PhpAnalyzerTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertTrue(analyzer.isConstructor(constructCU, classCU), "__construct should be a constructor");
-        assertFalse(analyzer.isConstructor(otherMethodCU, classCU), "getValue should not be a constructor");
+        assertTrue(analyzer.isConstructor(constructCU, classCU, ""), "__construct should be a constructor");
+        assertFalse(analyzer.isConstructor(otherMethodCU, classCU, ""), "getValue should not be a constructor");
     }
 
     @Test

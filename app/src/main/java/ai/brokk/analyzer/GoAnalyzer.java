@@ -45,6 +45,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             Set.of(TYPE_SPEC, TYPE_ALIAS), // classLikeNodeTypes
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
+            Set.of(),
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
             CaptureNames.IMPORT_DECLARATION, // importNodeType - matches @import.declaration capture in go.scm
             "name", // identifierFieldName (used as fallback if specific .name capture is missing)

@@ -1493,8 +1493,8 @@ public final class PythonAnalyzerTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertTrue(analyzer.isConstructor(initCU, classCU), "__init__ should be a constructor");
-        assertFalse(analyzer.isConstructor(otherMethodCU, classCU), "get_value should not be a constructor");
+        assertTrue(analyzer.isConstructor(initCU, classCU, ""), "__init__ should be a constructor");
+        assertFalse(analyzer.isConstructor(otherMethodCU, classCU, ""), "get_value should not be a constructor");
     }
 
     @Test

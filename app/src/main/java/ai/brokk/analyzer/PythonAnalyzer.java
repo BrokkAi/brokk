@@ -43,6 +43,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             Set.of(CLASS_DEFINITION),
             Set.of(FUNCTION_DEFINITION),
             Set.of(ASSIGNMENT, TYPED_PARAMETER),
+            Set.of(),
             Set.of(DECORATOR),
             IMPORT_DECLARATION,
             "name", // identifierFieldName
@@ -1170,8 +1171,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
-        return candidate.isFunction() && "__init__".equals(candidate.identifier());
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
+        return super.isConstructor(candidate, enclosingClass, nodeType)
+                || (candidate.isFunction() && "__init__".equals(candidate.identifier()));
     }
 
     @Override

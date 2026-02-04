@@ -67,6 +67,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                     ANNOTATION_TYPE_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT, CONSTANT_DECLARATION),
+            Set.of(CONSTRUCTOR_DECLARATION),
             Set.of(ANNOTATION, MARKER_ANNOTATION),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -1326,13 +1327,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass) {
-        // In Java, constructors are functions whose identifier matches the enclosing class identifier.
-        // CodeUnit.identifier() already returns the last symbol component, so this works for nested
-        // constructors like "Outer.Inner.Inner" as well.
-        return candidate.isFunction()
-                && enclosingClass != null
-                && candidate.identifier().equals(enclosingClass.identifier());
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
+        return super.isConstructor(candidate, enclosingClass, nodeType);
     }
 
     @Override

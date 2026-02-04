@@ -149,6 +149,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     DESTRUCTOR_DECLARATION,
                     DECLARATION),
             Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
+            Set.of(CONSTRUCTOR_DECLARATION),
             Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
             CaptureNames.IMPORT_DECLARATION,
             "name",
@@ -555,12 +556,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
-        // In C++, a constructor is a function whose name matches the class name.
-        // We use identifier() to compare just the class/method name segment.
-        return candidate.isFunction()
-                && enclosingClass.isClass()
-                && candidate.identifier().equals(enclosingClass.identifier());
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
+        return super.isConstructor(candidate, enclosingClass, nodeType);
     }
 
     @Override

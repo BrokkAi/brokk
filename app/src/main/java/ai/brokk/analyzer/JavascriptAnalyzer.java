@@ -21,6 +21,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
             Set.of(VARIABLE_DECLARATOR),
+            Set.of(),
             Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
             IMPORT_DECLARATION,
             "name", // identifierFieldName
@@ -386,8 +387,9 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, CodeUnit enclosingClass) {
-        return candidate.isFunction() && "constructor".equals(candidate.identifier());
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
+        return super.isConstructor(candidate, enclosingClass, nodeType)
+                || (candidate.isFunction() && "constructor".equals(candidate.identifier()));
     }
 
     @Override
