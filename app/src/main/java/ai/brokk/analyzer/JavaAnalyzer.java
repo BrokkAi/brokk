@@ -59,36 +59,36 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     private static final LanguageSyntaxProfile JAVA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(
+            Set.of( // classLikeNodeTypes
                     CLASS_DECLARATION,
                     INTERFACE_DECLARATION,
                     ENUM_DECLARATION,
                     RECORD_DECLARATION,
                     ANNOTATION_TYPE_DECLARATION),
-            Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
-            Set.of(FIELD_DECLARATION, ENUM_CONSTANT, CONSTANT_DECLARATION),
-            Set.of(CONSTRUCTOR_DECLARATION),
-            Set.of(ANNOTATION, MARKER_ANNOTATION),
-            IMPORT_DECLARATION,
-            "name", // identifier field name
-            "body", // body field name
-            "parameters", // parameters field name
-            "type", // return type field name
-            "type_parameters", // type parameters field name
-            Map.ofEntries( // capture configuration
+            Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION), // functionLikeNodeTypes
+            Set.of(FIELD_DECLARATION, ENUM_CONSTANT, CONSTANT_DECLARATION), // fieldLikeNodeTypes
+            Set.of(CONSTRUCTOR_DECLARATION), // constructorNodeTypes
+            Set.of(ANNOTATION, MARKER_ANNOTATION), // decoratorNodeTypes
+            IMPORT_DECLARATION, // importNodeType
+            "name", // identifierFieldName
+            "body", // bodyFieldName
+            "parameters", // parametersFieldName
+            "type", // returnTypeFieldName
+            "type_parameters", // typeParametersFieldName
+            Map.ofEntries( // captureConfiguration
                     Map.entry(CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE),
                     Map.entry(CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE),
                     Map.entry(CaptureNames.ENUM_DEFINITION, SkeletonType.CLASS_LIKE),
                     Map.entry(CaptureNames.RECORD_DEFINITION, SkeletonType.CLASS_LIKE),
-                    Map.entry(CaptureNames.ANNOTATION_DEFINITION, SkeletonType.CLASS_LIKE), // for @interface
+                    Map.entry(CaptureNames.ANNOTATION_DEFINITION, SkeletonType.CLASS_LIKE),
                     Map.entry(CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE),
                     Map.entry(CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE),
                     Map.entry(CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
                     Map.entry(CaptureNames.CONSTANT_DEFINITION, SkeletonType.FIELD_LIKE),
                     Map.entry(CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE),
                     Map.entry(CaptureNames.PACKAGE_DEFINITION, SkeletonType.MODULE_STATEMENT)),
-            "", // async keyword node type
-            Set.of("modifiers") // modifier node types
+            "", // asyncKeywordNodeType
+            Set.of("modifiers") // modifierNodeTypes
             );
 
     @Override
