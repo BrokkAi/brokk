@@ -382,8 +382,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         if (environment == null || environment.isBlank()) {
             environment = "Unknown";
         }
-        LogManager.getLogger(Service.class)
-                .debug("Sending feedback with version={}, environment={}", version, environment);
+        log.debug("Sending feedback with version={}, environment={}", version, environment);
 
         var bodyBuilder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
@@ -437,7 +436,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
                 throw new ServiceHttpException(response.code(), errorBody, "Failed to send feedback");
             }
-            LogManager.getLogger(Service.class).debug("Feedback sent successfully");
+            log.debug("Feedback sent successfully");
         }
     }
 

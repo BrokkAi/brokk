@@ -10,6 +10,7 @@ import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.util.Objects;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
@@ -103,7 +104,7 @@ public class FeedbackDialog extends BaseThemedDialog {
         setLocationRelativeTo(owner);
     }
 
-    private void buildLayout(JButton cancelButton) {
+    private void buildLayout(JButton closeButton) {
         var form = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(4, 4, 4, 4);
@@ -147,7 +148,7 @@ public class FeedbackDialog extends BaseThemedDialog {
         var bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.add(statusLabel, BorderLayout.CENTER);
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttons.add(cancelButton);
+        buttons.add(closeButton);
         buttons.add(sendButton);
         bottomPanel.add(buttons, BorderLayout.EAST);
 
@@ -217,8 +218,11 @@ public class FeedbackDialog extends BaseThemedDialog {
                     // Re-enable Close so user can dismiss the dialog after success
                     closeButton.setEnabled(true);
                 } catch (Exception ex) {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    String msg = Objects.requireNonNullElse(
+                            cause.getMessage(), cause.getClass().getSimpleName());
                     statusLabel.setForeground(new Color(0xCC0000));
-                    statusLabel.setText("Failed to send: " + ex.getMessage());
+                    statusLabel.setText("Failed to send feedback: " + msg);
                     setInputsEnabled(true);
                 } finally {
                     if (screenshotFile != null && screenshotFile.exists()) {
