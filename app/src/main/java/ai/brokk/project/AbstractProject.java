@@ -113,9 +113,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 if (tempRepo.isWorktree()) {
                     return tempRepo.getGitTopLevel().toAbsolutePath().normalize();
                 }
-            } catch (Exception e) {
-                // If we can't determine worktree status due to a standard exception (e.g. IO or Git error),
-                // fall back to root. Errors like OOM will still propagate.
+            } catch (RuntimeException e) {
+                // If we can't determine worktree status due to a runtime exception (e.g. git config issues),
+                // fall back to root. Serious Errors like OOM will still propagate.
                 LogManager.getLogger(AbstractProject.class)
                         .debug("Could not determine worktree status for {}: {}", normalizedRoot, e.getMessage());
             }
