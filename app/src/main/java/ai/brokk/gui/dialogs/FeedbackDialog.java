@@ -1,5 +1,6 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
@@ -202,36 +203,31 @@ public class FeedbackDialog extends BaseThemedDialog {
             screenshotFile = null;
         }
 
-        new SwingWorker<Void, Void>() {
-            @Override
-            protected Void doInBackground() throws Exception {
-                service.sendFeedback(category, feedbackText, includeDebugLog, screenshotFile);
-                return null;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    get();
-                    statusLabel.setForeground(UIManager.getColor("Label.foreground"));
-                    statusLabel.setText("Thank you for your feedback!");
-                    // Re-enable Close so user can dismiss the dialog after success
-                    closeButton.setEnabled(true);
-                } catch (Exception ex) {
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    String msg = Objects.requireNonNullElse(
-                            cause.getMessage(), cause.getClass().getSimpleName());
-                    statusLabel.setForeground(new Color(0xCC0000));
-                    statusLabel.setText("Failed to send feedback: " + msg);
-                    setInputsEnabled(true);
-                } finally {
-                    if (screenshotFile != null && screenshotFile.exists()) {
-                        //noinspection ResultOfMethodCallIgnored
-                        screenshotFile.delete();
+        LoggingFuture.supplyCallableVirtual(() -> {
+                    service.sendFeedback(category, feedbackText, includeDebugLog, screenshotFile);
+                    return null;
+                })
+                .whenComplete((result, ex) -> SwingUtil.runOnEdt(() -> {
+                    try {
+                        if (ex != null) {
+                            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                            String msg = Objects.requireNonNullElse(
+                                    cause.getMessage(), cause.getClass().getSimpleName());
+                            statusLabel.setForeground(new Color(0xCC0000));
+                            statusLabel.setText("Failed to send feedback: " + msg);
+                            setInputsEnabled(true);
+                        } else {
+                            statusLabel.setForeground(UIManager.getColor("Label.foreground"));
+                            statusLabel.setText("Thank you for your feedback!");
+                            closeButton.setEnabled(true);
+                        }
+                    } finally {
+                        if (screenshotFile != null && screenshotFile.exists()) {
+                            //noinspection ResultOfMethodCallIgnored
+                            screenshotFile.delete();
+                        }
                     }
-                }
-            }
-        }.execute();
+                }));
     }
 
     /** Capture the current frame as a BufferedImage. */
