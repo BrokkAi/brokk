@@ -90,12 +90,16 @@ public class RefactoringService {
         Map<String, String> beforeContents = supportedDiffs.stream()
                 .filter(fd -> fd.oldFile() != null && !fd.oldText().isEmpty())
                 .collect(Collectors.toMap(
-                        fd -> fd.oldFile().toString(), FileDiff::oldText, (a, b) -> a)); // Handle duplicate keys
+                        fd -> Objects.requireNonNull(fd.oldFile()).toString(),
+                        FileDiff::oldText,
+                        (a, b) -> a)); // Handle duplicate keys
 
         Map<String, String> afterContents = supportedDiffs.stream()
                 .filter(fd -> fd.newFile() != null && !fd.newText().isEmpty())
                 .collect(Collectors.toMap(
-                        fd -> fd.newFile().toString(), FileDiff::newText, (a, b) -> a)); // Handle duplicate keys
+                        fd -> Objects.requireNonNull(fd.newFile()).toString(),
+                        FileDiff::newText,
+                        (a, b) -> a)); // Handle duplicate keys
 
         if (beforeContents.isEmpty() && afterContents.isEmpty()) {
             return RefactoringResult.empty();
@@ -143,24 +147,17 @@ public class RefactoringService {
     }
 
     private DetectedRefactoring toDetectedRefactoring(Refactoring ref) {
-        List<DetectedRefactoring.Location> leftLocations = ref.leftSide().stream()
-                .map(this::toLocation)
-                .filter(Objects::nonNull)
-                .toList();
+        List<DetectedRefactoring.Location> leftLocations =
+                ref.leftSide().stream().map(this::toLocation).toList();
 
-        List<DetectedRefactoring.Location> rightLocations = ref.rightSide().stream()
-                .map(this::toLocation)
-                .filter(Objects::nonNull)
-                .toList();
+        List<DetectedRefactoring.Location> rightLocations =
+                ref.rightSide().stream().map(this::toLocation).toList();
 
         return new DetectedRefactoring(
                 ref.getRefactoringType().getDisplayName(), ref.toString(), leftLocations, rightLocations);
     }
 
     private DetectedRefactoring.Location toLocation(CodeRange codeRange) {
-        if (codeRange == null) {
-            return null;
-        }
         String codeElementType = codeRange.getCodeElementType() != null
                 ? codeRange.getCodeElementType().name()
                 : "UNKNOWN";
