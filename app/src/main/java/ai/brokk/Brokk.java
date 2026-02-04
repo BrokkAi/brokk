@@ -503,7 +503,7 @@ public class Brokk {
         if (Environment.isMacOs()) {
             SwingUtilities.invokeLater(() -> {
                 try {
-                    Desktop.getDesktop().setAboutHandler(e -> AboutDialog.showAboutDialog(null));
+                    Desktop.getDesktop().setAboutHandler(e -> AboutDialog.showAboutDialog(null, null));
                 } catch (UnsupportedOperationException ignored) {
                     // AboutHandler not supported on this platform/JVM – safe to ignore
                 }

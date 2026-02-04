@@ -3,6 +3,7 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.BuildInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
+import ai.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -17,8 +18,11 @@ import org.jetbrains.annotations.Nullable;
  * to the EDT.
  */
 public final class AboutDialog extends BaseThemedDialog {
-    private AboutDialog(@Nullable Window owner) {
+    private final @Nullable Chrome chrome;
+
+    private AboutDialog(@Nullable Window owner, @Nullable Chrome chrome) {
         super(owner, "About Brokk", Dialog.ModalityType.MODELESS);
+        this.chrome = chrome;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setName("aboutDialog");
 
@@ -53,10 +57,24 @@ public final class AboutDialog extends BaseThemedDialog {
                         .formatted(BuildInfo.version);
         content.add(new JLabel(text), BorderLayout.CENTER);
 
+        // Buttons at the bottom
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttonPanel.setBorder(new EmptyBorder(0, 20, 10, 20));
+
+        if (chrome != null) {
+            var feedbackBtn = new MaterialButton("Send Feedback");
+            SwingUtil.applyPrimaryButtonStyle(feedbackBtn);
+            feedbackBtn.addActionListener(e -> {
+                new FeedbackDialog(chrome.getFrame(), chrome).setVisible(true);
+            });
+            buttonPanel.add(feedbackBtn);
+        }
+
         // Add content to the contentRoot managed by BaseThemedDialog
         var root = getContentRoot();
         root.setLayout(new BorderLayout());
         root.add(content, BorderLayout.CENTER);
+        root.add(buttonPanel, BorderLayout.SOUTH);
         Chrome.applyIcon(this); // sets Dock/task-bar icon where applicable
 
         // Allow closing with ESC key
@@ -72,8 +90,8 @@ public final class AboutDialog extends BaseThemedDialog {
     }
 
     /** Show the dialog. Creation is marshalled to the EDT. */
-    public static void showAboutDialog(@Nullable Window owner) {
-        SwingUtil.runOnEdt(() -> new AboutDialog(owner).setVisible(true));
+    public static void showAboutDialog(@Nullable Window owner, @Nullable Chrome chrome) {
+        SwingUtil.runOnEdt(() -> new AboutDialog(owner, chrome).setVisible(true));
     }
 
     private static final long serialVersionUID = 1L;

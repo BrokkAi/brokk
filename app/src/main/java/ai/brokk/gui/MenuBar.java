@@ -821,7 +821,7 @@ public class MenuBar {
         helpMenu.add(joinDiscordItem);
 
         var aboutItem = new JMenuItem("About");
-        aboutItem.addActionListener(e -> AboutDialog.showAboutDialog(chrome.getFrame()));
+        aboutItem.addActionListener(e -> AboutDialog.showAboutDialog(chrome.getFrame(), chrome));
         helpMenu.add(aboutItem);
         menuBar.add(helpMenu);
 

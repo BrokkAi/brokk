@@ -20,8 +20,16 @@ public class OfflineService extends AbstractService {
 
     @Override
     public void sendFeedback(
-            String category, String feedbackText, boolean includeDebugLog, @Nullable File screenshotFile)
-            throws IOException {}
+            String category, String feedbackText, boolean includeDebugLog, @Nullable File screenshotFile) {
+        var metadata = Service.buildFeedbackMetadata();
+        logger.info(
+                "Offline feedback: category={}, includeDebugLog={}, hasScreenshot={}, metadata={}, text={}",
+                category,
+                includeDebugLog,
+                screenshotFile != null,
+                metadata,
+                feedbackText);
+    }
 
     @Override
     public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)

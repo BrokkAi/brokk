@@ -3,6 +3,7 @@ package ai.brokk;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -362,6 +363,34 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         }
     }
 
+    private static String safeOsDescription() {
+        try {
+            String os = Environment.getOsDescription();
+            return (os == null || os.isBlank()) ? "unknown OS" : os;
+        } catch (Exception e) {
+            log.warn("Failed to retrieve OS description: {}", e.getMessage());
+            return "unknown OS";
+        }
+    }
+
+    private static String safeJreDescription() {
+        try {
+            String jre = Environment.getJreDescription();
+            return (jre == null || jre.isBlank()) ? "unknown JRE" : jre;
+        } catch (Exception e) {
+            log.warn("Failed to retrieve JRE description: {}", e.getMessage());
+            return "unknown JRE";
+        }
+    }
+
+    public static Map<String, String> buildFeedbackMetadata() {
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("app_version", BuildInfo.version);
+        metadata.put("os_description", safeOsDescription());
+        metadata.put("jre_description", safeJreDescription());
+        return Collections.unmodifiableMap(metadata);
+    }
+
     /**
      * Sends feedback supplied by the GUI dialog to Brokk’s backend. Files are attached with the multipart field name
      * "attachment".
@@ -377,6 +406,11 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 .addFormDataPart("category", category)
                 .addFormDataPart("feedback_text", feedbackText)
                 .addFormDataPart("user_id", kp.userId().toString());
+
+        var metadata = buildFeedbackMetadata();
+        for (var entry : metadata.entrySet()) {
+            bodyBuilder.addFormDataPart(entry.getKey(), entry.getValue());
+        }
 
         if (includeDebugLog) {
             var debugLogPath =
