@@ -2711,8 +2711,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
 
-        initializeCurrentSessionAndHistory(createNewSession);
-
         cleanupOldHistoryAsync();
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
         // otherwise we leave them empty
@@ -2729,6 +2727,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
+
+        // potentially requires analyzer to load existing session
+        initializeCurrentSessionAndHistory(createNewSession);
 
         checkBalanceAndNotify();
     }
