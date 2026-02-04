@@ -142,7 +142,7 @@ class DependencyDefaultCheckedBehaviorTest {
 
     @Test
     @DisplayName("WorktreeProject should clone parent's live dependencies on first access")
-    void testWorktreeProjectClonesParentLiveDependencies() throws IOException {
+    void testWorktreeProjectClonesParentLiveDependencies(@TempDir Path worktreeRoot) throws IOException {
         // Setup: Create parent project with imported dependencies
         String depName1 = "dep-parent-first";
         createDependencyDirectory(mainProject, depName1);
@@ -156,15 +156,10 @@ class DependencyDefaultCheckedBehaviorTest {
         Set<String> parentLiveDeps = extractDependencyNames(mainProject.getLiveDependencies());
         assertEquals(2, parentLiveDeps.size(), "Parent should have 2 live dependencies");
 
-        // Setup: Create a worktree project with its own temporary root
-        Path worktreeRoot = Files.createTempDirectory("worktree");
+        // Setup: Create the .brokk structure for the worktree
+        Files.createDirectories(worktreeRoot.resolve(AbstractProject.BROKK_DIR));
 
-        try {
-            // Create the .brokk structure for the worktree
-            Files.createDirectories(worktreeRoot.resolve(AbstractProject.BROKK_DIR));
-
-            WorktreeProject worktreeProject = new WorktreeProject(worktreeRoot, mainProject);
-
+        try (WorktreeProject worktreeProject = new WorktreeProject(worktreeRoot, mainProject)) {
             // Create matching dependency directories in the worktree so they can be discovered
             createDependencyDirectory(worktreeProject, depName1);
             createDependencyDirectory(worktreeProject, depName2);
@@ -202,32 +197,19 @@ class DependencyDefaultCheckedBehaviorTest {
                     2,
                     parentAfterWorktreeImport.size(),
                     "Parent project's live set should be unaffected by worktree import");
-
-            worktreeProject.close();
-        } finally {
-            // Cleanup
-            Files.walk(worktreeRoot).sorted((a, b) -> b.compareTo(a)).forEach(path -> {
-                try {
-                    Files.delete(path);
-                } catch (IOException ignored) {
-                }
-            });
         }
     }
 
     @Test
     @DisplayName("Worktree discovers dependencies from MainProject")
-    void worktreeDiscoversDependenciesFromMainProject() throws IOException {
+    void worktreeDiscoversDependenciesFromMainProject(@TempDir Path worktreeRoot) throws IOException {
         // Setup: Create a MainProject with a dependency
         String depName = "some-dep";
         createDependencyDirectory(mainProject, depName);
 
         // Setup: Create a WorktreeProject from that MainProject
-        Path worktreeRoot = Files.createTempDirectory("worktree-discovery");
-        try {
-            Files.createDirectories(worktreeRoot.resolve(AbstractProject.BROKK_DIR));
-            WorktreeProject worktreeProject = new WorktreeProject(worktreeRoot, mainProject);
-
+        Files.createDirectories(worktreeRoot.resolve(AbstractProject.BROKK_DIR));
+        try (WorktreeProject worktreeProject = new WorktreeProject(worktreeRoot, mainProject)) {
             // Act: Call worktreeProject.getAllOnDiskDependencies()
             Set<ProjectFile> deps = worktreeProject.getAllOnDiskDependencies();
 
@@ -247,22 +229,12 @@ class DependencyDefaultCheckedBehaviorTest {
                         pf.getRoot(),
                         "Dependency ProjectFile should NOT have worktree root");
             }
-
-            worktreeProject.close();
-        } finally {
-            // Cleanup
-            Files.walk(worktreeRoot).sorted((a, b) -> b.compareTo(a)).forEach(path -> {
-                try {
-                    Files.delete(path);
-                } catch (IOException ignored) {
-                }
-            });
         }
     }
 
     @Test
     @DisplayName("Worktree getAllFiles() includes dependency files with correct absolute paths")
-    void worktreeGetAllFilesIncludesDependencyFiles() throws IOException {
+    void worktreeGetAllFilesIncludesDependencyFiles(@TempDir Path worktreeRoot) throws IOException {
         // Setup: Create a MainProject with a dependency containing a source file
         String depName = "shared-dep";
         createDependencyDirectory(mainProject, depName);
@@ -274,11 +246,8 @@ class DependencyDefaultCheckedBehaviorTest {
         Path depSourceFile = dependenciesDir.resolve(depName).resolve("Main.java");
 
         // Act: Create a WorktreeProject
-        Path worktreeRoot = Files.createTempDirectory("worktree-files");
-        try {
-            Files.createDirectories(worktreeRoot.resolve(AbstractProject.BROKK_DIR));
-            WorktreeProject worktreeProject = new WorktreeProject(worktreeRoot, mainProject);
-
+        Files.createDirectories(worktreeRoot.resolve(AbstractProject.BROKK_DIR));
+        try (WorktreeProject worktreeProject = new WorktreeProject(worktreeRoot, mainProject)) {
             // Enable the dependency as live in the worktree
             simulateDependencyImport(worktreeProject, depName);
 
@@ -305,15 +274,6 @@ class DependencyDefaultCheckedBehaviorTest {
                     mainProject.getRoot(),
                     depFile.getRoot(),
                     "Dependency ProjectFile root should be the MainProject root");
-
-            worktreeProject.close();
-        } finally {
-            Files.walk(worktreeRoot).sorted((a, b) -> b.compareTo(a)).forEach(path -> {
-                try {
-                    Files.delete(path);
-                } catch (IOException ignored) {
-                }
-            });
         }
     }
 
