@@ -24,6 +24,7 @@ import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.Version;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -676,6 +677,8 @@ public final class BrokkCli implements Callable<Integer> {
         // --- Model Resolution ---
         resolveAndSaveModels(project);
 
+        maybeReinstallSkillIfNewerOnNewSession();
+
         cm.createHeadless(bd, taskConfig.newSession);
         // even if we're in the same session, clear the Workspace to start fresh
         cm.dropWithHistorySemantics(List.of());
@@ -957,14 +960,19 @@ public final class BrokkCli implements Callable<Integer> {
 
     private record InstallTarget(String label, Path rootDir) {}
 
-    private int runInstall() throws IOException {
+    private static List<InstallTarget> defaultInstallTargets() {
         Path homeDir = Path.of(requireNonNull(System.getProperty("user.home")));
-        var targets = List.of(
+        return List.of(
                 new InstallTarget("Claude", homeDir.resolve(".claude")),
                 new InstallTarget("Codex", homeDir.resolve(".openai")));
+    }
+
+    private int runInstall() throws IOException {
+        var targets = defaultInstallTargets();
 
         String usage = renderUsage(configuredCommandLine());
         String skillText = buildSkillMarkdown(usage);
+        String versionText = ai.brokk.BuildInfo.version.strip() + "\n";
 
         var installedFor = new ArrayList<String>();
         for (var target : targets) {
@@ -977,6 +985,10 @@ public final class BrokkCli implements Callable<Integer> {
 
             Path skillFile = brokkDir.resolve("SKILL.md");
             ai.brokk.concurrent.AtomicWrites.save(skillFile, skillText);
+
+            Path versionFile = brokkDir.resolve(".brokk-version");
+            ai.brokk.concurrent.AtomicWrites.save(versionFile, versionText);
+
             installedFor.add(target.label());
         }
 
@@ -987,6 +999,49 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         return 0;
+    }
+
+    private void maybeReinstallSkillIfNewerOnNewSession() throws IOException {
+        if (!taskConfig.newSession) {
+            return;
+        }
+
+        String current = ai.brokk.BuildInfo.version.strip();
+        if (current.isBlank()) {
+            return;
+        }
+
+        var targets = defaultInstallTargets();
+        boolean anyInstallRootExists = targets.stream().anyMatch(t -> Files.isDirectory(t.rootDir()));
+        if (!anyInstallRootExists) {
+            return;
+        }
+
+        boolean shouldReinstall = false;
+        for (var target : targets) {
+            if (!Files.isDirectory(target.rootDir())) {
+                continue;
+            }
+
+            Path brokkDir = target.rootDir().resolve("brokk");
+            Path versionFile = brokkDir.resolve(".brokk-version");
+
+            @Nullable String installed = null;
+            if (Files.isRegularFile(versionFile)) {
+                installed = Files.readString(versionFile).strip();
+            }
+
+            if (installed == null
+                    || installed.isBlank()
+                    || new Version(current).compareTo(new Version(installed)) > 0) {
+                shouldReinstall = true;
+                break;
+            }
+        }
+
+        if (shouldReinstall) {
+            runInstall();
+        }
     }
 
     private static String renderUsage(CommandLine cmd) {
