@@ -608,6 +608,21 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Counts incomplete tasks for a session without loading full history.
+     * Returns TaskCounts with total and incomplete counts.
+     */
+    @Blocking
+    public HistoryIo.TaskCounts countIncompleteTasks(UUID sessionId) {
+        try {
+            Path zipPath = resolveSessionHistoryZipPath(sessionId);
+            return HistoryIo.countIncompleteTasks(zipPath);
+        } catch (IOException e) {
+            logger.warn("Failed to count incomplete tasks for session {}", sessionId, e);
+            return new HistoryIo.TaskCounts(0, 0);
+        }
+    }
+
     @Blocking
     @Nullable
     public ContextHistory loadHistoryAndRefresh(UUID sessionId, IContextManager contextManager) {

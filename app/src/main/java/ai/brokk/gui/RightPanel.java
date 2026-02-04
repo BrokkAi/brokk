@@ -16,6 +16,7 @@ import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.HistoryIo;
 import java.awt.*;
 import java.awt.event.AWTEventListener;
 import java.awt.event.MouseAdapter;
@@ -251,11 +252,8 @@ public class RightPanel extends JPanel implements ThemeAware {
                 Comparator.comparingLong(SessionManager.SessionInfo::modified).reversed());
         for (var s : sessions) model.addElement(s);
 
-        // Pre-populate counts map with placeholder; load actual counts async
-        var taskCounts = new ConcurrentHashMap<UUID, Integer>();
-        for (var s : sessions) {
-            taskCounts.put(s.id(), -1); // -1 means "loading"
-        }
+        // Pre-populate counts map with null; load actual counts async
+        var taskCounts = new ConcurrentHashMap<UUID, HistoryIo.TaskCounts>();
 
         var list = new JList<SessionManager.SessionInfo>(model);
         list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
@@ -275,8 +273,8 @@ public class RightPanel extends JPanel implements ThemeAware {
         for (var s : sessions) {
             var sessionId = s.id();
             contextManager.getBackgroundTasks().submit(() -> {
-                int count = sessionManager.countAiResponses(sessionId);
-                taskCounts.put(sessionId, count);
+                var counts = sessionManager.countIncompleteTasks(sessionId);
+                taskCounts.put(sessionId, counts);
                 SwingUtilities.invokeLater(list::repaint);
             });
         }
@@ -344,9 +342,9 @@ public class RightPanel extends JPanel implements ThemeAware {
         private final JLabel nameLabel = new JLabel();
         private final JLabel timeLabel = new JLabel();
         private final JLabel countLabel = new JLabel();
-        private final Map<UUID, Integer> taskCounts;
+        private final Map<UUID, HistoryIo.TaskCounts> taskCounts;
 
-        SessionInfoRenderer(Map<UUID, Integer> taskCounts) {
+        SessionInfoRenderer(Map<UUID, HistoryIo.TaskCounts> taskCounts) {
             this.taskCounts = taskCounts;
             setLayout(new BorderLayout(0, 2));
             setOpaque(true);
@@ -388,9 +386,17 @@ public class RightPanel extends JPanel implements ThemeAware {
             var instant = Instant.ofEpochMilli(value.modified());
             timeLabel.setText(GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault())));
 
-            // Read pre-computed count; -1 means still loading
-            int cnt = taskCounts.getOrDefault(value.id(), -1);
-            countLabel.setText(cnt < 0 ? "..." : String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks"));
+            // Read pre-computed counts; null means still loading
+            var counts = taskCounts.get(value.id());
+            if (counts == null) {
+                countLabel.setText("...");
+            } else if (counts.total() == 0) {
+                countLabel.setText("no tasks");
+            } else if (counts.incomplete() == 0) {
+                countLabel.setText(String.format("%d tasks done", counts.total()));
+            } else {
+                countLabel.setText(String.format("%d/%d tasks", counts.total() - counts.incomplete(), counts.total()));
+            }
 
             // Apply selection colors
             var bg = isSelected ? list.getSelectionBackground() : list.getBackground();

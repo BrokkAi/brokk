@@ -12,6 +12,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
@@ -63,6 +64,87 @@ public final class HistoryIo {
     private static final int CURRENT_FORMAT_VERSION = 4;
 
     private HistoryIo() {}
+
+    /** Holds total and incomplete task counts for a session. */
+    public record TaskCounts(int total, int incomplete) {}
+
+    /**
+     * Counts incomplete tasks in a session zip without full deserialization.
+     * Reads the latest context from contexts.jsonl, finds the task list fragment,
+     * and counts tasks where done is false.
+     */
+    public static TaskCounts countIncompleteTasks(Path zip) throws IOException {
+        if (!Files.exists(zip)) {
+            return new TaskCounts(0, 0);
+        }
+
+        String lastContextLine = null;
+        byte[] fragmentsBytes = null;
+        Map<String, byte[]> contentBytesMap = new HashMap<>();
+
+        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                var entryName = entry.getName();
+                if (entryName.equals(CONTEXTS_FILENAME)) {
+                    var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (!line.trim().isEmpty()) {
+                            lastContextLine = line;
+                        }
+                    }
+                } else if (entryName.equals(V4_FRAGMENTS_FILENAME) || entryName.equals(V3_FRAGMENTS_FILENAME)) {
+                    fragmentsBytes = zis.readAllBytes();
+                } else if (entryName.startsWith(CONTENT_DIR_PREFIX) && !entry.isDirectory()) {
+                    String contentId =
+                            entryName.substring(CONTENT_DIR_PREFIX.length()).replaceFirst("\\.txt$", "");
+                    contentBytesMap.put(contentId, zis.readAllBytes());
+                }
+            }
+        }
+
+        if (lastContextLine == null || fragmentsBytes == null) {
+            return new TaskCounts(0, 0);
+        }
+
+        try {
+            var contextNode = objectMapper.readTree(lastContextLine);
+            var taskListFragmentIdNode = contextNode.get("taskListFragmentId");
+            if (taskListFragmentIdNode == null || taskListFragmentIdNode.isNull()) {
+                return new TaskCounts(0, 0);
+            }
+            String taskListFragmentId = taskListFragmentIdNode.asText();
+
+            var fragmentsNode = objectMapper.readTree(fragmentsBytes);
+            var taskFragments = fragmentsNode.get("task");
+            if (taskFragments == null || !taskFragments.has(taskListFragmentId)) {
+                return new TaskCounts(0, 0);
+            }
+
+            var taskFragment = taskFragments.get(taskListFragmentId);
+            var contentIdNode = taskFragment.get("contentId");
+            if (contentIdNode == null || contentIdNode.isNull()) {
+                return new TaskCounts(0, 0);
+            }
+            String contentId = contentIdNode.asText();
+
+            byte[] contentBytes = contentBytesMap.get(contentId);
+            if (contentBytes == null) {
+                return new TaskCounts(0, 0);
+            }
+            String taskListJson = new String(contentBytes, StandardCharsets.UTF_8);
+
+            var taskListData = objectMapper.readValue(taskListJson, TaskList.TaskListData.class);
+            var tasks = taskListData.tasks();
+            int total = tasks.size();
+            int incomplete = (int) tasks.stream().filter(t -> !t.done()).count();
+            return new TaskCounts(total, incomplete);
+        } catch (Exception e) {
+            logger.debug("Error parsing task list from session zip: {}", e.getMessage());
+            return new TaskCounts(0, 0);
+        }
+    }
 
     /**
      * Counts AI responses in a session zip without full deserialization.
