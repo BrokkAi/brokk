@@ -12,6 +12,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
@@ -182,28 +183,36 @@ public class FeedbackDialog extends BaseThemedDialog {
             return;
         }
 
-        // Disable inputs and show sending status
+        // Disable inputs and show initial status
         setInputsEnabled(false);
         statusLabel.setForeground(UIManager.getColor("Label.foreground"));
-        statusLabel.setText("Sending...");
+        if (includeScreenshot && screenshotImage != null) {
+            statusLabel.setText("Processing screenshot...");
+        } else {
+            statusLabel.setText("Sending...");
+        }
 
         var service = chrome.getContextManager().getService();
 
-        final File screenshotFile;
-        if (includeScreenshot && screenshotImage != null) {
-            File tmp = null;
-            try {
-                tmp = File.createTempFile("brokk_screenshot_", ".png");
-                ImageIO.write(screenshotImage, "png", tmp);
-            } catch (IOException ex) {
-                chrome.toolError("Could not save screenshot: " + ex.getMessage());
-            }
-            screenshotFile = tmp;
-        } else {
-            screenshotFile = null;
-        }
+        // AtomicReference for safe cross-thread handoff of the temp file for cleanup
+        var screenshotFileRef = new AtomicReference<File>();
 
         LoggingFuture.supplyCallableVirtual(() -> {
+                    File screenshotFile = null;
+                    if (includeScreenshot && screenshotImage != null) {
+                        try {
+                            screenshotFile = File.createTempFile("brokk_screenshot_", ".png");
+                            ImageIO.write(screenshotImage, "png", screenshotFile);
+                            screenshotFileRef.set(screenshotFile);
+                        } catch (IOException ex) {
+                            SwingUtil.runOnEdt(() -> chrome.toolError("Could not save screenshot: " + ex.getMessage()));
+                        }
+                    }
+                    // Update status to Sending before network call
+                    SwingUtil.runOnEdt(() -> {
+                        statusLabel.setForeground(UIManager.getColor("Label.foreground"));
+                        statusLabel.setText("Sending...");
+                    });
                     service.sendFeedback(category, feedbackText, includeDebugLog, screenshotFile);
                     return null;
                 })
@@ -222,9 +231,10 @@ public class FeedbackDialog extends BaseThemedDialog {
                             closeButton.setEnabled(true);
                         }
                     } finally {
-                        if (screenshotFile != null && screenshotFile.exists()) {
+                        var tempFile = screenshotFileRef.get();
+                        if (tempFile != null && tempFile.exists()) {
                             //noinspection ResultOfMethodCallIgnored
-                            screenshotFile.delete();
+                            tempFile.delete();
                         }
                     }
                 }));
