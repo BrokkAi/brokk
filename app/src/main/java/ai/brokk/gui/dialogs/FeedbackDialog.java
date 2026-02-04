@@ -22,6 +22,7 @@ public class FeedbackDialog extends BaseThemedDialog {
     private final JCheckBox includeDebugLogCheckBox;
     private final JCheckBox includeScreenshotCheckBox;
     private final MaterialButton sendButton;
+    private final MaterialButton closeButton;
     private final JLabel statusLabel;
 
     @Nullable
@@ -61,9 +62,9 @@ public class FeedbackDialog extends BaseThemedDialog {
 
         statusLabel = new JLabel();
 
-        var cancelButton = new MaterialButton("Cancel");
-        cancelButton.setMnemonic(KeyEvent.VK_C);
-        cancelButton.addActionListener(e -> dispose());
+        closeButton = new MaterialButton("Close");
+        closeButton.setMnemonic(KeyEvent.VK_C);
+        closeButton.addActionListener(e -> dispose());
 
         // Capture screenshot before the dialog is displayed
         BufferedImage captured = null;
@@ -96,7 +97,7 @@ public class FeedbackDialog extends BaseThemedDialog {
             });
         }
 
-        buildLayout(cancelButton);
+        buildLayout(closeButton);
 
         pack();
         setLocationRelativeTo(owner);
@@ -162,6 +163,7 @@ public class FeedbackDialog extends BaseThemedDialog {
         includeDebugLogCheckBox.setEnabled(enabled);
         includeScreenshotCheckBox.setEnabled(enabled);
         sendButton.setEnabled(enabled);
+        closeButton.setEnabled(enabled);
     }
 
     private void send() {
@@ -211,6 +213,8 @@ public class FeedbackDialog extends BaseThemedDialog {
                     get();
                     statusLabel.setForeground(UIManager.getColor("Label.foreground"));
                     statusLabel.setText("Thank you for your feedback!");
+                    // Re-enable Close so user can dismiss the dialog after success
+                    closeButton.setEnabled(true);
                 } catch (Exception ex) {
                     statusLabel.setForeground(new Color(0xCC0000));
                     statusLabel.setText("Failed to send: " + ex.getMessage());
