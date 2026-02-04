@@ -34,11 +34,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import picocli.CommandLine;
@@ -47,137 +49,71 @@ import picocli.CommandLine;
         name = "brokk",
         version = "Brokk " + ai.brokk.BuildInfo.version,
         mixinStandardHelpOptions = true,
-        description = "Brokk CLI - AI-powered code assistant.",
-        subcommands = {
-            BrokkCli.StatusCommand.class,
-            BrokkCli.LoginCommand.class,
-            BrokkCli.LogoutCommand.class,
-            BrokkCli.NewSessionCommand.class,
-            BrokkCli.ScanCommand.class,
-            BrokkCli.CodeCommand.class,
-            BrokkCli.MergeCommand.class,
-            BrokkCli.BuildCommand.class,
-            BrokkCli.FindSymbolsCommand.class,
-            BrokkCli.FindUsagesCommand.class,
-            BrokkCli.ListIdentifiersCommand.class,
-            BrokkCli.FetchSummaryCommand.class,
-            BrokkCli.FetchSourceCommand.class,
-            BrokkCli.InstallCommand.class
-        })
+        description = "Brokk CLI - AI-powered code assistant.")
 public final class BrokkCli implements Callable<Integer> {
     private static final Logger logger = LogManager.getLogger(BrokkCli.class);
 
-    @CommandLine.Spec
+    private static final Set<String> GOAL_REQUIRED_COMMANDS =
+            Set.of("scan", "code", "find-symbols", "find-usages", "list-identifiers");
+
+    @CommandLine.ArgGroup(exclusive = true, multiplicity = "0..1")
     @Nullable
-    CommandLine.Model.CommandSpec spec;
+    private CommandSelection commandSelection;
 
-    public static void main(String[] args) {
-        logger.info("Starting Brokk CLI...");
-        System.setProperty("java.awt.headless", "true");
+    static final class Actions {
+        @CommandLine.Option(
+                names = {"install", "--install"},
+                hidden = true)
+        boolean install;
 
-        var cmd = new CommandLine(new BrokkCli());
-        configureHelp(cmd);
-        int exitCode = cmd.execute(args);
-        System.exit(exitCode);
+        @CommandLine.Option(names = "login", paramLabel = "KEY", description = "Set the global Brokk API key.")
+        @Nullable
+        String loginKey;
+
+        @CommandLine.Option(names = "logout", description = "Clear the global Brokk API key.")
+        boolean logout;
+
+        @CommandLine.Option(names = "balance", description = "Display your current Brokk account balance.")
+        boolean balance;
     }
 
-    private static void configureHelp(CommandLine cmd) {
-        cmd.getCommandSpec()
-                .usageMessage()
-                .footer(
-                        "",
-                        "Tip: Run 'brokk status --project <path>' to view available models and current project settings.",
-                        "");
+    @CommandLine.ArgGroup(exclusive = false, heading = "%n## Task Parameters%n")
+    private final TaskConfig taskConfig = new TaskConfig();
 
-        cmd.getCommandSpec()
-                .usageMessage()
-                .sectionMap()
-                .put(
-                        CommandLine.Model.UsageMessageSpec.SECTION_KEY_COMMAND_LIST,
-                        help -> renderCommandGroups(help.commandSpec()));
+    static final class TaskConfig {
+        @CommandLine.Option(
+                names = "--goal",
+                description = "Goal/prompt for the operation. Supports loading from file with @path/to/file.")
+        @Nullable
+        String goal;
+
+        @CommandLine.Option(
+                names = "--file",
+                arity = "1..*",
+                description =
+                        "Add files for editing with --code, or to narrow the radius of a --scan (space-separated or repeatable).")
+        List<String> files = new ArrayList<>();
+
+        @CommandLine.Option(
+                names = "--autocommit",
+                description = "Automatically commit changes after a successful --code task. Default: false.")
+        boolean autocommit = false;
+
+        @CommandLine.Option(
+                names = "--new-session",
+                description = "Create a fresh session instead of resuming the most recent one. Default: false.")
+        boolean newSession = false;
+
+        @CommandLine.Option(
+                names = "--include-tests",
+                description = "Include test files in search results (scan, usages, symbols). Default: false.")
+        boolean includeTests = false;
     }
 
-    private static String renderCommandGroups(CommandLine.Model.CommandSpec spec) {
-        record CommandInfo(String name, String description) {}
+    @CommandLine.ArgGroup(exclusive = false, heading = "%n## Project Selection (Optional)%n")
+    private final ProjectSelectionConfig projectSelectionConfig = new ProjectSelectionConfig();
 
-        record Group(String title, List<String> commandNames) {}
-
-        List<Group> groups = List.of(
-                new Group(
-                        "Commands (Agentic Search)",
-                        List.of("scan", "find-symbols", "find-usages", "list-identifiers")),
-                new Group("Commands (Semantic Retrieval)", List.of("fetch-summary", "fetch-source")),
-                new Group("Commands (Agentic Coding)", List.of("code", "merge", "build")),
-                new Group("Commands (Account)", List.of("status", "login", "logout", "newsession")));
-
-        Map<String, CommandLine.Model.CommandSpec> byName = spec.subcommands().entrySet().stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getCommandSpec()));
-
-        var groupedNames =
-                groups.stream().flatMap(g -> g.commandNames().stream()).collect(Collectors.toSet());
-
-        List<String> ungroupedVisible = byName.entrySet().stream()
-                .filter(e -> !e.getValue().usageMessage().hidden())
-                .map(Map.Entry::getKey)
-                .filter(name -> !groupedNames.contains(name))
-                .sorted()
-                .toList();
-
-        List<String> lines = new ArrayList<>();
-
-        for (var group : groups) {
-            List<CommandInfo> visible = group.commandNames().stream()
-                    .map(name -> Map.entry(name, byName.get(name)))
-                    .filter(e -> !e.getValue().usageMessage().hidden())
-                    .map(e -> new CommandInfo(
-                            e.getKey(), firstOrEmpty(e.getValue().usageMessage().description())))
-                    .toList();
-
-            if (visible.isEmpty()) {
-                continue;
-            }
-
-            lines.add("");
-            lines.add("## " + group.title());
-            lines.add("");
-            for (var cmd : visible) {
-                String desc = cmd.description().isBlank() ? "" : " - " + cmd.description();
-                lines.add("  " + cmd.name() + desc);
-            }
-        }
-
-        if (!ungroupedVisible.isEmpty()) {
-            lines.add("");
-            lines.add("## Commands");
-            lines.add("");
-            for (var name : ungroupedVisible) {
-                var sub = requireNonNull(byName.get(name));
-                String desc = firstOrEmpty(sub.usageMessage().description());
-                String suffix = desc.isBlank() ? "" : " - " + desc;
-                lines.add("  " + name + suffix);
-            }
-        }
-
-        lines.add("");
-        lines.add("Use 'brokk <command> --help' to see command-specific options.");
-        lines.add("");
-        return String.join("\n", lines);
-    }
-
-    private static String firstOrEmpty(String[] values) {
-        if (values.length == 0) {
-            return "";
-        }
-        return values[0];
-    }
-
-    @Override
-    public Integer call() {
-        requireNonNull(spec).commandLine().usage(System.out);
-        return 0;
-    }
-
-    static final class ProjectSelectionMixin {
+    static final class ProjectSelectionConfig {
         @CommandLine.Option(
                 names = "--project",
                 defaultValue = ".",
@@ -185,37 +121,146 @@ public final class BrokkCli implements Callable<Integer> {
         Path projectPath = Path.of(".");
     }
 
-    static final class GoalRequiredMixin {
+    @CommandLine.ArgGroup(
+            exclusive = false,
+            heading =
+                    """
+            %n## Project Configuration (Optional)
+
+            ### How Test Templating Works in --test-some-cmd
+              Brokk uses Mustache templates to run specific tests based on your workspace context.
+              Variables available:
+                {{#files}}      The relative paths of identified test files (e.g. src/test/FooTest.java).
+                {{#classes}}    The simple names of test classes (e.g. FooTest).
+                {{#fqclasses}}  The fully qualified names of test classes (e.g. com.example.FooTest).
+                {{#modules}}    (Python) Dotted module labels (e.g. tests.test_foo).
+                                Derived relative to a detected module anchor (like a 'tests/' directory or
+                                the root of a package chain containing __init__.py files).
+
+              Mustache 'DecoratedCollection' is used for lists. You can use {{value}} for the item,
+              and {{^last}},{{/last}} to handle separators between items.
+
+            #### Example (Maven):
+                --test-some-cmd "mvn --quiet test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}"
+
+            --build-only-cmd and --test-all-cmd are just static commands with no interpolation. When configuring a project
+            for the first time, specify --build-only-cmd and EITHER --test-all-cmd or --test-some-cmd. Subsequently,
+            Brokk will remember the settings you gave it and you will not have to repeat them.
+            """)
+    private final BuildTestConfig buildTestConfig = new BuildTestConfig();
+
+    static final class BuildTestConfig {
         @CommandLine.Option(
-                names = "--goal",
-                required = true,
-                description = "Goal/prompt for the operation. Supports loading from file with @path/to/file.")
+                names = "--build-only-cmd",
+                description = "Build/lint command (no tests). e.g. 'mvn compile' or 'cargo check'.")
         @Nullable
-        String goal;
+        String buildOnlyCmd;
+
+        @CommandLine.Option(
+                names = "--test-all-cmd",
+                description =
+                        "Command to run all tests. WARNING: This may take minutes or hours in large repositories.")
+        @Nullable
+        String testAllCmd;
+
+        @CommandLine.Option(
+                names = "--test-some-cmd",
+                description =
+                        "Mustache template for running specific tests. Supports {{#files}}, {{#classes}}, {{#fqclasses}}, and {{#modules}} (Python).")
+        @Nullable
+        String testSomeCmd;
     }
 
-    static final class FilesMixin {
+    static final class CommandSelection {
+        @CommandLine.ArgGroup(exclusive = true, multiplicity = "1", heading = "%n## Commands (Account)%n")
+        @Nullable
+        Actions actions;
+
+        @CommandLine.ArgGroup(
+                exclusive = true,
+                multiplicity = "1",
+                heading =
+                        """
+                    %n## Commands (Agentic Search)
+
+                    Tools to retrieve symbols and call sites based on AST parsing.
+
+                    --goal is required for all commands in this section, since if the volume is very high,
+                    results may be summarized based on relevance to the natural-language --goal.
+
+                    """)
+        @Nullable
+        AgenticSearchCommands agenticSearch;
+
+        @CommandLine.ArgGroup(exclusive = true, multiplicity = "1", heading = "%n## Commands (Semantic Retrieval)%n")
+        @Nullable
+        SemanticRetrievalCommands semanticRetrieval;
+
+        @CommandLine.ArgGroup(exclusive = true, multiplicity = "1", heading = "%n## Commands (Agentic Coding)%n")
+        @Nullable
+        AgenticCodingCommands agenticCoding;
+    }
+
+    static final class AgenticSearchCommands {
         @CommandLine.Option(
-                names = "--file",
+                names = "scan",
+                description =
+                        "Agentic scan for relevant files and classes. Run this first. Uses the current Context (can be narrowed with --file) to guide the search.")
+        boolean scan;
+
+        @CommandLine.Option(
+                names = "find-symbols",
+                arity = "1..*",
+                description = "Symbol search using regex patterns (space-separated or repeatable).")
+        List<String> findSymbolsPatterns = new ArrayList<>();
+
+        @CommandLine.Option(
+                names = "find-usages",
+                arity = "1..*",
+                description = "Returns the source code of blocks where symbols are used.")
+        List<String> findUsagesTargets = new ArrayList<>();
+
+        @CommandLine.Option(
+                names = "list-identifiers",
+                description = "Lists all identifiers in each file within a directory (lightweight summary).")
+        @Nullable
+        String listIdentifiersPath;
+    }
+
+    static final class SemanticRetrievalCommands {
+        @CommandLine.Option(
+                names = "fetch-summary",
                 arity = "1..*",
                 description =
-                        "Add files for editing with code, or to narrow the radius of scan (space-separated or repeatable).")
-        List<String> files = new ArrayList<>();
-    }
+                        "Returns all declarations (public/private) for specified targets. Targets must be fully qualified class names (e.g. com.example.Foo) or full, project-relative file paths (e.g. src/main/java/com/example/Foo.java).")
+        List<String> fetchSummaryTargets = new ArrayList<>();
 
-    static final class IncludeTestsMixin {
-        @CommandLine.Option(names = "--include-tests", description = "Include test files in results. Default: false.")
-        boolean includeTests = false;
-    }
-
-    static final class AutocommitMixin {
         @CommandLine.Option(
-                names = "--autocommit",
-                description = "Automatically commit changes after a successful code task. Default: false.")
-        boolean autocommit = false;
+                names = "fetch-source",
+                arity = "1..*",
+                description =
+                        "Returns the full source code of specific classes or methods. Class targets must be fully qualified (e.g. com.example.Foo). File targets must be full, project-relative paths (e.g. src/main/java/com/example/Foo.java).")
+        List<String> fetchSourceTargets = new ArrayList<>();
     }
 
-    static final class ModelSelectionMixin {
+    static final class AgenticCodingCommands {
+        @CommandLine.Option(
+                names = "code",
+                description =
+                        "Implement the changes asked for in --goal. Will search for relevant files if none are provided via --file.")
+        boolean code;
+
+        @CommandLine.Option(names = "merge", description = "Solves all merge conflicts in the repo.")
+        boolean merge = false;
+
+        @CommandLine.Option(names = "build", description = "Run build verification without making changes.")
+        boolean build = false;
+    }
+
+    @CommandLine.ArgGroup(exclusive = false, heading = "%n## Model Selection (Optional)%n")
+    private ModelParam modelParam = new ModelParam();
+
+    static final class ModelParam {
         @CommandLine.Option(
                 names = "--codemodel",
                 description = "Code model name (e.g. 'gpt-5'). Overwrites project setting if provided.")
@@ -229,216 +274,518 @@ public final class BrokkCli implements Callable<Integer> {
         String planModelName;
     }
 
-    static final class BuildTestConfigMixin {
-        @CommandLine.Option(
-                names = "--build-only-cmd",
-                description = "Build/lint command (no tests). e.g. 'mvn compile' or 'cargo check'.")
-        @Nullable
-        String buildOnlyCmd;
+    @MonotonicNonNull
+    private ContextManager cm;
 
-        @CommandLine.ArgGroup(exclusive = true, heading = "%nTest command (choose one)%n")
-        TestCommandGroup testCommandGroup = new TestCommandGroup();
+    public static void main(String[] args) {
+        logger.info("Starting Brokk CLI...");
+        System.setProperty("java.awt.headless", "true");
 
-        static final class TestCommandGroup {
-            @CommandLine.Option(
-                    names = "--test-all-cmd",
-                    description =
-                            "Command to run all tests. WARNING: This may take minutes or hours in large repositories.")
-            @Nullable
-            String testAllCmd;
+        var cli = new BrokkCli();
+        var cmd = new CommandLine(cli);
 
-            @CommandLine.Option(
-                    names = "--test-some-cmd",
-                    description =
-                            "Mustache template for running specific tests. Supports {{#files}}, {{#classes}}, {{#fqclasses}}, and {{#modules}} (Python).")
-            @Nullable
-            String testSomeCmd;
+        try {
+            var parseResult = cmd.parseArgs(args);
+
+            configureUsageMessage(cmd, normalizeProjectPath(cli.projectSelectionConfig.projectPath));
+
+            if (parseResult.isUsageHelpRequested()) {
+                cmd.usage(System.out);
+                System.exit(0);
+            }
+
+            if (parseResult.isVersionHelpRequested()) {
+                cmd.printVersionHelp(System.out);
+                System.exit(0);
+            }
+        } catch (CommandLine.ParameterException e) {
+            configureUsageMessage(cmd, normalizeProjectPath(cli.projectSelectionConfig.projectPath));
         }
 
-        boolean hasAnyCliOverrides() {
-            return buildOnlyCmd != null || testCommandGroup.testAllCmd != null || testCommandGroup.testSomeCmd != null;
-        }
+        int exitCode = cmd.execute(args);
+        System.exit(exitCode);
     }
 
     private static Path normalizeProjectPath(Path projectPath) {
         return projectPath.toAbsolutePath().normalize();
     }
 
-    private static Optional<String> effectiveApiKeyForNetworkCalls() {
-        String envKey = System.getenv("BROKK_API_KEY");
-        if (envKey != null && !envKey.isBlank()) {
-            return Optional.of(envKey);
-        }
-        String globalKey = MainProject.getBrokkKey();
-        if (!globalKey.isBlank()) {
-            return Optional.of(globalKey);
-        }
-        return Optional.empty();
-    }
+    private static void configureUsageMessage(CommandLine cmd, Path projectPath) {
+        cmd.getCommandSpec().usageMessage().footer(getModelFooter(projectPath));
 
-    private static void applyApiKeyOverrideFromEnvIfPresent() {
-        String envKey = System.getenv("BROKK_API_KEY");
-        if (envKey != null && !envKey.isBlank()) {
-            MainProject.setHeadlessBrokkApiKeyOverride(envKey);
-            logger.info("Using BROKK_API_KEY environment variable (length={})", envKey.length());
+        var goalOpt = cmd.getCommandSpec().findOption("--goal");
+        if (goalOpt != null) {
+            String[] desc = goalOpt.description();
+            if (desc.length > 0) {
+                desc[0] =
+                        "Goal/prompt for the operation. Required for all Agentic Search commands and for code. Supports loading from file with @path/to/file.";
+            }
         }
     }
 
-    private static boolean validateProject(Path projectPath) {
+    private static String[] getModelFooter(Path projectPath) {
+        var lines = new ArrayList<String>();
+
+        lines.add("Available Models:");
+        var models = MainProject.loadFavoriteModels();
+        for (var model : models) {
+            lines.add("  " + model.config().name());
+        }
+
+        lines.add("");
+        lines.add("Current Settings:");
+
+        if (!Files.isDirectory(projectPath) || !GitRepoFactory.hasGitRepo(projectPath)) {
+            lines.add("  Project:   " + projectPath);
+            lines.add("  (project not found; run with --project to view project settings)");
+            return lines.toArray(new String[0]);
+        }
+
+        try (var p = new MainProject(projectPath)) {
+            lines.add("  Project:   " + projectPath);
+            lines.add("  Architect: "
+                    + p.getModelConfig(ModelProperties.ModelType.ARCHITECT).name());
+            lines.add("  Code:      "
+                    + p.getModelConfig(ModelProperties.ModelType.CODE).name());
+
+            p.loadBuildDetails().ifPresent(bd -> {
+                if (!bd.buildLintCommand().isBlank()) {
+                    lines.add("  Build:     " + bd.buildLintCommand());
+                } else {
+                    lines.add("  No build configured");
+                }
+
+                boolean isWorkspaceScope = p.getCodeAgentTestScope() == IProject.CodeAgentTestScope.WORKSPACE;
+                if (isWorkspaceScope && !bd.testSomeCommand().isBlank()) {
+                    lines.add("  Test (Some): " + bd.testSomeCommand());
+                } else if (!bd.testAllCommand().isBlank()) {
+                    lines.add("  Test (All):  " + bd.testAllCommand());
+                } else {
+                    lines.add("  No tests configured");
+                }
+            });
+        }
+
+        return lines.toArray(new String[0]);
+    }
+
+    private CommandLine configuredCommandLine() {
+        var cmd = new CommandLine(this);
+        configureUsageMessage(cmd, normalizeProjectPath(projectSelectionConfig.projectPath));
+        return cmd;
+    }
+
+    @Override
+    @Blocking
+    public Integer call() throws Exception {
+        if (commandSelection == null) {
+            configuredCommandLine().usage(System.out);
+            return 0;
+        }
+
+        if (commandSelection.actions != null) {
+            var actions = commandSelection.actions;
+
+            if (actions.install) {
+                return runInstall();
+            }
+
+            if (actions.loginKey != null) {
+                MainProject.setBrokkKey(actions.loginKey);
+                try {
+                    float balance = ai.brokk.Service.getUserBalance(actions.loginKey);
+                    System.out.printf("Global Brokk API key updated. Current Brokk balance: $%.2f%n", balance);
+                } catch (Exception e) {
+                    System.err.println(
+                            "Error: Failed to validate Brokk API key by fetching balance: " + e.getMessage());
+                    return 1;
+                }
+                return 0;
+            }
+
+            if (actions.logout) {
+                MainProject.setBrokkKey("");
+                System.out.println("Global Brokk API key cleared.");
+                return 0;
+            }
+
+            if (actions.balance) {
+                String key = MainProject.getBrokkKey();
+                if (key.isBlank()) {
+                    System.err.println("Error: No Brokk API key found. Please login first with: login [key]");
+                    return 1;
+                }
+                float balance = ai.brokk.Service.getUserBalance(key);
+                System.out.printf("Current Brokk balance: $%.2f%n", balance);
+                return 0;
+            }
+
+            configuredCommandLine().usage(System.out);
+            return 0;
+        }
+
+        // --- API Key Setup ---
+        String effectiveBrokkKey = System.getenv("BROKK_API_KEY");
+        if (effectiveBrokkKey != null && !effectiveBrokkKey.isBlank()) {
+            MainProject.setHeadlessBrokkApiKeyOverride(effectiveBrokkKey);
+            logger.info("Using BROKK_API_KEY environment variable (length={})", effectiveBrokkKey.length());
+        }
+
+        String goal = taskConfig.goal;
+
+        // --- Expand @file syntax for goal ---
+        if (goal != null) {
+            goal = maybeLoadFromFile(goal);
+        }
+
+        // --- Mode Mapping & Validation ---
+
+        boolean scan = false;
+        boolean code = false;
+        boolean merge = false;
+        boolean build = false;
+        boolean autocommit = taskConfig.autocommit;
+
+        List<String> findSymbolsPatterns = List.of();
+        @Nullable String listIdentifiersPath = null;
+        List<String> fetchSourceTargets = List.of();
+        List<String> findUsagesTargets = List.of();
+        List<String> fetchSummaryTargets = List.of();
+
+        String selectedCommand;
+        if (commandSelection.agenticSearch != null) {
+            var as = commandSelection.agenticSearch;
+
+            scan = as.scan;
+
+            boolean findSymbolsSpecified = !as.findSymbolsPatterns.isEmpty();
+            boolean findUsagesSpecified = !as.findUsagesTargets.isEmpty();
+            boolean listIdentifiersSpecified = as.listIdentifiersPath != null;
+
+            findSymbolsPatterns =
+                    as.findSymbolsPatterns.stream().filter(s -> !s.isBlank()).toList();
+            listIdentifiersPath = as.listIdentifiersPath;
+            findUsagesTargets =
+                    as.findUsagesTargets.stream().filter(s -> !s.isBlank()).toList();
+
+            if (scan) {
+                selectedCommand = "scan";
+            } else if (findSymbolsSpecified) {
+                selectedCommand = "find-symbols";
+            } else if (findUsagesSpecified) {
+                selectedCommand = "find-usages";
+            } else if (listIdentifiersSpecified) {
+                selectedCommand = "list-identifiers";
+            } else {
+                configuredCommandLine().usage(System.out);
+                return 0;
+            }
+        } else if (commandSelection.semanticRetrieval != null) {
+            var sr = commandSelection.semanticRetrieval;
+
+            boolean fetchSummarySpecified = !sr.fetchSummaryTargets.isEmpty();
+            boolean fetchSourceSpecified = !sr.fetchSourceTargets.isEmpty();
+
+            fetchSourceTargets =
+                    sr.fetchSourceTargets.stream().filter(s -> !s.isBlank()).toList();
+            fetchSummaryTargets =
+                    sr.fetchSummaryTargets.stream().filter(s -> !s.isBlank()).toList();
+
+            if (fetchSummarySpecified) {
+                selectedCommand = "fetch-summary";
+            } else if (fetchSourceSpecified) {
+                selectedCommand = "fetch-source";
+            } else {
+                configuredCommandLine().usage(System.out);
+                return 0;
+            }
+        } else if (commandSelection.agenticCoding != null) {
+            var ac = commandSelection.agenticCoding;
+
+            code = ac.code;
+            merge = ac.merge;
+            build = ac.build;
+
+            if (code) {
+                selectedCommand = "code";
+            } else if (merge) {
+                selectedCommand = "merge";
+            } else if (build) {
+                selectedCommand = "build";
+            } else {
+                configuredCommandLine().usage(System.out);
+                return 0;
+            }
+        } else {
+            configuredCommandLine().usage(System.out);
+            return 0;
+        }
+
+        // --- Goal Validation ---
+        boolean needsGoal = GOAL_REQUIRED_COMMANDS.contains(selectedCommand);
+
+        if (needsGoal && (goal == null || goal.isBlank())) {
+            System.err.printf(
+                    """
+                    # Error: Missing required --goal
+
+                    --goal is required for the following commands:
+                      %s
+
+                    ### Notes
+                      - You can pass a literal string: --goal "Explain how X works"
+                      - You can load from a file:     --goal "@path/to/goal.txt"
+                    %n""",
+                    String.join(", ", GOAL_REQUIRED_COMMANDS.stream().sorted().toList()));
+            return 1;
+        }
+
+        // --- Build Command Validation ---
+        if (buildTestConfig.testAllCmd != null && buildTestConfig.testSomeCmd != null) {
+            System.err.println(
+                    """
+                    # Error: Mutually exclusive test command options
+
+                    Cannot specify both --test-all-cmd and --test-some-cmd.
+                    Choose one depending on whether you want to run all tests or specific workspace tests.
+                    """);
+            return 1;
+        }
+
+        // --- Project Path Validation ---
+        Path projectPath = normalizeProjectPath(projectSelectionConfig.projectPath);
         if (!Files.isDirectory(projectPath)) {
             System.err.printf(
                     """
-                    # Error: Invalid --project path
+                                      # Error: Invalid --project path
 
-                    The provided path is not a directory:
-                      %s
-                    %n""",
+                                      The provided path is not a directory:
+                                        %s
+                                      %n""",
                     projectPath);
-            return false;
+            return 1;
         }
         if (!GitRepoFactory.hasGitRepo(projectPath)) {
             System.err.printf(
                     """
-                    # Error: Not a Git repository
+                                      # Error: Not a Git repository
 
-                    Brokk CLI requires --project to point at a Git worktree (a directory containing a .git folder or file).
+                                      Brokk CLI requires --project to point at a Git worktree (a directory containing a .git folder or file).
 
-                    Provided:
-                      %s
-                    %n""",
+                                      Provided:
+                                        %s
+                                      %n""",
                     projectPath);
-            return false;
-        }
-        return true;
-    }
-
-    private static void resolveAndSaveModels(IProject project, ModelSelectionMixin modelParam) {
-        if (modelParam.codeModelName == null && modelParam.planModelName == null) {
-            return;
+            return 1;
         }
 
-        var favorites = MainProject.loadFavoriteModels();
+        // --- Create Project and ContextManager ---
+        AbstractProject project = new MainProject(projectPath);
+        cm = new ContextManager(project);
 
-        if (modelParam.codeModelName != null) {
-            String target = modelParam.codeModelName;
-            favorites.stream()
-                    .filter(f -> f.config().name().equals(target))
-                    .findFirst()
-                    .ifPresentOrElse(
-                            fav -> project.setModelConfig(ModelProperties.ModelType.CODE, fav.config()),
-                            () -> project.setModelConfig(ModelProperties.ModelType.CODE, new ModelConfig(target)));
-        }
-
-        if (modelParam.planModelName != null) {
-            String target = modelParam.planModelName;
-            favorites.stream()
-                    .filter(f -> f.config().name().equals(target))
-                    .findFirst()
-                    .ifPresentOrElse(
-                            fav -> project.setModelConfig(ModelProperties.ModelType.ARCHITECT, fav.config()),
-                            () -> project.setModelConfig(ModelProperties.ModelType.ARCHITECT, new ModelConfig(target)));
-        }
-    }
-
-    private static BuildAgent.BuildDetails resolveBuildDetails(
-            AbstractProject project, BuildTestConfigMixin buildTestConfig) {
+        // --- Build Details ---
         var existingDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-        if (!buildTestConfig.hasAnyCliOverrides()) {
-            return existingDetails;
+        BuildAgent.BuildDetails bd = existingDetails;
+        if (buildTestConfig.buildOnlyCmd != null
+                || buildTestConfig.testAllCmd != null
+                || buildTestConfig.testSomeCmd != null) {
+            // If a command is provided on CLI, it overwrites existing.
+            // If one command type is provided, we clear the others to ensure the mode selection is unambiguous.
+            String buildCmd = buildTestConfig.buildOnlyCmd != null
+                    ? buildTestConfig.buildOnlyCmd
+                    : existingDetails.buildLintCommand();
+            String testAll = existingDetails.testAllCommand();
+            String testSome = existingDetails.testSomeCommand();
+            if (buildTestConfig.testAllCmd != null) {
+                testAll = buildTestConfig.testAllCmd;
+                testSome = ""; // Mutually exclusive in CLI logic
+            } else if (buildTestConfig.testSomeCmd != null) {
+                testSome = buildTestConfig.testSomeCmd;
+                testAll = ""; // Mutually exclusive in CLI logic
+            }
+
+            Map<String, String> env = existingDetails.environmentVariables();
+            if (!env.containsKey("VIRTUAL_ENV")) {
+                var newEnv = new HashMap<>(env);
+                newEnv.put("VIRTUAL_ENV", ".venv");
+                env = Map.copyOf(newEnv);
+            }
+
+            bd = new BuildAgent.BuildDetails(
+                    buildCmd,
+                    testAll,
+                    testSome,
+                    existingDetails.exclusionPatterns(),
+                    env,
+                    existingDetails.maxBuildAttempts());
+            project.setBuildDetails(bd);
+            project.saveBuildDetails(bd);
+
+            // Configure test scope based on which test command was provided
+            if (buildTestConfig.testAllCmd != null) {
+                project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+            } else if (buildTestConfig.testSomeCmd != null) {
+                project.setCodeAgentTestScope(IProject.CodeAgentTestScope.WORKSPACE);
+            }
         }
 
-        String buildCmd = buildTestConfig.buildOnlyCmd != null
-                ? buildTestConfig.buildOnlyCmd
-                : existingDetails.buildLintCommand();
+        if (build) {
+            if (bd.equals(BuildAgent.BuildDetails.EMPTY)
+                    || bd.buildLintCommand().isBlank()) {
+                System.err.print(
+                        """
+                        # Error: --build requires a build command
 
-        String testAll = existingDetails.testAllCommand();
-        String testSome = existingDetails.testSomeCommand();
+                        No build command was provided or configured.
 
-        if (buildTestConfig.testCommandGroup.testAllCmd != null) {
-            testAll = buildTestConfig.testCommandGroup.testAllCmd;
-            testSome = "";
-            project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
-        } else if (buildTestConfig.testCommandGroup.testSomeCmd != null) {
-            testSome = buildTestConfig.testCommandGroup.testSomeCmd;
-            testAll = "";
-            project.setCodeAgentTestScope(IProject.CodeAgentTestScope.WORKSPACE);
+                        """);
+                System.err.println(extractUsageSection(
+                        renderUsage(configuredCommandLine()), "## Project Configuration (Optional)"));
+                return 1;
+            }
         }
 
-        Map<String, String> env = existingDetails.environmentVariables();
-        if (!env.containsKey("VIRTUAL_ENV")) {
-            var newEnv = new HashMap<>(env);
-            newEnv.put("VIRTUAL_ENV", ".venv");
-            env = Map.copyOf(newEnv);
+        if (code) {
+            boolean missingBuild = bd.equals(BuildAgent.BuildDetails.EMPTY)
+                    || bd.buildLintCommand().isBlank();
+            boolean missingTests =
+                    bd.testAllCommand().isBlank() && bd.testSomeCommand().isBlank();
+
+            if (missingBuild || missingTests) {
+                var missingLines = new ArrayList<String>();
+                if (missingBuild) {
+                    missingLines.add("  - Build command (configure with --build-only-cmd \"...\")");
+                }
+                if (missingTests) {
+                    missingLines.add(
+                            "  - Test command (configure with --test-some-cmd \"...\" or --test-all-cmd \"...\")");
+                }
+
+                System.err.printf(
+                        """
+                        # Error: Missing required project commands for --code
+
+                        The following required configuration is missing:
+                        %s
+                        %n""",
+                        String.join("\n", missingLines));
+                System.err.println(extractUsageSection(
+                        renderUsage(configuredCommandLine()), "## Project Configuration (Optional)"));
+                return 1;
+            }
         }
 
-        var bd = new BuildAgent.BuildDetails(
-                buildCmd,
-                testAll,
-                testSome,
-                existingDetails.exclusionPatterns(),
-                env,
-                existingDetails.maxBuildAttempts());
+        // --- Model Resolution ---
+        resolveAndSaveModels(project);
 
-        project.setBuildDetails(bd);
-        project.saveBuildDetails(bd);
-        return bd;
-    }
-
-    private static String maybeLoadFromFile(String text) throws IOException {
-        if (!text.startsWith("@")) {
-            return text;
-        }
-
-        String rawPath = text.substring(1).trim();
-        if (rawPath.isEmpty()) {
-            throw new IOException(
-                    "Invalid @file syntax for --goal: '@' must be followed by a readable file path, e.g. --goal \"@goal.txt\".");
-        }
-
-        var path = Path.of(rawPath);
-        try {
-            return Files.readString(path);
-        } catch (IOException e) {
-            throw new IOException(
-                    "Failed to read --goal from @" + rawPath + ". Ensure the file exists and is readable.", e);
-        }
-    }
-
-    private static void addFilesToWorkspaceIfAny(ContextManager cm, List<String> files) {
-        if (files.isEmpty()) {
-            return;
-        }
-        var tools = new WorkspaceTools(cm.liveContext());
-        tools.addFilesToWorkspace(files);
-        cm.pushContext(ctx -> tools.getContext());
-    }
-
-    private static void prepareHeadless(ContextManager cm, AbstractProject project, BuildAgent.BuildDetails bd) {
-        cm.createHeadless(bd, false);
+        cm.createHeadless(bd, taskConfig.newSession);
+        // even if we're in the same session, clear the Workspace to start fresh
         cm.dropWithHistorySemantics(List.of());
-    }
-
-    private static boolean modelsInitializedOk(ContextManager cm, AbstractProject project) {
         var service = cm.getService();
+
         StreamingChatModel codeModel = service.getModel(project.getModelConfig(ModelProperties.ModelType.CODE));
         StreamingChatModel planModel = service.getModel(project.getModelConfig(ModelProperties.ModelType.ARCHITECT));
+
         if (codeModel == null || planModel == null) {
             System.err.println("Error: Failed to initialize models. Check your API key or model configuration.");
-            return false;
+            return 1;
         }
-        return true;
+
+        // --- Context Injection ---
+        if (scan || code) {
+            var tools = new WorkspaceTools(cm.liveContext());
+            if (!taskConfig.files.isEmpty()) {
+                tools.addFilesToWorkspace(taskConfig.files);
+                cm.pushContext(ctx -> tools.getContext());
+            }
+        }
+
+        // --- Search Tool Commands (standalone) ---
+        if (selectedCommand.startsWith("find-")
+                || selectedCommand.startsWith("fetch-")
+                || selectedCommand.equals("list-identifiers")) {
+            var searchTools = new SearchTools(cm);
+            boolean includeTests = taskConfig.includeTests;
+
+            switch (selectedCommand) {
+                case "find-symbols" ->
+                    System.out.println(
+                            searchTools.searchSymbols(findSymbolsPatterns, requireNonNull(goal), includeTests));
+                case "find-usages" ->
+                    System.out.println(searchTools.getUsages(findUsagesTargets, requireNonNull(goal), includeTests));
+                case "fetch-summary" -> {
+                    // Use getFileSummaries if it matches a path pattern, else try getClassSkeletons
+                    var classNames = cm.getAnalyzer().getAllDeclarations().stream()
+                            .filter(CodeUnit::isClass)
+                            .map(CodeUnit::fqName)
+                            .collect(Collectors.toSet());
+
+                    var filePatterns = new ArrayList<String>();
+                    var classes = new ArrayList<String>();
+
+                    for (var target : fetchSummaryTargets) {
+                        if (classNames.contains(target)) {
+                            classes.add(target);
+                        } else {
+                            filePatterns.add(target);
+                        }
+                    }
+
+                    if (!filePatterns.isEmpty()) {
+                        System.out.println(searchTools.getFileSummaries(filePatterns));
+                    }
+                    if (!classes.isEmpty()) {
+                        System.out.println(searchTools.getClassSkeletons(classes));
+                    }
+                }
+                case "fetch-source" -> {
+                    // Try as classes first, then as methods
+                    var analyzer = cm.getAnalyzer();
+                    var allDecls = analyzer.getAllDeclarations();
+                    var classNames = allDecls.stream()
+                            .filter(CodeUnit::isClass)
+                            .map(CodeUnit::fqName)
+                            .collect(Collectors.toSet());
+
+                    var classes = fetchSourceTargets.stream()
+                            .filter(classNames::contains)
+                            .toList();
+                    var methods = fetchSourceTargets.stream()
+                            .filter(t -> !classNames.contains(t))
+                            .toList();
+
+                    if (!classes.isEmpty()) {
+                        System.out.println(searchTools.getClassSources(classes));
+                    }
+                    if (!methods.isEmpty()) {
+                        System.out.println(searchTools.getMethodSources(methods));
+                    }
+                }
+                case "list-identifiers" ->
+                    System.out.println(
+                            searchTools.skimDirectory(requireNonNull(listIdentifiersPath), requireNonNull(goal)));
+                default -> throw new IllegalStateException("Unexpected standalone command: " + selectedCommand);
+            }
+            return 0;
+        }
+
+        // --- Run Primary Mode ---
+        if (scan) {
+            var scanResult = runContextAgentScan(requireNonNull(goal));
+            return scanResult.success() ? 0 : 1;
+        } else if (code) {
+            return runCodeMode(planModel, codeModel, requireNonNull(goal), autocommit);
+        } else if (merge) {
+            return runMergeMode(planModel, codeModel);
+        } else if (build) {
+            return runBuildMode();
+        }
+
+        return 0;
     }
 
-    private static StreamingChatModel requireCodeModel(ContextManager cm, AbstractProject project) {
-        return requireNonNull(cm.getService().getModel(project.getModelConfig(ModelProperties.ModelType.CODE)));
-    }
-
-    private static StreamingChatModel requirePlanModel(ContextManager cm, AbstractProject project) {
-        return requireNonNull(cm.getService().getModel(project.getModelConfig(ModelProperties.ModelType.ARCHITECT)));
-    }
-
-    private static int runMergeMode(ContextManager cm, StreamingChatModel planModel, StreamingChatModel codeModel) {
-        var io = cm.getIo();
+    private int runMergeMode(StreamingChatModel planModel, StreamingChatModel codeModel) {
+        var io = requireNonNull(cm).getIo();
         var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
         if (conflictOpt.isEmpty()) {
             System.err.println("Error: Repository is not in a merge/rebase/cherry-pick/revert conflict state.");
@@ -472,8 +819,8 @@ public final class BrokkCli implements Callable<Integer> {
         return 0;
     }
 
-    private static int runBuildMode(ContextManager cm) throws InterruptedException {
-        var io = cm.getIo();
+    private int runBuildMode() throws InterruptedException {
+        var io = requireNonNull(cm).getIo();
         String buildError = BuildAgent.runVerification(cm);
         if (buildError.isEmpty()) {
             logger.debug("Build verification completed successfully.");
@@ -483,9 +830,8 @@ public final class BrokkCli implements Callable<Integer> {
         return buildError.isEmpty() ? 0 : 1;
     }
 
-    private static ContextAgent.RecommendationResult runContextAgentScan(
-            ContextManager cm, String goalText, boolean includeTests) throws InterruptedException {
-        var io = cm.getIo();
+    private ContextAgent.RecommendationResult runContextAgentScan(String goalText) throws InterruptedException {
+        var io = requireNonNull(cm).getIo();
         logger.debug("Running context scan...");
 
         var scanModel = cm.getService().getScanModel();
@@ -493,12 +839,13 @@ public final class BrokkCli implements Callable<Integer> {
         var recommendations = agent.getRecommendations(cm.liveContext());
 
         if (recommendations.success()) {
+            // Convert fragments to SummaryFragments and print combined summary
             var st = recommendations.fragments().stream();
-            if (!includeTests) {
+            if (!taskConfig.includeTests) {
                 st = st.filter(f -> f.files().join().stream()
                         .noneMatch(pf -> ContextManager.isTestFile(pf, cm.getAnalyzerUninterrupted())));
             }
-            st.flatMap(f -> toSummaryFragments(cm, f).stream()).forEach(f -> {
+            st.flatMap(f -> toSummaryFragments(f).stream()).forEach(f -> {
                 System.out.printf(
                         "## %s:\n%s\n\n%n", f.description().join(), f.text().join());
             });
@@ -510,31 +857,33 @@ public final class BrokkCli implements Callable<Integer> {
         return recommendations;
     }
 
-    private static List<SummaryFragment> toSummaryFragments(ContextManager cm, ContextFragment fragment) {
+    private List<SummaryFragment> toSummaryFragments(ContextFragment fragment) {
         var results = new ArrayList<SummaryFragment>();
 
+        // Extract files and convert to FILE_SKELETONS summaries
         var files = fragment.files().join();
         for (var file : files) {
-            results.add(new SummaryFragment(cm, file.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
+            results.add(new SummaryFragment(
+                    requireNonNull(cm), file.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
         }
 
+        // Extract code units and convert to CODEUNIT_SKELETON summaries
         var sources = fragment.sources().join();
         for (var codeUnit : sources) {
             if (codeUnit.isClass()) {
-                results.add(new SummaryFragment(cm, codeUnit.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON));
+                results.add(new SummaryFragment(
+                        requireNonNull(cm), codeUnit.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON));
             }
         }
 
         return results;
     }
 
-    private static int runCodeMode(
-            ContextManager cm,
-            StreamingChatModel planModel,
-            StreamingChatModel codeModel,
-            String goalText,
-            boolean autocommit) {
-        var io = cm.getIo();
+    private int runCodeMode(
+            StreamingChatModel planModel, StreamingChatModel codeModel, String goalText, boolean autocommit) {
+        var io = requireNonNull(cm).getIo();
+
+        // Check if editable context exists
         var context = cm.liveContext();
 
         TaskResult result;
@@ -580,629 +929,66 @@ public final class BrokkCli implements Callable<Integer> {
         return 0;
     }
 
-    @CommandLine.Command(
-            name = "status",
-            description = "Show available models, project settings, and (if configured) account balance.")
-    static final class StatusCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
+    private void resolveAndSaveModels(IProject project) {
+        if (modelParam.codeModelName == null && modelParam.planModelName == null) {
+            return;
+        }
 
-        @Override
-        @Blocking
-        public Integer call() {
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+        var favorites = MainProject.loadFavoriteModels();
 
-            System.out.println("Available Models:");
-            var models = MainProject.loadFavoriteModels();
-            for (var model : models) {
-                System.out.println("  " + model.config().name());
-            }
-
-            System.out.println();
-            System.out.println("Current Settings:");
-
-            if (!Files.isDirectory(projectPath) || !GitRepoFactory.hasGitRepo(projectPath)) {
-                System.out.println("  Project:   " + projectPath);
-                System.out.println("  (project not found; run with --project to view project settings)");
-            } else {
-                try (var p = new MainProject(projectPath)) {
-                    System.out.println("  Project:   " + projectPath);
-                    System.out.println("  Architect: "
-                            + p.getModelConfig(ModelProperties.ModelType.ARCHITECT)
-                                    .name());
-                    System.out.println("  Code:      "
-                            + p.getModelConfig(ModelProperties.ModelType.CODE).name());
-
-                    p.loadBuildDetails().ifPresent(bd -> {
-                        if (!bd.buildLintCommand().isBlank()) {
-                            System.out.println("  Build:     " + bd.buildLintCommand());
-                        } else {
-                            System.out.println("  No build configured");
-                        }
-
-                        boolean isWorkspaceScope = p.getCodeAgentTestScope() == IProject.CodeAgentTestScope.WORKSPACE;
-                        if (isWorkspaceScope && !bd.testSomeCommand().isBlank()) {
-                            System.out.println("  Test (Some): " + bd.testSomeCommand());
-                        } else if (!bd.testAllCommand().isBlank()) {
-                            System.out.println("  Test (All):  " + bd.testAllCommand());
-                        } else {
-                            System.out.println("  No tests configured");
-                        }
-                    });
-                }
-            }
-
-            System.out.println();
-            effectiveApiKeyForNetworkCalls()
+        if (modelParam.codeModelName != null) {
+            String target = modelParam.codeModelName;
+            favorites.stream()
+                    .filter(f -> f.config().name().equals(target))
+                    .findFirst()
                     .ifPresentOrElse(
-                            key -> {
-                                try {
-                                    float balance = ai.brokk.Service.getUserBalance(key);
-                                    System.out.printf("Brokk balance: $%.2f%n", balance);
-                                } catch (Exception e) {
-                                    System.out.println("Brokk balance: (failed to fetch) " + e.getMessage());
-                                }
-                            },
-                            () -> System.out.println(
-                                    "Brokk balance: (no API key configured; set BROKK_API_KEY or run 'brokk login <key>')"));
-
-            return 0;
+                            fav -> project.setModelConfig(ModelProperties.ModelType.CODE, fav.config()),
+                            () -> project.setModelConfig(ModelProperties.ModelType.CODE, new ModelConfig(target)));
         }
-    }
 
-    @CommandLine.Command(name = "login", description = "Set the global Brokk API key.")
-    static final class LoginCommand implements Callable<Integer> {
-        @CommandLine.Parameters(paramLabel = "KEY", description = "Brokk API key.")
-        String key;
-
-        @Override
-        public Integer call() {
-            MainProject.setBrokkKey(key);
-            try {
-                float balance = ai.brokk.Service.getUserBalance(key);
-                System.out.printf("Global Brokk API key updated. Current Brokk balance: $%.2f%n", balance);
-            } catch (Exception e) {
-                System.err.println("Error: Failed to validate Brokk API key by fetching balance: " + e.getMessage());
-                return 1;
-            }
-            return 0;
-        }
-    }
-
-    @CommandLine.Command(name = "logout", description = "Clear the global Brokk API key.")
-    static final class LogoutCommand implements Callable<Integer> {
-        @Override
-        public Integer call() {
-            MainProject.setBrokkKey("");
-            System.out.println("Global Brokk API key cleared.");
-            return 0;
-        }
-    }
-
-    @CommandLine.Command(
-            name = "newsession",
-            description = "Create a fresh session. Optionally provide a session name.  Run this once per project.")
-    static final class NewSessionCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Parameters(arity = "0..1", paramLabel = "NAME", description = "Optional session name.")
-        @Nullable
-        String name;
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            try (var cm = new ContextManager(new MainProject(projectPath))) {
-                String sessionName = (name != null && !name.isBlank()) ? name : ContextManager.DEFAULT_SESSION_NAME;
-                cm.createSessionAsync(sessionName).get();
-                System.out.printf("Created new session: %s%n", sessionName);
-            }
-            return 0;
-        }
-    }
-
-    @CommandLine.Command(name = "scan", description = "Agentic scan for relevant files and classes. Run this first to orient yourself.")
-    static final class ScanCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Mixin
-        GoalRequiredMixin goalRequired;
-
-        @CommandLine.Mixin
-        FilesMixin filesMixin;
-
-        @CommandLine.Mixin
-        IncludeTestsMixin includeTestsMixin;
-
-        @CommandLine.Mixin
-        ModelSelectionMixin modelSelection;
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
-
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                resolveAndSaveModels(project, modelSelection);
-                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-
-                prepareHeadless(cm, project, bd);
-                if (!modelsInitializedOk(cm, project)) {
-                    return 1;
-                }
-
-                addFilesToWorkspaceIfAny(cm, filesMixin.files);
-
-                var scanResult = runContextAgentScan(cm, goal, includeTestsMixin.includeTests);
-                return scanResult.success() ? 0 : 1;
-            }
-        }
-    }
-
-    @CommandLine.Command(
-            name = "code",
-            description =
-                    "Implement the changes asked for in --goal. Will search for relevant files if none are provided via --file.")
-    static final class CodeCommand implements Callable<Integer> {
-        @CommandLine.Spec
-        CommandLine.Model.CommandSpec spec;
-
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Mixin
-        GoalRequiredMixin goalRequired;
-
-        @CommandLine.Mixin
-        FilesMixin filesMixin;
-
-        @CommandLine.Mixin
-        AutocommitMixin autocommitMixin;
-
-        @CommandLine.Mixin
-        ModelSelectionMixin modelSelection;
-
-        @CommandLine.Mixin
-        BuildTestConfigMixin buildTestConfig;
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
-
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                var bd = resolveBuildDetails(project, buildTestConfig);
-
-                boolean missingBuild = bd.equals(BuildAgent.BuildDetails.EMPTY)
-                        || bd.buildLintCommand().isBlank();
-                boolean missingTests =
-                        bd.testAllCommand().isBlank() && bd.testSomeCommand().isBlank();
-
-                if (missingBuild || missingTests) {
-                    var missingLines = new ArrayList<String>();
-                    if (missingBuild) {
-                        missingLines.add("  - Build command (configure with --build-only-cmd \"...\")");
-                    }
-                    if (missingTests) {
-                        missingLines.add(
-                                "  - Test command (configure with --test-some-cmd \"...\" or --test-all-cmd \"...\")");
-                    }
-
-                    System.err.printf(
-                            """
-                            # Error: Missing required project commands for code
-
-                            The following required configuration is missing:
-                            %s
-                            %n""",
-                            String.join("\n", missingLines));
-                    spec.commandLine().usage(System.err);
-                    return 1;
-                }
-
-                resolveAndSaveModels(project, modelSelection);
-
-                prepareHeadless(cm, project, bd);
-                if (!modelsInitializedOk(cm, project)) {
-                    return 1;
-                }
-
-                addFilesToWorkspaceIfAny(cm, filesMixin.files);
-
-                StreamingChatModel planModel = requirePlanModel(cm, project);
-                StreamingChatModel codeModel = requireCodeModel(cm, project);
-                return runCodeMode(cm, planModel, codeModel, goal, autocommitMixin.autocommit);
-            }
-        }
-    }
-
-    @CommandLine.Command(name = "merge", description = "Solve all merge conflicts in the repo.")
-    static final class MergeCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Mixin
-        ModelSelectionMixin modelSelection;
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                resolveAndSaveModels(project, modelSelection);
-                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-
-                prepareHeadless(cm, project, bd);
-                if (!modelsInitializedOk(cm, project)) {
-                    return 1;
-                }
-
-                StreamingChatModel planModel = requirePlanModel(cm, project);
-                StreamingChatModel codeModel = requireCodeModel(cm, project);
-                return runMergeMode(cm, planModel, codeModel);
-            }
-        }
-    }
-
-    @CommandLine.Command(name = "build", description = "Run build verification without making changes.")
-    static final class BuildCommand implements Callable<Integer> {
-        @CommandLine.Spec
-        CommandLine.Model.CommandSpec spec;
-
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Mixin
-        ModelSelectionMixin modelSelection;
-
-        @CommandLine.Mixin
-        BuildTestConfigMixin buildTestConfig;
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                var bd = resolveBuildDetails(project, buildTestConfig);
-                if (bd.equals(BuildAgent.BuildDetails.EMPTY)
-                        || bd.buildLintCommand().isBlank()) {
-                    System.err.print(
-                            """
-                            # Error: build requires a build command
-
-                            No build command was provided or configured.
-
-                            """);
-                    spec.commandLine().usage(System.err);
-                    return 1;
-                }
-
-                resolveAndSaveModels(project, modelSelection);
-
-                prepareHeadless(cm, project, bd);
-                if (!modelsInitializedOk(cm, project)) {
-                    return 1;
-                }
-
-                return runBuildMode(cm);
-            }
-        }
-    }
-
-    @CommandLine.Command(name = "find-symbols", description = "Symbol search using regex patterns.")
-    static final class FindSymbolsCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Mixin
-        GoalRequiredMixin goalRequired;
-
-        @CommandLine.Mixin
-        IncludeTestsMixin includeTestsMixin;
-
-        @CommandLine.Parameters(arity = "1..*", paramLabel = "PATTERN", description = "Regex pattern(s).")
-        List<String> patterns = new ArrayList<>();
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
-
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, project, bd);
-
-                var searchTools = new SearchTools(cm);
-                var cleaned = patterns.stream().filter(s -> !s.isBlank()).toList();
-                System.out.println(searchTools.searchSymbols(cleaned, goal, includeTestsMixin.includeTests));
-                return 0;
-            }
-        }
-    }
-
-    @CommandLine.Command(name = "find-usages", description = "Return the source code of blocks where symbols are used.")
-    static final class FindUsagesCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Mixin
-        GoalRequiredMixin goalRequired;
-
-        @CommandLine.Mixin
-        IncludeTestsMixin includeTestsMixin;
-
-        @CommandLine.Parameters(arity = "1..*", paramLabel = "TARGET", description = "Symbol(s) or selector(s).")
-        List<String> targets = new ArrayList<>();
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
-
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, project, bd);
-
-                var searchTools = new SearchTools(cm);
-                var cleaned = targets.stream().filter(s -> !s.isBlank()).toList();
-                System.out.println(searchTools.getUsages(cleaned, goal, includeTestsMixin.includeTests));
-                return 0;
-            }
-        }
-    }
-
-    @CommandLine.Command(
-            name = "list-identifiers",
-            description = "List all identifiers in each file within a directory.")
-    static final class ListIdentifiersCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Mixin
-        GoalRequiredMixin goalRequired;
-
-        @CommandLine.Parameters(paramLabel = "DIR", description = "Project-relative directory to skim.")
-        String dir;
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
-
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, project, bd);
-
-                var searchTools = new SearchTools(cm);
-                System.out.println(searchTools.skimDirectory(dir, goal));
-                return 0;
-            }
-        }
-    }
-
-    @CommandLine.Command(
-            name = "fetch-summary",
-            description =
-                    "Return declarations (public/private) for specified targets (fully qualified class names or full project-relative file paths).")
-    static final class FetchSummaryCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Parameters(arity = "1..*", paramLabel = "TARGET", description = "Class FQN(s) or file path(s).")
-        List<String> targets = new ArrayList<>();
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, project, bd);
-
-                var searchTools = new SearchTools(cm);
-
-                var classNames = cm.getAnalyzer().getAllDeclarations().stream()
-                        .filter(CodeUnit::isClass)
-                        .map(CodeUnit::fqName)
-                        .collect(Collectors.toSet());
-
-                var filePatterns = new ArrayList<String>();
-                var classes = new ArrayList<String>();
-
-                for (var target : targets.stream().filter(s -> !s.isBlank()).toList()) {
-                    if (classNames.contains(target)) {
-                        classes.add(target);
-                    } else {
-                        filePatterns.add(target);
-                    }
-                }
-
-                if (!filePatterns.isEmpty()) {
-                    System.out.println(searchTools.getFileSummaries(filePatterns));
-                }
-                if (!classes.isEmpty()) {
-                    System.out.println(searchTools.getClassSkeletons(classes));
-                }
-
-                return 0;
-            }
-        }
-    }
-
-    @CommandLine.Command(
-            name = "fetch-source",
-            description =
-                    "Return the full source code of specific classes or methods (class FQNs or method selectors).")
-    static final class FetchSourceCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection;
-
-        @CommandLine.Parameters(
-                arity = "1..*",
-                paramLabel = "TARGET",
-                description = "Class FQN(s) or method selector(s).")
-        List<String> targets = new ArrayList<>();
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, project, bd);
-
-                var searchTools = new SearchTools(cm);
-
-                var analyzer = cm.getAnalyzer();
-                var allDecls = analyzer.getAllDeclarations();
-                var classNames = allDecls.stream()
-                        .filter(CodeUnit::isClass)
-                        .map(CodeUnit::fqName)
-                        .collect(Collectors.toSet());
-
-                var cleaned = targets.stream().filter(s -> !s.isBlank()).toList();
-                var classes = cleaned.stream().filter(classNames::contains).toList();
-                var methods =
-                        cleaned.stream().filter(t -> !classNames.contains(t)).toList();
-
-                if (!classes.isEmpty()) {
-                    System.out.println(searchTools.getClassSources(classes));
-                }
-                if (!methods.isEmpty()) {
-                    System.out.println(searchTools.getMethodSources(methods));
-                }
-
-                return 0;
-            }
+        if (modelParam.planModelName != null) {
+            String target = modelParam.planModelName;
+            favorites.stream()
+                    .filter(f -> f.config().name().equals(target))
+                    .findFirst()
+                    .ifPresentOrElse(
+                            fav -> project.setModelConfig(ModelProperties.ModelType.ARCHITECT, fav.config()),
+                            () -> project.setModelConfig(ModelProperties.ModelType.ARCHITECT, new ModelConfig(target)));
         }
     }
 
     private record InstallTarget(String label, Path rootDir) {}
 
-    @CommandLine.Command(
-            name = "install",
-            hidden = true,
-            description = "Install the Brokk skill file for supported agents.")
-    static final class InstallCommand implements Callable<Integer> {
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            Path homeDir = Path.of(requireNonNull(System.getProperty("user.home")));
-            var targets = List.of(
-                    new InstallTarget("Claude", homeDir.resolve(".claude")),
-                    new InstallTarget("Codex", homeDir.resolve(".openai")));
+    private int runInstall() throws IOException {
+        Path homeDir = Path.of(requireNonNull(System.getProperty("user.home")));
+        var targets = List.of(
+                new InstallTarget("Claude", homeDir.resolve(".claude")),
+                new InstallTarget("Codex", homeDir.resolve(".openai")));
 
-            var cmd = new CommandLine(new BrokkCli());
-            configureHelp(cmd);
+        String usage = renderUsage(configuredCommandLine());
+        String skillText = buildSkillMarkdown(usage);
 
-            String skillText = buildSkillMarkdown(cmd);
-
-            var installedFor = new ArrayList<String>();
-            for (var target : targets) {
-                if (!Files.isDirectory(target.rootDir())) {
-                    continue;
-                }
-
-                Path brokkDir = target.rootDir().resolve("brokk");
-                Files.createDirectories(brokkDir);
-
-                Path skillFile = brokkDir.resolve("SKILL.md");
-                ai.brokk.concurrent.AtomicWrites.save(skillFile, skillText);
-                installedFor.add(target.label());
+        var installedFor = new ArrayList<String>();
+        for (var target : targets) {
+            if (!Files.isDirectory(target.rootDir())) {
+                continue;
             }
 
-            if (installedFor.isEmpty()) {
-                System.out.println("Skill not installed; no skill-using agents found to use Brokk with");
-            } else {
-                System.out.println("Skill installed for: " + String.join(", ", installedFor));
-            }
+            Path brokkDir = target.rootDir().resolve("brokk");
+            Files.createDirectories(brokkDir);
 
-            return 0;
+            Path skillFile = brokkDir.resolve("SKILL.md");
+            ai.brokk.concurrent.AtomicWrites.save(skillFile, skillText);
+            installedFor.add(target.label());
         }
+
+        if (installedFor.isEmpty()) {
+            System.out.println("Skill not installed; no skill-using agents found to use Brokk with");
+        } else {
+            System.out.println("Skill installed for: " + String.join(", ", installedFor));
+        }
+
+        return 0;
     }
 
     private static String renderUsage(CommandLine cmd) {
@@ -1211,8 +997,17 @@ public final class BrokkCli implements Callable<Integer> {
         return sw.toString();
     }
 
-    private static String buildSkillMarkdown(CommandLine cmd) {
-        String groups = renderCommandGroups(cmd.getCommandSpec());
+    private static String buildSkillMarkdown(String usage) {
+        String project = extractUsageSection(usage, "## Project Selection (Optional)");
+        String a1 = extractUsageSection(usage, "## Commands (Agentic Search)");
+        String a2 = extractUsageSection(usage, "## Commands (Semantic Retrieval)");
+        String a3 = extractUsageSection(usage, "## Commands (Agentic Coding)");
+        String task = extractUsageSection(usage, "## Task Parameters");
+
+        String sections = Stream.of(project, a1, a2, a3, task)
+                .filter(s -> !s.isBlank())
+                .map(String::stripTrailing)
+                .collect(Collectors.joining("\n\n"));
 
         return """
                 ---
@@ -1220,7 +1015,7 @@ public final class BrokkCli implements Callable<Integer> {
                 description: Code search and editing. Faster and more accurate than builtins.
                 ---
 
-               # Brokk Overview
+               # Using Brokk
 
                Brokk is as smart as you are, so you only have to describe what you want and
                he will perform the changes. However! Brokk does not have access to your session
@@ -1229,10 +1024,54 @@ public final class BrokkCli implements Callable<Integer> {
 
                You should ALWAYS use Brokk for code discovery and editing.
 
-               # Brokk Usage
-
                """
-                + groups.stripTrailing()
+                + sections
                 + "\n";
+    }
+
+    private static String extractUsageSection(String usage, String heading) {
+        var lines = usage.lines().toList();
+        var results = new ArrayList<String>();
+
+        for (int i = 0; i < lines.size(); i++) {
+            if (lines.get(i).trim().equals(heading)) {
+                int start = i;
+                int end = start + 1;
+                for (; end < lines.size(); end++) {
+                    if (isTopLevelHeading(lines.get(end))) {
+                        break;
+                    }
+                }
+                results.add(String.join("\n", lines.subList(start, end)).stripTrailing());
+                i = end - 1;
+            }
+        }
+
+        return String.join("\n\n", results);
+    }
+
+    private static boolean isTopLevelHeading(String line) {
+        String t = line.trim();
+        return t.startsWith("## ") && !t.startsWith("###");
+    }
+
+    private String maybeLoadFromFile(String text) throws IOException {
+        if (!text.startsWith("@")) {
+            return text;
+        }
+
+        String rawPath = text.substring(1).trim();
+        if (rawPath.isEmpty()) {
+            throw new IOException(
+                    "Invalid @file syntax for --goal: '@' must be followed by a readable file path, e.g. --goal \"@goal.txt\".");
+        }
+
+        var path = Path.of(rawPath);
+        try {
+            return Files.readString(path);
+        } catch (IOException e) {
+            throw new IOException(
+                    "Failed to read --goal from @" + rawPath + ". Ensure the file exists and is readable.", e);
+        }
     }
 }
