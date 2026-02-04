@@ -56,7 +56,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     protected final IGitRepo repo;
     protected final Path workspacePropertiesFile;
     protected final Properties workspaceProps;
-    protected Path masterRootPathForConfig;
+    protected final Path masterRootPathForConfig;
 
     // File filtering service that encapsulates baseline exclusions + gitignore handling.
     protected final FileFilteringService fileFilteringService;
@@ -68,20 +68,25 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             FileFilteringService.createPatternMatcher(Set.of());
 
     public AbstractProject(Path root) {
+        this(root, computeMasterRootForConfig(root));
+    }
+
+    /**
+     * Constructor for subclasses that need to override the master root path.
+     * Used by WorktreeProject to share the parent MainProject's config/dependencies location.
+     *
+     * @param root the project's working directory root
+     * @param masterRootPathForConfig the path to use for shared config (.brokk directory)
+     */
+    protected AbstractProject(Path root, Path masterRootPathForConfig) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
+        this.masterRootPathForConfig = masterRootPathForConfig.toAbsolutePath().normalize();
         this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
 
-        // Determine masterRootPathForConfig based on this.root and this.repo
-        if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
-            this.masterRootPathForConfig =
-                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
-        } else {
-            this.masterRootPathForConfig = this.root; // Already absolute and normalized by caller
-        }
         logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
 
         // Initialize FileFilteringService (encapsulates gitignore and baseline filtering)
@@ -95,6 +100,26 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 workspaceProps.clear();
             }
         }
+    }
+
+    /**
+     * Computes the master root path for configuration based on whether the project is in a Git worktree.
+     */
+    private static Path computeMasterRootForConfig(Path root) {
+        Path normalizedRoot = root.toAbsolutePath().normalize();
+        if (GitRepoFactory.hasGitRepo(normalizedRoot)) {
+            // Need to check if it's a worktree
+            try (var tempRepo = new GitRepo(normalizedRoot)) {
+                if (tempRepo.isWorktree()) {
+                    return tempRepo.getGitTopLevel().toAbsolutePath().normalize();
+                }
+            } catch (Exception e) {
+                // If we can't determine worktree status, fall back to root
+                LogManager.getLogger(AbstractProject.class)
+                        .debug("Could not determine worktree status for {}: {}", normalizedRoot, e.getMessage());
+            }
+        }
+        return normalizedRoot;
     }
 
     public static AbstractProject createProject(Path projectPath, @Nullable MainProject parent) {

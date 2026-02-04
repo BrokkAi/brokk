@@ -22,10 +22,8 @@ public final class WorktreeProject extends AbstractProject {
     private final MainProject parent;
 
     public WorktreeProject(Path root, MainProject parent) {
-        super(root);
+        super(root, parent.getMasterRootPathForConfig());
         this.parent = parent;
-        // Ensure our master root for config matches the parent's
-        this.masterRootPathForConfig = parent.getMasterRootPathForConfig();
     }
 
     @Override
