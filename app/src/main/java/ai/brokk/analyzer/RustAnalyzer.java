@@ -24,6 +24,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),
             Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
             Set.of(ATTRIBUTE_ITEM), // Rust attributes like #[derive(...)]
+            Set.of(),
             IMPORT_DECLARATION,
             "name", // Common field name for identifiers
             "body", // e.g., function_item.body, impl_item.body

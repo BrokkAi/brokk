@@ -67,6 +67,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                     ANNOTATION_TYPE_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT, CONSTANT_DECLARATION),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of(ANNOTATION, MARKER_ANNOTATION),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -1323,6 +1324,26 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 .replaceFirst("\\.\\*;$", "")
                 .replaceFirst(";$", "")
                 .trim();
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
+    }
+
+    @Override
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
+        if (!CaptureNames.CLASS_DEFINITION.equals(classCaptureName)) {
+            return null;
+        }
+
+        // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
+        // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)
+        String constructorName = enclosingClass.identifier();
+        String shortName = enclosingClass.shortName() + "." + constructorName;
+
+        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
     }
 
     @Override

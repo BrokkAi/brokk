@@ -22,6 +22,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
             Set.of(VARIABLE_DECLARATOR),
             Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
+            Set.of(),
             IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName

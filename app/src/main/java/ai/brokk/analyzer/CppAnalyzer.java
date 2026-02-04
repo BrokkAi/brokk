@@ -149,6 +149,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     DESTRUCTOR_DECLARATION,
                     DECLARATION),
             Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
             CaptureNames.IMPORT_DECLARATION,
             "name",
@@ -552,6 +553,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     @Override
     protected boolean requiresSemicolons() {
         return true;
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
     }
 
     @Override

@@ -19,6 +19,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, TRAIT_DECLARATION), // classLikeNodeTypes
             Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of(PROPERTY_DECLARATION, CONST_DECLARATION), // fieldLikeNodeTypes (capturing the whole declaration)
+            Set.of(), // constructorNodeTypes are just `function.definition` so we need to check name
             Set.of("attribute_list"), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
             IMPORT_DECLARATION,
             "name", // identifierFieldName
@@ -422,5 +423,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPhp(reference);
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return "__construct".equals(candidate.identifier());
     }
 }

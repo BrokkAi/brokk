@@ -32,6 +32,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                     RECORD_STRUCT_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION, LOCAL_FUNCTION_STATEMENT),
             Set.of(FIELD_DECLARATION, PROPERTY_DECLARATION, EVENT_FIELD_DECLARATION),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of("attribute_list"),
             IMPORT_DECLARATION,
             "name",
@@ -102,7 +103,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                         yield CodeUnit.fn(file, packageName, finalShortName);
                     }
                     case CaptureNames.CONSTRUCTOR_DEFINITION -> {
-                        String finalShortName = classChain + ".<init>";
+                        String finalShortName = classChain + "." + simpleName;
                         yield CodeUnit.fn(file, packageName, finalShortName);
                     }
                     case CaptureNames.FIELD_DEFINITION -> {
@@ -246,6 +247,16 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCSharp(reference);
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
+    }
+
+    @Override
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        return null;
     }
 
     @Override

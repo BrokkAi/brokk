@@ -173,6 +173,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_DEFINITION),
             Set.of(VAL_DEFINITION, VAR_DEFINITION, SIMPLE_ENUM_CASE),
             Set.of("annotation", "marker_annotation"),
+            Set.of(),
             IMPORT_DECLARATION,
             "name", // identifier field name
             "body", // body field name
@@ -195,6 +196,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForScala(reference);
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return false;
     }
 
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");

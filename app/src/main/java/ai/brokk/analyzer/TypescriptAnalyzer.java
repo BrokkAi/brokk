@@ -67,6 +67,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                     ENUM_MEMBER,
                     LEXICAL_DECLARATION,
                     VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             // decoratorNodeTypes
             Set.of(DECORATOR),
             // imports
