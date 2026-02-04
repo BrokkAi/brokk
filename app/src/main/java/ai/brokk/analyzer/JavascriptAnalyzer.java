@@ -18,38 +18,25 @@ import org.treesitter.TreeSitterJavascript;
 
 public class JavascriptAnalyzer extends JsTsAnalyzer {
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            // 1. classLikeNodeTypes
             Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
-            // 2. functionLikeNodeTypes
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
-            // 3. fieldLikeNodeTypes
             Set.of(VARIABLE_DECLARATOR),
-            // 4. constructorNodeTypes
+            Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
             Set.of(),
-            // 5. decoratorNodeTypes
-            Set.of(),
-            // 6. importNodeType
             IMPORT_DECLARATION,
-            // 7. identifierFieldName
-            "name",
-            // 8. bodyFieldName
-            "body",
-            // 9. parametersFieldName
-            "parameters",
-            // 10. returnTypeFieldName
-            "",
-            // 11. typeParametersFieldName
-            "",
-            // 12. captureConfiguration
+            "name", // identifierFieldName
+            "body", // bodyFieldName
+            "parameters", // parametersFieldName
+            "", // returnTypeFieldName (JS doesn't have a standard named child for return type)
+            "", // typeParametersFieldName (JS doesn't have type parameters)
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
-            // 13. asyncKeywordNodeType
-            "async",
-            // 14. modifierNodeTypes
-            Set.of());
+            "async", // asyncKeywordNodeType
+            Set.of() // modifierNodeTypes
+            );
 
     public JavascriptAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);

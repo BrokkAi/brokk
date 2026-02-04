@@ -20,25 +20,25 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM, MOD_ITEM), // classLikeNodeTypes
-            Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM), // functionLikeNodeTypes
-            Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT), // fieldLikeNodeTypes
-            Set.of(), // constructorNodeTypes
-            Set.of(ATTRIBUTE_ITEM), // decoratorNodeTypes
-            IMPORT_DECLARATION, // importNodeType
-            "name", // identifierFieldName
-            "body", // bodyFieldName
-            "parameters", // parametersFieldName
-            "return_type", // returnTypeFieldName
-            "type_parameters", // typeParametersFieldName
-            Map.of( // captureConfiguration
+            Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM, MOD_ITEM),
+            Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),
+            Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
+            Set.of(ATTRIBUTE_ITEM), // Rust attributes like #[derive(...)]
+            Set.of(),
+            IMPORT_DECLARATION,
+            "name", // Common field name for identifiers
+            "body", // e.g., function_item.body, impl_item.body
+            "parameters", // e.g., function_item.parameters
+            "return_type", // e.g., function_item.return_type
+            "type_parameters", // Rust generics
+            Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.IMPL_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.MODULE_DEFINITION, SkeletonType.MODULE_STATEMENT,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
-            "", // asyncKeywordNodeType
-            Set.of(VISIBILITY_MODIFIER)); // modifierNodeTypes
+            "",
+            Set.of(VISIBILITY_MODIFIER));
 
     public RustAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);

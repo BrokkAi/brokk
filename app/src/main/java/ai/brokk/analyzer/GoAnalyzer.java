@@ -46,14 +46,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // constructorNodeTypes
-            Set.of(), // decoratorNodeTypes
-            CaptureNames.IMPORT_DECLARATION, // importNodeType
-            "name", // identifierFieldName
-            "body", // bodyFieldName
+            Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
+            CaptureNames.IMPORT_DECLARATION, // importNodeType - matches @import.declaration capture in go.scm
+            "name", // identifierFieldName (used as fallback if specific .name capture is missing)
+            "body", // bodyFieldName (e.g. function_declaration.body -> block)
             "parameters", // parametersFieldName
-            "result", // returnTypeFieldName
-            "type_parameters", // typeParametersFieldName
-            Map.of( // captureConfiguration
+            "result", // returnTypeFieldName (Go's grammar uses "result" for return types)
+            "type_parameters", // typeParametersFieldName (Go generics)
+            Map.of(
                     CaptureNames.FUNCTION_DEFINITION,
                     SkeletonType.FUNCTION_LIKE,
                     CaptureNames.TYPE_DEFINITION,
@@ -67,9 +67,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     CaptureNames.METHOD_DEFINITION,
                     SkeletonType.FUNCTION_LIKE,
                     "interface.method.definition",
-                    SkeletonType.FUNCTION_LIKE),
-            "", // asyncKeywordNodeType
-            Set.of()); // modifierNodeTypes
+                    SkeletonType.FUNCTION_LIKE // Added for interface methods
+                    ), // captureConfiguration
+            "", // asyncKeywordNodeType (Go uses 'go' keyword, not an async modifier on func signature)
+            Set.of() // modifierNodeTypes (Go visibility is by capitalization)
+            );
 
     public GoAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);

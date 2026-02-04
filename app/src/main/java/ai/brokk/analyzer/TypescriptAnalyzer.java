@@ -41,7 +41,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             ABSTRACT_CLASS_DECLARATION, ABSTRACT_CLASS);
 
     private static final LanguageSyntaxProfile TS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            // 1. classLikeNodeTypes
+            // classLikeNodeTypes
             Set.of(
                     CLASS_DECLARATION,
                     INTERFACE_DECLARATION,
@@ -49,40 +49,40 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                     ABSTRACT_CLASS_DECLARATION,
                     MODULE,
                     INTERNAL_MODULE),
-            // 2. functionLikeNodeTypes
+            // functionLikeNodeTypes
             Set.of(
                     FUNCTION_DECLARATION,
                     METHOD_DEFINITION,
                     ARROW_FUNCTION,
                     GENERATOR_FUNCTION_DECLARATION,
-                    FUNCTION_SIGNATURE, // for overloads
-                    METHOD_SIGNATURE, // for interfaces
-                    ABSTRACT_METHOD_SIGNATURE), // for abstract classes
-            // 3. fieldLikeNodeTypes
+                    FUNCTION_SIGNATURE,
+                    METHOD_SIGNATURE,
+                    ABSTRACT_METHOD_SIGNATURE), // function_signature for overloads, method_signature for interfaces,
+            // abstract_method_signature for abstract classes
+            // fieldLikeNodeTypes
             Set.of(
                     VARIABLE_DECLARATOR,
                     PUBLIC_FIELD_DEFINITION,
                     PROPERTY_SIGNATURE,
                     ENUM_MEMBER,
                     LEXICAL_DECLARATION,
-                    VARIABLE_DECLARATION),
-            // 4. constructorNodeTypes
+                    VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
             Set.of(CONSTRUCTOR_DECLARATION),
-            // 5. decoratorNodeTypes
+            // decoratorNodeTypes
             Set.of(DECORATOR),
-            // 6. importNodeType
+            // imports
             IMPORT_DECLARATION,
-            // 7. identifierFieldName
+            // identifierFieldName
             "name",
-            // 8. bodyFieldName
+            // bodyFieldName
             "body",
-            // 9. parametersFieldName
+            // parametersFieldName
             "parameters",
-            // 10. returnTypeFieldName
+            // returnTypeFieldName
             "return_type", // TypeScript has explicit return types
-            // 11. typeParametersFieldName
+            // typeParametersFieldName
             "type_parameters", // Standard field name for type parameters in TS
-            // 12. captureConfiguration - using unified naming convention
+            // captureConfiguration - using unified naming convention
             Map.ofEntries(
                     Map.entry(
                             CaptureNames.TYPE_DEFINITION,
@@ -93,9 +93,9 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                     Map.entry(CaptureNames.TYPEALIAS_DEFINITION, SkeletonType.ALIAS_LIKE),
                     Map.entry(CaptureNames.DECORATOR_DEFINITION, SkeletonType.UNSUPPORTED),
                     Map.entry("keyword.modifier", SkeletonType.UNSUPPORTED)),
-            // 13. asyncKeywordNodeType
+            // asyncKeywordNodeType
             "async", // TS uses 'async' keyword
-            // 14. modifierNodeTypes: Contains node types of keywords/constructs that act as modifiers.
+            // modifierNodeTypes: Contains node types of keywords/constructs that act as modifiers.
             // Used in TreeSitterAnalyzer.buildSignatureString to gather modifiers by inspecting children.
             Set.of(
                     "export",
@@ -110,6 +110,10 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                     "let",
                     "var",
                     "override" // "override" might be via override_modifier
+                    // Note: "public", "private", "protected" themselves are not node types here,
+                    // but "accessibility_modifier" is the node type whose text content is one of these.
+                    // "const", "let" are token types for the `kind` of a lexical_declaration, often its first child.
+                    // "var" is a token type, often first child of variable_declaration.
                     ));
 
     public TypescriptAnalyzer(IProject project) {

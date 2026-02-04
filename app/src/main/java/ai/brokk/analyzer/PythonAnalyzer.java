@@ -40,23 +40,24 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile PY_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_DEFINITION), // classLikeNodeTypes
-            Set.of(FUNCTION_DEFINITION), // functionLikeNodeTypes
-            Set.of(ASSIGNMENT, TYPED_PARAMETER), // fieldLikeNodeTypes
-            Set.of(), // constructorNodeTypes
-            Set.of(DECORATOR), // decoratorNodeTypes
-            IMPORT_DECLARATION, // importNodeType
+            Set.of(CLASS_DEFINITION),
+            Set.of(FUNCTION_DEFINITION),
+            Set.of(ASSIGNMENT, TYPED_PARAMETER),
+            Set.of(),
+            Set.of(DECORATOR),
+            IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName
             "parameters", // parametersFieldName
             "return_type", // returnTypeFieldName
-            "", // typeParametersFieldName
+            "", // typeParametersFieldName (Python doesn't have explicit type parameters)
             Map.of( // captureConfiguration
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "async", // asyncKeywordNodeType
-            Set.of()); // modifierNodeTypes
+            Set.of() // modifierNodeTypes
+            );
 
     public PythonAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);

@@ -24,30 +24,29 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     static final Logger log = LoggerFactory.getLogger(CSharpAnalyzer.class);
 
     private static final LanguageSyntaxProfile CS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of( // classLikeNodeTypes
+            Set.of(
                     CLASS_DECLARATION,
                     INTERFACE_DECLARATION,
                     STRUCT_DECLARATION,
                     RECORD_DECLARATION,
                     RECORD_STRUCT_DECLARATION),
-            Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION, LOCAL_FUNCTION_STATEMENT), // functionLikeNodeTypes
-            Set.of(FIELD_DECLARATION, PROPERTY_DECLARATION, EVENT_FIELD_DECLARATION), // fieldLikeNodeTypes
-            Set.of(CONSTRUCTOR_DECLARATION), // constructorNodeTypes
-            Set.of("attribute_list"), // decoratorNodeTypes
-            IMPORT_DECLARATION, // importNodeType
-            "name", // identifierFieldName
-            "body", // bodyFieldName
-            "parameters", // parametersFieldName
-            "type", // returnTypeFieldName
-            "type_parameter_list", // typeParametersFieldName
-            Map.of( // captureConfiguration
+            Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION, LOCAL_FUNCTION_STATEMENT),
+            Set.of(FIELD_DECLARATION, PROPERTY_DECLARATION, EVENT_FIELD_DECLARATION),
+            Set.of(CONSTRUCTOR_DECLARATION),
+            Set.of("attribute_list"),
+            IMPORT_DECLARATION,
+            "name",
+            "body",
+            "parameters",
+            "type",
+            "type_parameter_list", // typeParametersFieldName (C# generics)
+            Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
-            "", // asyncKeywordNodeType
-            Set.of() // modifierNodeTypes
-            );
+            "",
+            Set.of());
 
     public CSharpAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
