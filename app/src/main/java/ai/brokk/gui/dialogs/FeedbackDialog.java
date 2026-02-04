@@ -202,9 +202,15 @@ public class FeedbackDialog extends BaseThemedDialog {
                     if (includeScreenshot && screenshotImage != null) {
                         try {
                             screenshotFile = File.createTempFile("brokk_screenshot_", ".png");
-                            ImageIO.write(screenshotImage, "png", screenshotFile);
                             screenshotFileRef.set(screenshotFile);
+                            ImageIO.write(screenshotImage, "png", screenshotFile);
                         } catch (IOException ex) {
+                            // Clean up failed temp file and ensure we don't pass corrupt file to sendFeedback
+                            if (screenshotFile != null && screenshotFile.exists()) {
+                                //noinspection ResultOfMethodCallIgnored
+                                screenshotFile.delete();
+                            }
+                            screenshotFile = null;
                             SwingUtil.runOnEdt(() -> chrome.toolError("Could not save screenshot: " + ex.getMessage()));
                         }
                     }
