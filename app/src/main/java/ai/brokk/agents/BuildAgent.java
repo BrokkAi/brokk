@@ -404,7 +404,22 @@ public class BuildAgent {
                 When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
 
-                The lists are DecoratedCollection instances, so you get first/last/index/value fields.
+                The `testAllCommand` is a plain command that runs the full test suite.
+                The `testSomeCommand` uses **Mustache** template syntax to inject test targets.
+                Use one of these section blocks depending on the build tool:
+                - `{{#files}}...{{/files}}` — file paths
+                - `{{#classes}}...{{/classes}}` — simple class names
+                - `{{#fqclasses}}...{{/fqclasses}}` — fully-qualified class names
+                - `{{#modules}}...{{/modules}}` — dotted module names (e.g. for Python projects)
+
+                Inside a section, each item exposes:
+                - `{{value}}` or `{{.}}` — the string value
+                - `{{first}}`, `{{last}}` — booleans for first/last iteration
+                - `{{index}}` — 0-based position
+                - `{{^last}}separator{{/last}}` — render separator between items (not after last)
+
+                Use `{{pyver}}` for the version string when needed (e.g. for Python projects: `python{{pyver}} -m pytest`).
+
                 Examples:
 
                 | Build tool        | One-liner a user could write
