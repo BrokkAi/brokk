@@ -26,7 +26,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -70,7 +77,8 @@ public final class HistoryIo {
 
     /**
      * Counts incomplete tasks in a session zip without full deserialization.
-     * Reads the latest context from contexts.jsonl, finds the task list fragment,
+     * Reads the latest context from contexts.jsonl, finds the task list fragment
+     * (a StringFragment in the virtuals list with description "Task List"),
      * and counts tasks where done is false.
      */
     public static TaskCounts countIncompleteTasks(Path zip) throws IOException {
@@ -110,31 +118,55 @@ public final class HistoryIo {
 
         try {
             var contextNode = objectMapper.readTree(lastContextLine);
-            var taskListFragmentIdNode = contextNode.get("taskListFragmentId");
-            if (taskListFragmentIdNode == null || taskListFragmentIdNode.isNull()) {
+            var virtualsNode = contextNode.get("virtuals");
+            if (virtualsNode == null || !virtualsNode.isArray()) {
                 return new TaskCounts(0, 0);
             }
-            String taskListFragmentId = taskListFragmentIdNode.asText();
 
+            // Collect virtual fragment IDs from context
+            Set<String> virtualIds = new HashSet<>();
+            for (var idNode : virtualsNode) {
+                virtualIds.add(idNode.asText());
+            }
+
+            // Parse fragments file
             var fragmentsNode = objectMapper.readTree(fragmentsBytes);
-            var taskFragments = fragmentsNode.get("task");
-            if (taskFragments == null || !taskFragments.has(taskListFragmentId)) {
+            var virtualFragments = fragmentsNode.get("virtual");
+            if (virtualFragments == null) {
                 return new TaskCounts(0, 0);
             }
 
-            var taskFragment = taskFragments.get(taskListFragmentId);
-            var contentIdNode = taskFragment.get("contentId");
-            if (contentIdNode == null || contentIdNode.isNull()) {
+            // Find the Task List fragment (description == "Task List")
+            String taskListContentId = null;
+            var fieldNames = virtualFragments.fieldNames();
+            while (fieldNames.hasNext()) {
+                String fragmentId = fieldNames.next();
+                if (!virtualIds.contains(fragmentId)) {
+                    continue;
+                }
+                var fragment = virtualFragments.get(fragmentId);
+                var descriptionNode = fragment.get("description");
+                if (descriptionNode != null && "Task List".equals(descriptionNode.asText())) {
+                    var contentIdNode = fragment.get("contentId");
+                    if (contentIdNode != null && !contentIdNode.isNull()) {
+                        taskListContentId = contentIdNode.asText();
+                        break;
+                    }
+                }
+            }
+
+            if (taskListContentId == null) {
                 return new TaskCounts(0, 0);
             }
-            String contentId = contentIdNode.asText();
 
-            byte[] contentBytes = contentBytesMap.get(contentId);
+            // Read the task list content
+            byte[] contentBytes = contentBytesMap.get(taskListContentId);
             if (contentBytes == null) {
                 return new TaskCounts(0, 0);
             }
             String taskListJson = new String(contentBytes, StandardCharsets.UTF_8);
 
+            // Parse and count tasks
             var taskListData = objectMapper.readValue(taskListJson, TaskList.TaskListData.class);
             var tasks = taskListData.tasks();
             int total = tasks.size();
