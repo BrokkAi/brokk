@@ -3,6 +3,9 @@ package ai.brokk.context;
 import ai.brokk.IContextManager;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
+import com.fasterxml.jackson.core.JacksonException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
@@ -209,6 +212,24 @@ public enum SpecialTextType {
 
     public boolean droppable() {
         return droppable;
+    }
+
+    /**
+     * Deserializes the raw JSON content of a Discarded Context fragment into a map.
+     */
+    public static Map<String, String> deserializeDiscardedContext(String rawContent) {
+        try {
+            return Json.getMapper().readValue(rawContent, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+        } catch (JacksonException e) {
+            return new LinkedHashMap<>();
+        }
+    }
+
+    /**
+     * Serializes a map of discarded fragment info into JSON for storage in a Discarded Context fragment.
+     */
+    public static String serializeDiscardedContext(Map<String, String> data) {
+        return Json.toJson(data);
     }
 
     @Override

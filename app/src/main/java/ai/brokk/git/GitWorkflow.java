@@ -6,6 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
+import ai.brokk.agents.ReviewScope;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CommitPrompts;
@@ -24,9 +25,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -222,7 +226,7 @@ public final class GitWorkflow {
     @SuppressWarnings("unused")
     @Tool("Suggest pull request title and description based on the changes")
     public void suggestPrDetails(
-            @P("Brief PR title (12 words or fewer)") String title,
+            @P("Brief PR title (12 words or fewer, include intent)") String title,
             @P("PR description in markdown (75-150 words, focus on intent and key changes)") String description) {
         this.prTitle = title;
         this.prDescription = description;
@@ -239,7 +243,25 @@ public final class GitWorkflow {
      * @throws GitAPIException if git operations fail
      * @throws InterruptedException if the calling thread is interrupted during LLM request
      */
+    @Blocking
     public PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO streamingOutput)
+            throws GitAPIException, InterruptedException {
+        return suggestPullRequestDetails(source, target, streamingOutput, List.of());
+    }
+
+    /**
+     * Suggests pull request title and description with streaming output using tool calling and session context.
+     *
+     * @param source The source branch name
+     * @param target The target branch name
+     * @param streamingOutput IConsoleIO for streaming output
+     * @param sessionIds List of session IDs to extract context from (may be empty)
+     * @throws GitAPIException if git operations fail
+     * @throws InterruptedException if the calling thread is interrupted during LLM request
+     */
+    @Blocking
+    public PrSuggestion suggestPullRequestDetails(
+            String source, String target, IConsoleIO streamingOutput, List<UUID> sessionIds)
             throws GitAPIException, InterruptedException {
         var mergeBase = repo.getMergeBase(source, target);
         String diff = (mergeBase != null) ? repo.getDiff(mergeBase, source) : "";
@@ -247,12 +269,31 @@ public final class GitWorkflow {
         var service = cm.getService();
         var modelToUse = service.getScanModel();
 
+        String sessionContext = null;
+        if (!sessionIds.isEmpty()) {
+            // Compute edited files to exclude from "Sources Used" fragment hints
+            var changedFiles = repo.listFilesChangedBetweenBranches(target, source);
+            var editedFiles =
+                    changedFiles.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toSet());
+
+            var extracted = ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
+            if (!extracted.patchInstructions().isEmpty()) {
+                sessionContext =
+                        """
+                        Patch Instructions:
+                        %s
+                        """
+                                .formatted(String.join("\n-----\n", extracted.patchInstructions()));
+            }
+        }
+
         List<ChatMessage> messages;
         if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {
             var commitMessagesContent = repo.getCommitMessagesBetween(target, source);
-            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgsWithContext(
+                    commitMessagesContent, sessionContext);
         } else {
-            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessagesWithContext(diff, sessionContext);
         }
 
         // Register tool providers

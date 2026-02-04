@@ -20,8 +20,7 @@ import org.jetbrains.annotations.Nullable;
 public class ImageUtil {
     private static final Logger logger = LogManager.getLogger(ImageUtil.class);
 
-    public static @Nullable BufferedImage toBuffered(@Nullable Image img) {
-        if (img == null) return null;
+    public static BufferedImage toBuffered(Image img) {
         if (img instanceof BufferedImage bi) {
             return bi;
         }
@@ -40,7 +39,6 @@ public class ImageUtil {
      * @throws IOException If image conversion fails
      */
     public static dev.langchain4j.data.image.Image toL4JImage(Image awtImage) throws IOException {
-
         // Convert to BufferedImage if needed
         BufferedImage bufferedImage = toBuffered(awtImage);
 
@@ -194,7 +192,7 @@ public class ImageUtil {
      * @return The converted image, or null if bytes is null
      * @throws IOException If conversion fails
      */
-    public static Image bytesToImage(byte[] bytes) throws IOException {
+    public static @Nullable Image bytesToImage(byte[] bytes) throws IOException {
         try (var bais = new ByteArrayInputStream(bytes)) {
             return ImageIO.read(bais);
         }

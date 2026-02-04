@@ -24,8 +24,6 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.Component;
 import java.awt.Image;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.io.File;
 import java.io.IOException;
@@ -33,7 +31,6 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -539,18 +536,8 @@ public class ContextActionsHandler {
     @Blocking
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
         var content = getSelectedContent(selectedFragments);
-        var sel = new StringSelection(content);
-        var cb = Chrome.getSystemClipboardSafe();
-        if (cb == null) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Clipboard temporarily unavailable");
-            return;
-        }
-        try {
-            cb.setContents(sel, sel);
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
-        } catch (IllegalStateException e) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Clipboard temporarily unavailable");
-        }
+        contextManager.copyToClipboard(content);
+        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
     }
 
     @Blocking
@@ -588,52 +575,58 @@ public class ContextActionsHandler {
     private void doPasteAction() {
         assert !SwingUtilities.isEventDispatchThread();
 
-        var clipboard = Chrome.getSystemClipboardSafe();
-        if (clipboard == null) {
-            chrome.toolError("Clipboard temporarily unavailable");
-            return;
-        }
+        var clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+        int maxAttempts = 3;
+        int delayMs = 50;
 
-        var contents = clipboard.getContents(null);
-        if (contents == null) {
-            chrome.toolError("Clipboard is empty or unavailable");
-            return;
-        }
-
-        var flavors = contents.getTransferDataFlavors();
-        logger.debug(
-                "Clipboard flavors available: {}",
-                Arrays.stream(flavors).map(DataFlavor::getMimeType).collect(Collectors.joining(", ")));
-
-        for (var flavor : flavors) {
+        for (int i = 0; i < maxAttempts; i++) {
             try {
-                if (flavor.isFlavorJavaFileListType() || flavor.getMimeType().startsWith("image/")) {
-                    logger.debug("Attempting to process flavor: {}", flavor.getMimeType());
-                    Object data = contents.getTransferData(flavor);
-                    Image image = null;
+                var contents = clipboard.getContents(null);
+                if (contents == null) break;
 
-                    switch (data) {
-                        case Image image1 -> image = image1;
-                        case InputStream inputStream -> {
-                            try (inputStream) {
-                                image = ImageIO.read(inputStream);
-                            }
-                        }
-                        case List<?> fileList
-                        when !fileList.isEmpty() -> {
-                            var file = fileList.getFirst();
-                            if (file instanceof File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
-                                image = ImageIO.read(f);
-                            }
-                        }
-                        default -> {}
-                    }
+                var flavors = contents.getTransferDataFlavors();
+                for (var flavor : flavors) {
+                    if (flavor.isFlavorJavaFileListType()
+                            || flavor.getMimeType().startsWith("image/")) {
+                        Object data = contents.getTransferData(flavor);
+                        @Nullable Image image = null;
 
-                    if (image != null) {
-                        contextManager.addPastedImageFragment(image);
-                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pasted image added to context");
-                        return;
+                        switch (data) {
+                            case Image image1 -> image = image1;
+                            case InputStream inputStream -> {
+                                try (inputStream) {
+                                    image = ImageIO.read(inputStream);
+                                }
+                            }
+                            case List<?> fileList
+                            when !fileList.isEmpty() -> {
+                                var file = fileList.getFirst();
+                                if (file instanceof File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
+                                    image = ImageIO.read(f);
+                                }
+                            }
+                            default -> {}
+                        }
+
+                        if (image != null) {
+                            contextManager.addPastedImageFragment(image);
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pasted image added to context");
+                            return;
+                        }
                     }
+                }
+                break; // Checked flavors, no image found, move to string
+            } catch (IllegalStateException e) {
+                if (i == maxAttempts - 1) {
+                    logger.warn("Failed to read image from clipboard after {} attempts", maxAttempts, e);
+                    chrome.showNotification(IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
+                    break;
+                }
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
                 }
             } catch (Exception e) {
                 if (e.getMessage() != null && e.getMessage().contains("INCR")) {
@@ -641,20 +634,15 @@ public class ContextActionsHandler {
                             "Unable to paste image data from Windows to Brokk running under WSL. This is a limitation of WSL. You can write the image to a file and read it that way instead.");
                     return;
                 }
-                logger.error("Failed to process image flavor: {}", flavor.getMimeType(), e);
+                logger.debug("Non-fatal error checking image flavors: {}", e.getMessage());
+                break;
             }
         }
 
-        if (contents.isDataFlavorSupported(DataFlavor.stringFlavor)) {
-            String clipboardText;
-            try {
-                clipboardText = (String) contents.getTransferData(DataFlavor.stringFlavor);
-                if (clipboardText.isBlank()) {
-                    chrome.toolError("Clipboard text is empty");
-                    return;
-                }
-            } catch (Exception e) {
-                chrome.toolError("Failed to read clipboard text: " + e.getMessage());
+        String clipboardText = contextManager.getStringFromClipboard();
+        if (clipboardText != null) {
+            if (clipboardText.isBlank()) {
+                chrome.toolError("Clipboard text is empty");
                 return;
             }
 
@@ -676,20 +664,20 @@ public class ContextActionsHandler {
                         try {
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO, "Fetching image from " + clipboardText);
-                            Image image = ImageUtil.downloadImage(uri, httpClient);
-                            if (image != null) {
-                                contextManager.addPastedImageFragment(image);
-                                chrome.showNotification(
-                                        IConsoleIO.NotificationRole.INFO, "Pasted image from URL added to context");
-                                chrome.actionComplete();
-                                return;
-                            } else {
+                            @Nullable Image image = ImageUtil.downloadImage(uri, httpClient);
+                            if (image == null) {
                                 logger.warn(
                                         "URL {} identified as image by ImageUtil, but downloadImage returned null. Falling back to text.",
                                         clipboardText);
                                 chrome.showNotification(
                                         IConsoleIO.NotificationRole.INFO,
                                         "Could not load image from URL. Trying to fetch as text.");
+                            } else {
+                                contextManager.addPastedImageFragment(image);
+                                chrome.showNotification(
+                                        IConsoleIO.NotificationRole.INFO, "Pasted image from URL added to context");
+                                chrome.actionComplete();
+                                return;
                             }
                         } catch (Exception e) {
                             logger.warn(

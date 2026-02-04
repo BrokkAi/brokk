@@ -169,7 +169,6 @@ public interface IConsoleIO {
 
     enum NotificationRole {
         ERROR,
-        CONFIRM,
         COST,
         INFO
     }

@@ -20,4 +20,15 @@ func (s MyStruct) GetFieldA() int {
 	return s.FieldA
 }
 
+type Uint32Map map[uint32]struct{}
+type StringAlias = string  // True alias - should be FIELD_LIKE
+type MyInt int             // Named type - should be CLASS_LIKE (can have methods)
+
+func (m MyInt) String() string { return "" }
+
+type (
+    GroupedNamedType map[string]int
+    GroupedAlias     = []byte
+)
+
 func anotherFunc() {}

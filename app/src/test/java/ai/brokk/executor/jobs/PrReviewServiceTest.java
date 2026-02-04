@@ -29,20 +29,25 @@ class PrReviewServiceTest {
 
     @Test
     void testPrDetails_RecordCreation() {
-        PrDetails details = new PrDetails("main", "abc123", "feature-branch");
+        PrDetails details = new PrDetails("main", "abc123", "feature-branch", "PR title", "PR body");
 
         assertEquals("main", details.baseBranch());
         assertEquals("abc123", details.headSha());
         assertEquals("feature-branch", details.headRef());
+        assertEquals("PR title", details.title());
+        assertEquals("PR body", details.body());
     }
 
     @Test
     void testPrDetails_AllFieldsPopulated() {
-        PrDetails details = new PrDetails("develop", "def456", "bugfix/issue-123");
+        PrDetails details =
+                new PrDetails("develop", "def456", "bugfix/issue-123", "Fix bug", "This PR fixes a bug in parsing.");
 
         assertEquals("develop", details.baseBranch());
         assertEquals("def456", details.headSha());
         assertEquals("bugfix/issue-123", details.headRef());
+        assertEquals("Fix bug", details.title());
+        assertEquals("This PR fixes a bug in parsing.", details.body());
     }
 
     @Test

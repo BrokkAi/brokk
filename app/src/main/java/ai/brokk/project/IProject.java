@@ -8,6 +8,7 @@ import ai.brokk.SessionManager;
 import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
@@ -535,6 +536,16 @@ public interface IProject extends AutoCloseable {
     default CompletableFuture<Void> addLiveDependency(
             String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
         throw new UnsupportedOperationException();
+    }
+
+    default Language getLanguageHandle() {
+        var projectLangs = getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .collect(Collectors.toUnmodifiableSet());
+        if (projectLangs.isEmpty()) {
+            return Languages.NONE;
+        }
+        return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
     }
 
     enum CodeAgentTestScope {

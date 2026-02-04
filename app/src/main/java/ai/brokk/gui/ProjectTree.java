@@ -17,15 +17,16 @@ import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
 import ai.brokk.watchservice.AbstractWatchService;
 import java.awt.*;
-import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -1417,11 +1418,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
      * @return true if clipboard contains file list data
      */
     private boolean hasFilesInClipboard() {
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
         try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             return clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor);
-        } catch (Exception ex) {
-            logger.debug("Error checking clipboard contents", ex);
+        } catch (IllegalStateException e) {
+            logger.debug("Error checking clipboard contents", e);
             return false;
         }
     }
@@ -1433,19 +1434,39 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
      */
     @SuppressWarnings("unchecked")
     private List<File> getFilesFromClipboard() {
-        try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            if (clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor)) {
-                Transferable contents = clipboard.getContents(null);
-                if (contents != null) {
-                    Object data = contents.getTransferData(DataFlavor.javaFileListFlavor);
-                    if (data instanceof List) {
-                        return (List<File>) data;
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        int maxAttempts = 3;
+        int delayMs = 50;
+
+        for (int i = 0; i < maxAttempts; i++) {
+            try {
+                if (clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor)) {
+                    Transferable contents = clipboard.getContents(null);
+                    if (contents != null) {
+                        Object data = contents.getTransferData(DataFlavor.javaFileListFlavor);
+                        if (data instanceof List) {
+                            return (List<File>) data;
+                        }
                     }
                 }
+                return List.of();
+            } catch (IllegalStateException e) {
+                if (i == maxAttempts - 1) {
+                    contextManager
+                            .getIo()
+                            .showNotification(IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
+                    break;
+                }
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return List.of();
+                }
+            } catch (UnsupportedFlavorException | IOException e) {
+                logger.debug("Clipboard does not contain file list data: {}", e.getMessage());
+                break;
             }
-        } catch (Exception ex) {
-            logger.error("Error reading files from clipboard", ex);
         }
         return List.of();
     }

@@ -49,6 +49,44 @@ class ContextSizeGuardTest {
     }
 
     @Test
+    void estimateTokens_excludesBinaryFiles() throws IOException {
+        var textFile = tempDir.resolve("readme.txt");
+        Files.writeString(textFile, "x".repeat(400));
+
+        var binaryFile = tempDir.resolve("image.png");
+        byte[] binaryContent = new byte[1000];
+        binaryContent[0] = 0;
+        Files.write(binaryFile, binaryContent);
+
+        var pf1 = new ProjectFile(tempDir, tempDir.relativize(textFile));
+        var pf2 = new ProjectFile(tempDir, tempDir.relativize(binaryFile));
+        var estimate = ContextSizeGuard.estimateTokens(List.of(pf1, pf2));
+
+        assertEquals(1, estimate.fileCount());
+        assertEquals(100, estimate.estimatedTokens());
+        assertFalse(estimate.isTruncated());
+    }
+
+    @Test
+    void estimateTokens_excludesBinaryFilesInDirectories() throws IOException {
+        var subdir = tempDir.resolve("subdir");
+        Files.createDirectories(subdir);
+
+        Files.writeString(subdir.resolve("readme.txt"), "x".repeat(800));
+
+        byte[] binaryContent = new byte[2000];
+        binaryContent[100] = 0;
+        Files.write(subdir.resolve("image.bin"), binaryContent);
+
+        var pf = new ProjectFile(tempDir, tempDir.relativize(subdir));
+        var estimate = ContextSizeGuard.estimateTokens(Set.of(pf));
+
+        assertEquals(1, estimate.fileCount());
+        assertEquals(200, estimate.estimatedTokens());
+        assertFalse(estimate.isTruncated());
+    }
+
+    @Test
     void estimateTokens_includesExternalFile() throws IOException {
         // Project-local file
         var projectFile = tempDir.resolve("proj.txt");

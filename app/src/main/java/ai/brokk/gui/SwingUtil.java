@@ -49,7 +49,7 @@ public class SwingUtil {
             logger.warn("Thread interrupted", e);
             return defaultValue;
         } catch (Exception e) {
-            GlobalExceptionHandler.handle(e, s -> {});
+            GlobalExceptionHandler.handle(e);
             return defaultValue;
         }
     }

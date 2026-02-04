@@ -36,7 +36,7 @@ export function getBubbleDisplayDefaults(type: ExtendedBubbleType): BubbleDispla
       };
     case 'CUSTOM':
       return {
-        title: 'Custom',
+        title: 'System',
         iconId: 'mdi:wrench',
         hlVar: '--message-border-custom',
         bgVar: '--custom-message-background',

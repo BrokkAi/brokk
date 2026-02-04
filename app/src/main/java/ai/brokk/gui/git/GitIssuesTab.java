@@ -36,7 +36,6 @@ import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -1346,14 +1345,14 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 if (ImageUtil.isImageUri(imageUri, clientToUse)) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO, "Downloading image: " + imageUri.toString());
-                    Image image = ImageUtil.downloadImage(imageUri, clientToUse);
-                    if (image != null) {
+                    @Nullable Image image = ImageUtil.downloadImage(imageUri, clientToUse);
+                    if (image == null) {
+                        logger.warn("Failed to download image identified by ImageUtil: {}", imageUri.toString());
+                        chrome.toolError("Failed to download image: " + imageUri.toString());
+                    } else {
                         String description = String.format("Issue %s: Image", header.id());
                         contextManager.addPastedImageFragment(image, description);
                         capturedImageCount++;
-                    } else {
-                        logger.warn("Failed to download image identified by ImageUtil: {}", imageUri.toString());
-                        chrome.toolError("Failed to download image: " + imageUri.toString());
                     }
                 }
             } catch (Exception e) {
@@ -1376,8 +1375,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 IssueDetails details = issueService.loadDetails(header.id());
                 String body = details.markdownBody();
                 if (!body.isBlank()) {
-                    StringSelection stringSelection = new StringSelection(body);
-                    Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
+                    contextManager.copyToClipboard(body);
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Issue " + header.id() + " description copied to clipboard.");

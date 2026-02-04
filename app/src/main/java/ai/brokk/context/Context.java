@@ -16,7 +16,6 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -659,22 +658,9 @@ public class Context {
      * Parses JSON directly; returns an empty map if absent or parse fails.
      */
     @Blocking
-    public Map<String, String> getDiscardedFragmentsNote() {
+    public Map<String, String> getDiscardedFragmentsNotes() {
         return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
-                .map(sf -> {
-                    try {
-                        Map<String, Object> raw = Json.fromJson(sf.text().join(), new TypeReference<>() {});
-                        return raw.entrySet().stream()
-                                .collect(Collectors.toMap(
-                                        Map.Entry::getKey,
-                                        e -> Objects.toString(e.getValue(), ""),
-                                        (a, b) -> a,
-                                        LinkedHashMap::new));
-                    } catch (Exception e) {
-                        logger.warn("Failed to parse Discarded Context JSON", e);
-                        return new LinkedHashMap<String, String>();
-                    }
-                })
+                .map(sf -> SpecialTextType.deserializeDiscardedContext(sf.text().join()))
                 .orElseGet(LinkedHashMap::new);
     }
 

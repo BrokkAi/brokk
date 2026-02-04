@@ -66,6 +66,7 @@ Or via Gradle:
 | `--max-issue-fix-attempts N`| Integer | No | `20` | Maximum number of attempts to fix a failing build in `ISSUE` mode |
 | `--build-settings JSON` | String | No | N/A | JSON string describing build/test commands for `ISSUE` mode verification |
 | `--issue-delivery MODE` | String | No | N/A | Control PR creation in `ISSUE` mode. Set to `none` to disable PR creation. |
+| `--skip-verification` | Flag | No | `false` | When used with `--mode ISSUE` only: instructs the executor to run in "quick" mode by skipping expensive verification and review loops (per-task verification, the review-bot inline fix loop, and the final tests/lint + review gate). Branch creation/cleanup and optional PR creation (when `--issue-delivery` is enabled) still occur. Other modes ignore this flag. |
 | `--help` | Flag | No | N/A | Display usage information and exit |
 | `<prompt>` | Positional | Conditional | N/A | The task or question to submit to the executor (optional in ISSUE/REVIEW mode, required otherwise) |
 
@@ -180,16 +181,37 @@ Processes a specific GitHub issue by fetching its content, attempting to fix it,
 ```
 
 Characteristics:
-- **Automated Verification**: Runs build/test commands to verify the fix before delivery.
-- **Iterative Fixing**: Will attempt to fix build failures up to `--max-issue-fix-attempts` times.
+- **Automated Verification (default)**: Runs build/test commands to verify the fix before delivery.
+- **Iterative Fixing**: Will attempt to fix build failures up to `--max-issue-fix-attempts` times (job-level cap) and uses per-task build verification attempts configured by `--build-settings` (or repo defaults).
 - **PR Creation**: Automatically creates a branch and a Pull Request unless `--issue-delivery none` is specified.
 - **Context Aware**: Uses the issue description and repository state to inform the solution.
+
+Quick mode: skip verification and final review gates
+- If you pass `--skip-verification` (mapped to `skipVerification` in the JobSpec payload), the executor runs ISSUE jobs in a "quick" or "skip-verification" mode. In this mode:
+  - The executor still fetches the issue, creates a branch (e.g., `brokk/issue-{number}`), and applies initial fixes produced by the agents.
+  - The normal expensive verification steps are skipped: per-task verification (the single-fix verification gate), the review-bot inline comment fix loop, and the final full test/lint + review gate are not executed.
+  - Branch cleanup and optional PR creation (when `--issue-delivery` allows it) still occur — quick mode does not change delivery/cleanup semantics.
+  - Use this mode when you want faster, lower-cost runs that produce candidate fixes without waiting for or running full verification. Omitting `--skip-verification` preserves the full verification and review pipeline.
 
 **Required for ISSUE mode:**
 - `--github-token`: A valid GitHub PAT with repository access.
 - `--repo-owner`: The owner of the repository.
 - `--repo-name`: The name of the repository.
 - `--issue-number`: The numeric ID of the issue to process.
+
+### ISSUE mode examples
+
+Full verification (default — preserves the full verification and review pipeline):
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_xxxx --repo-owner acme-corp --repo-name service-api --issue-number 42 --build-settings '{\"buildLintCommand\":\"./gradlew build\"}'"
+```
+
+Quick/skip-verification example (faster, skips tests/lint and review-bot loops; still creates branch and may open PR):
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_xxxx --repo-owner acme-corp --repo-name service-api --issue-number 42 --skip-verification"
+```
 
 ### ISSUE_WRITER Mode: Create a GitHub Issue
 

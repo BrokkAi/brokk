@@ -11,7 +11,6 @@ import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HtmlToMarkdown;
-import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -238,7 +237,7 @@ public class WorkspaceTools {
         var protectedFragments = NullnessUtil.castNonNull(partitioned.get(false));
 
         // Merge explanations for successfully dropped fragments (new overwrites old)
-        var existingDiscardedMap = context.getDiscardedFragmentsNote();
+        var existingDiscardedMap = context.getDiscardedFragmentsNotes();
         Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
         for (var f : toDrop) {
             var removal = idToRemoval.get(f.id());
@@ -250,14 +249,7 @@ public class WorkspaceTools {
         }
 
         // Serialize updated JSON
-        String discardedJson;
-        try {
-            discardedJson = Json.getMapper().writeValueAsString(mergedDiscarded);
-        } catch (Exception e) {
-            logger.error("Failed to serialize DISCARDED_CONTEXT JSON", e);
-            context.getContextManager().reportException(e);
-            return "Error: Failed to serialize DISCARDED_CONTEXT JSON: " + e.getMessage();
-        }
+        String discardedJson = SpecialTextType.serializeDiscardedContext(mergedDiscarded);
 
         // Apply removal and upsert DISCARDED_CONTEXT in the local context
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
