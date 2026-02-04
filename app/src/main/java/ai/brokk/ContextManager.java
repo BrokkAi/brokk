@@ -2707,7 +2707,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public void createHeadless(BuildDetails buildDetails, boolean createNewSession) {
-        this.io = new HeadlessConsole();
+        createHeadless(buildDetails, createNewSession, new HeadlessConsole());
+    }
+
+    public void createHeadless(BuildDetails buildDetails, boolean createNewSession, IConsoleIO io) {
+        this.io = io;
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
 
