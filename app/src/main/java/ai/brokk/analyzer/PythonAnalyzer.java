@@ -43,20 +43,20 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             Set.of(CLASS_DEFINITION),
             Set.of(FUNCTION_DEFINITION),
             Set.of(ASSIGNMENT, TYPED_PARAMETER),
-            Set.of(),
-            Set.of(DECORATOR),
+            Set.of(), // constructorNodeTypes
+            Set.of(DECORATOR), // decoratorNodeTypes
             IMPORT_DECLARATION,
             "name",
             "body",
             "parameters",
             "return_type",
-            "",
+            "", // typeParametersFieldName
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "async",
-            Set.of());
+            Set.of()); // modifierNodeTypes
 
     public PythonAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
@@ -1171,8 +1171,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
-        return super.isConstructor(candidate, enclosingClass, nodeType)
-                || (candidate.isFunction() && "__init__".equals(candidate.identifier()));
+        return "__init__".equals(candidate.identifier());
     }
 
     @Override

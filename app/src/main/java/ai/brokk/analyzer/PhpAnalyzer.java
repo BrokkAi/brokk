@@ -424,7 +424,6 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
-        return super.isConstructor(candidate, enclosingClass, nodeType)
-                || (candidate.isFunction() && "__construct".equals(candidate.identifier()));
+        return "__construct".equals(candidate.identifier());
     }
 }

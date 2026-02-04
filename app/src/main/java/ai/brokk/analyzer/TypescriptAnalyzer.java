@@ -728,8 +728,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
     @Override
     protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
-        return super.isConstructor(candidate, enclosingClass, nodeType)
-                || (candidate.isFunction() && "constructor".equals(candidate.identifier()));
+        return super.isConstructor(candidate, enclosingClass, nodeType) || "constructor".equals(candidate.identifier());
     }
 
     @Override

@@ -21,21 +21,21 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
             Set.of(VARIABLE_DECLARATOR),
-            Set.of(),
-            Set.of(),
+            Set.of(), // constructorNodeTypes
+            Set.of(), // decoratorNodeTypes
             IMPORT_DECLARATION,
             "name",
             "body",
             "parameters",
-            "",
-            "",
+            "", // returnTypeFieldName
+            "", // typeParametersFieldName
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "async",
-            Set.of());
+            Set.of()); // modifierNodeTypes
 
     public JavascriptAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
@@ -387,8 +387,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
     @Override
     protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
-        return super.isConstructor(candidate, enclosingClass, nodeType)
-                || (candidate.isFunction() && "constructor".equals(candidate.identifier()));
+        return "constructor".equals(candidate.identifier());
     }
 
     @Override

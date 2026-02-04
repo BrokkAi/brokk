@@ -45,8 +45,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             Set.of(TYPE_SPEC, TYPE_ALIAS),
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION),
             Set.of("var_spec", "const_spec"),
-            Set.of(),
-            Set.of(),
+            Set.of(), // constructorNodeTypes
+            Set.of(), // decoratorNodeTypes
             CaptureNames.IMPORT_DECLARATION,
             "name",
             "body",
@@ -68,8 +68,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     SkeletonType.FUNCTION_LIKE,
                     "interface.method.definition",
                     SkeletonType.FUNCTION_LIKE),
-            "",
-            Set.of());
+            "", // asyncKeywordNodeType
+            Set.of()); // modifierNodeTypes
 
     public GoAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);

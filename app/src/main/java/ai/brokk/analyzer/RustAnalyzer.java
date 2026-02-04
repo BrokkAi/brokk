@@ -23,8 +23,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM, MOD_ITEM),
             Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),
             Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
-            Set.of(),
-            Set.of(ATTRIBUTE_ITEM),
+            Set.of(), // constructorNodeTypes
+            Set.of(ATTRIBUTE_ITEM), // decoratorNodeTypes
             IMPORT_DECLARATION,
             "name",
             "body",
@@ -37,7 +37,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     CaptureNames.MODULE_DEFINITION, SkeletonType.MODULE_STATEMENT,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
-            "",
+            "", // asyncKeywordNodeType
             Set.of(VISIBILITY_MODIFIER));
 
     public RustAnalyzer(IProject project) {
