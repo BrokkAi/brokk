@@ -141,25 +141,31 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     private static final LanguageSyntaxProfile CPP_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_SPECIFIER, STRUCT_SPECIFIER, UNION_SPECIFIER, ENUM_SPECIFIER, NAMESPACE_DEFINITION),
             Set.of(
+                    CLASS_SPECIFIER,
+                    STRUCT_SPECIFIER,
+                    UNION_SPECIFIER,
+                    ENUM_SPECIFIER,
+                    NAMESPACE_DEFINITION), // classLikeNodeTypes
+            Set.of( // functionLikeNodeTypes
                     FUNCTION_DEFINITION,
                     METHOD_DEFINITION,
                     CONSTRUCTOR_DECLARATION,
                     DESTRUCTOR_DECLARATION,
                     DECLARATION),
-            Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
-            Set.of(CONSTRUCTOR_DECLARATION),
-            Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
-            CaptureNames.IMPORT_DECLARATION,
-            "name",
-            "body",
-            "parameters",
-            "type",
-            "template_parameters",
-            createCaptureConfiguration(),
-            "",
-            Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
+            Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR), // fieldLikeNodeTypes
+            Set.of(CONSTRUCTOR_DECLARATION), // constructorNodeTypes
+            Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER), // decoratorNodeTypes
+            CaptureNames.IMPORT_DECLARATION, // importNodeType
+            "name", // identifierFieldName
+            "body", // bodyFieldName
+            "parameters", // parametersFieldName
+            "type", // returnTypeFieldName
+            "template_parameters", // typeParametersFieldName
+            createCaptureConfiguration(), // captureConfiguration
+            "", // asyncKeywordNodeType
+            Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER) // modifierNodeTypes
+            );
 
     public CppAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
