@@ -157,8 +157,7 @@ public final class WorktreeProject extends AbstractProject {
             String names = parentDeps.stream()
                     .map(d -> {
                         // The ProjectFile relPath is .brokk/dependencies/name
-                        // We want the name component (index 2)
-                        return d.root().getRelPath().getName(2).toString();
+                        return d.root().getRelPath().getFileName().toString();
                     })
                     .collect(Collectors.joining(","));
             // Persist the copied list so future accesses are worktree-local
