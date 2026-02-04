@@ -169,18 +169,18 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static final LanguageSyntaxProfile SCALA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_DEFINITION, OBJECT_DEFINITION, INTERFACE_DEFINITION, ENUM_DEFINITION),
-            Set.of(FUNCTION_DEFINITION),
-            Set.of(VAL_DEFINITION, VAR_DEFINITION, SIMPLE_ENUM_CASE),
-            Set.of(),
-            Set.of("annotation", "marker_annotation"),
-            IMPORT_DECLARATION,
-            "name",
-            "body",
-            "parameters",
-            "return_type",
-            "type_parameters",
-            Map.of(
+            Set.of(CLASS_DEFINITION, OBJECT_DEFINITION, INTERFACE_DEFINITION, ENUM_DEFINITION), // classLikeNodeTypes
+            Set.of(FUNCTION_DEFINITION), // functionLikeNodeTypes
+            Set.of(VAL_DEFINITION, VAR_DEFINITION, SIMPLE_ENUM_CASE), // fieldLikeNodeTypes
+            Set.of(), // constructorNodeTypes
+            Set.of("annotation", "marker_annotation"), // decoratorNodeTypes
+            IMPORT_DECLARATION, // importNodeType
+            "name", // identifierFieldName
+            "body", // bodyFieldName
+            "parameters", // parametersFieldName
+            "return_type", // returnTypeFieldName
+            "type_parameters", // typeParametersFieldName
+            Map.of( // captureConfiguration
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.OBJECT_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.TRAIT_DEFINITION, SkeletonType.CLASS_LIKE,
@@ -189,8 +189,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                     CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
                     CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE),
-            "",
-            Set.of("modifiers"));
+            "", // asyncKeywordNodeType
+            Set.of("modifiers")); // modifierNodeTypes
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {

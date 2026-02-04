@@ -42,18 +42,18 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     private static final Pattern GO_COMMENT_PATTERN = Pattern.compile("//[^\r\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/");
 
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(TYPE_SPEC, TYPE_ALIAS),
-            Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION),
-            Set.of("var_spec", "const_spec"),
+            Set.of(TYPE_SPEC, TYPE_ALIAS), // classLikeNodeTypes
+            Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
+            Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // constructorNodeTypes
             Set.of(), // decoratorNodeTypes
-            CaptureNames.IMPORT_DECLARATION,
-            "name",
-            "body",
-            "parameters",
-            "result",
-            "type_parameters",
-            Map.of(
+            CaptureNames.IMPORT_DECLARATION, // importNodeType
+            "name", // identifierFieldName
+            "body", // bodyFieldName
+            "parameters", // parametersFieldName
+            "result", // returnTypeFieldName
+            "type_parameters", // typeParametersFieldName
+            Map.of( // captureConfiguration
                     CaptureNames.FUNCTION_DEFINITION,
                     SkeletonType.FUNCTION_LIKE,
                     CaptureNames.TYPE_DEFINITION,
