@@ -166,7 +166,7 @@ public final class CSharpAnalyzerTest {
         // Case 1: Single method (Constructor in this case, as it's simple and unique)
         // FQName for constructor of class A in TestNamespace is "TestNamespace.A.A"
         Optional<String> constructorSourceOpt = AnalyzerUtil.getSource(analyzer, "TestNamespace.A.A", true);
-        assertTrue(constructorSourceOpt.isPresent(), "Source for constructor A.Ashould be present.");
+        assertTrue(constructorSourceOpt.isPresent(), "Source for constructor A.A should be present.");
         String expectedConstructorSource =
                 """
                         // Constructor
