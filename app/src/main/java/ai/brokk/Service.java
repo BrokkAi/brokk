@@ -412,10 +412,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                             "debug.log.gz",
                             RequestBody.create(gzippedFile, MediaType.parse("application/gzip")));
                 } catch (IOException e) {
-                    LogManager.getLogger(Service.class).warn("Failed to gzip debug log, skipping: {}", e.getMessage());
+                    log.warn("Failed to gzip debug log, skipping: {}", e.getMessage());
                 }
             } else {
-                LogManager.getLogger(Service.class).debug("Debug log not found at {}", debugLogPath);
+                log.debug("Debug log not found at {}", debugLogPath);
             }
         }
 
