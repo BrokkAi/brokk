@@ -16,26 +16,26 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     private static final String NODE_TYPE_READONLY_MODIFIER = "readonly_modifier";
 
     private static final LanguageSyntaxProfile PHP_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, TRAIT_DECLARATION),
-            Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION),
-            Set.of(PROPERTY_DECLARATION, CONST_DECLARATION),
-            Set.of(),
-            Set.of("attribute_list"),
-            IMPORT_DECLARATION,
-            "name",
-            "body",
-            "parameters",
-            "return_type",
-            "",
-            Map.of(
+            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, TRAIT_DECLARATION), // classLikeNodeTypes
+            Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), // functionLikeNodeTypes
+            Set.of(PROPERTY_DECLARATION, CONST_DECLARATION), // fieldLikeNodeTypes
+            Set.of(), // constructorNodeTypes
+            Set.of("attribute_list"), // decoratorNodeTypes
+            IMPORT_DECLARATION, // importNodeType
+            "name", // identifierFieldName
+            "body", // bodyFieldName
+            "parameters", // parametersFieldName
+            "return_type", // returnTypeFieldName
+            "", // typeParametersFieldName
+            Map.of( // captureConfiguration
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.TRAIT_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
                     CaptureNames.ATTRIBUTE_DEFINITION, SkeletonType.UNSUPPORTED),
-            "",
-            Set.of(
+            "", // asyncKeywordNodeType
+            Set.of( // modifierNodeTypes
                     "visibility_modifier",
                     "static_modifier",
                     "abstract_modifier",
