@@ -73,8 +73,8 @@ public final class BrokkCli implements Callable<Integer> {
         @CommandLine.Option(names = "logout", description = "Clear the global Brokk API key.")
         boolean logout;
 
-        @CommandLine.Option(names = "balance", description = "Display your current Brokk account balance.")
-        boolean balance;
+        @CommandLine.Option(names = "status", description = "Display project settings and account balance.")
+        boolean status;
     }
 
     @CommandLine.ArgGroup(exclusive = false, heading = "%n## Task Parameters%n")
@@ -101,7 +101,8 @@ public final class BrokkCli implements Callable<Integer> {
 
         @CommandLine.Option(
                 names = "--new-session",
-                description = "Create a fresh session instead of resuming the most recent one. Default: false.")
+                description =
+                        "Create a fresh session instead of resuming the most recent one. Do this once per project. Default: false.")
         boolean newSession = false;
 
         @CommandLine.Option(
@@ -287,7 +288,7 @@ public final class BrokkCli implements Callable<Integer> {
         try {
             var parseResult = cmd.parseArgs(args);
 
-            configureUsageMessage(cmd, normalizeProjectPath(cli.projectSelectionConfig.projectPath));
+            configureUsageMessage(cmd);
 
             if (parseResult.isUsageHelpRequested()) {
                 cmd.usage(System.out);
@@ -299,7 +300,7 @@ public final class BrokkCli implements Callable<Integer> {
                 System.exit(0);
             }
         } catch (CommandLine.ParameterException e) {
-            configureUsageMessage(cmd, normalizeProjectPath(cli.projectSelectionConfig.projectPath));
+            configureUsageMessage(cmd);
         }
 
         int exitCode = cmd.execute(args);
@@ -310,9 +311,7 @@ public final class BrokkCli implements Callable<Integer> {
         return projectPath.toAbsolutePath().normalize();
     }
 
-    private static void configureUsageMessage(CommandLine cmd, Path projectPath) {
-        cmd.getCommandSpec().usageMessage().footer(getModelFooter(projectPath));
-
+    private static void configureUsageMessage(CommandLine cmd) {
         var goalOpt = cmd.getCommandSpec().findOption("--goal");
         if (goalOpt != null) {
             String[] desc = goalOpt.description();
@@ -323,55 +322,9 @@ public final class BrokkCli implements Callable<Integer> {
         }
     }
 
-    private static String[] getModelFooter(Path projectPath) {
-        var lines = new ArrayList<String>();
-
-        lines.add("Available Models:");
-        var models = MainProject.loadFavoriteModels();
-        for (var model : models) {
-            lines.add("  " + model.config().name());
-        }
-
-        lines.add("");
-        lines.add("Current Settings:");
-
-        if (!Files.isDirectory(projectPath) || !GitRepoFactory.hasGitRepo(projectPath)) {
-            lines.add("  Project:   " + projectPath);
-            lines.add("  (project not found; run with --project to view project settings)");
-            return lines.toArray(new String[0]);
-        }
-
-        try (var p = new MainProject(projectPath)) {
-            lines.add("  Project:   " + projectPath);
-            lines.add("  Architect: "
-                    + p.getModelConfig(ModelProperties.ModelType.ARCHITECT).name());
-            lines.add("  Code:      "
-                    + p.getModelConfig(ModelProperties.ModelType.CODE).name());
-
-            p.loadBuildDetails().ifPresent(bd -> {
-                if (!bd.buildLintCommand().isBlank()) {
-                    lines.add("  Build:     " + bd.buildLintCommand());
-                } else {
-                    lines.add("  No build configured");
-                }
-
-                boolean isWorkspaceScope = p.getCodeAgentTestScope() == IProject.CodeAgentTestScope.WORKSPACE;
-                if (isWorkspaceScope && !bd.testSomeCommand().isBlank()) {
-                    lines.add("  Test (Some): " + bd.testSomeCommand());
-                } else if (!bd.testAllCommand().isBlank()) {
-                    lines.add("  Test (All):  " + bd.testAllCommand());
-                } else {
-                    lines.add("  No tests configured");
-                }
-            });
-        }
-
-        return lines.toArray(new String[0]);
-    }
-
     private CommandLine configuredCommandLine() {
         var cmd = new CommandLine(this);
-        configureUsageMessage(cmd, normalizeProjectPath(projectSelectionConfig.projectPath));
+        configureUsageMessage(cmd);
         return cmd;
     }
 
@@ -409,14 +362,59 @@ public final class BrokkCli implements Callable<Integer> {
                 return 0;
             }
 
-            if (actions.balance) {
-                String key = MainProject.getBrokkKey();
-                if (key.isBlank()) {
-                    System.err.println("Error: No Brokk API key found. Please login first with: login [key]");
-                    return 1;
+            if (actions.status) {
+                Path projectPath = normalizeProjectPath(projectSelectionConfig.projectPath);
+                System.out.println("Current Settings:");
+                System.out.println("  Project:   " + projectPath);
+
+                if (Files.isDirectory(projectPath) && GitRepoFactory.hasGitRepo(projectPath)) {
+                    try (var p = new MainProject(projectPath)) {
+                        System.out.println("  Architect: "
+                                + p.getModelConfig(ModelProperties.ModelType.ARCHITECT)
+                                        .name());
+                        System.out.println("  Code:      "
+                                + p.getModelConfig(ModelProperties.ModelType.CODE)
+                                        .name());
+
+                        p.loadBuildDetails().ifPresent(bd -> {
+                            if (!bd.buildLintCommand().isBlank()) {
+                                System.out.println("  Build:     " + bd.buildLintCommand());
+                            } else {
+                                System.out.println("  No build configured");
+                            }
+
+                            boolean isWorkspaceScope =
+                                    p.getCodeAgentTestScope() == IProject.CodeAgentTestScope.WORKSPACE;
+                            if (isWorkspaceScope && !bd.testSomeCommand().isBlank()) {
+                                System.out.println("  Test (Some): " + bd.testSomeCommand());
+                            } else if (!bd.testAllCommand().isBlank()) {
+                                System.out.println("  Test (All):  " + bd.testAllCommand());
+                            } else {
+                                System.out.println("  No tests configured");
+                            }
+                        });
+                    }
+                } else {
+                    System.out.println("  (Not a Brokk project directory)");
                 }
-                float balance = ai.brokk.Service.getUserBalance(key);
-                System.out.printf("Current Brokk balance: $%.2f%n", balance);
+
+                System.out.println("\nAvailable Models:");
+                var models = MainProject.loadFavoriteModels();
+                for (var model : models) {
+                    System.out.println("  " + model.config().name());
+                }
+
+                String key = MainProject.getBrokkKey();
+                if (!key.isBlank()) {
+                    try {
+                        float balance = ai.brokk.Service.getUserBalance(key);
+                        System.out.printf("\nBrokk balance: $%.2f%n", balance);
+                    } catch (Exception e) {
+                        System.out.println("\nBrokk balance: (Unable to fetch)");
+                    }
+                } else {
+                    System.out.println("\nBrokk balance: (No API key found; login with 'login [key]')");
+                }
                 return 0;
             }
 
