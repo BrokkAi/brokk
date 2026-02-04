@@ -1332,6 +1332,10 @@ public final class BrokkCli implements Callable<Integer> {
 
                 You should ALWAYS use Brokk for code discovery and editing.
 
+                ## Requirements
+
+                Brokk requires a Git repository associated with your project.
+
                 # Example
 
                 ```
