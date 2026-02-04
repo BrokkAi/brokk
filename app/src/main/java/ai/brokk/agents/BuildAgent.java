@@ -1101,7 +1101,7 @@ public class BuildAgent {
      * (via toString()) and explicit field access ({{value}}, {{first}}, {{last}}, {{index}}).
      * This fixes the DecoratedCollection bug where {{.}} returns "Element@..." instead of the value.
      */
-    static final class StringElement {
+    private static final class StringElement {
         private final String value;
         private final int index;
         private final boolean first;
