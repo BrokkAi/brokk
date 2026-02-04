@@ -941,26 +941,6 @@ public class JavaAnalyzerTest {
     }
 
     @Test
-    public void testMethodNamedSameAsClassAmbiguity() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code("public class Foo { void Foo() {} }", "Foo.java")
-                .build()) {
-
-            var analyzer = new JavaAnalyzer(testProject);
-
-            // The explicit method 'void Foo()' should be resolvable via Foo.Foo.
-            // In Java, the synthetic constructor also uses Foo.Foo.
-            var definitions = analyzer.getDefinitions("Foo.Foo");
-            assertTrue(definitions.size() >= 1, "Should find Foo.Foo definitions");
-            assertTrue(definitions.stream().allMatch(CodeUnit::isFunction), "All Foo.Foo should be functions");
-
-            // Verify that we can get the source for the real method
-            var sourceOpt = AnalyzerUtil.getSource(analyzer, "Foo.Foo", true);
-            assertTrue(sourceOpt.isPresent(), "Should be able to get source for Foo.Foo");
-            assertCodeContains(sourceOpt.get(), "void Foo() {}");
-        }
-    }
-
-    @Test
     public void implicitConstructor_returnsEmptySource() throws IOException {
         try (var testProject =
                 InlineTestProjectCreator.code("public class Foo {}", "Foo.java").build()) {

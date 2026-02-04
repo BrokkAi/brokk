@@ -1328,7 +1328,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String nodeType) {
-        return super.isConstructor(candidate, enclosingClass, nodeType);
+        return CONSTRUCTOR_DECLARATION.equals(nodeType);
     }
 
     @Override
