@@ -2,6 +2,7 @@ package ai.brokk.project;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -214,6 +215,51 @@ class DependencyDefaultCheckedBehaviorTest {
     }
 
     @Test
+    @DisplayName("Worktree discovers dependencies from MainProject")
+    void worktreeDiscoversDependenciesFromMainProject() throws IOException {
+        // Setup: Create a MainProject with a dependency
+        String depName = "some-dep";
+        createDependencyDirectory(mainProject, depName);
+
+        // Setup: Create a WorktreeProject from that MainProject
+        Path worktreeRoot = Files.createTempDirectory("worktree-discovery");
+        try {
+            Files.createDirectories(worktreeRoot.resolve(AbstractProject.BROKK_DIR));
+            WorktreeProject worktreeProject = new WorktreeProject(worktreeRoot, mainProject);
+
+            // Act: Call worktreeProject.getAllOnDiskDependencies()
+            Set<ProjectFile> deps = worktreeProject.getAllOnDiskDependencies();
+
+            // Assert: The returned set is non-empty and contains the dependency
+            assertFalse(deps.isEmpty(), "Dependencies set should not be empty");
+
+            boolean found =
+                    deps.stream().anyMatch(pf -> pf.getRelPath().toString().contains(depName));
+            assertTrue(found, "Should find the dependency from the MainProject");
+
+            // Assert: The returned ProjectFile objects have the MainProject's root (not the worktree root)
+            for (ProjectFile pf : deps) {
+                assertEquals(
+                        mainProject.getRoot(), pf.getRoot(), "Dependency ProjectFile should have MainProject root");
+                assertNotEquals(
+                        worktreeProject.getRoot(),
+                        pf.getRoot(),
+                        "Dependency ProjectFile should NOT have worktree root");
+            }
+
+            worktreeProject.close();
+        } finally {
+            // Cleanup
+            Files.walk(worktreeRoot).sorted((a, b) -> b.compareTo(a)).forEach(path -> {
+                try {
+                    Files.delete(path);
+                } catch (IOException ignored) {
+                }
+            });
+        }
+    }
+
+    @Test
     @DisplayName("Dependency persistence survives project reload")
     void testDependencyPersistenceAcrossReload() throws IOException {
         // Setup: Create and import dependencies
@@ -242,11 +288,12 @@ class DependencyDefaultCheckedBehaviorTest {
     // ============== Helper Methods ==============
 
     /**
-     * Creates a mock dependency directory structure under a project's .brokk/dependencies with a
-     * simple source file.
+     * Creates a mock dependency directory structure under the main project's .brokk/dependencies.
+     * Dependencies are shared across worktrees and must reside in the main project's config dir.
      */
     private void createDependencyDirectory(AbstractProject project, String depName) throws IOException {
-        Path dependenciesDir = project.getMasterRootPathForConfig()
+        Path dependenciesDir = mainProject
+                .getMasterRootPathForConfig()
                 .resolve(AbstractProject.BROKK_DIR)
                 .resolve(AbstractProject.DEPENDENCIES_DIR);
         Files.createDirectories(dependenciesDir);
