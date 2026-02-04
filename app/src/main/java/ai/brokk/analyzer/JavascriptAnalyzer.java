@@ -18,24 +18,38 @@ import org.treesitter.TreeSitterJavascript;
 
 public class JavascriptAnalyzer extends JsTsAnalyzer {
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
+            // 1. classLikeNodeTypes
             Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
+            // 2. functionLikeNodeTypes
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
+            // 3. fieldLikeNodeTypes
             Set.of(VARIABLE_DECLARATOR),
-            Set.of(), // constructorNodeTypes
-            Set.of(), // decoratorNodeTypes
+            // 4. constructorNodeTypes
+            Set.of(),
+            // 5. decoratorNodeTypes
+            Set.of(),
+            // 6. importNodeType
             IMPORT_DECLARATION,
+            // 7. identifierFieldName
             "name",
+            // 8. bodyFieldName
             "body",
+            // 9. parametersFieldName
             "parameters",
-            "", // returnTypeFieldName
-            "", // typeParametersFieldName
+            // 10. returnTypeFieldName
+            "",
+            // 11. typeParametersFieldName
+            "",
+            // 12. captureConfiguration
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
+            // 13. asyncKeywordNodeType
             "async",
-            Set.of()); // modifierNodeTypes
+            // 14. modifierNodeTypes
+            Set.of());
 
     public JavascriptAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
