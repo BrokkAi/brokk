@@ -540,7 +540,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         buildReviewTabs.insertTab("Review", Icons.FLOWSHEET, reviewTabComponent, null, idx);
         buildReviewTabs.setSelectedIndex(idx);
 
-        updateReviewTabBadge(
+        updateReviewTabBadgeX(
                 contextManager.getProject().getRepo().getModifiedProjectFiles().size());
         if (reviewTabComponent instanceof SessionChangesPanel scp) {
             scp.requestUpdate();
@@ -815,7 +815,7 @@ public class RightPanel extends JPanel implements ThemeAware {
                 buildReviewTabs.setTitleAt(idx, state.title());
                 buildReviewTabs.setToolTipTextAt(idx, state.tooltip());
             }
-            updateReviewTabBadge(state.uncommittedCount());
+            updateReviewTabBadgeX(state.uncommittedCount());
         });
     }
 
@@ -903,7 +903,7 @@ public class RightPanel extends JPanel implements ThemeAware {
      * Updates the "Review" tab icon with a numeric badge showing the uncommitted file count.
      * @param count The number of uncommitted files.
      */
-    public void updateReviewTabBadge(int count) {
+    public void updateReviewTabBadgeX(int count) {
         SwingUtilities.invokeLater(() -> {
             int idx = getReviewTabIndex();
             if (idx == -1) {

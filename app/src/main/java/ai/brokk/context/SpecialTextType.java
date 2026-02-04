@@ -164,6 +164,18 @@ public enum SpecialTextType {
         public String renderPreview(String rawContent) {
             return rawContent;
         }
+    },
+
+    REFACTORING_SUMMARY(
+            "Detected Refactorings",
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+            true // droppable
+            ) {
+        @Override
+        public String renderPreview(String rawContent) {
+            return rawContent;
+        }
     };
 
     private final String description;

@@ -116,6 +116,9 @@ treesitter-scala = "io.github.bonede:tree-sitter-scala:0.23.3"
 # Eclipse JDT
 eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.44.0"
 
+# RefactoringMiner - semantic diff and refactoring detection
+refactoring-miner = "com.github.tsantalis:refactoring-miner:3.0.12"
+
 # Decompiler
 java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.59"
 

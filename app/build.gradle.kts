@@ -128,6 +128,9 @@ dependencies {
     // Eclipse JDT Core for Java parse without classpath
     implementation(libs.eclipse.jdt.core)
 
+    // RefactoringMiner for semantic diff and refactoring detection
+    implementation(libs.refactoring.miner)
+
     // Java Decompiler
     implementation(libs.java.decompiler)
 

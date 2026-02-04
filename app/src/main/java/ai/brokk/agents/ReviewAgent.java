@@ -140,11 +140,25 @@ public class ReviewAgent {
         String diff = changes.toReviewDiff(cm.getAnalyzer());
         var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
 
+        // Detect refactorings in the changes
+        var refactoringService = new RefactoringService();
+        var refactoringResult = refactoringService.detectRefactorings(changes.perFileChanges());
+        logger.info(
+                "Refactoring detection completed: {} refactorings found",
+                refactoringResult.refactorings().size());
+
         try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
-            Context initialContext = new Context(cm)
-                    .addFragments(diffFragment)
-                    .addFragments(extractSessionContext(metadata.sessionIds()));
+            var contextBuilder = new Context(cm).addFragments(diffFragment);
+
+            // Add refactoring summary if any refactorings were detected
+            if (refactoringResult.hasRefactorings()) {
+                var refactoringSummaryFragment =
+                        SpecialTextType.REFACTORING_SUMMARY.create(cm, refactoringResult.summary());
+                contextBuilder = contextBuilder.addFragments(refactoringSummaryFragment);
+            }
+
+            Context initialContext = contextBuilder.addFragments(extractSessionContext(metadata.sessionIds()));
 
             updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
@@ -878,6 +892,13 @@ public class ReviewAgent {
                 2. Tactical issues - local bugs, edge cases, error handling gaps
                 3. Testing gaps - missing test coverage that would add significant value
 
+                When reviewing code with detected refactorings (if a "Detected Refactorings" section is present):
+                - Refactorings are typically behavior-preserving transformations; focus your review on non-refactoring changes
+                - Verify that refactorings were applied correctly without introducing subtle bugs
+                - Note if refactorings improve or harm code quality (readability, maintainability)
+                - Do NOT flag "missing code" or "deleted functionality" when code was actually extracted, moved, or renamed
+                - You may comment on whether the refactoring choice was appropriate for the situation
+
                 Be constructive and specific.
                 """);
     }
@@ -912,6 +933,11 @@ public class ReviewAgent {
                 If you have Patch Instructions available, call out important incomplete or unimplemented functionality that
                 was asked for but not delivered, but be aware that instructions may be neither complete nor authoritative;
                 the instructions may include false starts, and the patch may include external changes.
+
+                If Detected Refactorings are listed, use that information to understand the mechanical changes in the diff.
+                Code that appears "deleted" may have been extracted to a new method or moved to another class; check the
+                refactoring details before flagging it as missing. Focus your review on behavioral changes, not the mechanics
+                of the refactoring itself.
 
                 You should NOT assume that more tests exist besides what you see.
                 </review_content>
