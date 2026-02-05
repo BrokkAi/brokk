@@ -136,18 +136,36 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
-     * Per-CodeUnit state: children, signatures, ranges, and AST-derived hasBody flag.
+     * Per-CodeUnit state: children, ranges, and AST-derived hasBody flag.
      * <p>
      * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
      * During incremental updates and multi-file merges, hasBody is combined using logical OR so that a single
      * definition anywhere marks the CodeUnit as having a body.
      */
-    public record CodeUnitProperties(
-            List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
+    public record CodeUnitProperties(List<CodeUnit> children, List<Range> ranges, boolean hasBody) {
+
+        /**
+         * Backwards-compatible constructor that accepts the legacy signatures parameter.
+         * The signatures are no longer stored in AnalyzerState; this constructor intentionally
+         * ignores the provided signatures list to preserve compatibility while
+         * allowing older call sites (and tests) to compile.
+         */
+        public CodeUnitProperties(
+                List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
+            this(children, ranges, hasBody);
+        }
+
+        /**
+         * Legacy accessor retained for compatibility. Signatures are not persisted in the
+         * AnalyzerState snapshot; callers should use language-specific local maps when
+         * signatures are needed. For now, always return an empty list.
+         */
+        public List<String> signatures() {
+            return Collections.emptyList();
+        }
 
         public static CodeUnitProperties empty() {
-            return new CodeUnitProperties(
-                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false);
+            return new CodeUnitProperties(Collections.emptyList(), Collections.emptyList(), false);
         }
     }
 
@@ -594,7 +612,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected List<String> signaturesOf(CodeUnit codeUnit) {
-        return codeUnitProperties(codeUnit).signatures();
+        // Signatures are no longer persisted in AnalyzerState. Return an empty list here.
+        // Language analyzers still build local signature maps during analysis (see analyzeFileContent),
+        // but those signatures are not part of the immutable AnalyzerState snapshot.
+        return Collections.emptyList();
     }
 
     protected List<Range> rangesOf(CodeUnit codeUnit) {
@@ -2510,8 +2531,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
             boolean hasBody = localHasBody.getOrDefault(cu, false);
-            localStates.put(
-                    cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody));
+            localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(rngs), hasBody));
         }
 
         for (var cu : localStates.keySet()) {
@@ -3602,8 +3622,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             final CodeUnit finalMergeKey = mergeKey;
             targetCodeUnitState.compute(mergeKey, (k, existing) -> {
                 if (existing == null) {
-                    return new CodeUnitProperties(
-                            newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
+                    return new CodeUnitProperties(newState.children(), newState.ranges(), newState.hasBody());
                 }
                 List<CodeUnit> mergedKids = existing.children();
                 var newKids = newState.children();
@@ -3613,14 +3632,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     for (var kid : newKids) if (!tmp.contains(kid)) tmp.add(kid);
                     mergedKids = List.copyOf(tmp);
                 }
-                List<String> mergedSigs = existing.signatures();
-                var newSigs = newState.signatures();
-                if (!newSigs.isEmpty()) {
-                    var tmp = new ArrayList<String>(existing.signatures().size() + newSigs.size());
-                    tmp.addAll(existing.signatures());
-                    for (var s : newSigs) if (!tmp.contains(s)) tmp.add(s);
-                    mergedSigs = List.copyOf(tmp);
-                }
+                // Signatures are no longer part of persisted CodeUnitProperties.
+                // Keep merge logic limited to children and ranges; signatures remain local during analysis.
                 List<Range> mergedRanges = existing.ranges();
                 var newRngs = newState.ranges();
                 if (!newRngs.isEmpty()) {
@@ -3633,7 +3646,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
-                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedHasBody);
+                return new CodeUnitProperties(mergedKids, mergedRanges, mergedHasBody);
             });
 
             if (cu.isModule()) {
@@ -3716,7 +3729,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     .toList();
             return (filtered.size() == children.size())
                     ? props
-                    : new CodeUnitProperties(filtered, props.signatures(), props.ranges(), props.hasBody());
+                    : new CodeUnitProperties(filtered, props.ranges(), props.hasBody());
         });
 
         // Filter symbol index
