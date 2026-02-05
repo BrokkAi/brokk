@@ -102,8 +102,7 @@ public final class HistoryIo {
             var contextsEntry = zipFile.getEntry(CONTEXTS_FILENAME);
             if (contextsEntry != null) {
                 try (var reader = new BufferedReader(
-                        new InputStreamReader(zipFile.getInputStream(contextsEntry), StandardCharsets.UTF_8)))
-                {
+                        new InputStreamReader(zipFile.getInputStream(contextsEntry), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         if (line.trim().isEmpty()) continue;
@@ -130,13 +129,17 @@ public final class HistoryIo {
                 fragEntry = zipFile.getEntry(V3_FRAGMENTS_FILENAME);
             }
             if (fragEntry != null) {
-                fragmentsBytes = zipFile.getInputStream(fragEntry).readAllBytes();
+                try (var is = zipFile.getInputStream(fragEntry)) {
+                    fragmentsBytes = is.readAllBytes();
+                }
             }
 
             // Read legacy tasklist if present
             var legacyEntry = zipFile.getEntry(LEGACY_TASKLIST_FILENAME);
             if (legacyEntry != null) {
-                legacyTaskListBytes = zipFile.getInputStream(legacyEntry).readAllBytes();
+                try (var is = zipFile.getInputStream(legacyEntry)) {
+                    legacyTaskListBytes = is.readAllBytes();
+                }
             }
 
             // Determine taskListContentId from fragments + last context,
@@ -147,8 +150,10 @@ public final class HistoryIo {
                 if (contentId != null) {
                     var contentEntry = zipFile.getEntry(CONTENT_DIR_PREFIX + contentId + ".txt");
                     if (contentEntry != null) {
-                        var json =
-                                new String(zipFile.getInputStream(contentEntry).readAllBytes(), StandardCharsets.UTF_8);
+                        String json;
+                        try (var is = zipFile.getInputStream(contentEntry)) {
+                            json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                        }
                         taskCounts = parseTaskListJson(json);
                     } else {
                         taskCounts = new TaskCounts(0, 0);
@@ -246,6 +251,9 @@ public final class HistoryIo {
         try {
             var taskListData = objectMapper.readValue(taskListJson, TaskList.TaskListData.class);
             var tasks = taskListData.tasks();
+            if (tasks == null) {
+                return new TaskCounts(0, 0);
+            }
             int total = (int) tasks.stream().filter(Objects::nonNull).count();
             int incomplete = (int) tasks.stream()
                     .filter(Objects::nonNull)
