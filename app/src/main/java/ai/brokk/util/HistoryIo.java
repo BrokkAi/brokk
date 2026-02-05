@@ -220,7 +220,10 @@ public final class HistoryIo {
             var taskListData = objectMapper.readValue(taskListJson, TaskList.TaskListData.class);
             var tasks = taskListData.tasks();
             int total = tasks.size();
-            int incomplete = (int) tasks.stream().filter(t -> !t.done()).count();
+            int incomplete = (int) tasks.stream()
+                    .filter(Objects::nonNull)
+                    .filter(t -> !t.done())
+                    .count();
             return new TaskCounts(total, incomplete);
         } catch (Exception e) {
             logger.debug("Error parsing task list JSON: {}", e.getMessage());
