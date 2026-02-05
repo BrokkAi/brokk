@@ -1,9 +1,7 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.project.AbstractProject;
 import java.io.EOFException;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -46,8 +44,8 @@ import org.slf4j.LoggerFactory;
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
-    // Schema version token - bump when changing on-disk encoding
-    private static final String SCHEMA_VERSION = "TreeSitterState-v1";
+    // Current schema version token (bump when changing on-disk encoding). Use a semantic-style token.
+    private static final String CURRENT_SCHEMA_VERSION = "1.0";
 
     private TreeSitterStateIO() {}
 
@@ -130,7 +128,7 @@ public final class TreeSitterStateIO {
             }
 
             long durMs = System.currentTimeMillis() - startMs;
-            log.debug("Saved TreeSitter AnalyzerState to {} in {} ms", file, durMs);
+            log.debug("Saved TreeSitter AnalyzerState to {} in {} ms (schema {})", file, durMs, CURRENT_SCHEMA_VERSION);
         } catch (IOException e) {
             log.warn("Failed to save TreeSitter AnalyzerState to {}: {}", file, e.getMessage(), e);
             if (temp != null) {
@@ -146,6 +144,9 @@ public final class TreeSitterStateIO {
     /**
      * Load an AnalyzerState from the provided file using our custom binary format.
      * Returns Optional.empty() if file is missing, incompatible, or deserialization fails.
+     *
+     * Note: Legacy Jackson-based snapshots that do not include the explicit schema version header are treated as
+     * incompatible and will cause this method to return Optional.empty() (so the analyzer is rebuilt).
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
@@ -154,146 +155,56 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         }
         long startMs = System.currentTimeMillis();
-        // Primary attempt: our explicit binary format
-        try {
-            try (GZIPInputStream gz = new GZIPInputStream(Files.newInputStream(file))) {
-                AnalyzerStateDto dto = readAnalyzerStateDto(gz);
-                if (dto != null) {
-                    var state = fromDto(dto);
-                    long durMs = System.currentTimeMillis() - startMs;
-                    log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms", file, durMs);
-                    return Optional.of(state);
-                }
-                // If dto is null (version mismatch) we fall through to legacy fallback (below)
-            }
-        } catch (EOFException | UncheckedIOException e) {
-            // Could be corrupt new-format OR a legacy format file; fall through to legacy fallback
-            log.debug(
-                    "Primary parser failed for AnalyzerState at {} ({}). Will attempt legacy fallback.",
-                    file,
-                    e.getMessage());
-            // fall through to legacy fallback
-        } catch (IOException e) {
-            log.debug(
-                    "Failed to read AnalyzerState (primary reader) from {} ({}). Will attempt legacy fallback.",
-                    file,
-                    e.getMessage());
-            // fall through to legacy fallback
-        } catch (RuntimeException e) {
-            log.debug(
-                    "Primary parser failed for AnalyzerState at {} ({}). Will attempt legacy fallback.",
-                    file,
-                    e.getMessage());
-            // fall through to legacy fallback
-        }
 
-        // Legacy fallback: try to deserialize previously-written payloads (JSON or Smile).
-        // We avoid compile-time Jackson Smile imports in this file; try the project's ObjectMapper
-        // for JSON, and if that fails and the payload looks like Smile, attempt to instantiate a
-        // Smile-capable ObjectMapper reflectively.
-        try {
-            byte[] gzBytes = Files.readAllBytes(file);
-            // Decompress
-            try (var in = new java.io.ByteArrayInputStream(gzBytes);
-                    var gz = new GZIPInputStream(in);
-                    var baos = new java.io.ByteArrayOutputStream()) {
-                byte[] buf = new byte[8192];
-                int r;
-                while ((r = gz.read(buf)) != -1) baos.write(buf, 0, r);
-                byte[] raw = baos.toByteArray();
-
-                // Quick check for Smile magic header (0x3A 0x29 0x0A). If present, attempt reflective Smile parsing
-                // first.
-                boolean isSmile = raw.length >= 3
-                        && (raw[0] & 0xFF) == 0x3A
-                        && (raw[1] & 0xFF) == 0x29
-                        && (raw[2] & 0xFF) == 0x0A;
-
-                if (isSmile) {
-                    // Try Smile first via reflection
-                    try {
-                        Class<?> smileFactoryClass =
-                                Class.forName("com.fasterxml.jackson.dataformat.smile.SmileFactory");
-                        Object smileFactory =
-                                smileFactoryClass.getDeclaredConstructor().newInstance();
-
-                        Class<?> jsonFactoryClass = Class.forName("com.fasterxml.jackson.core.JsonFactory");
-                        Class<?> objectMapperClass = Class.forName("com.fasterxml.jackson.databind.ObjectMapper");
-                        java.lang.reflect.Constructor<?> omCtor = objectMapperClass.getConstructor(jsonFactoryClass);
-                        Object smileMapper = omCtor.newInstance(smileFactory);
-
-                        // Configure mapper to ignore unknown properties (needed for legacy files)
-                        Class<?> deserializationFeatureClass =
-                                Class.forName("com.fasterxml.jackson.databind.DeserializationFeature");
-                        Object failOnUnknown = null;
-                        Object[] enumConstants = deserializationFeatureClass.getEnumConstants();
-                        if (enumConstants != null) {
-                            for (Object c : enumConstants) {
-                                if (c == null) continue;
-                                // Prefer using name() if available via reflection, fall back to toString()
-                                try {
-                                    java.lang.reflect.Method nameMethod =
-                                            c.getClass().getMethod("name");
-                                    Object nameVal = nameMethod.invoke(c);
-                                    if ("FAIL_ON_UNKNOWN_PROPERTIES".equals(nameVal)
-                                            || "FAIL_ON_UNKNOWN_PROPERTIES".equals(c.toString())) {
-                                        failOnUnknown = c;
-                                        break;
-                                    }
-                                } catch (Exception e) {
-                                    if ("FAIL_ON_UNKNOWN_PROPERTIES".equals(c.toString())) {
-                                        failOnUnknown = c;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        if (failOnUnknown != null) {
-                            java.lang.reflect.Method configureMethod = objectMapperClass.getMethod(
-                                    "configure", deserializationFeatureClass, boolean.class);
-                            configureMethod.invoke(smileMapper, failOnUnknown, false);
-                        }
-
-                        java.lang.reflect.Method readValueMethod =
-                                objectMapperClass.getMethod("readValue", byte[].class, Class.class);
-                        Object dtoObj = readValueMethod.invoke(smileMapper, raw, AnalyzerStateDto.class);
-                        if (dtoObj instanceof AnalyzerStateDto dto) {
-                            var state = fromDto(dto);
-                            long durMs = System.currentTimeMillis() - startMs;
-                            log.debug("Loaded legacy TreeSitter AnalyzerState (Smile) from {} in {} ms", file, durMs);
-                            return Optional.of(state);
-                        }
-                    } catch (ClassNotFoundException cnf) {
-                        log.debug(
-                                "Smile classes not available on classpath; cannot attempt Smile fallback for {}", file);
-                    } catch (Exception reflEx) {
-                        String msg = reflEx.getMessage();
-                        if (msg == null && reflEx.getCause() != null) {
-                            msg = reflEx.getCause().getMessage();
-                        }
-                        log.debug("Reflective Smile fallback failed for {}: {}", file, msg);
-                    }
-                }
-
-                // Try JSON via project's ObjectMapper
+        // Primary attempt: our explicit versioned binary format. We require the version header to be present and match.
+        try (GZIPInputStream gz = new GZIPInputStream(Files.newInputStream(file))) {
+            // We need a buffered stream so our readString/readInt helpers work properly
+            try (var bis = new java.io.BufferedInputStream(gz)) {
+                // Attempt to read schema version header
+                String version = null;
                 try {
-                    AnalyzerStateDto dto = AbstractProject.objectMapper.readValue(raw, AnalyzerStateDto.class);
-                    var state = fromDto(dto);
-                    long durMs = System.currentTimeMillis() - startMs;
-                    log.debug("Loaded legacy TreeSitter AnalyzerState (JSON) from {} in {} ms", file, durMs);
-                    return Optional.of(state);
-                } catch (Exception jsonEx) {
-                    log.debug("JSON legacy fallback failed for {}: {}", file, jsonEx.getMessage());
+                    version = readString(bis);
+                } catch (IOException e) {
+                    // Catches both EOFException and other IO problems - missing/malformed header => incompatible
+                    // snapshot.
+                    log.debug(
+                            "Analyzer state at {} missing or malformed schema version header: {}",
+                            file,
+                            e.getMessage());
+                    return Optional.empty();
                 }
 
-                // All legacy attempts failed
+                if (!CURRENT_SCHEMA_VERSION.equals(version)) {
+                    log.debug(
+                            "Unsupported AnalyzerState schema version {} in file {}; expected {}. Treating as incompatible.",
+                            version,
+                            file,
+                            CURRENT_SCHEMA_VERSION);
+                    return Optional.empty();
+                }
+
+                // Version matches; read the remainder of the payload using the stream positioned after the version
+                // header.
+                AnalyzerStateDto dto = readAnalyzerStateDtoFromStream(bis);
+                if (dto == null) {
+                    log.debug(
+                            "Failed to read AnalyzerStateDto from {} despite matching schema version; treating as incompatible.",
+                            file);
+                    return Optional.empty();
+                }
+                var state = fromDto(dto);
+                long durMs = System.currentTimeMillis() - startMs;
                 log.debug(
-                        "Legacy fallback deserialization failed for {} (no supported legacy format succeeded).", file);
-                return Optional.empty();
+                        "Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})",
+                        file,
+                        durMs,
+                        CURRENT_SCHEMA_VERSION);
+                return Optional.of(state);
             }
         } catch (IOException e) {
+            // Any IO error reading the new, versioned format is treated as incompatibility/corruption.
             log.debug(
-                    "Failed to load AnalyzerState from {} during legacy fallback ({}). Will rebuild.",
+                    "Failed to read AnalyzerState (versioned reader) from {} ({}). Will rebuild.",
                     file,
                     e.getMessage());
             return Optional.empty();
@@ -378,12 +289,9 @@ public final class TreeSitterStateIO {
         for (var e : state.typeHierarchyGraph().subtypes().entrySet()) {
             subtypeEntries.add(new SubtypeEntryDto(
                     toDto(e.getKey()),
-                    e.getValue().stream()
-                            .map(TreeSitterStateIO::toDto)
-                            .sorted(Comparator.comparing(CodeUnitDto::packageName)
-                                    .thenComparing(CodeUnitDto::shortName))
-                            .toList()));
+                    e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
         }
+
         // Symbol keys for the index
         List<String> symbolKeys = new ArrayList<>();
         for (String key : state.symbolKeyIndex().all()) {
@@ -696,7 +604,8 @@ public final class TreeSitterStateIO {
     private static void writeAnalyzerStateDto(AnalyzerStateDto dto, java.io.OutputStream out) throws IOException {
         // Use a buffered wrapper for efficiency
         try (var os = new java.io.BufferedOutputStream(out)) {
-            writeString(os, SCHEMA_VERSION);
+            // Write explicit schema version header first
+            writeString(os, CURRENT_SCHEMA_VERSION);
 
             // symbolIndex: Map<String, List<CodeUnitDto>>
             writeInt(os, dto.symbolIndex().size());
@@ -770,114 +679,109 @@ public final class TreeSitterStateIO {
         }
     }
 
-    private static AnalyzerStateDto readAnalyzerStateDto(java.io.InputStream in) throws IOException {
-        try (var is = new java.io.BufferedInputStream(in)) {
-            String version = readString(is);
-            if (!SCHEMA_VERSION.equals(version)) {
-                log.debug("Unsupported schema version: {}", version);
-                return null;
-            }
-
-            // symbolIndex
-            int symbolMapSize = readInt(is);
-            Map<String, List<CodeUnitDto>> symbolIndex = new HashMap<>(Math.max(0, symbolMapSize));
-            for (int i = 0; i < symbolMapSize; i++) {
-                String key = readString(is);
-                int listSize = readInt(is);
-                List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
-                for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
-                symbolIndex.put(key, list);
-            }
-
-            // codeUnitState
-            int cuStateSize = readInt(is);
-            List<CodeUnitEntryDto> cuState = new ArrayList<>(Math.max(0, cuStateSize));
-            for (int i = 0; i < cuStateSize; i++) {
-                var key = readCodeUnitDto(is);
-                var value = readCodeUnitPropertiesDto(is);
-                cuState.add(new CodeUnitEntryDto(key, value));
-            }
-
-            // fileState
-            int fileStateSize = readInt(is);
-            List<FileStateEntryDto> fileState = new ArrayList<>(Math.max(0, fileStateSize));
-            for (int i = 0; i < fileStateSize; i++) {
-                var key = readProjectFileDto(is);
-                var value = readFilePropertiesDto(is);
-                fileState.add(new FileStateEntryDto(key, value));
-            }
-
-            // imports
-            int importsSize = readInt(is);
-            List<ImportEntryDto> imports = new ArrayList<>(Math.max(0, importsSize));
-            for (int i = 0; i < importsSize; i++) {
-                var key = readProjectFileDto(is);
-                int listSize = readInt(is);
-                List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
-                for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
-                imports.add(new ImportEntryDto(key, list));
-            }
-
-            // reverseImports
-            int revImportsSize = readInt(is);
-            List<ReverseImportEntryDto> reverseImports = new ArrayList<>(Math.max(0, revImportsSize));
-            for (int i = 0; i < revImportsSize; i++) {
-                var key = readProjectFileDto(is);
-                int listSize = readInt(is);
-                List<ProjectFileDto> list = new ArrayList<>(Math.max(0, listSize));
-                for (int j = 0; j < listSize; j++) list.add(readProjectFileDto(is));
-                reverseImports.add(new ReverseImportEntryDto(key, list));
-            }
-
-            // supertypes (nullable)
-            boolean hasSupertypes = readBoolean(is);
-            List<SupertypeEntryDto> supertypes = null;
-            if (hasSupertypes) {
-                int stSize = readInt(is);
-                supertypes = new ArrayList<>(Math.max(0, stSize));
-                for (int i = 0; i < stSize; i++) {
-                    var key = readCodeUnitDto(is);
-                    int listSize = readInt(is);
-                    List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
-                    for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
-                    supertypes.add(new SupertypeEntryDto(key, list));
-                }
-            }
-
-            // subtypes (nullable)
-            boolean hasSubtypes = readBoolean(is);
-            List<SubtypeEntryDto> subtypes = null;
-            if (hasSubtypes) {
-                int stSize = readInt(is);
-                subtypes = new ArrayList<>(Math.max(0, stSize));
-                for (int i = 0; i < stSize; i++) {
-                    var key = readCodeUnitDto(is);
-                    int listSize = readInt(is);
-                    List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
-                    for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
-                    subtypes.add(new SubtypeEntryDto(key, list));
-                }
-            }
-
-            // symbolKeys
-            int symbolKeysSize = readInt(is);
-            List<String> symbolKeys = new ArrayList<>(Math.max(0, symbolKeysSize));
-            for (int i = 0; i < symbolKeysSize; i++) symbolKeys.add(readString(is));
-
-            // snapshotEpochNanos
-            long snapshotEpochNanos = readLong(is);
-
-            return new AnalyzerStateDto(
-                    symbolIndex,
-                    cuState,
-                    fileState,
-                    imports,
-                    reverseImports,
-                    supertypes,
-                    subtypes,
-                    symbolKeys,
-                    snapshotEpochNanos);
+    /**
+     * Reads AnalyzerStateDto from a stream where the schema version header has already been consumed.
+     */
+    private static AnalyzerStateDto readAnalyzerStateDtoFromStream(java.io.InputStream is) throws IOException {
+        // symbolIndex
+        int symbolMapSize = readInt(is);
+        Map<String, List<CodeUnitDto>> symbolIndex = new HashMap<>(Math.max(0, symbolMapSize));
+        for (int i = 0; i < symbolMapSize; i++) {
+            String key = readString(is);
+            int listSize = readInt(is);
+            List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
+            for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
+            symbolIndex.put(key, list);
         }
+
+        // codeUnitState
+        int cuStateSize = readInt(is);
+        List<CodeUnitEntryDto> cuState = new ArrayList<>(Math.max(0, cuStateSize));
+        for (int i = 0; i < cuStateSize; i++) {
+            var key = readCodeUnitDto(is);
+            var value = readCodeUnitPropertiesDto(is);
+            cuState.add(new CodeUnitEntryDto(key, value));
+        }
+
+        // fileState
+        int fileStateSize = readInt(is);
+        List<FileStateEntryDto> fileState = new ArrayList<>(Math.max(0, fileStateSize));
+        for (int i = 0; i < fileStateSize; i++) {
+            var key = readProjectFileDto(is);
+            var value = readFilePropertiesDto(is);
+            fileState.add(new FileStateEntryDto(key, value));
+        }
+
+        // imports
+        int importsSize = readInt(is);
+        List<ImportEntryDto> imports = new ArrayList<>(Math.max(0, importsSize));
+        for (int i = 0; i < importsSize; i++) {
+            var key = readProjectFileDto(is);
+            int listSize = readInt(is);
+            List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
+            for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
+            imports.add(new ImportEntryDto(key, list));
+        }
+
+        // reverseImports
+        int revImportsSize = readInt(is);
+        List<ReverseImportEntryDto> reverseImports = new ArrayList<>(Math.max(0, revImportsSize));
+        for (int i = 0; i < revImportsSize; i++) {
+            var key = readProjectFileDto(is);
+            int listSize = readInt(is);
+            List<ProjectFileDto> list = new ArrayList<>(Math.max(0, listSize));
+            for (int j = 0; j < listSize; j++) list.add(readProjectFileDto(is));
+            reverseImports.add(new ReverseImportEntryDto(key, list));
+        }
+
+        // supertypes (nullable)
+        boolean hasSupertypes = readBoolean(is);
+        List<SupertypeEntryDto> supertypes = null;
+        if (hasSupertypes) {
+            int stSize = readInt(is);
+            supertypes = new ArrayList<>(Math.max(0, stSize));
+            for (int i = 0; i < stSize; i++) {
+                var key = readCodeUnitDto(is);
+                int listSize = readInt(is);
+                List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
+                for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
+                supertypes.add(new SupertypeEntryDto(key, list));
+            }
+        }
+
+        // subtypes (nullable)
+        boolean hasSubtypes = readBoolean(is);
+        List<SubtypeEntryDto> subtypes = null;
+        if (hasSubtypes) {
+            int stSize = readInt(is);
+            subtypes = new ArrayList<>(Math.max(0, stSize));
+            for (int i = 0; i < stSize; i++) {
+                var key = readCodeUnitDto(is);
+                int listSize = readInt(is);
+                List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
+                for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
+                subtypes.add(new SubtypeEntryDto(key, list));
+            }
+        }
+
+        // symbolKeys
+        int symbolKeysSize = readInt(is);
+        List<String> symbolKeys = new ArrayList<>(Math.max(0, symbolKeysSize));
+        for (int i = 0; i < symbolKeysSize; i++) symbolKeys.add(readString(is));
+
+        // snapshotEpochNanos
+        long snapshotEpochNanos = readLong(is);
+
+        return new AnalyzerStateDto(
+                symbolIndex,
+                cuState,
+                fileState,
+                imports,
+                reverseImports,
+                supertypes,
+                subtypes,
+                symbolKeys,
+                snapshotEpochNanos);
     }
 
     /* ================= DTO primitive writers/readers ================= */
