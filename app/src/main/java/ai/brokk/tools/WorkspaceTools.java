@@ -263,21 +263,26 @@ public class WorkspaceTools {
                 unknownIds.size(),
                 mergedDiscarded.size());
 
-        var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
-        var baseMsg = "Dropped: %s.".formatted(droppedReprs);
+        List<String> lines = new ArrayList<>();
+
+        if (!toDrop.isEmpty()) {
+            var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
+            lines.add("Dropped: %s.".formatted(droppedReprs));
+        }
 
         if (!protectedFragments.isEmpty()) {
             var protectedDescriptions = protectedFragments.stream()
                     .map(ContextFragment::description)
                     .map(ComputedValue::join)
                     .collect(Collectors.joining(", "));
-            baseMsg += "\nPinned (not dropped): " + protectedDescriptions + ".";
+            lines.add("Pinned (not dropped): %s.".formatted(protectedDescriptions));
         }
 
         if (!unknownIds.isEmpty()) {
-            baseMsg += "\nUnknown fragment IDs (not dropped): " + String.join(", ", unknownIds);
+            lines.add("Unknown fragment IDs (not dropped): %s.".formatted(String.join(", ", unknownIds)));
         }
-        return baseMsg;
+
+        return lines.isEmpty() ? "No changes." : String.join("\n", lines);
     }
 
     @Tool(

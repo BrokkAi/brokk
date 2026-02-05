@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.scala.ScalaTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
@@ -23,17 +24,19 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.SCALA, listener);
     }
 
-    private ScalaAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.SCALA, state, listener);
+    private ScalaAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.SCALA, state, listener, cache);
     }
 
     public static ScalaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new ScalaAnalyzer(project, state, listener);
+        return new ScalaAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new ScalaAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new ScalaAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -173,6 +176,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_DEFINITION),
             Set.of(VAL_DEFINITION, VAR_DEFINITION, SIMPLE_ENUM_CASE),
             Set.of("annotation", "marker_annotation"),
+            Set.of(),
             IMPORT_DECLARATION,
             "name", // identifier field name
             "body", // body field name
@@ -195,6 +199,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForScala(reference);
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return false;
     }
 
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");

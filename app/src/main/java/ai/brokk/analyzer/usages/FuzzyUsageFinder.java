@@ -106,6 +106,7 @@ public final class FuzzyUsageFinder {
 
         // Build language-aware search patterns for this code unit kind
         var templates = lang.getSearchPatterns(target.kind());
+
         var searchPatterns = templates.stream()
                 .map(template -> template.replace("$ident", Pattern.quote(identifier)))
                 .collect(Collectors.toSet());

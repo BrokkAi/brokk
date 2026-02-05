@@ -4,6 +4,7 @@ import static ai.brokk.project.FileFilteringService.toUnixPath;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
+import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -180,7 +181,8 @@ public class SearchTools {
                             "Case-insensitive regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
                     List<String> patterns,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
+                    String reasoning,
+            @P("Include test files in results. Default: false.") boolean includeTests) {
         // Sanitize patterns: LLM might add `()` to symbols, Joern regex usually doesn't want that unless intentional.
         patterns = stripParams(patterns);
         if (patterns.isEmpty()) {
@@ -191,13 +193,20 @@ public class SearchTools {
             logger.warn("Missing reasoning for searchSymbols call");
         }
 
+        var analyzer = getAnalyzer();
         Set<CodeUnit> allDefinitions = new HashSet<>();
         for (String pattern : patterns) {
             if (!pattern.isBlank()) {
-                allDefinitions.addAll(getAnalyzer().searchDefinitions(pattern));
+                allDefinitions.addAll(analyzer.searchDefinitions(pattern));
             }
         }
         logger.debug("Raw definitions: {}", allDefinitions);
+
+        if (!includeTests) {
+            allDefinitions = allDefinitions.stream()
+                    .filter(cu -> !ContextManager.isTestFile(cu.source(), analyzer))
+                    .collect(Collectors.toSet());
+        }
 
         if (allDefinitions.isEmpty()) {
             return "No definitions found for patterns: " + String.join(", ", patterns);

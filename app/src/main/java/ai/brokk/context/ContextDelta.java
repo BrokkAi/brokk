@@ -63,11 +63,7 @@ public record ContextDelta(
      * @return a ContextDelta describing the changes
      */
     public static ComputedValue<ContextDelta> between(Context from, Context to) {
-        var executor = ExecutorsUtil.newVirtualThreadExecutor("delta-between-", 1);
-        return new ComputedValue<>(
-                "delta",
-                LoggingFuture.supplyAsync(() -> betweenInternal(from, to), executor)
-                        .whenComplete((r, e) -> executor.shutdown()));
+        return new ComputedValue<>("delta", LoggingFuture.supplyVirtual(() -> betweenInternal(from, to)));
     }
 
     @Blocking

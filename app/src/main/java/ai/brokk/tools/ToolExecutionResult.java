@@ -2,6 +2,7 @@ package ai.brokk.tools;
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -9,11 +10,18 @@ import org.jetbrains.annotations.Nullable;
  * includes the execution status, a classification of the action type, the textual result (or error message), and the
  * original request.
  */
-public record ToolExecutionResult(
-        ToolExecutionRequest request,
-        Status status,
-        String resultText // Contains the primary output on SUCCESS, or error message on FAILURE.
-        ) {
+public final class ToolExecutionResult {
+    private final ToolExecutionRequest request;
+    private final Status status;
+    private final String resultText;
+
+    private ToolExecutionResult(ToolExecutionRequest request, Status status, String resultText) {
+        assert !resultText.isBlank();
+
+        this.request = request;
+        this.status = status;
+        this.resultText = resultText;
+    }
 
     /** Overall status of the tool execution. */
     public enum Status {
@@ -29,21 +37,25 @@ public record ToolExecutionResult(
 
     // --- Factory Methods ---
 
+    public static ToolExecutionResult create(ToolExecutionRequest request, Status status, @Nullable String resultText) {
+        String finalText = (resultText == null || resultText.isBlank()) ? status.toString() : resultText;
+        return new ToolExecutionResult(request, status, finalText);
+    }
+
     public static ToolExecutionResult success(ToolExecutionRequest request, @Nullable String resultText) {
-        String finalText = (resultText == null || resultText.isBlank()) ? "Success" : resultText;
-        return new ToolExecutionResult(request, Status.SUCCESS, finalText);
+        return create(request, Status.SUCCESS, resultText);
     }
 
     public static ToolExecutionResult requestError(ToolExecutionRequest request, String errorMessage) {
-        return new ToolExecutionResult(request, Status.REQUEST_ERROR, errorMessage);
+        return create(request, Status.REQUEST_ERROR, errorMessage);
     }
 
     public static ToolExecutionResult internalError(ToolExecutionRequest request, String errorMessage) {
-        return new ToolExecutionResult(request, Status.INTERNAL_ERROR, errorMessage);
+        return create(request, Status.INTERNAL_ERROR, errorMessage);
     }
 
     public static ToolExecutionResult fatal(ToolExecutionRequest request, String errorMessage) {
-        return new ToolExecutionResult(request, Status.FATAL, errorMessage);
+        return create(request, Status.FATAL, errorMessage);
     }
 
     // --- Convenience Accessors ---
@@ -71,11 +83,46 @@ public record ToolExecutionResult(
     public ToolExecutionResultMessage toExecutionResultMessage() {
         String text =
                 switch (status) {
-                    case SUCCESS -> resultText; // Already handled null/blank in factory
+                    case SUCCESS -> resultText;
                     case REQUEST_ERROR -> "Request error: " + resultText;
                     case INTERNAL_ERROR -> "Internal error: " + resultText;
                     case FATAL -> "Fatal error: " + resultText;
                 };
         return new ToolExecutionResultMessage(toolId(), toolName(), text);
+    }
+
+    public ToolExecutionRequest request() {
+        return request;
+    }
+
+    public Status status() {
+        return status;
+    }
+
+    public String resultText() {
+        return resultText;
+    }
+
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (obj == this) return true;
+        if (obj == null || obj.getClass() != this.getClass()) return false;
+        var that = (ToolExecutionResult) obj;
+        return Objects.equals(this.request, that.request)
+                && Objects.equals(this.status, that.status)
+                && Objects.equals(this.resultText, that.resultText);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(request, status, resultText);
+    }
+
+    @Override
+    public String toString() {
+        return "ToolExecutionResult[" + "request="
+                + request + ", " + "status="
+                + status + ", " + "resultText="
+                + resultText + ']';
     }
 }

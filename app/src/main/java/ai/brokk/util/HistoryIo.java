@@ -66,8 +66,11 @@ public final class HistoryIo {
 
     /**
      * Counts AI responses in a session zip without full deserialization.
-     * Only reads contexts.jsonl and counts entries with non-null parsedOutputId.
-     * Uses JsonNode parsing to work with both V3 and V4 formats.
+     *
+     * <p>Definition: count(distinct TaskEntry.sequence across all Contexts where the TaskEntry has non-null TaskMeta).
+     *
+     * <p>Implementation: stream contexts.jsonl line-by-line and count distinct "tasks[*].sequence" entries where any
+     * TaskMeta field is present (e.g. "taskType" or "primaryModelName" is non-null).
      */
     public static int countAiResponses(Path zip) throws IOException {
         if (!Files.exists(zip)) {
@@ -77,31 +80,52 @@ public final class HistoryIo {
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().equals(CONTEXTS_FILENAME)) {
-                    // Stream line-by-line to avoid materializing entire file in memory
-                    var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
-                    int count = 0;
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (line.trim().isEmpty()) continue;
-                        try {
-                            var node = objectMapper.readTree(line);
-                            var parsedOutputId = node.get("parsedOutputId");
-                            if (parsedOutputId != null && !parsedOutputId.isNull()) {
-                                count++;
-                            }
-                        } catch (Exception e) {
-                            // Skip malformed lines, but log for troubleshooting
-                            logger.debug(
-                                    "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
-                                    line.length() > 200 ? line.substring(0, 200) + "..." : line,
-                                    e.toString());
-                        }
-                    }
-                    return count;
+                if (!entry.getName().equals(CONTEXTS_FILENAME)) {
+                    continue;
                 }
+
+                var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
+                var distinctSequences = new HashSet<Integer>();
+
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.trim().isEmpty()) continue;
+
+                    try {
+                        var node = objectMapper.readTree(line);
+                        var tasksNode = node.get("tasks");
+                        if (tasksNode == null || !tasksNode.isArray()) {
+                            continue;
+                        }
+
+                        for (var taskNode : tasksNode) {
+                            if (taskNode == null || !taskNode.isObject()) continue;
+
+                            var taskType = taskNode.get("taskType");
+                            var primaryModelName = taskNode.get("primaryModelName");
+                            var primaryModelReasoning = taskNode.get("primaryModelReasoning");
+                            boolean hasMeta = (taskType != null && !taskType.isNull())
+                                    || (primaryModelName != null && !primaryModelName.isNull())
+                                    || (primaryModelReasoning != null && !primaryModelReasoning.isNull());
+                            if (!hasMeta) continue;
+
+                            var sequenceNode = taskNode.get("sequence");
+                            if (sequenceNode == null || !sequenceNode.canConvertToInt()) continue;
+
+                            distinctSequences.add(sequenceNode.intValue());
+                        }
+                    } catch (Exception e) {
+                        logger.debug(
+                                "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
+                                line.length() > 200 ? line.substring(0, 200) + "..." : line,
+                                e.toString());
+                    }
+                }
+
+                return distinctSequences.size();
             }
         }
+
         return 0;
     }
 
@@ -361,11 +385,6 @@ public final class HistoryIo {
                             collectedTaskDtos.put(log.id(), DtoMapper.toTaskFragmentDto(log, writer));
                         }
                     });
-            if (ctx.getParsedOutput() != null
-                    && !collectedTaskDtos.containsKey(ctx.getParsedOutput().id())) {
-                collectedTaskDtos.put(
-                        ctx.getParsedOutput().id(), DtoMapper.toTaskFragmentDto(ctx.getParsedOutput(), writer));
-            }
         }
 
         // Serialize all JSON content to byte arrays before writing to the zip stream
