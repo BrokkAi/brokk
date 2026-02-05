@@ -239,10 +239,10 @@ public final class TreeSitterStateIO {
     /**
      * DTO for CodeUnitProperties that can be easily serialized.
      *
-     * Note: signatures were removed from the persisted CodeUnitProperties shape. Older snapshots may still contain
-     * the signatures field; Jackson is configured to ignore unknown properties, so loading will succeed.
+     * Note: signatures were removed from the persisted CodeUnitProperties shape. Strict mapping
+     * is enforced here to ensure that older snapshots containing unknown fields (like signatures)
+     * fail to load, maintaining schema integrity across versions.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitPropertiesDto(List<CodeUnitDto> children, List<IAnalyzer.Range> ranges, boolean hasBody) {}
 
     /**
