@@ -251,16 +251,13 @@ public class ContextHistory {
         // Maintain continuation semantics for rapid external changes.
         boolean isContinuation = Objects.equals(base.id(), lastExternalChangeId);
 
-        // parsedOutput == null indicates no AI result (render no icon in activity)
-        var updatedLive = merged.withParsedOutput(null);
-
         if (isContinuation) {
-            replaceTopInternal(updatedLive);
+            replaceTopInternal(merged);
         } else {
-            pushContextInternal(updatedLive);
+            pushContextInternal(merged);
         }
-        lastExternalChangeId = updatedLive.id();
-        return updatedLive;
+        lastExternalChangeId = merged.id();
+        return merged;
     }
 
     /**
@@ -275,6 +272,35 @@ public class ContextHistory {
             prev = ac.context;
         }
         return null;
+    }
+
+    /**
+     * Returns {@code true} if {@code context} is best classified as an AI result.
+     *
+     * This is derived from the transition between {@code previousOf(context)} and {@code context}:
+     * - It must add at least one task entry (i.e., represent substantive task progression).
+     * - It must not be a structural session-management action (copy/branch/reference), which we
+     *   currently identify by the presence of a reset-edge targeting this context, or by delta
+     *   flags indicating session reset / history manipulation.
+     *
+     * This method is designed to be safe to call on the EDT: it does not block. If the async delta
+     * is not yet available, it falls back to a cheap non-blocking task-history size comparison.
+     */
+    public boolean isAiResult(Context context) {
+        var prev = previousOf(context);
+        if (prev == null) {
+            return false;
+        }
+
+        if (isResetTargetId(context.id())) {
+            return false;
+        }
+
+        return context.getTaskHistory().size() > prev.getTaskHistory().size();
+    }
+
+    private boolean isResetTargetId(UUID contextId) {
+        return resetEdges.stream().anyMatch(e -> e.targetId().equals(contextId));
     }
 
     /**

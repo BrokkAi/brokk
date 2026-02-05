@@ -895,7 +895,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Push an updated context with the modified history
-        pushContext(currentLiveCtx -> currentLiveCtx.withHistory(newHistory).withParsedOutput(null));
+        pushContext(currentLiveCtx -> currentLiveCtx.withHistory(newHistory));
 
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + seqToDrop);
     }
@@ -2244,7 +2244,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var updated = result.context();
             TaskEntry entry = updated.createTaskEntry(result);
             var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(entry, result.output());
+                return updated.addHistoryEntry(entry);
             });
 
             if (group) {
@@ -2447,7 +2447,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceContext).copyAndRefresh();
+        var ctx = sourceContext.copyAndRefresh();
 
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
@@ -2478,8 +2478,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 2. Create the initial context for the new session.
                     // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
-                    var initialContextForNewSession =
-                            newContextFrom(sourceContext).copyAndRefresh();
+                    var initialContextForNewSession = sourceContext.copyAndRefresh();
 
                     // 3. Initialize the ContextManager's history for the new session with this single context.
                     // Context should already be live from migration logic
@@ -2497,14 +2496,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     logger.error("Failed to create new session from workspace", e);
                     throw new RuntimeException("Failed to create new session from workspace", e);
                 });
-    }
-
-    /** returns a new Context based on the source one */
-    private Context newContextFrom(Context sourceContext) {
-        var newActionDescription = "New Session";
-        var newParsedOutputFragment = new ContextFragments.TaskFragment(
-                this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
-        return sourceContext.withParsedOutput(newParsedOutputFragment);
     }
 
     /**
