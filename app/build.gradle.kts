@@ -479,10 +479,10 @@ tasks.withType<Test> {
 
     jvmArgs = listOf(
         "-ea",  // Enable assertions
-        "-Xmx1G",  // minimum heap size
+        "-Xmx2g",  // increased heap size for tests to avoid OOME in CI
         "-Dbrokk.devmode=true",
         "-XX:+HeapDumpOnOutOfMemoryError",
-        "-XX:HeapDumpPath=./build/test-heap-dumps/"
+        "-XX:HeapDumpPath=./build/test-heap-dumps" // prefer directory path without trailing slash
     )
 
     // Test execution settings
