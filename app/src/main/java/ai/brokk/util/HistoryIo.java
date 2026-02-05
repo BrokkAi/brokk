@@ -83,7 +83,13 @@ public final class HistoryIo {
 
     /**
      * Counts both AI responses and tasks in a session zip with a single pass.
-     * More efficient than calling countAiResponses and countIncompleteTasks separately.
+     *
+     * <p>AI response definition: count(distinct TaskEntry.sequence across all Contexts
+     * where the TaskEntry has non-null TaskMeta).
+     *
+     * <p>Uses ZipFile (random access) and reads only the specific entries needed,
+     * avoiding buffering all content/* entries into memory.
+     *
      * @return SessionCounts with AI response count and task counts, or empty counts if file doesn't exist
      */
     @Blocking
@@ -92,12 +98,13 @@ public final class HistoryIo {
             return new SessionCounts(0, new TaskCounts(0, 0));
         }
 
-        int aiResponseCount = 0;
         String lastContextLine = null;
         byte[] fragmentsBytes = null;
+        var distinctSequences = new HashSet<Integer>();
 
         try (var zipFile = new ZipFile(zip.toFile())) {
-            // Read contexts.jsonl
+            // Read contexts.jsonl: count AI responses (distinct sequences with TaskMeta)
+            // and track lastContextLine for task list lookup
             var contextsEntry = zipFile.getEntry(CONTEXTS_FILENAME);
             if (contextsEntry != null) {
                 try (var reader = new BufferedReader(
@@ -107,11 +114,29 @@ public final class HistoryIo {
                         if (line.trim().isEmpty()) continue;
                         try {
                             var node = objectMapper.readTree(line);
-                            var parsedOutputId = node.get("parsedOutputId");
-                            if (parsedOutputId != null && !parsedOutputId.isNull()) {
-                                aiResponseCount++;
-                            }
                             lastContextLine = line;
+
+                            var tasksNode = node.get("tasks");
+                            if (tasksNode == null || !tasksNode.isArray()) {
+                                continue;
+                            }
+
+                            for (var taskNode : tasksNode) {
+                                if (taskNode == null || !taskNode.isObject()) continue;
+
+                                var taskType = taskNode.get("taskType");
+                                var primaryModelName = taskNode.get("primaryModelName");
+                                var primaryModelReasoning = taskNode.get("primaryModelReasoning");
+                                boolean hasMeta = (taskType != null && !taskType.isNull())
+                                        || (primaryModelName != null && !primaryModelName.isNull())
+                                        || (primaryModelReasoning != null && !primaryModelReasoning.isNull());
+                                if (!hasMeta) continue;
+
+                                var sequenceNode = taskNode.get("sequence");
+                                if (sequenceNode == null || !sequenceNode.canConvertToInt()) continue;
+
+                                distinctSequences.add(sequenceNode.intValue());
+                            }
                         } catch (Exception e) {
                             logger.debug(
                                     "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
@@ -150,23 +175,18 @@ public final class HistoryIo {
                         taskCounts = new TaskCounts(0, 0);
                     }
                 } else {
-                    // New format not found, try legacy tasklist.json
                     taskCounts = readLegacyTaskCounts(zipFile);
                 }
             } else {
-                // No context/fragments, try legacy tasklist.json
                 taskCounts = readLegacyTaskCounts(zipFile);
             }
 
-            return new SessionCounts(aiResponseCount, taskCounts);
+            return new SessionCounts(distinctSequences.size(), taskCounts);
         }
     }
 
     /**
      * Counts incomplete tasks in a session zip without full deserialization.
-     * Supports two storage formats:
-     * 1. New format: Task list as a StringFragment in virtuals with description "Task List"
-     * 2. Legacy format: Task list in a separate tasklist.json file
      *
      * Note: If you also need AI response counts, use countSessionStats() instead to avoid
      * reading the zip file twice.
@@ -186,10 +206,6 @@ public final class HistoryIo {
         }
     }
 
-    /**
-     * Finds the content ID of the "Task List" fragment in the last context.
-     * @return the content ID string, or null if no task list fragment was found
-     */
     @Nullable
     private static String findTaskListContentId(String lastContextLine, byte[] fragmentsBytes) {
         try {
@@ -264,8 +280,6 @@ public final class HistoryIo {
 
     /**
      * Counts AI responses in a session zip without full deserialization.
-     * Only reads contexts.jsonl and counts entries with non-null parsedOutputId.
-     * Uses JsonNode parsing to work with both V3 and V4 formats.
      *
      * Note: If you also need task counts, use countSessionStats() instead to avoid
      * reading the zip file twice.
@@ -531,11 +545,6 @@ public final class HistoryIo {
                             collectedTaskDtos.put(log.id(), DtoMapper.toTaskFragmentDto(log, writer));
                         }
                     });
-            if (ctx.getParsedOutput() != null
-                    && !collectedTaskDtos.containsKey(ctx.getParsedOutput().id())) {
-                collectedTaskDtos.put(
-                        ctx.getParsedOutput().id(), DtoMapper.toTaskFragmentDto(ctx.getParsedOutput(), writer));
-            }
         }
 
         // Serialize all JSON content to byte arrays before writing to the zip stream

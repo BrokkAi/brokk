@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import ai.brokk.project.IProject;
 import java.util.*;
@@ -30,17 +31,19 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         super(project, Languages.JAVA, listener);
     }
 
-    private JavaAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.JAVA, state, listener);
+    private JavaAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.JAVA, state, listener, cache);
     }
 
     public static JavaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new JavaAnalyzer(project, state, listener);
+        return new JavaAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new JavaAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new JavaAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -67,6 +70,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                     ANNOTATION_TYPE_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT, CONSTANT_DECLARATION),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of(ANNOTATION, MARKER_ANNOTATION),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -1323,6 +1327,26 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 .replaceFirst("\\.\\*;$", "")
                 .replaceFirst(";$", "")
                 .trim();
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
+    }
+
+    @Override
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
+        if (!CaptureNames.CLASS_DEFINITION.equals(classCaptureName)) {
+            return null;
+        }
+
+        // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
+        // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)
+        String constructorName = enclosingClass.identifier();
+        String shortName = enclosingClass.shortName() + "." + constructorName;
+
+        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
     }
 
     @Override

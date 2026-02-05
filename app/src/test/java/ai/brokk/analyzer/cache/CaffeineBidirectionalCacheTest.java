@@ -12,6 +12,45 @@ import org.junit.jupiter.api.Test;
 class CaffeineBidirectionalCacheTest {
 
     @Test
+    void testPutAllForward() {
+        CaffeineBidirectionalCache<String, String, String> source =
+                new CaffeineBidirectionalCache<>(100, (self, v) -> {}, () -> "");
+        source.computeForwardIfAbsent("key1", k -> "val1");
+        source.computeForwardIfAbsent("key2", k -> "val2");
+
+        CaffeineBidirectionalCache<String, String, String> target =
+                new CaffeineBidirectionalCache<>(100, (self, v) -> {}, () -> "");
+
+        target.putAllForward(source);
+
+        assertEquals("val1", target.getForward("key1"));
+        assertEquals("val2", target.getForward("key2"));
+        // Reverse should be null as it is populated lazily by the populator during computation
+        assertNull(target.getReverse("key1"));
+    }
+
+    @Test
+    void testPutAllForwardInvalidatesStaleReverse() {
+        CaffeineBidirectionalCache<String, String, String> source =
+                new CaffeineBidirectionalCache<>(100, (self, v) -> {}, () -> "");
+        source.computeForwardIfAbsent("key1", k -> "new_val");
+
+        CaffeineBidirectionalCache<String, String, String> target =
+                new CaffeineBidirectionalCache<>(100, (self, v) -> {}, () -> "");
+
+        // 1. Target has existing stale reverse entry
+        target.updateReverse("key1", existing -> "stale_reverse");
+        assertEquals("stale_reverse", target.getReverse("key1"));
+
+        // 2. Call putAllForward
+        target.putAllForward(source);
+
+        // 3. Assert reverse is cleared and forward is updated
+        assertEquals("new_val", target.getForward("key1"));
+        assertNull(target.getReverse("key1"), "Reverse cache should have been invalidated to prevent stale data");
+    }
+
+    @Test
     void testBasicForwardAndReverse() {
         CaffeineBidirectionalCache<String, List<String>, Set<String>> cache = new CaffeineBidirectionalCache<>(
                 100,

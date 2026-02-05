@@ -292,7 +292,7 @@ public final class HistoryGrouping {
             }
 
             // AI result without explicit group is a CUT_AFTER boundary
-            if (ctx.isAiResult() && history.getGroupId(ctx.id()) == null) {
+            if (history.getGroupId(ctx.id()) == null && history.isAiResult(ctx)) {
                 return Boundary.CUT_AFTER;
             }
 

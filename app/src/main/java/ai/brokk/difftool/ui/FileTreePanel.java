@@ -108,24 +108,15 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                TreePath[] selectedPaths = fileTree.getSelectionPaths();
-                if (selectedPaths == null || selectedPaths.length == 0) {
-                    return;
-                }
-
-                if (selectedPaths.length > 1) {
-                    // Signal multiple selection (e.g. to clear diff)
-                    selectionListener.navigateToFile(-1);
-                    return;
-                }
-
-                var selectedPath = selectedPaths[0];
-                var node = (DefaultMutableTreeNode) selectedPath.getLastPathComponent();
-                if (node.isLeaf() && node != rootNode) {
-                    int fileIndex = findFileIndex(selectedPath);
-                    if (fileIndex != -1) {
-                        selectionListener.navigateToFile(fileIndex);
-                        SwingUtilities.invokeLater(() -> fileTree.requestFocusInWindow());
+                var selectedPath = e.getNewLeadSelectionPath();
+                if (selectedPath != null) {
+                    var node = (DefaultMutableTreeNode) selectedPath.getLastPathComponent();
+                    if (node.isLeaf() && node != rootNode) {
+                        int fileIndex = findFileIndex(selectedPath);
+                        if (fileIndex != -1) {
+                            selectionListener.navigateToFile(fileIndex);
+                            SwingUtilities.invokeLater(() -> fileTree.requestFocusInWindow());
+                        }
                     }
                 }
             }
@@ -466,25 +457,6 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         }
     }
 
-    public List<ProjectFile> getSelectedProjectFiles() {
-        TreePath[] paths = fileTree.getSelectionPaths();
-        if (paths == null || paths.length == 0) return List.of();
-
-        return Arrays.stream(paths)
-                .map(p -> (DefaultMutableTreeNode) p.getLastPathComponent())
-                .map(DefaultMutableTreeNode::getUserObject)
-                .map(uo -> {
-                    if (uo instanceof FileInfo fi) {
-                        if (fi.index() < 0 || fi.index() >= fileComparisons.size()) return null;
-                        return fileComparisons.get(fi.index()).file();
-                    }
-                    return null;
-                })
-                .filter(Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
-    }
-
     private void handleContextMenu(MouseEvent e) {
         if (!e.isPopupTrigger() || contextMenuProvider == null) return;
 
@@ -502,6 +474,25 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         if (menu == null || menu.getComponentCount() == 0) return;
 
         menu.show(fileTree, e.getX(), e.getY());
+    }
+
+    private List<ProjectFile> getSelectedProjectFiles() {
+        TreePath[] paths = fileTree.getSelectionPaths();
+        if (paths == null || paths.length == 0) return List.of();
+
+        return Arrays.stream(paths)
+                .map(p -> (DefaultMutableTreeNode) p.getLastPathComponent())
+                .map(DefaultMutableTreeNode::getUserObject)
+                .map(uo -> {
+                    if (uo instanceof FileInfo fi) {
+                        if (fi.index() < 0 || fi.index() >= fileComparisons.size()) return null;
+                        return fileComparisons.get(fi.index()).file();
+                    }
+                    return null;
+                })
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     public void selectFile(int fileIndex) {

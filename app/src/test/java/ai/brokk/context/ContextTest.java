@@ -199,19 +199,6 @@ class ContextTest {
     }
 
     @Test
-    void testIsAiResultDetection() {
-        List<ChatMessage> msgs = List.of(UserMessage.from("U"), AiMessage.from("A"));
-        var tf = new ContextFragments.TaskFragment(contextManager, msgs, "task");
-        var ctx = new Context(contextManager).withParsedOutput(tf);
-        assertTrue(ctx.isAiResult(), "AI result should be true when AI message is present");
-
-        List<ChatMessage> msgs2 = List.of(UserMessage.from("Only user"));
-        var tf2 = new ContextFragments.TaskFragment(contextManager, msgs2, "task");
-        var ctx2 = new Context(contextManager).withParsedOutput(tf2);
-        assertFalse(ctx2.isAiResult(), "AI result should be false with no AI messages");
-    }
-
-    @Test
     void testCopyAndRefreshReplacesComputedFragmentsOnChange() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Refresh.java");
         pf.write("class Refresh {}");
@@ -298,7 +285,7 @@ class ContextTest {
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
         var log = new ContextFragments.TaskFragment(contextManager, msgs, "Log");
         var entry = new TaskEntry(1, log, null);
-        ctx = ctx.addHistoryEntry(entry, log);
+        ctx = ctx.addHistoryEntry(entry);
 
         var all = ctx.getAllFragmentsInDisplayOrder();
         assertFalse(all.isEmpty());

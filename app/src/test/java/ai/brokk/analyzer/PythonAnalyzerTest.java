@@ -1480,6 +1480,24 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
+    void testIsConstructor() {
+        assertNotNull(analyzer, "Analyzer should be initialized.");
+
+        CodeUnit classCU = analyzer.getDefinitions("documented.DocumentedClass").stream()
+                .findFirst()
+                .orElseThrow();
+        CodeUnit initCU = analyzer.getDefinitions("documented.DocumentedClass.__init__").stream()
+                .findFirst()
+                .orElseThrow();
+        CodeUnit otherMethodCU = analyzer.getDefinitions("documented.DocumentedClass.get_value").stream()
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(analyzer.isConstructor(initCU, classCU, ""), "__init__ should be a constructor");
+        assertFalse(analyzer.isConstructor(otherMethodCU, classCU, ""), "get_value should not be a constructor");
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(project, analyzer);
         var symbol = "class_usage_patterns.BaseClass";

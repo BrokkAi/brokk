@@ -472,70 +472,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
             JMenuItem deleteItem = new JMenuItem(targetFiles.size() == 1 ? "Delete File" : "Delete Files");
             deleteItem.addActionListener(ev -> {
-                var filesToDelete = targetFiles;
-
                 contextManager.submitExclusiveAction(() -> {
                     try {
-                        var nonText = filesToDelete.stream()
-                                .filter(pf -> !pf.isText())
-                                .toList();
-                        if (!nonText.isEmpty()) {
-                            SwingUtilities.invokeLater(
-                                    () -> chrome.toolError("Only text files can be deleted with undo/redo support"));
-                            return;
-                        }
-
-                        var trackedSet = project.hasGit() ? project.getRepo().getTrackedFiles() : Set.<ProjectFile>of();
-                        var deletedInfos = filesToDelete.stream()
-                                .map(pf -> {
-                                    var content = pf.exists() ? pf.read().orElse(null) : null;
-                                    if (content == null) {
-                                        return null;
-                                    }
-                                    boolean wasTracked = project.hasGit() && trackedSet.contains(pf);
-                                    return new ContextHistory.DeletedFile(pf, content, wasTracked);
-                                })
-                                .filter(Objects::nonNull)
-                                .toList();
-
-                        if (project.hasGit()) {
-                            project.getRepo().forceRemoveFiles(filesToDelete);
-                        } else {
-                            for (var pf : filesToDelete) {
-                                try {
-                                    Files.deleteIfExists(pf.absPath());
-                                } catch (Exception ex) {
-                                    var msg = "Failed to delete file: " + pf;
-                                    logger.error(msg, ex);
-                                    SwingUtilities.invokeLater(() -> chrome.toolError(msg));
-                                }
-                            }
-                        }
-
-                        contextManager.pushContext(ctx -> ctx.withParsedOutput(null));
-
-                        if (!deletedInfos.isEmpty()) {
-                            var contextHistory = contextManager.getContextHistory();
-                            var frozenContext = contextHistory.liveContext();
-                            contextHistory.addEntryInfo(
-                                    frozenContext.id(), new ContextHistory.ContextHistoryEntryInfo(deletedInfos));
-                            contextManager
-                                    .getProject()
-                                    .getSessionManager()
-                                    .saveHistory(contextHistory, contextManager.getCurrentSessionId());
-                        }
-
-                        var fileList = filesToDelete.stream()
-                                .map(ProjectFile::getFileName)
-                                .collect(Collectors.joining(", "));
-                        SwingUtilities.invokeLater(() -> {
-                            chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO, "Deleted " + fileList + ". Use Ctrl+Z to undo.");
-                        });
-                    } catch (Exception ex) {
-                        logger.error("Error deleting selected files", ex);
-                        SwingUtilities.invokeLater(
-                                () -> chrome.toolError("Error deleting selected files: " + ex.getMessage()));
+                        removeFiles(targetFiles);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
                     }
                 });
             });
@@ -588,6 +529,78 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         pasteItem.setEnabled(hasFilesInClipboard());
 
         contextMenu.add(pasteItem);
+    }
+
+    private void removeFiles(List<ProjectFile> targetFiles) throws InterruptedException {
+        contextManager.withContextResolvedAndWatcherPaused(() -> {
+            try {
+                var nonText = targetFiles.stream().filter(pf -> !pf.isText()).toList();
+                if (!nonText.isEmpty()) {
+                    SwingUtilities.invokeLater(
+                            () -> chrome.toolError("Only text files can be deleted with undo/redo support"));
+                    return false;
+                }
+
+                var trackedSet = project.hasGit() ? project.getRepo().getTrackedFiles() : Set.<ProjectFile>of();
+                var deletedInfos = targetFiles.stream()
+                        .map(pf -> {
+                            var content = pf.exists() ? pf.read().orElse(null) : null;
+                            if (content == null) {
+                                return null;
+                            }
+                            boolean wasTracked = project.hasGit() && trackedSet.contains(pf);
+                            return new ContextHistory.DeletedFile(pf, content, wasTracked);
+                        })
+                        .filter(Objects::nonNull)
+                        .toList();
+
+                if (project.hasGit()) {
+                    project.getRepo().forceRemoveFiles(targetFiles);
+                } else {
+                    for (var pf : targetFiles) {
+                        try {
+                            Files.deleteIfExists(pf.absPath());
+                        } catch (Exception ex) {
+                            var msg = "Failed to delete file: " + pf;
+                            logger.error(msg, ex);
+                            SwingUtilities.invokeLater(() -> chrome.toolError(msg));
+                        }
+                    }
+                }
+
+                contextManager.pushContext(ctx -> {
+                    var fileSet = Set.copyOf(targetFiles);
+                    var toRemove = ctx.allFragments()
+                            .filter(f -> f.getType().includeInProjectGuide())
+                            .filter(f -> f.files().join().stream().anyMatch(fileSet::contains))
+                            .toList();
+                    return ctx.removeFragments(toRemove).copyAndRefresh(fileSet);
+                });
+
+                if (!deletedInfos.isEmpty()) {
+                    var contextHistory = contextManager.getContextHistory();
+                    var frozenContext = contextHistory.liveContext();
+                    contextHistory.addEntryInfo(
+                            frozenContext.id(), new ContextHistory.ContextHistoryEntryInfo(deletedInfos));
+                    contextManager
+                            .getProject()
+                            .getSessionManager()
+                            .saveHistory(contextHistory, contextManager.getCurrentSessionId());
+                }
+
+                var fileList =
+                        targetFiles.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
+                SwingUtilities.invokeLater(() -> {
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Deleted " + fileList + ". Use Ctrl+Z to undo.");
+                });
+                return true;
+            } catch (Exception ex) {
+                logger.error("Error deleting selected files", ex);
+                SwingUtilities.invokeLater(() -> chrome.toolError("Error deleting selected files: " + ex.getMessage()));
+                return false;
+            }
+        });
     }
 
     private JMenuItem getHistoryMenuItem(List<ProjectFile> selectedFiles) {

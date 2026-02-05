@@ -854,4 +854,50 @@ public class FuzzyUsageFinderJavaTest {
             assertEquals(1, hits.size(), "Expected exactly one usage hit");
         }
     }
+
+    @Test
+    public void testImplicitConstructorUsageDetection() throws Exception {
+        String fooContent = "public class Foo { public void bar() {} }";
+        String callerContent =
+                """
+                public class Caller {
+                    public void use() {
+                        Foo foo = new Foo();
+                        foo.bar();
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(fooContent, "Foo.java")
+                .addFileContents(callerContent, "Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            // Search for the implicit constructor. JavaAnalyzer synthesizes Foo.Foo for Foo.
+            var symbol = "Foo.Foo";
+            var result = finder.findUsages(symbol);
+            var either = result.toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            var files = fileNamesFromHits(hits);
+
+            // Verify Caller.java is included because it calls 'new Foo()'
+            assertTrue(
+                    files.contains("Caller.java"),
+                    "Should find usage of implicit constructor in Caller.java; found in: " + files);
+
+            // Verify the hit is actually the constructor call
+            var hit = hits.stream()
+                    .filter(h -> h.file().getFileName().equals("Caller.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertTrue(hit.snippet().contains("new Foo()"), "Snippet should contain the constructor call");
+        }
+    }
 }

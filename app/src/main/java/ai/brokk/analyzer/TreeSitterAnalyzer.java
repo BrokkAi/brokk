@@ -70,15 +70,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private final ProgressListener progressListener;
 
     /**
-     * Unified transient cache for lazy computations (trees, imports, hierarchies).
+     * Unified transient but transferable cache for lazy computations (trees, imports, hierarchies).
      *
-     * <p>DESIGN NOTE: This cache is transient and specific to this analyzer instance.
-     * It is NOT invalidated when files change because update() returns a fresh Analyzer instance
-     * and discards the current one (along with this cache).
-     * The new analyzer is initialized from 'this.state', effectively resetting any lazy computations.
-     * This prevents stale data from persisting across updates when sources change.
+     * <p>DESIGN NOTE: This cache is transient to an analyzer snapshot but is structurally shared or
+     * transferred during {@link #update(Set)}. When an update occurs, a filtered version of this
+     * cache is passed to the new analyzer snapshot, excluding entries for changed files or
+     * CodeUnits sourced from those files.
+     *
+     * <p>For {@link ai.brokk.analyzer.cache.BidirectionalCache} instances (imports, hierarchies),
+     * only forward mappings are transferred; reverse mappings are cleared and repopulated lazily
+     * to ensure correctness after incremental changes.
      */
-    private final AnalyzerCache cache = new AnalyzerCache();
+    private final AnalyzerCache cache;
 
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
@@ -199,6 +202,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Set<String> classLikeNodeTypes,
             Set<String> functionLikeNodeTypes,
             Set<String> fieldLikeNodeTypes,
+            Set<String> constructorNodeTypes,
             Set<String> decoratorNodeTypes,
             String importNodeType,
             String identifierFieldName,
@@ -314,6 +318,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         this.language = language;
         // Register listener early so it receives progress during construction
         progressListener = listener;
+        this.cache = new AnalyzerCache();
 
         // Initialize query using a ThreadLocal for thread safety
         // The supplier will use the appropriate getQueryResource() from the subclass
@@ -511,7 +516,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
-        this(project, language, prebuiltState, ProgressListener.NOOP);
+        this(project, language, prebuiltState, ProgressListener.NOOP, null);
     }
 
     protected final ProgressListener getProgressListener() {
@@ -528,9 +533,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected TreeSitterAnalyzer(
             IProject project, Language language, AnalyzerState prebuiltState, ProgressListener listener) {
+        this(project, language, prebuiltState, listener, null);
+    }
+
+    /**
+     * Internal implementation for snapshot instances that supports an optional pre-populated cache.
+     */
+    protected TreeSitterAnalyzer(
+            IProject project,
+            Language language,
+            AnalyzerState prebuiltState,
+            ProgressListener listener,
+            @Nullable AnalyzerCache prebuiltCache) {
         this.project = project;
         this.language = language;
         this.progressListener = listener;
+        this.cache = prebuiltCache != null ? prebuiltCache : new AnalyzerCache();
 
         this.query = ThreadLocal.withInitial(() -> {
             String rawQueryString = loadResource(getQueryResource());
@@ -1939,6 +1957,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
         Map<String, Set<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>();
+        Map<CodeUnit, String> cuToCaptureName = new HashMap<>();
         List<ImportInfo> localImportInfos = new ArrayList<>();
         Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
 
@@ -2339,6 +2358,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
 
             localCuByFqName.put(cu.fqName(), cu);
+            cuToCaptureName.put(cu, primaryCaptureName);
             localChildren.putIfAbsent(cu, new ArrayList<>());
 
             boolean attachedToParent = false;
@@ -2412,6 +2432,55 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localSignatures,
                 localSourceRanges,
                 localChildren);
+
+        // Synthetic constructor injection: for each class-like CU, check if it needs an implicit constructor.
+        // Implicit constructors are fully integrated into the local state:
+        // 1. Attached as a direct child of the enclosing class in localChildren
+        // 2. Present in localStates (and therefore codeUnitState) via the unionKeys mechanism
+        // 3. Registered in the symbol index for resolution via getDefinitions
+        // We do NOT add a signature entry to preserve existing skeleton rendering expectations.
+        for (CodeUnit cu : List.copyOf(localCuByFqName.values())) {
+            if (cu.isClass()) {
+                List<CodeUnit> kids = localChildren.getOrDefault(cu, List.of());
+                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
+                    // Use the capture name stored during analysis to identify constructors
+                    String capture = cuToCaptureName.getOrDefault(k, "");
+                    return isConstructor(k, cu, capture);
+                });
+
+                if (!hasExplicitConstructor) {
+                    String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
+                    CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
+                    if (implicit != null) {
+                        // Register in symbol index for resolution
+                        localCodeUnitsBySymbol
+                                .computeIfAbsent(implicit.identifier(), k -> new HashSet<>())
+                                .add(implicit);
+                        if (!implicit.shortName().equals(implicit.identifier())) {
+                            localCodeUnitsBySymbol
+                                    .computeIfAbsent(implicit.shortName(), k -> new HashSet<>())
+                                    .add(implicit);
+                        }
+
+                        // Add to the main CU map
+                        localCuByFqName.putIfAbsent(implicit.fqName(), implicit);
+                        localHasBody.put(implicit, true);
+
+                        // Fully integrate into the state:
+                        // 1. Attach as child of the class
+                        localChildren
+                                .computeIfAbsent(cu, k -> new ArrayList<>())
+                                .add(implicit);
+                        // 2. Ensure entries exist for the synthetic unit itself to force inclusion in unionKeys
+                        localChildren.putIfAbsent(implicit, new ArrayList<>());
+                        localSourceRanges.putIfAbsent(implicit, new ArrayList<>());
+                        // Note: we do NOT add a signature entry to preserve current skeleton expectations
+
+                        log.trace("Synthesized implicit constructor for class {}", cu.fqName());
+                    }
+                }
+            }
+        }
 
         boolean containsTests = containsTestMarkers(tree, sourceContent);
 
@@ -3598,10 +3667,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return a new analyzer.
      */
     protected final IAnalyzer newSnapshot(AnalyzerState state) {
-        return newSnapshot(state, getProgressListener());
+        return newSnapshot(state, getProgressListener(), null);
     }
 
-    protected abstract IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener);
+    protected final IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return newSnapshot(state, listener, null);
+    }
+
+    protected abstract IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache);
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
@@ -3739,7 +3813,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Re-run combined post-processing (imports + type analysis) after ingesting updates
         var typedState = runPostProcessing(nextState);
 
-        return newSnapshot(typedState);
+        var filteredCache = new AnalyzerCache(this.cache, changedFiles);
+        return newSnapshot(typedState, getProgressListener(), filteredCache);
     }
 
     private void collectCodeUnitAndDescendants(
@@ -4223,5 +4298,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected boolean isNullNameExpectedForExtraction(String nodeType) {
         return false;
+    }
+
+    /**
+     * Determines if a CodeUnit is a constructor for the given enclosing class.
+     * Checks the language profile's constructorNodeTypes first, then falls back to custom logic.
+     *
+     * @param captureName the Tree-sitter capture name (e.g., "constructor.definition")
+     */
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        if (getLanguageSyntaxProfile().constructorNodeTypes().contains(captureName)) {
+            return true;
+        }
+        // Fallback: If no node types are specified in the profile, check for name matching
+        if (getLanguageSyntaxProfile().constructorNodeTypes().isEmpty() && enclosingClass != null) {
+            return candidate.isFunction() && candidate.identifier().equals(enclosingClass.identifier());
+        }
+        return false;
+    }
+
+    /**
+     * Creates a synthetic implicit constructor for the given enclosing class.
+     * Default implementation returns null.
+     */
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        return null;
     }
 }
