@@ -101,23 +101,25 @@ public final class HistoryIo {
             // Read contexts.jsonl
             var contextsEntry = zipFile.getEntry(CONTEXTS_FILENAME);
             if (contextsEntry != null) {
-                var reader = new BufferedReader(
-                        new InputStreamReader(zipFile.getInputStream(contextsEntry), StandardCharsets.UTF_8));
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.trim().isEmpty()) continue;
-                    try {
-                        var node = objectMapper.readTree(line);
-                        var parsedOutputId = node.get("parsedOutputId");
-                        if (parsedOutputId != null && !parsedOutputId.isNull()) {
-                            aiResponseCount++;
+                try (var reader = new BufferedReader(
+                        new InputStreamReader(zipFile.getInputStream(contextsEntry), StandardCharsets.UTF_8)))
+                {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        try {
+                            var node = objectMapper.readTree(line);
+                            var parsedOutputId = node.get("parsedOutputId");
+                            if (parsedOutputId != null && !parsedOutputId.isNull()) {
+                                aiResponseCount++;
+                            }
+                            lastContextLine = line;
+                        } catch (Exception e) {
+                            logger.debug(
+                                    "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
+                                    line.length() > 200 ? line.substring(0, 200) + "..." : line,
+                                    e.toString());
                         }
-                        lastContextLine = line;
-                    } catch (Exception e) {
-                        logger.debug(
-                                "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
-                                line.length() > 200 ? line.substring(0, 200) + "..." : line,
-                                e.toString());
                     }
                 }
             }
