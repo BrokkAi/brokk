@@ -9,6 +9,7 @@ import ai.brokk.analyzer.TreeSitterStateIO.ProjectFileDto;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.nio.file.Files;
@@ -164,6 +165,7 @@ public class TreeSitterStateIOTest {
         var projectFile = new ProjectFile(root, Path.of("Test.java"));
         var cu = CodeUnit.cls(projectFile, "com.example", "Test");
 
+        // Construct with legacy-compatible constructor (signatures parameter ignored for persistence)
         var props = new TreeSitterAnalyzer.CodeUnitProperties(
                 List.of(), List.of("public class Test"), List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
 
@@ -187,10 +189,12 @@ public class TreeSitterStateIOTest {
         var loadedProps = loadedState.codeUnitState().get(cu);
 
         assertNotNull(loadedProps);
-        assertEquals(props.ranges(), loadedProps.ranges());
-        assertEquals(props.signatures(), loadedProps.signatures());
-        assertEquals(props.children(), loadedProps.children());
-        assertEquals(props.hasBody(), loadedProps.hasBody());
+        // Structural properties must survive round-trip
+        assertEquals(props.ranges(), loadedProps.ranges(), "Ranges should round-trip");
+        assertEquals(props.children(), loadedProps.children(), "Children should round-trip");
+        assertEquals(props.hasBody(), loadedProps.hasBody(), "hasBody should round-trip");
+        // signatures are transient and no longer persisted; ensure loaded accessor returns empty
+        assertTrue(loadedProps.signatures().isEmpty(), "Loaded signatures should be empty (transient cache only)");
     }
 
     @Test
@@ -780,5 +784,47 @@ public class TreeSitterStateIOTest {
 
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isPresent(), "Should successfully load state even with unknown 'rawSupertypes' field");
+    }
+
+    @Test
+    void newDtoDoesNotContainSignatures(@TempDir Path tempDir) throws Exception {
+        // Build a tiny AnalyzerState and round-trip via toDto to ensure DTOs do not include 'signatures' fields.
+        var fileDto = new ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(fileDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        var fpDto = new FilePropertiesDto(List.of(cuDto), List.of(), false);
+        var fileEntry = new FileStateEntryDto(fileDto, fpDto);
+
+        var dto = new AnalyzerStateDto(
+                Map.of(),
+                List.of(), // no codeUnitState entries initially
+                List.of(fileEntry),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                1L);
+
+        // Convert DTO -> state -> DTO to ensure toDto produces the canonical shape
+        var state = TreeSitterStateIO.fromDto(dto);
+        var produced = TreeSitterStateIO.toDto(state);
+
+        // Serialize produced DTO into a JsonNode tree and verify no 'signatures' keys under codeUnitState entries
+        ObjectMapper mapper = new ObjectMapper(new SmileFactory());
+        JsonNode rootNode = mapper.valueToTree(produced);
+
+        // If codeUnitState present, iterate entries and ensure no 'signatures' in value
+        JsonNode codeUnitState = rootNode.get("codeUnitState");
+        if (codeUnitState != null && codeUnitState.isArray()) {
+            for (JsonNode entry : codeUnitState) {
+                JsonNode value = entry.get("value");
+                if (value != null && value.isObject()) {
+                    assertNull(
+                            value.get("signatures"),
+                            "New DTOs must not include 'signatures' arrays in CodeUnitPropertiesDto");
+                }
+            }
+        }
     }
 }
