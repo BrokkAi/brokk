@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +71,285 @@ public class HistoryIoTest {
         Path nonExistent = tempDir.resolve("does_not_exist.zip");
         int count = HistoryIo.countAiResponses(nonExistent);
         assertEquals(0, count, "Non-existent file should return 0");
+    }
+
+    @Test
+    void testCountIncompleteTasks_zipWithNoTaskList() throws Exception {
+        Path zipFile = tempDir.resolve("no_tasklist.zip");
+
+        String fragmentId = UUID.randomUUID().toString();
+        String contentId = UUID.randomUUID().toString();
+
+        // A StringFragment that is NOT a task list (different description)
+        String fragmentsJson =
+                """
+            {
+              "version": 4,
+              "referenced": {},
+              "virtual": {
+                "%s": {
+                  "type": "ai.brokk.context.FragmentDtos$StringFragmentDto",
+                  "id": "%s",
+                  "contentId": "%s",
+                  "description": "Some Other Fragment",
+                  "syntaxStyle": "text"
+                }
+              },
+              "task": {}
+            }
+            """
+                        .formatted(fragmentId, fragmentId, contentId);
+
+        String contextsJsonl =
+                """
+            {"id":"%s","editable":[],"readonly":[],"virtuals":["%s"],"pinned":[],"tasks":[],"parsedOutputId":null}
+            """
+                        .formatted(UUID.randomUUID().toString(), fragmentId);
+
+        String content = "Some text content";
+
+        try (var zos = new ZipOutputStream(Files.newOutputStream(zipFile))) {
+            zos.putNextEntry(new ZipEntry("fragments-v4.json"));
+            zos.write(fragmentsJson.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("contexts.jsonl"));
+            zos.write(contextsJsonl.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("content/" + contentId + ".txt"));
+            zos.write(content.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+
+        var counts = HistoryIo.countIncompleteTasks(zipFile);
+        assertEquals(new HistoryIo.TaskCounts(0, 0), counts, "ZIP with no task list fragment should return (0, 0)");
+    }
+
+    @Test
+    void testCountIncompleteTasks_zipWithEmptyTaskList() throws Exception {
+        Path zipFile = tempDir.resolve("empty_tasklist.zip");
+
+        String fragmentId = UUID.randomUUID().toString();
+        String contentId = UUID.randomUUID().toString();
+
+        String fragmentsJson =
+                """
+            {
+              "version": 4,
+              "referenced": {},
+              "virtual": {
+                "%s": {
+                  "type": "ai.brokk.context.FragmentDtos$StringFragmentDto",
+                  "id": "%s",
+                  "contentId": "%s",
+                  "description": "Task List",
+                  "syntaxStyle": "json"
+                }
+              },
+              "task": {}
+            }
+            """
+                        .formatted(fragmentId, fragmentId, contentId);
+
+        String contextsJsonl =
+                """
+            {"id":"%s","editable":[],"readonly":[],"virtuals":["%s"],"pinned":[],"tasks":[],"parsedOutputId":null}
+            """
+                        .formatted(UUID.randomUUID().toString(), fragmentId);
+
+        String taskListContent = """
+            {"tasks":[]}
+            """;
+
+        try (var zos = new ZipOutputStream(Files.newOutputStream(zipFile))) {
+            zos.putNextEntry(new ZipEntry("fragments-v4.json"));
+            zos.write(fragmentsJson.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("contexts.jsonl"));
+            zos.write(contextsJsonl.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("content/" + contentId + ".txt"));
+            zos.write(taskListContent.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+
+        var counts = HistoryIo.countIncompleteTasks(zipFile);
+        assertEquals(new HistoryIo.TaskCounts(0, 0), counts, "ZIP with empty task list should return (0, 0)");
+    }
+
+    @Test
+    void testCountIncompleteTasks_zipWithMixedTasks() throws Exception {
+        Path zipFile = tempDir.resolve("mixed_tasks.zip");
+
+        String fragmentId = UUID.randomUUID().toString();
+        String contentId = UUID.randomUUID().toString();
+
+        String fragmentsJson =
+                """
+            {
+              "version": 4,
+              "referenced": {},
+              "virtual": {
+                "%s": {
+                  "type": "ai.brokk.context.FragmentDtos$StringFragmentDto",
+                  "id": "%s",
+                  "contentId": "%s",
+                  "description": "Task List",
+                  "syntaxStyle": "json"
+                }
+              },
+              "task": {}
+            }
+            """
+                        .formatted(fragmentId, fragmentId, contentId);
+
+        String contextsJsonl =
+                """
+            {"id":"%s","editable":[],"readonly":[],"virtuals":["%s"],"pinned":[],"tasks":[],"parsedOutputId":null}
+            """
+                        .formatted(UUID.randomUUID().toString(), fragmentId);
+
+        // 3 tasks: 1 done, 2 incomplete
+        String taskListContent =
+                """
+            {
+              "tasks": [
+                {"id": "%s", "title": "Task 1", "text": "First task", "done": false},
+                {"id": "%s", "title": "Task 2", "text": "Second task", "done": true},
+                {"id": "%s", "title": "Task 3", "text": "Third task", "done": false}
+              ]
+            }
+            """
+                        .formatted(
+                                UUID.randomUUID().toString(),
+                                UUID.randomUUID().toString(),
+                                UUID.randomUUID().toString());
+
+        try (var zos = new ZipOutputStream(Files.newOutputStream(zipFile))) {
+            zos.putNextEntry(new ZipEntry("fragments-v4.json"));
+            zos.write(fragmentsJson.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("contexts.jsonl"));
+            zos.write(contextsJsonl.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("content/" + contentId + ".txt"));
+            zos.write(taskListContent.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+
+        var counts = HistoryIo.countIncompleteTasks(zipFile);
+        assertEquals(new HistoryIo.TaskCounts(3, 2), counts, "Should return (3 total, 2 incomplete)");
+    }
+
+    @Test
+    void testCountIncompleteTasks_legacyTasklistJsonOnly() throws Exception {
+        Path zipFile = tempDir.resolve("legacy_tasklist.zip");
+
+        // 2 tasks: 1 done, 1 incomplete
+        String legacyTaskListContent =
+                """
+            {
+              "tasks": [
+                {"id": "%s", "title": "Legacy Task 1", "text": "First legacy task", "done": false},
+                {"id": "%s", "title": "Legacy Task 2", "text": "Second legacy task", "done": true}
+              ]
+            }
+            """
+                        .formatted(
+                                UUID.randomUUID().toString(), UUID.randomUUID().toString());
+
+        try (var zos = new ZipOutputStream(Files.newOutputStream(zipFile))) {
+            zos.putNextEntry(new ZipEntry("tasklist.json"));
+            zos.write(legacyTaskListContent.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+
+        var counts = HistoryIo.countIncompleteTasks(zipFile);
+        assertEquals(new HistoryIo.TaskCounts(2, 1), counts, "Legacy format should return (2 total, 1 incomplete)");
+    }
+
+    @Test
+    void testCountIncompleteTasks_emptyNewFormatWithLegacyFallback() throws Exception {
+        // This test verifies that the new format takes precedence over legacy.
+        // When a task list fragment IS found (even with empty tasks), the legacy format
+        // should NOT be used as fallback.
+        Path zipFile = tempDir.resolve("new_format_precedence.zip");
+
+        String fragmentId = UUID.randomUUID().toString();
+        String contentId = UUID.randomUUID().toString();
+
+        // New format with empty task list
+        String fragmentsJson =
+                """
+            {
+              "version": 4,
+              "referenced": {},
+              "virtual": {
+                "%s": {
+                  "type": "ai.brokk.context.FragmentDtos$StringFragmentDto",
+                  "id": "%s",
+                  "contentId": "%s",
+                  "description": "Task List",
+                  "syntaxStyle": "json"
+                }
+              },
+              "task": {}
+            }
+            """
+                        .formatted(fragmentId, fragmentId, contentId);
+
+        String contextsJsonl =
+                """
+            {"id":"%s","editable":[],"readonly":[],"virtuals":["%s"],"pinned":[],"tasks":[],"parsedOutputId":null}
+            """
+                        .formatted(UUID.randomUUID().toString(), fragmentId);
+
+        String emptyTaskListContent = """
+            {"tasks":[]}
+            """;
+
+        // Legacy format with actual tasks
+        String legacyTaskListContent =
+                """
+            {
+              "tasks": [
+                {"id": "%s", "title": "Legacy Task 1", "text": "First legacy task", "done": false},
+                {"id": "%s", "title": "Legacy Task 2", "text": "Second legacy task", "done": true}
+              ]
+            }
+            """
+                        .formatted(
+                                UUID.randomUUID().toString(), UUID.randomUUID().toString());
+
+        try (var zos = new ZipOutputStream(Files.newOutputStream(zipFile))) {
+            zos.putNextEntry(new ZipEntry("fragments-v4.json"));
+            zos.write(fragmentsJson.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("contexts.jsonl"));
+            zos.write(contextsJsonl.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("content/" + contentId + ".txt"));
+            zos.write(emptyTaskListContent.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("tasklist.json"));
+            zos.write(legacyTaskListContent.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+
+        var counts = HistoryIo.countIncompleteTasks(zipFile);
+        // New format takes precedence - should return (0, 0), NOT legacy counts (2, 1)
+        assertEquals(
+                new HistoryIo.TaskCounts(0, 0),
+                counts,
+                "New format should take precedence; empty new-format task list should NOT fall back to legacy");
     }
 
     @Test
