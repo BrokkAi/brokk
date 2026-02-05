@@ -446,7 +446,95 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
     @Override
     public void requestRebuild() {
-        externalRebuildRequested = true;
+        logger.info("Requesting full analyzer rebuild: scheduling persisted analyzer state cleanup before rebuild.");
+
+        /*
+         * Schedule the cleanup on the analyzerExecutor so the deletion runs in the same single-threaded
+         * sequence as analyzer builds and saves. This avoids races with concurrent save/load operations.
+         *
+         * The task:
+         *  - pauses the watch service while deleting to avoid spurious file events,
+         *  - deletes per-language storage files (ignoring missing files),
+         *  - attempts to remove empty parent directory,
+         *  - finally sets externalRebuildRequested = true so subsequent build logic knows a rebuild was requested.
+         */
+        analyzerExecutor.submit(() -> {
+            try {
+                logger.debug("Pausing watch service to perform persisted analyzer state cleanup for {}", root);
+                watchService.pause();
+                clearPersistedAnalyzerState();
+            } catch (Throwable t) {
+                logger.warn("Exception while clearing persisted analyzer state: {}", t.toString());
+            } finally {
+                try {
+                    watchService.resume();
+                } catch (Throwable t) {
+                    logger.warn("Failed to resume watch service after persisted state cleanup: {}", t.toString());
+                }
+                externalRebuildRequested = true;
+            }
+            return null;
+        });
+    }
+
+    /**
+     * Delete persisted analyzer snapshot files for all configured analyzer languages for this project.
+     * - Ignores missing files.
+     * - Logs deletions and failures.
+     * - Attempts to remove parent directory if it becomes empty afterwards.
+     */
+    private void clearPersistedAnalyzerState() {
+        try {
+            var langs = project.getAnalyzerLanguages();
+            if (langs == null || langs.isEmpty()) {
+                logger.debug("No analyzer languages configured for project {}; skipping persisted state cleanup", root);
+                return;
+            }
+
+            for (var lang : langs) {
+                try {
+                    Path storage = lang.getStoragePath(project);
+                    if (storage == null) {
+                        logger.debug("Language {} returned null storage path; skipping", lang);
+                        continue;
+                    }
+
+                    if (Files.exists(storage)) {
+                        try {
+                            Files.deleteIfExists(storage);
+                            logger.info("Deleted persisted analyzer state: {}", storage);
+                        } catch (Throwable t) {
+                            logger.warn("Failed to delete persisted analyzer state {}: {}", storage, t.getMessage());
+                        }
+                    } else {
+                        logger.debug("No persisted analyzer state found for {} at {}", lang, storage);
+                    }
+
+                    // If parent directory is now empty, attempt to delete it (best-effort).
+                    Path parent = storage.getParent();
+                    if (parent != null && Files.isDirectory(parent)) {
+                        try (var stream = Files.list(parent)) {
+                            boolean empty = stream.findAny().isEmpty();
+                            if (empty) {
+                                try {
+                                    Files.deleteIfExists(parent);
+                                    logger.info("Deleted empty analyzer storage directory: {}", parent);
+                                } catch (Throwable t) {
+                                    logger.debug(
+                                            "Could not delete storage parent directory {}: {}", parent, t.getMessage());
+                                }
+                            }
+                        } catch (IOException ioe) {
+                            logger.debug("Unable to inspect storage parent directory {}: {}", parent, ioe.getMessage());
+                        }
+                    }
+                } catch (Throwable t) {
+                    logger.warn("Error while clearing persisted state for language {}: {}", lang, t.getMessage());
+                }
+            }
+        } catch (Throwable t) {
+            logger.warn("Unexpected error while clearing persisted analyzer state: {}", t.getMessage());
+        }
     }
 
     /** Pause the file watching service. */
