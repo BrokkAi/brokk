@@ -2534,6 +2534,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(rngs), hasBody));
         }
 
+        // Populate transient per-CodeUnit signatures cache so later lazy lookups can use these values.
+        // Overwrite any existing entries for re-analyzed files by calling put for each CU found in this file.
+        try {
+            localSignatures.forEach((cu, sigs) -> {
+                if (sigs == null || sigs.isEmpty()) {
+                    // Ensure we store an explicit empty list to signal "no signatures" rather than leaving old values.
+                    cache.signatures().put(cu, List.of());
+                } else {
+                    cache.signatures().put(cu, List.copyOf(sigs));
+                }
+            });
+        } catch (Exception e) {
+            log.debug("Failed to populate signatures cache for file {}: {}", file, e.getMessage());
+        }
+
         for (var cu : localStates.keySet()) {
             String identifierKey = cu.identifier();
             localCodeUnitsBySymbol

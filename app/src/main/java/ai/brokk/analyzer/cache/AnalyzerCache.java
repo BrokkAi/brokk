@@ -18,12 +18,14 @@ public final class AnalyzerCache {
 
     private final SimpleCache<ProjectFile, TSTree> trees;
     private final SimpleCache<CodeUnit, List<String>> rawSupertypes;
+    private final SimpleCache<CodeUnit, List<String>> signatures;
     private final BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports;
     private final BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy;
 
     public AnalyzerCache() {
         this.trees = new CaffeineSimpleCache<>(1000);
         this.rawSupertypes = new CaffeineSimpleCache<>(5000);
+        this.signatures = new CaffeineSimpleCache<>(5000);
         this.imports = new CaffeineBidirectionalCache<>(
                 10000,
                 (cache, resolved) -> {
@@ -63,6 +65,12 @@ public final class AnalyzerCache {
             }
         });
 
+        previous.signatures.forEach((cu, sigs) -> {
+            if (!changedFiles.contains(cu.source())) {
+                this.signatures.put(cu, List.copyOf(sigs));
+            }
+        });
+
         previous.imports.forEachForward((file, units) -> {
             if (!changedFiles.contains(file)) {
                 this.imports.putForward(file, Set.copyOf(units));
@@ -84,6 +92,10 @@ public final class AnalyzerCache {
         return rawSupertypes;
     }
 
+    public SimpleCache<CodeUnit, List<String>> signatures() {
+        return signatures;
+    }
+
     public BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports() {
         return imports;
     }
@@ -103,7 +115,7 @@ public final class AnalyzerCache {
      * Returns a snapshot of the current state of all caches.
      */
     public CacheSnapshot snapshot() {
-        return new CacheSnapshot(trees, rawSupertypes, imports, typeHierarchy);
+        return new CacheSnapshot(trees, rawSupertypes, signatures, imports, typeHierarchy);
     }
 
     /**
@@ -112,6 +124,7 @@ public final class AnalyzerCache {
     public record CacheSnapshot(
             SimpleCache<ProjectFile, TSTree> trees,
             SimpleCache<CodeUnit, List<String>> rawSupertypes,
+            SimpleCache<CodeUnit, List<String>> signatures,
             BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports,
             BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy) {}
 }
