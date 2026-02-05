@@ -219,7 +219,7 @@ public final class HistoryIo {
         try {
             var taskListData = objectMapper.readValue(taskListJson, TaskList.TaskListData.class);
             var tasks = taskListData.tasks();
-            int total = tasks.size();
+            int total = (int) tasks.stream().filter(Objects::nonNull).count();
             int incomplete = (int) tasks.stream()
                     .filter(Objects::nonNull)
                     .filter(t -> !t.done())
