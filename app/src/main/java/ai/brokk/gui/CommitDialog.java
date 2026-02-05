@@ -100,7 +100,41 @@ public class CommitDialog extends BaseThemedDialog {
         if (filesToCommit.size() > 3) {
             fileNames += " and " + (filesToCommit.size() - 3) + " more";
         }
-        JLabel fileLabel = new JLabel("<html><b>Files:</b> " + fileNames + "</html>");
+
+        // Determine whether this dialog is for a partial subset of modified files so we can surface that to the user.
+        boolean isPartial = false;
+        int totalModified = -1;
+        try {
+            var repo = contextManager.getProject().getRepo();
+            if (repo instanceof GitRepo gr) {
+                totalModified = gr.getModifiedProjectFiles().size();
+                isPartial = totalModified >= 0 && filesToCommit.size() < totalModified;
+            }
+        } catch (Exception e) {
+            // Best effort only — if we can't compute totals, fall back to no partial indicator.
+            logger.debug("Unable to compute total modified files for commit dialog", e);
+        }
+
+        String fileHeader;
+        if (totalModified >= 0) {
+            if (isPartial) {
+                fileHeader = String.format(
+                        "<html><b>Files (%d of %d selected, partial commit):</b> %s</html>",
+                        filesToCommit.size(), totalModified, fileNames);
+                setTitle("Commit Changes (partial)");
+            } else {
+                fileHeader = String.format("<html><b>Files (%d):</b> %s</html>", filesToCommit.size(), fileNames);
+                setTitle("Commit Changes");
+            }
+        } else {
+            // Unknown total modified count — just show selected count
+            fileHeader = String.format("<html><b>Files (%d selected):</b> %s</html>", filesToCommit.size(), fileNames);
+            if (isPartial) {
+                setTitle("Commit Changes (partial)");
+            }
+        }
+
+        JLabel fileLabel = new JLabel(fileHeader);
         fileLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
 
         // Add padding around the dialog content
@@ -260,6 +294,7 @@ public class CommitDialog extends BaseThemedDialog {
                     checkCommitButtonState(); // Re-check commit button state
                 });
             }
+            return null;
         });
     }
 

@@ -226,7 +226,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.baselineLabel = new JLabel();
         this.baselineLabel.setOpaque(false);
 
-        this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
+        this.commitBtn = createIconButton(Icons.COMMIT, "Commit all uncommitted changes (commits all modified files)");
 
         this.resolveConflictsBtn = new MaterialButton("") {
             @Override
