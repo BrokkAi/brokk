@@ -11,6 +11,7 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
+import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
@@ -27,6 +29,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pcollections.HashTreePMap;
 
 public class TreeSitterStateIOTest {
+
+    private static final String CURRENT_SCHEMA_VERSION = "1.0"; // keep in sync with production format
 
     @Test
     void roundTripJavaAnalyzerState() throws Exception {
@@ -648,6 +652,10 @@ public class TreeSitterStateIOTest {
 
     @Test
     void deserializeLegacyStateWithComputedSupertypes(@TempDir Path tempDir) throws Exception {
+        // NOTE: Legacy Jackson/Smile snapshots (constructed below) do NOT include the new schema version header.
+        // The current TreeSitterStateIO intentionally treats such snapshots as incompatible and returns
+        // Optional.empty().
+        // This test constructs a legacy-style payload and verifies it is rejected.
         // Construct DTO components manually to simulate legacy structure
         var root = tempDir.toAbsolutePath().normalize();
         var pfDto = new TreeSitterStateIO.ProjectFileDto(root.toString(), "src/Test.java");
@@ -689,26 +697,18 @@ public class TreeSitterStateIOTest {
             mapper.writeValue(out, stateDtoMap);
         }
 
-        // Load using TreeSitterStateIO
+        // Load using TreeSitterStateIO - expected to be rejected because no version header present
         var loadedOpt = TreeSitterStateIO.load(file);
-        assertTrue(loadedOpt.isPresent(), "Should load legacy state successfully");
-        var loadedState = loadedOpt.get();
-
-        // Verify loaded content
-        assertEquals(1, loadedState.codeUnitState().size());
-        var loadedCu = loadedState.codeUnitState().keySet().iterator().next();
-        var loadedProps = loadedState.codeUnitState().get(loadedCu);
-
-        assertEquals("Test", loadedCu.shortName());
-        assertEquals(1, loadedProps.ranges().size());
-
-        // Verify TypeHierarchyGraph data is still present
-        var hierarchy = loadedState.typeHierarchyGraph();
-        assertTrue(hierarchy.supertypes().containsKey(loadedCu), "Hierarchy data should be loaded");
+        assertTrue(
+                loadedOpt.isEmpty(),
+                "Legacy Smile snapshot without version header should be treated as incompatible and rejected");
     }
 
     @Test
     void loadLegacyStateWithPerCodeUnitSupertypes(@TempDir Path tempDir) throws Exception {
+        // NOTE: Legacy Jackson/Smile snapshots (constructed below) do NOT include the new schema version header.
+        // The current TreeSitterStateIO intentionally treats such snapshots as incompatible and returns
+        // Optional.empty().
         Path out = tempDir.resolve("legacy_per_cu_supertypes.smile.gz");
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
@@ -741,11 +741,16 @@ public class TreeSitterStateIOTest {
         }
 
         var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent(), "Should successfully load state ignoring legacy supertype fields");
+        assertTrue(
+                loadedOpt.isEmpty(),
+                "Legacy Smile snapshot without version header should be treated as incompatible and rejected");
     }
 
     @Test
     void loadIgnoresLegacyRawSupertypesField(@TempDir Path tempDir) throws Exception {
+        // NOTE: Legacy Jackson/Smile snapshots (constructed below) do NOT include the new schema version header.
+        // The current TreeSitterStateIO intentionally treats such snapshots as incompatible and returns
+        // Optional.empty().
         Path out = tempDir.resolve("legacy_raw_supertypes.smile.gz");
 
         // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
@@ -779,6 +784,146 @@ public class TreeSitterStateIOTest {
         }
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isPresent(), "Should successfully load state even with unknown 'rawSupertypes' field");
+        assertTrue(
+                loaded.isEmpty(),
+                "Legacy Smile snapshot without version header should be treated as incompatible and rejected");
+    }
+
+    /*
+     * New tests exercising explicit schema version header behavior.
+     * These tests duplicate tiny portions of TreeSitterStateIO's read/write helpers
+     * so they can manipulate the on-disk payload without making production internals public.
+     */
+
+    private static void writeInt(java.io.OutputStream os, int v) throws java.io.IOException {
+        byte[] b = new byte[4];
+        b[0] = (byte) (v >>> 24);
+        b[1] = (byte) (v >>> 16);
+        b[2] = (byte) (v >>> 8);
+        b[3] = (byte) v;
+        os.write(b);
+    }
+
+    private static void writeString(java.io.OutputStream os, String s) throws java.io.IOException {
+        byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        writeInt(os, bytes.length);
+        os.write(bytes);
+    }
+
+    private static String readString(java.io.InputStream is) throws java.io.IOException {
+        int len = readInt(is);
+        if (len < 0) throw new java.io.IOException("Negative string length");
+        if (len == 0) return "";
+        byte[] bytes = readN(is, len);
+        return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static int readInt(java.io.InputStream is) throws java.io.IOException {
+        byte[] b = readN(is, 4);
+        return ((b[0] & 0xFF) << 24) | ((b[1] & 0xFF) << 16) | ((b[2] & 0xFF) << 8) | (b[3] & 0xFF);
+    }
+
+    private static byte[] readN(java.io.InputStream is, int n) throws java.io.IOException {
+        byte[] buf = new byte[n];
+        int off = 0;
+        while (off < n) {
+            int r = is.read(buf, off, n - off);
+            if (r < 0) throw new java.io.EOFException();
+            off += r;
+        }
+        return buf;
+    }
+
+    @Test
+    void testSchemaVersionHeaderRoundTrip(@TempDir Path tempDir) throws Exception {
+        // Build minimal DTO and save via TreeSitterStateIO
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
+        var original = TreeSitterStateIO.fromDto(dto);
+
+        Path out = tempDir.resolve("header_roundtrip.bin.gz");
+        TreeSitterStateIO.save(original, out);
+
+        // Read back the first string from the compressed payload and assert it equals expected schema version
+        byte[] raw = Files.readAllBytes(out);
+        try (var gis = new GZIPInputStream(new ByteArrayInputStream(raw))) {
+            var bis = new java.io.BufferedInputStream(gis);
+            String version = readString(bis);
+            assertEquals(
+                    CURRENT_SCHEMA_VERSION, version, "Saved payload should start with CURRENT_SCHEMA_VERSION header");
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Should successfully load state saved with current version header");
+        assertEquals(
+                TreeSitterStateIO.toDto(original),
+                TreeSitterStateIO.toDto(loadedOpt.get()),
+                "DTO after load should match original");
+    }
+
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "Writing raw gzip bytes can race with Windows file locks in CI")
+    @Test
+    void testLoadReturnsEmptyOnUnknownVersion(@TempDir Path tempDir) throws Exception {
+        // Create a valid saved file, then overwrite it with a payload that has a bad version header.
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 2L);
+        var state = TreeSitterStateIO.fromDto(dto);
+
+        Path out = tempDir.resolve("bad_version.bin.gz");
+        TreeSitterStateIO.save(state, out);
+
+        // Build a minimal gzip payload that contains an invalid version string and nothing else.
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            var bos = new java.io.BufferedOutputStream(os);
+            writeString(bos, "bad-version-0.0");
+            bos.flush();
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isEmpty(), "Files with unknown schema version should be treated as incompatible");
+    }
+
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "Flaky on Windows due to transient file locks")
+    @Test
+    void testLoadReturnsEmptyWhenVersionHeaderMissing(@TempDir Path tempDir) throws Exception {
+        // Create a gzip file with empty payload (no header)
+        Path out = tempDir.resolve("missing_header.bin.gz");
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            // write nothing
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(
+                loadedOpt.isEmpty(), "GZIP with empty payload (no version header) should be treated as incompatible");
+
+        // Also test with truncated/invalid header bytes (e.g., write an int length but not enough bytes)
+        Path out2 = tempDir.resolve("truncated_header.bin.gz");
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out2))) {
+            var bos = new java.io.BufferedOutputStream(os);
+            // write a (bogus) length that's larger than available data, then close
+            writeInt(bos, 1000);
+            bos.flush();
+        }
+
+        var loadedOpt2 = TreeSitterStateIO.load(out2);
+        assertTrue(loadedOpt2.isEmpty(), "GZIP with malformed/truncated header should be treated as incompatible");
+    }
+
+    @Test
+    void testLoadReturnsEmptyOnTruncatedAfterHeader(@TempDir Path tempDir) throws Exception {
+        // Write a payload with a correct version header but then truncate the remainder so parsing fails.
+        Path out = tempDir.resolve("truncated_after_header.bin.gz");
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            var bos = new java.io.BufferedOutputStream(os);
+            writeString(bos, CURRENT_SCHEMA_VERSION);
+            // Intentionally write nothing else (no symbolIndex etc.) so reader will fail when attempting to read
+            // further
+            bos.flush();
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(
+                loadedOpt.isEmpty(),
+                "Payload with correct header but truncated body should be treated as corrupt and rejected");
     }
 }
