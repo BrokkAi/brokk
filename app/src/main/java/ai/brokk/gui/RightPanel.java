@@ -396,7 +396,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             } else if (counts.incomplete() == 0) {
                 countLabel.setText(String.format("%d tasks done", counts.total()));
             } else {
-                countLabel.setText(String.format("%d (%d pending) tasks", counts.total(), counts.incomplete()));
+                countLabel.setText(String.format("%d tasks (%d pending)", counts.total(), counts.incomplete()));
             }
 
             // Apply selection colors
