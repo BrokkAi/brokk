@@ -1093,7 +1093,7 @@ public class BuildAgent {
         Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
 
         Map<String, Object> context = new HashMap<>();
-        // Mustache.java handles null or empty lists correctly for {{#section}} blocks.
+        // Mustache.java handles empty lists correctly for {{#section}} blocks (renders zero iterations).
         // Use StringElement wrapper that supports both {{.}} (via toString) and {{value}}/{{first}}/{{last}}/{{index}}
         context.put(listKey, toStringElementList(items));
         context.put("pyver", pythonVersion == null ? "" : pythonVersion);
