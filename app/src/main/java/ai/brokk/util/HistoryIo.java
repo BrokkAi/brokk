@@ -84,6 +84,7 @@ public final class HistoryIo {
      * 1. New format: Task list as a StringFragment in virtuals with description "Task List"
      * 2. Legacy format: Task list in a separate tasklist.json file
      */
+    @Blocking
     public static TaskCounts countIncompleteTasks(Path zip) throws IOException {
         if (!Files.exists(zip)) {
             return new TaskCounts(0, 0);
