@@ -693,11 +693,11 @@ public class BrokkDiffPanel extends JPanel
         }
 
         // Build resulting Context by adding any changed files that are not already editable in the top context
-        var top = contextManager.liveContext();
-        var resultingCtx = top.addFragments(contextManager.toPathFragments(changedFiles));
+        var resultingCtx = currentContext
+                .addFragments(contextManager.toPathFragments(changedFiles))
+                .addHistoryEntry(new ContextFragments.TaskFragment(contextManager, messages, actionDescription), null);
 
-        var result = TaskResult.humanResult(
-                contextManager, actionDescription, messages, resultingCtx, TaskResult.StopReason.SUCCESS);
+        var result = TaskResult.humanResult(actionDescription, resultingCtx, TaskResult.StopReason.SUCCESS);
 
         // Add a single history entry for the whole batch
         try (var scope = contextManager.beginTaskUngrouped(actionDescription)) {

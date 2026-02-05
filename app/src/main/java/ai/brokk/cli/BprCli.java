@@ -639,7 +639,7 @@ public final class BprCli implements Callable<Integer> {
                     }
                     var agent = new ArchitectAgent(cm, planModel, codeModel, architectPrompt, scope);
                     result = agent.execute();
-                    context = scope.append(result);
+                    scope.append(result);
                 } else if (codePrompt != null) {
                     // CodeAgent must use codemodel only
                     if (codeModel == null) {
@@ -648,14 +648,14 @@ public final class BprCli implements Callable<Integer> {
                     }
                     var agent = new CodeAgent(cm, codeModel);
                     result = agent.execute(codePrompt, Set.of());
-                    context = scope.append(result);
+                    scope.append(result);
                 } else if (askPrompt != null) {
                     if (codeModel == null) {
                         System.err.println("Error: --ask requires --codemodel to be specified.");
                         return 1;
                     }
                     result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
-                    context = scope.append(result);
+                    scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
                         System.err.println("Error: --merge requires --planmodel to be specified.");
@@ -679,7 +679,7 @@ public final class BprCli implements Callable<Integer> {
                     try {
                         result = mergeAgent.execute();
                         // Merge orchestrates planning and code models; TaskMeta is ambiguous here.
-                        context = scope.append(result);
+                        scope.append(result);
                     } catch (Exception e) {
                         io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
                         return 1;
@@ -698,7 +698,7 @@ public final class BprCli implements Callable<Integer> {
                             SearchPrompts.Objective.ANSWER_ONLY,
                             scope);
                     result = agent.execute();
-                    context = scope.append(result);
+                    scope.append(result);
                 } else if (build) {
                     String buildError = BuildAgent.runVerification(cm);
                     io.showNotification(
@@ -730,7 +730,7 @@ public final class BprCli implements Callable<Integer> {
 
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
                     var taskResult = cm.executeTask(task, planModel, codeModel);
-                    context = scope.append(taskResult);
+                    scope.append(taskResult);
                     result = taskResult;
                 } else { // lutzPrompt != null
                     if (planModel == null) {
@@ -749,7 +749,7 @@ public final class BprCli implements Callable<Integer> {
                             SearchPrompts.Objective.TASKS_ONLY,
                             scope);
                     result = agent.execute();
-                    context = scope.append(result);
+                    scope.append(result);
 
                     // Execute pending tasks sequentially
                     var tasksData = cm.getTaskList();
@@ -766,7 +766,7 @@ public final class BprCli implements Callable<Integer> {
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
 
                             var taskResult = cm.executeTask(task, planModel, codeModel);
-                            context = scope.append(taskResult);
+                            scope.append(taskResult);
                             result = taskResult; // Track last result for final status check
 
                             if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {

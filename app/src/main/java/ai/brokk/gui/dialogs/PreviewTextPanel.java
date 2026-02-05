@@ -1248,7 +1248,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         // and refreshing it so the history entry captures the new content on disk.
                         var ctx = cm.liveContext()
                                 .addFragments(cm.toPathFragments(List.of(file)))
-                                .copyAndRefresh(Set.of(file));
+                                .copyAndRefresh(Set.of(file))
+                                .addHistoryEntry(
+                                        messagesForHistory,
+                                        TaskResult.Type.CODE,
+                                        // TODO distinguish human edits from AI Quick Edits
+                                        cm.getService().quickEditModel(),
+                                        actionDescription);
 
                         // Determine TaskMeta only if there was LLM activity in quick edits.
                         TaskResult.TaskMeta meta = null;
@@ -1260,8 +1266,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             meta = new TaskResult.TaskMeta(TaskResult.Type.CODE, modelConfig);
                         }
 
-                        var saveResult = TaskResult.humanResult(
-                                cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
+                        var saveResult = TaskResult.humanResult(actionDescription, ctx, TaskResult.StopReason.SUCCESS);
                         try (var scope = cm.beginTaskUngrouped("File changed saved")) {
                             scope.append(saveResult);
                         }

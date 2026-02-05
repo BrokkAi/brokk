@@ -3,6 +3,7 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -215,12 +216,15 @@ public class ArchitectAgent {
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
+        var initialContext = context;
         var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        // Update local context with the CodeAgent's resulting context
-        var initialContext = context;
-        context = scope.append(result);
+        // Update architect context with the CodeAgent's resulting context
+        var mc = AbstractService.ModelConfig.from(codeModel, cm.getService());
+        context = context.addHistoryEntry(result.output(), new TaskResult.TaskMeta(TaskResult.Type.CODE, mc));
+        var trWithHistory = result.withContext(context);
+        scope.append(trWithHistory);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
 
@@ -350,7 +354,8 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-        context = scope.append(resultWithMessages(StopReason.SUCCESS, goal));
+        context = context.addHistoryEntry(messages, TaskResult.Type.ARCHITECT, planningModel, goal);
+        scope.append(resultWithMessages(StopReason.SUCCESS, goal));
     }
 
     @Tool(
@@ -536,7 +541,7 @@ public class ArchitectAgent {
 
         // Run Architect proper
         var archResult = this.execute();
-        context = scope.append(archResult);
+        scope.append(archResult);
         return archResult.withContext(context);
     }
 
@@ -782,17 +787,8 @@ public class ArchitectAgent {
                 if (baseSaResult != null) {
                     // Create a single history entry using the base SA's metadata/description,
                     // but with the combined context and the full transcript.
-                    var combinedResult = new TaskResult(
-                            cm,
-                            baseSaResult.actionDescription(),
-                            io.getLlmRawMessages(),
-                            combinedContext,
-                            baseSaResult.stopDetails(),
-                            Objects.requireNonNullElse(
-                                    baseSaResult.meta(),
-                                    new TaskResult.TaskMeta(
-                                            TaskResult.Type.SEARCH, ModelConfig.from(planningModel, cm.getService()))));
-                    context = scope.append(combinedResult);
+                    var combinedResult = new TaskResult(combinedContext, baseSaResult.stopDetails());
+                    scope.append(combinedResult);
                 }
 
                 // Reset batch size after all SAs are finished
@@ -985,14 +981,8 @@ public class ArchitectAgent {
     }
 
     private TaskResult codeAgentSuccessResult() {
-        // we've already added the code agent's result to history and we don't have anything extra to add to that here
-        return new TaskResult(
-                cm,
-                "Architect finished work for: " + goal,
-                io.getLlmRawMessages(),
-                context,
-                new TaskResult.StopDetails(StopReason.SUCCESS),
-                taskMeta());
+        // messages are alerady appended to context by callCodeaAgent
+        return new TaskResult(context, new TaskResult.StopDetails(StopReason.SUCCESS));
     }
 
     private TaskResult.TaskMeta taskMeta() {
@@ -1001,13 +991,8 @@ public class ArchitectAgent {
 
     private TaskResult resultWithMessages(StopReason reason, String message) {
         // include the messages we exchanged with the LLM for any planning steps since we ran a sub-agent
-        return new TaskResult(
-                cm,
-                message,
-                io.getLlmRawMessages(),
-                context,
-                new TaskResult.StopDetails(reason),
-                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
+        context = context.addHistoryEntry(io.getLlmRawMessages(), TaskResult.Type.ARCHITECT, planningModel, message);
+        return new TaskResult(context, new TaskResult.StopDetails(reason));
     }
 
     private TaskResult resultWithMessages(StopReason reason) {

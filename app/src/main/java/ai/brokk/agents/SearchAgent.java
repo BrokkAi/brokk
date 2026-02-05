@@ -322,7 +322,6 @@ public class SearchAgent {
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.LLM_CONTEXT_SIZE,
                                         "Context limit exceeded before search started"),
-                                taskMeta(),
                                 currentState.context());
                     }
 
@@ -336,7 +335,6 @@ public class SearchAgent {
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.LLM_CONTEXT_SIZE,
                                         "Context limit exceeded, but no fragments are droppable after restoring to the last checkpoint; cannot recover by pruning."),
-                                taskMeta(),
                                 currentState.context());
                     }
 
@@ -564,7 +562,6 @@ public class SearchAgent {
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.SCAN, Service.ModelConfig.from(scanModel, cm.getService()));
 
         if (recommendation.success() && !recommendation.fragments().isEmpty()) {
             var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
@@ -595,10 +592,8 @@ public class SearchAgent {
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
 
-        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta, context);
-        context = (scanConfig.appendToScope() && scope != null)
-                ? scope.append(contextAgentResult)
-                : contextAgentResult.context();
+        var contextAgentResult = createResult(context);
+        context = contextAgentResult.context();
 
         currentState = currentState.withContext(context);
         return currentState.context();
@@ -713,7 +708,7 @@ public class SearchAgent {
                     }
                     agent.io.showNotification(
                             IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details.explanation());
-                    return new TurnOutcome.Final(agent.errorResult(details, agent.taskMeta(), context));
+                    return new TurnOutcome.Final(agent.errorResult(details, context));
                 }
 
                 var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
@@ -734,7 +729,6 @@ public class SearchAgent {
                     return new TurnOutcome.Final(agent.errorResult(
                             new TaskResult.StopDetails(
                                     TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."),
-                            agent.taskMeta(),
                             context));
                 }
 
@@ -772,7 +766,7 @@ public class SearchAgent {
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                         var details =
                                 new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
-                        return new TurnOutcome.Final(agent.errorResult(details, agent.taskMeta(), context));
+                        return new TurnOutcome.Final(agent.errorResult(details, context));
                     }
 
                     ToolExecutionResult finalResult = toolResult;
@@ -811,9 +805,11 @@ public class SearchAgent {
                         return new TurnOutcome.Final(agent.errorResult(
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.TOOL_ERROR,
-                                        "Terminal tool '" + terminalRequest.name() + "' failed: "
-                                                + termExec.resultText()),
-                                agent.taskMeta(),
+                                        "Terminal tool '%s' failed with status %s: %s"
+                                                .formatted(
+                                                        terminalRequest.name(),
+                                                        termExec.status(),
+                                                        termExec.resultText())),
                                 context));
                     }
 
@@ -1002,8 +998,8 @@ public class SearchAgent {
                 throw new ToolRegistry.FatalLlmException("Cannot call Code Agent without a valid Task Scope.");
             }
 
-            var searchResult = agent.createResult("Search: " + agent.goal, agent.goal, context);
-            context = agent.scope.append(searchResult);
+            var searchResult = agent.createResult(context);
+            agent.scope.append(searchResult);
 
             logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
 
@@ -1018,7 +1014,7 @@ public class SearchAgent {
             var result = architect.execute();
             var stopDetails = result.stopDetails();
             var reason = stopDetails.reason();
-            context = agent.scope.append(result);
+            agent.scope.append(result);
 
             if (reason == TaskResult.StopReason.SUCCESS) {
                 new GitWorkflow(agent.cm).performAutoCommit(instructions);
@@ -1042,35 +1038,30 @@ public class SearchAgent {
         }
     }
 
-    private TaskResult createResult(String action, String goal, Context context) {
-        return createResult(action, goal, taskMeta(), context);
-    }
-
-    private TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta, Context context) {
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
+    private TaskResult createResult(Context context) {
+        context = appendRawMessagesToHistory(context);
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-        var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
-
         recordFinalWorkspaceState(context);
         metrics.recordOutcome(stopDetails.reason(), workspaceFiles(context).size());
 
-        return new TaskResult(action, fragment, context, stopDetails, meta);
+        return new TaskResult(context, stopDetails);
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details) {
-        return errorResult(details, null, currentState.context());
+        return errorResult(details, currentState.context());
     }
 
-    private TaskResult errorResult(
-            TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta, Context context) {
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
-        String action = "Search: " + goal + " [" + details.reason().name() + "]";
-        var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
+    private TaskResult errorResult(TaskResult.StopDetails details, Context context) {
+        context = appendRawMessagesToHistory(context);
 
         recordFinalWorkspaceState(context);
         metrics.recordOutcome(details.reason(), workspaceFiles(context).size());
 
-        return new TaskResult(action, fragment, context, details, meta);
+        return new TaskResult(context, details);
+    }
+
+    private Context appendRawMessagesToHistory(Context context) {
+        return context.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.SEARCH, model, goal);
     }
 
     private void recordFinalWorkspaceState(Context context) {
@@ -1296,10 +1287,9 @@ public class SearchAgent {
             return errorResult(
                     new TaskResult.StopDetails(
                             TaskResult.StopReason.LLM_ABORTED, "Aborted: " + pendingTerminal.resultText()),
-                    taskMeta(),
                     context);
         }
-        return createResult(pendingTerminal.toolName(), goal, context);
+        return createResult(context);
     }
 
     private boolean shouldSummarize(String toolName) {

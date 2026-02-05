@@ -1807,6 +1807,10 @@ public class ContextFragments {
             this(id, contextManager, messages, description, true);
         }
 
+        public TaskFragment(IContextManager contextManager, String description) {
+            this(contextManager, contextManager.getIo().getLlmRawMessages(), description, true);
+        }
+
         public TaskFragment(
                 String id,
                 IContextManager contextManager,

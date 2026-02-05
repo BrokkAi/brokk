@@ -11,6 +11,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.Messages;
@@ -38,12 +39,16 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.jetbrains.annotations.Nullable;
 
 /** Core engine for parallel "BlitzForge" style processing of files. GUI-agnostic and reusable. */
 public final class BlitzForge {
 
     private static final Logger logger = LogManager.getLogger(BlitzForge.class);
+
+    @MonotonicNonNull
+    private Context snapshot;
 
     /** How much of the per-file output to include in the aggregated result. */
     public enum ParallelOutputMode {
@@ -101,10 +106,6 @@ public final class BlitzForge {
         return new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(model, service));
     }
 
-    public TaskResult.TaskMeta taskMeta() {
-        return createTaskMeta(config.model(), service);
-    }
-
     /**
      * Execute a set of per-file tasks in parallel, using AdaptiveExecutor token-aware scheduling when possible. The
      * provided processor should be thread-safe.
@@ -121,24 +122,20 @@ public final class BlitzForge {
                 "BlitzForge.executeParallel start: totalFiles={}, thread={}",
                 files.size(),
                 Thread.currentThread().getName());
+        snapshot = new Context(cm).addFragments(cm.toPathFragments(files));
         listener.onStart(files.size());
 
         if (files.isEmpty()) {
             // No files -> produce an empty successful TaskResult whose resultingContext is the current top context
-            var emptyResult = new TaskResult(
-                    cm,
-                    config.instructions(),
-                    List.of(),
-                    cm.liveContext(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                    taskMeta());
+            var emptyResult =
+                    new TaskResult(cm.liveContext(), new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
             listener.onComplete(emptyResult);
             return emptyResult;
         }
 
         // Sort by on-disk size ascending (smallest first)
         var sortedFiles = files.stream()
-                .sorted(Comparator.comparingLong(file -> BlitzForge.fileSize(file)))
+                .sorted(Comparator.comparingLong(BlitzForge::fileSize))
                 .toList();
         // Notify listener of the initial queue ordering
         listener.onQueued(sortedFiles);
@@ -154,23 +151,20 @@ public final class BlitzForge {
         }
         executor = new LoggingExecutorService(executor, th -> GlobalExceptionHandler.handle(th, st -> {}));
 
-        int processedCount = 0;
         var results = new ArrayList<FileResult>(files.size());
 
         try {
             // Warm-up: if sharedContext is non-empty, process the first (smallest) file synchronously to "prime"
-            // any
-            // server caches
+            // any server caches
             int startIdx = 0;
             if (!config.sharedContext().get().isBlank()) {
                 var first = sortedFiles.getFirst();
                 listener.onFileStart(first);
                 if (Thread.currentThread().isInterrupted()) {
-                    return interruptedResult(processedCount, files);
+                    return interruptedResult(files);
                 }
                 var fr = processor.apply(first);
                 results.add(fr);
-                ++processedCount;
                 listener.onFileResult(fr.file(), fr.edited(), fr.errorMessage(), fr.llmOutput());
                 startIdx = 1;
             }
@@ -218,7 +212,7 @@ public final class BlitzForge {
             for (int i = 0; i < pending; i++) {
                 if (Thread.currentThread().isInterrupted()) {
                     logger.debug("BlitzForge.executeParallel main thread interrupted during collection");
-                    return interruptedResult(processedCount, files);
+                    return interruptedResult(files);
                 }
 
                 Future<FileResult> fut;
@@ -227,25 +221,23 @@ public final class BlitzForge {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     logger.debug("BlitzForge.executeParallel interrupted while taking from completion service");
-                    return interruptedResult(processedCount, files);
+                    return interruptedResult(files);
                 }
 
                 try {
                     var res = fut.get();
                     results.add(res);
-                    ++processedCount;
                     listener.onFileResult(res.file(), res.edited(), res.errorMessage(), res.llmOutput());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     logger.debug("BlitzForge.executeParallel interrupted while getting result");
-                    return interruptedResult(processedCount, files);
+                    return interruptedResult(files);
                 } catch (ExecutionException e) {
                     var cause = e.getCause() == null ? e : e.getCause();
                     logger.error("Error during file processing", cause);
                     var source = requireNonNull(futureFiles.get(fut));
                     var failure = new FileResult(source, false, "Execution error: " + cause.getMessage(), "");
                     results.add(failure);
-                    ++processedCount;
                     listener.onFileResult(source, false, failure.errorMessage(), "");
                 }
             }
@@ -292,13 +284,14 @@ public final class BlitzForge {
 
         // Build a resulting Context that represents the current topContext with any changed files added as editable
         var resultingCtx = cm.liveContext().addFragments(cm.toPathFragments(changedFiles));
-        var finalResult = new TaskResult(cm, config.instructions(), uiMessages, resultingCtx, sd, taskMeta());
+        resultingCtx = resultingCtx.addHistoryEntry(
+                uiMessages, TaskResult.Type.BLITZFORGE, config.model(), config.instructions());
+        var finalResult = new TaskResult(resultingCtx, sd);
 
         logger.debug(
-                "BlitzForge.executeParallel delivering onComplete: reason={}, processed={}/{}, thread={}",
+                "BlitzForge.executeParallel delivering onComplete: reason={}, processed={}, thread={}",
                 finalResult.stopDetails().reason(),
-                processedCount,
-                files.size(),
+                results.size(),
                 Thread.currentThread().getName());
         listener.onComplete(finalResult);
         return finalResult;
@@ -312,10 +305,16 @@ public final class BlitzForge {
         }
     }
 
-    private TaskResult interruptedResult(int processed, Collection<ProjectFile> files) {
-        logger.debug("BlitzForge interrupted: processed {} of {}", processed, files.size());
+    private TaskResult interruptedResult(Collection<ProjectFile> files) {
+        ContextHistory.applySnapshotToWorkspace(requireNonNull(snapshot), cm.getIo());
+        logger.debug("BlitzForge interrupted: total files {}", files.size());
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
-        var tr = new TaskResult(cm, config.instructions(), List.of(), cm.liveContext(), sd, taskMeta());
+        var ctx = snapshot.addHistoryEntry(
+                List.of(new UserMessage(config.instructions), new AiMessage("BlitzForge cancelled by user")),
+                TaskResult.Type.BLITZFORGE,
+                config.model(),
+                config.instructions());
+        var tr = new TaskResult(ctx, sd);
         listener.onComplete(tr);
         return tr;
     }

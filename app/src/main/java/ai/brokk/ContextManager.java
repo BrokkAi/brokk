@@ -20,7 +20,6 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.concurrent.UserActionManager;
 import ai.brokk.concurrent.UserActionManager.ThrowingRunnable;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextFragments.PathFragment;
@@ -1651,7 +1650,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var newLiveContext = ch.push(contextGenerator);
         if (oldLiveContext.equals(newLiveContext)) {
             // No change occurred
-            return newLiveContext;
+            return oldLiveContext;
         }
 
         contextPushed(ch, newLiveContext);
@@ -2213,64 +2212,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
          * @param result   The TaskResult to append.
          */
         @Blocking
-        public Context append(TaskResult result) throws InterruptedException {
-            assert !closed.get() : "TaskScope already closed";
-
-            // If interrupted before any LLM output, skip
-            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
-                    && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
-                logger.debug("Command cancelled before LLM responded — skipping publish");
-                return result.context();
-            }
-
-            // If there is literally nothing to record (no messages and no content changes)
-            if (result.output().messages().isEmpty()) {
-                // Treat result.context() as new (right) and current topContext() as old (left)
-                Context other = liveContext();
-                var delta = ContextDelta.between(result.context(), other).join();
-                if (delta.isEmpty()) {
-                    logger.debug("Empty TaskResult delta, skipping publish");
-                    return result.context();
-                } else {
-                    // This is the "content-only change, no messages" path.
-                    // We record the checkpoint but skip conversation history.
-                    return publish(result.context());
-                }
-            }
-
-            assert !closed.get() : "TaskScope already closed";
-            // push context
-            logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
-            var updated = result.context();
-            TaskEntry entry = updated.createTaskEntry(result);
-            var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(entry);
-            });
-
-            if (group) {
-                UUID contextId = updatedContext.id();
-                // UI-level session locking should keep contextHistory stable between push and add-to-group
-                contextHistory.addContextToGroup(contextId, groupId, groupLabel);
-            }
+        // TODO this should just take a Context now
+        public void append(TaskResult result) throws InterruptedException {
+            publish(result.context());
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
-            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
-
-            return updatedContext;
+            io.prepareOutputForNextStream(result.context().getTaskHistory());
         }
 
         /**
          * Publishes an intermediate Context snapshot to history without finalizing a TaskResult.
          * This allows capturing checkpoints during long-running tasks.
          */
-        public Context publish(Context context) {
+        public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
             var newId = pushContext(currentLiveCtx -> context).id();
             if (group) {
                 contextHistory.addContextToGroup(newId, groupId, groupLabel);
             }
-            return context;
         }
 
         public Context compressTop() {
@@ -2319,14 +2279,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         @Override
-        public Context append(TaskResult result) throws InterruptedException {
-            return result.context();
-        }
+        public void append(TaskResult result) throws InterruptedException {}
 
         @Override
-        public Context publish(Context context) {
-            return context;
-        }
+        public void publish(Context context) {}
 
         @Override
         public void closeInternal() {}

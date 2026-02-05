@@ -2,6 +2,7 @@ package ai.brokk.context;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -18,6 +19,8 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import java.time.Duration;
 import java.util.*;
 import java.util.ArrayList;
@@ -692,11 +695,24 @@ public class Context {
      * @return a new context containing the union of fragments from both contexts
      */
     public Context union(Context other) {
-        if (this.fragments.isEmpty()) {
+        if (this.fragments.isEmpty() && this.taskHistory.isEmpty()) {
             return other;
         }
 
-        return this.addFragments(other.allFragments().toList());
+        Context result = this.addFragments(other.allFragments().toList());
+
+        // Merge task history, deduplicated by sequence and preserved in order
+        var mergedHistory = new ArrayList<>(this.taskHistory);
+        var existingSequences =
+                this.taskHistory.stream().map(TaskEntry::sequence).collect(Collectors.toSet());
+
+        other.taskHistory.stream()
+                .filter(entry -> !existingSequences.contains(entry.sequence()))
+                .forEach(mergedHistory::add);
+
+        mergedHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
+
+        return result.withHistory(mergedHistory);
     }
 
     /**
@@ -902,5 +918,19 @@ public class Context {
                 cf.await(Duration.ofMillis(remainingMillis));
             }
         }
+    }
+
+    public Context addHistoryEntry(
+            List<ChatMessage> rawMessages, TaskResult.Type type, StreamingChatModel model, String instructions) {
+        var mc = AbstractService.ModelConfig.from(model, contextManager.getService());
+        return addHistoryEntry(new TaskEntry(
+                getTaskHistory().size(),
+                new ContextFragments.TaskFragment(contextManager, rawMessages, instructions),
+                null,
+                new TaskResult.TaskMeta(type, mc)));
+    }
+
+    public Context addHistoryEntry(ContextFragments.TaskFragment tf, @Nullable TaskResult.TaskMeta meta) {
+        return addHistoryEntry(new TaskEntry(getTaskHistory().size(), tf, null, meta));
     }
 }

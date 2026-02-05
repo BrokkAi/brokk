@@ -7,6 +7,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
@@ -36,7 +37,8 @@ class CodePromptsGetHistoryMessagesTest {
 
         var entryMessages = List.<ChatMessage>of(user, aiWithTools, toolResult, finalAi);
 
-        var entry = TaskEntry.from(cm, entryMessages, "test task");
+        var fragment = new ContextFragments.TaskFragment(cm, entryMessages, "test task");
+        var entry = new TaskEntry(-1, fragment, null);
         var entryMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-A"));
         entry = new TaskEntry(entry.sequence(), entry.log(), entry.summary(), entryMeta);
 
@@ -80,7 +82,8 @@ class CodePromptsGetHistoryMessagesTest {
 
         var entryMessages = List.<ChatMessage>of(user, aiWithTools, toolResult, finalAi);
 
-        var entry = TaskEntry.from(cm, entryMessages, "test task");
+        var fragment = new ContextFragments.TaskFragment(cm, entryMessages, "test task");
+        var entry = new TaskEntry(-1, fragment, null);
         var entryMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-A"));
         entry = new TaskEntry(entry.sequence(), entry.log(), entry.summary(), entryMeta);
 

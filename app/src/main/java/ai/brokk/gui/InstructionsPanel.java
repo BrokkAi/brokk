@@ -1811,14 +1811,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // construct TaskResult
         requireNonNull(stop);
-        var resultingCtx = cm.liveContext();
+
+        var resultingCtx = cm.liveContext()
+                .addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.ASK, llm.getModel(), question);
         return new TaskResult(
-                cm,
-                question,
-                List.copyOf(cm.getIo().getLlmRawMessages()),
-                resultingCtx, // Ask never changes files; use current live context
-                stop,
-                meta);
+                resultingCtx, // Ask never changes files; use current live context (plus the task history entry)
+                stop);
     }
 
     // --- Action Handlers ---

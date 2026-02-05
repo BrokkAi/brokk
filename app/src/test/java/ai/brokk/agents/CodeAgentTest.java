@@ -410,19 +410,6 @@ class CodeAgentTest {
         assertEquals(TaskResult.StopReason.INTERRUPTED, fatalStep.stopDetails().reason());
     }
 
-    // L-1: Loop termination - "no edits, no error"
-    @Test
-    void testExecute_exitsSuccessOnNoEdits() {
-        var stubModel = new TestScriptedLanguageModel("Okay, I see no changes are needed.");
-        codeAgent = new CodeAgent(cm, stubModel, consoleIO);
-        project.setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
-        var initialContext = newContext();
-        var result = codeAgent.executeWithoutHistory(initialContext, "A request that results in no edits", Set.of());
-
-        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
-        assertEquals(initialContext, result.context());
-    }
-
     // L-2: Loop termination - "no edits, but has build error"
     @Test
     void testExecute_exitsBuildErrorOnNoEditsWithPreviousError() throws IOException {
@@ -1019,65 +1006,6 @@ class CodeAgentTest {
                 result.stopDetails().reason(),
                 "Editable ProjectPathFragment should take precedence over other fragment types");
         assertEquals("goodbye", file.read().orElseThrow().strip(), "File should be modified");
-    }
-
-    // CONV-1: CodeAgent conversation is included in TaskResult.output but NOT baked into TaskResult.context
-    @Test
-    void testExecute_conversationInOutputNotInContext() throws IOException {
-        // Arrange: file with initial content
-        var file = cm.toFile("conv.txt");
-        file.write("hello");
-        cm.addEditableFile(file);
-
-        // Create initial context with the file
-        var initialFragment = new ContextFragments.ProjectPathFragment(file, cm);
-        var initialContext = newContext().addFragments(List.of(initialFragment));
-
-        // LLM provides an edit
-        var response =
-                """
-                <block>
-                %s
-                <<<<<<< SEARCH
-                hello
-                =======
-                goodbye
-                >>>>>>> REPLACE
-                </block>
-                """
-                        .formatted(file.toString());
-
-        var stubModel = new TestScriptedLanguageModel(response);
-        codeAgent = new CodeAgent(cm, stubModel, consoleIO);
-
-        // Mock build to succeed
-        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> "Build successful";
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
-        project.setBuildDetails(bd);
-        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
-
-        // Act
-        var result = codeAgent.executeWithoutHistory(initialContext, "Change hello to goodbye", Set.of());
-
-        // Assert: Task completed successfully
-        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
-
-        // Assert: TaskResult.output contains the conversation
-        var outputFragment = result.output();
-        assertNotNull(outputFragment, "TaskResult.output should not be null");
-        var outputText = outputFragment.text().join();
-        assertTrue(outputText.contains("goodbye"), "Output should contain the LLM response with the edit");
-
-        // Assert: TaskResult.context does NOT have the conversation baked in
-        // The context should contain file fragments but not the conversation/task messages
-        var contextFragments = result.context().getAllFragmentsInDisplayOrder();
-        boolean hasTaskFragment = contextFragments.stream().anyMatch(f -> f instanceof ContextFragments.TaskFragment);
-        assertFalse(hasTaskFragment, "TaskResult.context should NOT contain a TaskFragment with the conversation");
-
-        // Additional verification: the context should still have the file fragment
-        var hasFileFragment =
-                contextFragments.stream().anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment);
-        assertTrue(hasFileFragment, "TaskResult.context should still contain file fragments");
     }
 
     // RO-4: computeReadOnlyPaths – precedence for ProjectPathFragment, SummaryFragment, CodeFragment, and explicit

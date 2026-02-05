@@ -33,14 +33,9 @@ public record TaskEntry(
         assert summary == null || !summary.isEmpty() : "summary must not be empty when present";
     }
 
-    // Backward-compatible overload for existing call-sites (pre-meta)
+    // Some call sites "forge" a TaskEntry where no task existed. This is a smell but for now we allow it.
     public TaskEntry(int sequence, @Nullable ContextFragments.TaskFragment log, @Nullable String summary) {
         this(sequence, log, summary, null);
-    }
-
-    public static TaskEntry from(IContextManager cm, List<ChatMessage> messages, String description) {
-        var fragment = new ContextFragments.TaskFragment(cm, messages, description);
-        return new TaskEntry(-1, fragment, null, null);
     }
 
     /**
@@ -78,8 +73,6 @@ public record TaskEntry(
      * its content is stored as the `description`. The remaining messages (AI responses, tool calls/results) are stored
      * in the `log`. The TaskEntry starts uncompressed.
      */
-    // IContextManager is not needed here, TaskFragment itself will get it via SessionResult.output()
-    // which is created with a contextManager in the agents
     public static TaskEntry fromSession(int sequence, TaskResult result) {
         return new TaskEntry(sequence, result.output(), null, result.meta());
     }
