@@ -268,7 +268,6 @@ public final class HistoryIo {
                                 taskDtosById,
                                 mgr,
                                 imageBytesMap,
-                                fragmentCache,
                                 contentReader);
                     } catch (Exception e) {
                         logger.error("Error resolving and building fragment for ID {}: {}", currentId, e);

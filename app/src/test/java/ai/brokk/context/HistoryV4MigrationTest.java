@@ -226,11 +226,7 @@ class HistoryV4MigrationTest {
         } else if ("v3-history-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
-            assertEquals(1, ctx.allFragments().count());
-            var hf = findFragment(ctx, ContextFragments.HistoryFragment.class, f -> true);
-            assertNotNull(hf);
-            assertTrue(hf.description().join().startsWith("Conversation"));
-            assertFalse(hf.entries().isEmpty());
+            assertEquals(0, ctx.allFragments().count());
         } else if ("v3-pastetext-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();

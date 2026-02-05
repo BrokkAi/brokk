@@ -75,6 +75,10 @@ public class Context {
             List<TaskEntry> taskHistory,
             Set<ContextFragment> markedReadonlyFragments,
             Set<ContextFragment> pinnedFragments) {
+        for (var cf : fragments) {
+            // TODO make a sealed interface for `fragments`
+            assert !(cf instanceof HistoryFragment);
+        }
         for (var cf : markedReadonlyFragments) {
             assert fragments.contains(cf);
         }

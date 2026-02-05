@@ -807,32 +807,6 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testRoundTripHistoryFragment() throws Exception {
-        var taskMessages = List.<ChatMessage>of(UserMessage.from("Task user"), AiMessage.from("Task AI"));
-        var taskFragment = new ContextFragments.TaskFragment(mockContextManager, taskMessages, "Test Task Log");
-        var taskEntry = new TaskEntry(1, taskFragment, null);
-        var fragment = new ContextFragments.HistoryFragment(mockContextManager, List.of(taskEntry));
-
-        var context = new Context(mockContextManager).addFragments(fragment);
-        ContextHistory originalHistory = new ContextHistory(context);
-
-        Path zipFile = tempDir.resolve("test_history_frag_history.zip");
-        HistoryIo.writeZip(originalHistory, zipFile);
-        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
-
-        assertContextsEqual(
-                originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
-        Context loadedCtx = loadedHistory.getHistory().get(0);
-        var loadedFragment = (ContextFragments.HistoryFragment) loadedCtx
-                .allFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
-                .findFirst()
-                .orElseThrow();
-        assertEquals(1, loadedFragment.entries().size());
-        assertTaskEntriesEqual(taskEntry, loadedFragment.entries().get(0));
-    }
-
-    @Test
     void testRoundTripPasteTextFragment() throws Exception {
         var fragment = new ContextFragments.PasteTextFragment(
                 mockContextManager,
