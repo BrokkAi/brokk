@@ -95,7 +95,6 @@ public final class HistoryIo {
         int aiResponseCount = 0;
         String lastContextLine = null;
         byte[] fragmentsBytes = null;
-        byte[] legacyTaskListBytes = null;
 
         try (var zipFile = new ZipFile(zip.toFile())) {
             // Read contexts.jsonl
@@ -134,14 +133,6 @@ public final class HistoryIo {
                 }
             }
 
-            // Read legacy tasklist if present
-            var legacyEntry = zipFile.getEntry(LEGACY_TASKLIST_FILENAME);
-            if (legacyEntry != null) {
-                try (var is = zipFile.getInputStream(legacyEntry)) {
-                    legacyTaskListBytes = is.readAllBytes();
-                }
-            }
-
             // Determine taskListContentId from fragments + last context,
             // then read ONLY that single content entry
             TaskCounts taskCounts;
@@ -158,15 +149,13 @@ public final class HistoryIo {
                     } else {
                         taskCounts = new TaskCounts(0, 0);
                     }
-                } else if (legacyTaskListBytes != null) {
-                    taskCounts = countTasksFromLegacyJson(legacyTaskListBytes);
                 } else {
-                    taskCounts = new TaskCounts(0, 0);
+                    // New format not found, try legacy tasklist.json
+                    taskCounts = readLegacyTaskCounts(zipFile);
                 }
-            } else if (legacyTaskListBytes != null) {
-                taskCounts = countTasksFromLegacyJson(legacyTaskListBytes);
             } else {
-                taskCounts = new TaskCounts(0, 0);
+                // No context/fragments, try legacy tasklist.json
+                taskCounts = readLegacyTaskCounts(zipFile);
             }
 
             return new SessionCounts(aiResponseCount, taskCounts);
@@ -185,6 +174,16 @@ public final class HistoryIo {
     @Blocking
     public static TaskCounts countIncompleteTasks(Path zip) throws IOException {
         return countSessionStats(zip).tasks();
+    }
+
+    private static TaskCounts readLegacyTaskCounts(ZipFile zipFile) throws IOException {
+        var legacyEntry = zipFile.getEntry(LEGACY_TASKLIST_FILENAME);
+        if (legacyEntry == null) {
+            return new TaskCounts(0, 0);
+        }
+        try (var is = zipFile.getInputStream(legacyEntry)) {
+            return countTasksFromLegacyJson(is.readAllBytes());
+        }
     }
 
     /**
@@ -251,9 +250,6 @@ public final class HistoryIo {
         try {
             var taskListData = objectMapper.readValue(taskListJson, TaskList.TaskListData.class);
             var tasks = taskListData.tasks();
-            if (tasks == null) {
-                return new TaskCounts(0, 0);
-            }
             int total = (int) tasks.stream().filter(Objects::nonNull).count();
             int incomplete = (int) tasks.stream()
                     .filter(Objects::nonNull)
