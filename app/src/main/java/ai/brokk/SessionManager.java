@@ -623,6 +623,22 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Counts both AI responses and tasks for a session in a single pass.
+     * More efficient than calling countAiResponses() and countIncompleteTasks() separately.
+     * Returns SessionCounts with both AI response count and task counts.
+     */
+    @Blocking
+    public HistoryIo.SessionCounts countSessionStats(UUID sessionId) {
+        try {
+            Path zipPath = resolveSessionHistoryZipPath(sessionId);
+            return HistoryIo.countSessionStats(zipPath);
+        } catch (IOException e) {
+            logger.warn("Failed to count session stats for session {}", sessionId, e);
+            return new HistoryIo.SessionCounts(0, new HistoryIo.TaskCounts(0, 0));
+        }
+    }
+
     @Blocking
     @Nullable
     public ContextHistory loadHistoryAndRefresh(UUID sessionId, IContextManager contextManager) {
