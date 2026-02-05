@@ -100,10 +100,17 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Fetches the user's balance for the given Brokk API key.
+     * Fetches the user's balance and subscription status for the given Brokk API key.
+     * This is the preferred method when you need both balance and subscription info,
+     * as it avoids duplicate network calls.
+     *
+     * @param key the Brokk API key
+     * @return BalanceInfo containing balance and subscription status
+     * @throws IllegalArgumentException if key is malformed or unauthorized
+     * @throws IOException if network error or unexpected response format
      */
     @Blocking
-    public static float getUserBalance(String key) throws IOException {
+    public static BalanceInfo getBalanceInfo(String key) throws IOException {
         parseKey(key); // Throws IllegalArgumentException if key is malformed
 
         String url = MainProject.getServiceUrl() + "/api/payments/balance-lookup/" + key;
@@ -119,15 +126,32 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             String responseBody = response.body() != null ? response.body().string() : "";
             var objectMapper = new ObjectMapper();
             JsonNode rootNode = objectMapper.readTree(responseBody);
+
+            float balance;
             if (rootNode.has("available_balance")
                     && rootNode.get("available_balance").isNumber()) {
-                return rootNode.get("available_balance").floatValue();
+                balance = rootNode.get("available_balance").floatValue();
             } else if (rootNode.isNumber()) {
-                return rootNode.floatValue();
+                balance = rootNode.floatValue();
             } else {
                 throw new IOException("Unexpected balance response format: " + responseBody);
             }
+
+            // Extract is_subscribed; default to false if missing or not a boolean
+            boolean isSubscribed = false;
+            if (rootNode.has("is_subscribed") && rootNode.get("is_subscribed").isBoolean()) {
+                isSubscribed = rootNode.get("is_subscribed").asBoolean();
+            }
+
+            return new BalanceInfo(balance, isSubscribed);
         }
+    }
+
+    /**
+     * Fetches the user's balance for the given Brokk API key.
+     */
+    public static float getUserBalance(String key) throws IOException {
+        return getBalanceInfo(key).balance();
     }
 
     /**
@@ -451,6 +475,108 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             String responseBody = response.body() != null ? response.body().string() : "{}";
             LogManager.getLogger(Service.class).debug("Exception reported successfully to server: {}", responseBody);
             return objectMapper.readTree(responseBody);
+        }
+    }
+
+    /**
+     * Forwards OAuth callback parameters to the Brokk backend for Codex OAuth flow.
+     *
+     * @param callbackParams The query parameters received from the OAuth callback
+     * @param verifier The PKCE code_verifier for this authorization attempt
+     * @return null on success (2xx response), or an error message on failure
+     */
+    @Nullable
+    public static String forwardCodexOauthCallbackToBackend(Map<String, String> callbackParams, String verifier) {
+        String brokkKey = MainProject.getBrokkKey();
+
+        var urlBuilder = new StringBuilder(MainProject.getServiceUrl());
+        urlBuilder.append("/api/auth/codex-oauth/callback?");
+
+        var queryParams = new StringBuilder();
+        for (var entry : callbackParams.entrySet()) {
+            if (!queryParams.isEmpty()) {
+                queryParams.append("&");
+            }
+            queryParams
+                    .append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
+                    .append("=")
+                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+        }
+
+        if (!queryParams.isEmpty()) {
+            queryParams.append("&");
+        }
+        queryParams.append("code_verifier=").append(URLEncoder.encode(verifier, StandardCharsets.UTF_8));
+
+        urlBuilder.append(queryParams);
+
+        String url = urlBuilder.toString();
+        LogManager.getLogger(Service.class)
+                .debug("Forwarding OAuth callback to backend: {}", url.replaceAll("code=[^&]+", "code=***"));
+
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer " + brokkKey)
+                .get()
+                .build();
+
+        try (Response response = BrokkHttp.execute(request)) {
+            int statusCode = response.code();
+            String responseBody = response.body() != null ? response.body().string() : "";
+
+            if (response.isSuccessful()) {
+                LogManager.getLogger(Service.class).info("Backend OAuth call succeeded: status={}", statusCode);
+                return null;
+            } else {
+                String truncatedBody =
+                        responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody;
+                LogManager.getLogger(Service.class)
+                        .warn("Backend OAuth call failed: status={}, body={}", statusCode, truncatedBody);
+                return "Backend authentication failed (HTTP " + statusCode + ")";
+            }
+        } catch (IOException e) {
+            LogManager.getLogger(Service.class).error("Failed to call backend OAuth endpoint", e);
+            return "Failed to communicate with Brokk backend: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Disconnects the OpenAI Codex OAuth authorization by calling the backend DELETE endpoint.
+     *
+     * @return null on success (2xx response), or an error message on failure
+     */
+    @Nullable
+    public static String disconnectCodexOauth() {
+        String brokkKey = MainProject.getBrokkKey();
+
+        String url = MainProject.getServiceUrl() + "/api/auth/codex-oauth/authorization";
+
+        LogManager.getLogger(Service.class).debug("Disconnecting OpenAI Codex OAuth via DELETE {}", url);
+
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer " + brokkKey)
+                .delete()
+                .build();
+
+        try (Response response = BrokkHttp.execute(request)) {
+            int statusCode = response.code();
+            String responseBody = response.body() != null ? response.body().string() : "";
+
+            if (response.isSuccessful()) {
+                LogManager.getLogger(Service.class)
+                        .info("OpenAI Codex OAuth disconnected successfully: status={}", statusCode);
+                return null;
+            } else {
+                String truncatedBody =
+                        responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody;
+                LogManager.getLogger(Service.class)
+                        .warn("Failed to disconnect OpenAI Codex OAuth: status={}, body={}", statusCode, truncatedBody);
+                return "Failed to disconnect (HTTP " + statusCode + ")";
+            }
+        } catch (IOException e) {
+            LogManager.getLogger(Service.class).error("Failed to call backend disconnect endpoint", e);
+            return "Failed to communicate with Brokk backend: " + e.getMessage();
         }
     }
 

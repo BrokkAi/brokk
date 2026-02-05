@@ -6,6 +6,7 @@ import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil.ThemedIcon;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
@@ -20,7 +21,9 @@ import ai.brokk.mcp.McpConfig;
 import ai.brokk.mcp.McpServer;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.mcp.StdioMcpServer;
+import ai.brokk.openai.OpenAiOAuthService;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -76,6 +79,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // dev-only
+
+    // OpenAI OAuth connection controls
+    private JLabel openAiStatusLabel = new JLabel();
+    private MaterialButton openAiConnectButton = new MaterialButton("Connect");
+    private MaterialButton openAiDisconnectButton = new MaterialButton("Disconnect");
+
+    // Connections section: paid-only components and upgrade link
+    private JPanel connectionsPaidPanel = new JPanel();
+    private BrowserLabel providerKeysLabel = new BrowserLabel("", "");
+    private BrowserLabel upgradeLabel = new BrowserLabel("", "");
 
     // Appearance controls (kept in Global)
     private JComboBox<String> themeCombo = new JComboBox<>();
@@ -142,6 +155,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (forceToolEmulationCheckbox != null) {
             forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
         }
+
+        // OpenAI connection UI and subscription gating
+        updateOpenAiConnectionUi();
+        updateConnectionsUiForSubscriptionStatus(data.isPaidSubscriber());
 
         // Appearance
         String currentTheme = MainProject.getTheme();
@@ -336,6 +353,64 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             gbc.fill = GridBagConstraints.HORIZONTAL;
             servicePanel.add(forceToolEmulationCheckbox, gbc);
         }
+
+        // Connections section
+        gbc.gridx = 0;
+        gbc.gridy = ++row;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(15, 5, 2, 5);
+        var connectionsLabel = new JLabel("Connections:");
+        connectionsLabel.setToolTipText(
+                "Connect with OAuth or configure API keys to use credits for other accounts instead of Brokk credits.");
+        servicePanel.add(connectionsLabel, gbc);
+
+        // Paid-only panel containing OpenAI connection and provider keys
+        connectionsPaidPanel = new JPanel(new GridBagLayout());
+        var paidGbc = new GridBagConstraints();
+        paidGbc.insets = new Insets(0, 0, 2, 0);
+        paidGbc.anchor = GridBagConstraints.WEST;
+        paidGbc.fill = GridBagConstraints.HORIZONTAL;
+        paidGbc.weightx = 1.0;
+        paidGbc.gridx = 0;
+        paidGbc.gridy = 0;
+
+        // OpenAI connection row
+        openAiStatusLabel = new JLabel();
+        openAiStatusLabel.setToolTipText("Use OAuth to connect your OpenAI Pro/Plus account.");
+        var openAiPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        openAiPanel.add(openAiStatusLabel);
+
+        openAiConnectButton = new MaterialButton("Connect");
+        openAiConnectButton.addActionListener(e -> OpenAiOAuthService.startAuthorization(openAiConnectButton));
+        openAiPanel.add(openAiConnectButton);
+
+        openAiDisconnectButton = new MaterialButton("Disconnect");
+        openAiDisconnectButton.addActionListener(e -> disconnectOpenAi());
+        openAiPanel.add(openAiDisconnectButton);
+
+        connectionsPaidPanel.add(openAiPanel, paidGbc);
+
+        var providerKeysUrl = joinUrl(MainProject.getFrontendUrl(), "/dashboard/provider-keys");
+        providerKeysLabel = new BrowserLabel(providerKeysUrl, "Set LLM Provider API Keys");
+        providerKeysLabel.setToolTipText(
+                "Configure your own provider API keys for Brokk to use in upstream LLM requests.");
+        paidGbc.gridy = 1;
+        connectionsPaidPanel.add(providerKeysLabel, paidGbc);
+
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        gbc.insets = new Insets(15, 5, 2, 5);
+        servicePanel.add(connectionsPaidPanel, gbc);
+
+        // Upgrade label for non-paid users
+        var upgradeUrl = joinUrl(MainProject.getFrontendUrl(), "/dashboard/billing");
+        upgradeLabel = new BrowserLabel(upgradeUrl, "Upgrade to access provider connections");
+        upgradeLabel.setVisible(false);
+        gbc.gridy = ++row;
+        gbc.insets = new Insets(2, 5, 2, 5);
+        servicePanel.add(upgradeLabel, gbc);
 
         gbc.gridy = ++row;
         gbc.weighty = 1.0;
@@ -2190,10 +2265,127 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
     }
 
+    private void updateOpenAiConnectionUi() {
+        boolean connected = MainProject.isOpenAiCodexOauthConnected();
+        if (connected) {
+            openAiStatusLabel.setText("OpenAI: Connected");
+            openAiStatusLabel.setForeground(new Color(0, 128, 0));
+        } else {
+            openAiStatusLabel.setText("OpenAI: Not connected");
+            openAiStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
+        }
+        openAiConnectButton.setVisible(!connected);
+        openAiDisconnectButton.setVisible(connected);
+    }
+
+    /**
+     * Updates the visibility of the connections section based on subscription status.
+     * Paid subscribers see the OpenAI connection controls and provider keys link.
+     * Non-paid users see an upgrade link instead.
+     */
+    private void updateConnectionsUiForSubscriptionStatus(boolean isPaid) {
+        connectionsPaidPanel.setVisible(isPaid);
+        upgradeLabel.setVisible(!isPaid);
+        revalidate();
+        repaint();
+    }
+
+    private void disconnectOpenAi() {
+        String brokkKey = MainProject.getBrokkKey();
+        if (brokkKey.isBlank()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Brokk API key is not configured. Please set your Brokk key first.",
+                    "Cannot Disconnect",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        chrome.getContextManager().submitBackgroundTask("Disconnecting OpenAI", () -> {
+            String error = Service.disconnectCodexOauth();
+            SwingUtilities.invokeLater(() -> {
+                if (error == null) {
+                    MainProject.setOpenAiCodexOauthConnected(false);
+                    JOptionPane.showMessageDialog(
+                            SettingsGlobalPanel.this,
+                            "Successfully disconnected from OpenAI.",
+                            "OpenAI Disconnected",
+                            JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(
+                            SettingsGlobalPanel.this,
+                            "Failed to disconnect from OpenAI: " + error,
+                            "Disconnect Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            });
+        });
+    }
+
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
         gitHubSettingsPanel.gitHubTokenChanged();
+    }
+
+    @Override
+    public void openAiOauthConnectionChanged() {
+        SwingUtilities.invokeLater(() -> {
+            updateOpenAiConnectionUi();
+            chrome.getContextManager().reloadService();
+            maybeRunCodexAutoSetup();
+        });
+    }
+
+    private void maybeRunCodexAutoSetup() {
+        if (MainProject.isOpenAiCodexOauthConnected()) {
+            logger.info("Running first-time Codex auto-setup...");
+
+            MainProject.setOtherModelsVendorPreference("OpenAI - Codex");
+            Map<ModelProperties.ModelType, Service.ModelConfig> vendorModels =
+                    ModelProperties.getVendorModels("OpenAI - Codex");
+            var mainProject = chrome.getProject().getMainProject();
+            if (vendorModels != null) {
+                for (var entry : vendorModels.entrySet()) {
+                    mainProject.setModelConfig(entry.getKey(), entry.getValue());
+                }
+            }
+
+            String codexModelName = "gpt-5.1-codex-max-oauth";
+            var favorites = new ArrayList<>(MainProject.loadFavoriteModels());
+            boolean hasCodexFavorite =
+                    favorites.stream().anyMatch(fm -> fm.config().name().equals(codexModelName));
+            if (!hasCodexFavorite) {
+                favorites.add(new Service.FavoriteModel("Codex Max", new Service.ModelConfig(codexModelName)));
+                MainProject.saveFavoriteModels(favorites);
+                logger.info("Added Codex model to favorites list");
+            }
+
+            mainProject.setModelConfig(ModelProperties.ModelType.CODE, new Service.ModelConfig(codexModelName));
+            mainProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, new Service.ModelConfig(codexModelName));
+
+            chrome.getContextManager().reloadService();
+
+            // Show popup and navigate to Model Roles tab
+            SwingUtilities.invokeLater(() -> {
+                String message =
+                        """
+                        "OpenAI - Codex" vendor has been configured automatically.
+                        Architect and Coder models were set.
+                        This can be changed at any time in Settings.
+                        """
+                                .stripIndent();
+
+                MaterialOptionPane.showConfirmDialog(
+                        parentDialog,
+                        message,
+                        "Codex Setup Complete",
+                        JOptionPane.DEFAULT_OPTION,
+                        JOptionPane.INFORMATION_MESSAGE);
+
+                parentDialog.reloadSettingsAndSelectTab("Model Roles");
+            });
+        }
     }
 
     @Override
@@ -2365,6 +2557,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "High Contrast" -> GuiTheme.THEME_HIGH_CONTRAST;
             default -> GuiTheme.THEME_LIGHT;
         };
+    }
+
+    private static String joinUrl(String base, String path) {
+        if (base.endsWith("/") && path.startsWith("/")) {
+            return base + path.substring(1);
+        } else if (!base.endsWith("/") && !path.startsWith("/")) {
+            return base + "/" + path;
+        } else {
+            return base + path;
+        }
     }
 
     /**

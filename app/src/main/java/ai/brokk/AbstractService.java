@@ -391,9 +391,25 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      * Filters out internal/utility models like flash-lite.
      */
     public Map<String, String> getAvailableModels() {
+        boolean codexConnected = MainProject.isOpenAiCodexOauthConnected();
         return modelLocations.entrySet().stream()
                 .filter(e -> !ModelProperties.SYSTEM_ONLY_MODELS.contains(e.getKey()))
+                .filter(e -> codexConnected || !isCodexModel(e.getKey()))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    /**
+     * Checks if the given model name corresponds to a Codex model.
+     * Returns false if the model is unknown or does not have is_codex=true.
+     */
+    public boolean isCodexModel(String modelName) {
+        String location = modelLocations.get(modelName);
+        if (location == null) {
+            return false;
+        }
+        var info = getModelInfo(location);
+        var isCodex = info.get("is_codex");
+        return isCodex instanceof Boolean b && b;
     }
 
     /**

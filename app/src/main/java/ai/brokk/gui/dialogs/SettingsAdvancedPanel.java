@@ -423,6 +423,10 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         vendors.add(ModelProperties.DEFAULT_VENDOR);
         vendors.addAll(ModelProperties.getAvailableVendors());
 
+        if (!MainProject.isOpenAiCodexOauthConnected()) {
+            vendors.remove("OpenAI - Codex");
+        }
+
         otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
         String persistedVendor = MainProject.getOtherModelsVendorPreference();
