@@ -75,11 +75,13 @@ public final class HistoryIo {
     /** Holds total and incomplete task counts for a session. */
     public record TaskCounts(int total, int incomplete) {}
 
+    private static final String LEGACY_TASKLIST_FILENAME = "tasklist.json";
+
     /**
      * Counts incomplete tasks in a session zip without full deserialization.
-     * Reads the latest context from contexts.jsonl, finds the task list fragment
-     * (a StringFragment in the virtuals list with description "Task List"),
-     * and counts tasks where done is false.
+     * Supports two storage formats:
+     * 1. New format: Task list as a StringFragment in virtuals with description "Task List"
+     * 2. Legacy format: Task list in a separate tasklist.json file
      */
     public static TaskCounts countIncompleteTasks(Path zip) throws IOException {
         if (!Files.exists(zip)) {
@@ -88,6 +90,7 @@ public final class HistoryIo {
 
         String lastContextLine = null;
         byte[] fragmentsBytes = null;
+        byte[] legacyTaskListBytes = null;
         Map<String, byte[]> contentBytesMap = new HashMap<>();
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
@@ -104,6 +107,8 @@ public final class HistoryIo {
                     }
                 } else if (entryName.equals(V4_FRAGMENTS_FILENAME) || entryName.equals(V3_FRAGMENTS_FILENAME)) {
                     fragmentsBytes = zis.readAllBytes();
+                } else if (entryName.equals(LEGACY_TASKLIST_FILENAME)) {
+                    legacyTaskListBytes = zis.readAllBytes();
                 } else if (entryName.startsWith(CONTENT_DIR_PREFIX) && !entry.isDirectory()) {
                     String contentId =
                             entryName.substring(CONTENT_DIR_PREFIX.length()).replaceFirst("\\.txt$", "");
@@ -112,10 +117,24 @@ public final class HistoryIo {
             }
         }
 
-        if (lastContextLine == null || fragmentsBytes == null) {
-            return new TaskCounts(0, 0);
+        // Try new format first (fragment-based)
+        if (lastContextLine != null && fragmentsBytes != null) {
+            var result = countTasksFromFragments(lastContextLine, fragmentsBytes, contentBytesMap);
+            if (result.total() > 0) {
+                return result;
+            }
         }
 
+        // Fall back to legacy format (tasklist.json)
+        if (legacyTaskListBytes != null) {
+            return countTasksFromLegacyJson(legacyTaskListBytes);
+        }
+
+        return new TaskCounts(0, 0);
+    }
+
+    private static TaskCounts countTasksFromFragments(
+            String lastContextLine, byte[] fragmentsBytes, Map<String, byte[]> contentBytesMap) {
         try {
             var contextNode = objectMapper.readTree(lastContextLine);
             var virtualsNode = contextNode.get("virtuals");
@@ -166,14 +185,35 @@ public final class HistoryIo {
             }
             String taskListJson = new String(contentBytes, StandardCharsets.UTF_8);
 
-            // Parse and count tasks
+            return parseTaskListJson(taskListJson);
+        } catch (Exception e) {
+            logger.debug("Error parsing task list from fragments: {}", e.getMessage());
+            return new TaskCounts(0, 0);
+        }
+    }
+
+    private static TaskCounts countTasksFromLegacyJson(byte[] legacyTaskListBytes) {
+        try {
+            String json = new String(legacyTaskListBytes, StandardCharsets.UTF_8);
+            if (json.isBlank()) {
+                return new TaskCounts(0, 0);
+            }
+            return parseTaskListJson(json);
+        } catch (Exception e) {
+            logger.debug("Error parsing legacy tasklist.json: {}", e.getMessage());
+            return new TaskCounts(0, 0);
+        }
+    }
+
+    private static TaskCounts parseTaskListJson(String taskListJson) {
+        try {
             var taskListData = objectMapper.readValue(taskListJson, TaskList.TaskListData.class);
             var tasks = taskListData.tasks();
             int total = tasks.size();
             int incomplete = (int) tasks.stream().filter(t -> !t.done()).count();
             return new TaskCounts(total, incomplete);
         } catch (Exception e) {
-            logger.debug("Error parsing task list from session zip: {}", e.getMessage());
+            logger.debug("Error parsing task list JSON: {}", e.getMessage());
             return new TaskCounts(0, 0);
         }
     }
