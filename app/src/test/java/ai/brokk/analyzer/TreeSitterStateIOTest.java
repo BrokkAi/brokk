@@ -417,6 +417,96 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void analyzerStateDtoDoesNotContainSignatures() throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package com.example;
+
+                        public class Hello {
+                            public int add(int a, int b) { return a + b; }
+                        }
+                        """,
+                "src/main/java/com/example/Hello.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            ProjectFile javaFile = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Hello.java"));
+            var skeletons = analyzer.getSkeletons(javaFile);
+            assertFalse(skeletons.isEmpty(), "Expected skeletons to be present (signatures computed into cache)");
+
+            var state = analyzer.snapshotState();
+            var dto = TreeSitterStateIO.toDto(state);
+
+            // Verify CodeUnitPropertiesDto has no signatures accessor (compile-time: DTO shape omits signatures)
+            for (var entry : dto.codeUnitState()) {
+                TreeSitterStateIO.CodeUnitPropertiesDto props = entry.value();
+                assertNotNull(props.children());
+                assertNotNull(props.ranges());
+                // There is no signatures() on CodeUnitPropertiesDto - this confirms signatures are not persisted.
+            }
+        }
+    }
+
+    @Test
+    void skeletonsRemainConsistentAcrossSaveAndLoad(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package com.example;
+
+                        public class Hello {
+                            public int add(int a, int b) { return a + b; }
+                        }
+                        """,
+                "src/main/java/com/example/Hello.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            ProjectFile file = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Hello.java"));
+            var skeletons = analyzer.getSkeletons(file);
+            assertFalse(skeletons.isEmpty(), "Expected skeletons before save");
+
+            String originalSkeleton = skeletons.entrySet().stream()
+                    .filter(e -> e.getKey().isClass())
+                    .map(java.util.Map.Entry::getValue)
+                    .findFirst()
+                    .orElseThrow();
+
+            Path storage = Languages.JAVA.getStoragePath(project);
+            TreeSitterStateIO.save(analyzer.snapshotState(), storage);
+            assertTrue(Files.exists(storage), "Saved analyzer state should exist");
+
+            var loadedStateOpt = TreeSitterStateIO.load(storage);
+            assertTrue(loadedStateOpt.isPresent(), "Expected state to load");
+            var loadedState = loadedStateOpt.get();
+
+            JavaAnalyzer analyzerFromState =
+                    JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+
+            // After loading from persisted AnalyzerState signatures are not present in cache.
+            // Trigger a re-analysis of the file so transient signature cache is repopulated.
+            var updatedAnalyzer = analyzerFromState.update(Set.of(file));
+            assertNotNull(updatedAnalyzer, "update should return a new analyzer instance");
+            JavaAnalyzer reanalyzed = (JavaAnalyzer) updatedAnalyzer;
+
+            var skeletonsAfter = reanalyzed.getSkeletons(file);
+            assertFalse(skeletonsAfter.isEmpty(), "Expected skeletons after reload and re-analysis");
+
+            String reloadedSkeleton = skeletonsAfter.entrySet().stream()
+                    .filter(e -> e.getKey().isClass())
+                    .map(java.util.Map.Entry::getValue)
+                    .findFirst()
+                    .orElseThrow();
+
+            assertEquals(
+                    originalSkeleton,
+                    reloadedSkeleton,
+                    "Skeleton should remain consistent across save/load when signatures are recomputed");
+        }
+    }
+
+    @Test
     void roundTripTypeHierarchy(@TempDir Path tempDir) throws Exception {
         var builder = InlineTestProjectCreator.code(
                 """

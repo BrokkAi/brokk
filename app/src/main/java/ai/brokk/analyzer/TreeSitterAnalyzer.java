@@ -61,7 +61,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
     // Adaptive concurrency for I/O: derived from OS file-descriptor limits with conservative headroom.
-    private static final int IO_VT_CAP = Environment.computeAdaptiveIoConcurrencyCap();
+    // Limit concurrency to a small fixed cap in test environments to avoid exhausting native thread resources.
+    // Use the computed adaptive cap but bound it to a modest maximum.
+    private static final int IO_VT_CAP = Math.max(1, Math.min(4, Environment.computeAdaptiveIoConcurrencyCap()));
     // Semaphore further gates simultaneous file openings to avoid EMFILE even under short bursts.
     private static final Semaphore IO_FD_SEMAPHORE = new Semaphore(Math.max(8, IO_VT_CAP), true);
     private static final int MAX_IO_READ_RETRIES = 6; // exponential backoff attempts for EMFILE

@@ -67,7 +67,10 @@ public final class AnalyzerCache {
 
         previous.signatures.forEach((cu, sigs) -> {
             if (!changedFiles.contains(cu.source())) {
-                this.signatures.put(cu, List.copyOf(sigs));
+                // Ensure we create a defensive copy even if the source list is already unmodifiable.
+                // List.copyOf may return the same instance for already-unmodifiable lists, so wrap first.
+                List<String> copied = List.copyOf(new java.util.ArrayList<>(sigs));
+                this.signatures.put(cu, copied);
             }
         });
 
@@ -108,7 +111,11 @@ public final class AnalyzerCache {
      * Returns true only if ALL caches are empty.
      */
     public boolean isEmpty() {
-        return trees.isEmpty() && rawSupertypes.isEmpty() && imports.isEmpty() && typeHierarchy.isEmpty();
+        return trees.isEmpty()
+                && rawSupertypes.isEmpty()
+                && signatures.isEmpty()
+                && imports.isEmpty()
+                && typeHierarchy.isEmpty();
     }
 
     /**
