@@ -32,6 +32,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -120,12 +121,12 @@ public final class HistoryIo {
         // Try new format first (fragment-based)
         if (lastContextLine != null && fragmentsBytes != null) {
             var result = countTasksFromFragments(lastContextLine, fragmentsBytes, contentBytesMap);
-            if (result.total() > 0) {
-                return result;
+            if (result.isPresent()) {
+                return result.get();
             }
         }
 
-        // Fall back to legacy format (tasklist.json)
+        // Fall back to legacy format (tasklist.json) only if no task list fragment was found
         if (legacyTaskListBytes != null) {
             return countTasksFromLegacyJson(legacyTaskListBytes);
         }
@@ -133,13 +134,18 @@ public final class HistoryIo {
         return new TaskCounts(0, 0);
     }
 
-    private static TaskCounts countTasksFromFragments(
+    /**
+     * Attempts to count tasks from the new fragment-based format.
+     * @return Optional.empty() if no task list fragment was found (caller should fall back to legacy),
+     *         Optional.of(TaskCounts) if a task list fragment was found (even if empty)
+     */
+    private static Optional<TaskCounts> countTasksFromFragments(
             String lastContextLine, byte[] fragmentsBytes, Map<String, byte[]> contentBytesMap) {
         try {
             var contextNode = objectMapper.readTree(lastContextLine);
             var virtualsNode = contextNode.get("virtuals");
             if (virtualsNode == null || !virtualsNode.isArray()) {
-                return new TaskCounts(0, 0);
+                return Optional.empty();
             }
 
             // Collect virtual fragment IDs from context
@@ -152,7 +158,7 @@ public final class HistoryIo {
             var fragmentsNode = objectMapper.readTree(fragmentsBytes);
             var virtualFragments = fragmentsNode.get("virtual");
             if (virtualFragments == null) {
-                return new TaskCounts(0, 0);
+                return Optional.empty();
             }
 
             // Find the Task List fragment (description == "Task List")
@@ -175,20 +181,23 @@ public final class HistoryIo {
             }
 
             if (taskListContentId == null) {
-                return new TaskCounts(0, 0);
+                // No task list fragment found in context - signal to fall back to legacy
+                return Optional.empty();
             }
 
             // Read the task list content
             byte[] contentBytes = contentBytesMap.get(taskListContentId);
             if (contentBytes == null) {
-                return new TaskCounts(0, 0);
+                // Fragment found but content missing - treat as found but empty
+                return Optional.of(new TaskCounts(0, 0));
             }
             String taskListJson = new String(contentBytes, StandardCharsets.UTF_8);
 
-            return parseTaskListJson(taskListJson);
+            return Optional.of(parseTaskListJson(taskListJson));
         } catch (Exception e) {
             logger.debug("Error parsing task list from fragments: {}", e.getMessage());
-            return new TaskCounts(0, 0);
+            // Parse error - signal to fall back to legacy
+            return Optional.empty();
         }
     }
 
