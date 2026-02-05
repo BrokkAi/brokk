@@ -1170,30 +1170,9 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         var src = javaFile.read().orElseThrow();
         var diags = CodeAgent.parseJavaForDiagnostics(javaFile, src);
 
-        // We expect at least one diagnostic from JDT for this file (the "Missing code implementation in the compiler"
-        // issue).
-        assertFalse(diags.isEmpty(), "Expected at least one diagnostic for AnalyzerCache.java pre-lint");
-
-        // Find the specific diagnostic with the known message fragment.
-        var maybe = diags.stream()
-                .filter(d -> d.description().contains("Missing code implementation in the compiler"))
-                .findFirst();
-        // If this assertion fails, the printed diagnostics below will help identify the different messages emitted by
-        // JDT.
+        // After applying the targeted suppression for the JDT-internal "Missing code implementation in the compiler"
+        // diagnostic, this file should produce no pre-lint diagnostics. Verify that.
         assertTrue(
-                maybe.isPresent(),
-                "Expected a diagnostic containing 'Missing code implementation in the compiler' but got:\n" + diags);
-
-        var diag = maybe.orElseThrow();
-
-        // Record the numeric problemId and categoryId for characterization.
-        // NOTE: We do not hard-code expected numeric IDs here because they may vary across JDT versions.
-        // Running this test will print the observed IDs so maintainers can pin future expectations if desired.
-        // Some JDT versions may report a 0 problemId for this diagnostic; accept non-negative IDs to be tolerant.
-        assertTrue(diag.problemId() >= 0, "JDT problemId should be non-negative (observed: " + diag.problemId() + ")");
-        // categoryId may be null; include it in the printed output for later inspection.
-        System.out.println("AnalyzerCache Missing-code diagnostic: problemId=" + diag.problemId()
-                + ", categoryId=" + diag.categoryId()
-                + "\n" + diag.description());
+                diags.isEmpty(), "Expected no diagnostics for AnalyzerCache.java after suppressing JDT internal issue");
     }
 }

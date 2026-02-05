@@ -1229,6 +1229,24 @@ public class CodeAgent {
             int id = prob.getID();
             @Nullable Integer catId = (prob instanceof CategorizedProblem cp) ? cp.getCategoryID() : null;
 
+            // Narrow suppression for a known JDT compiler-internal spurious diagnostic:
+            // Some JDT versions emit "Missing code implementation in the compiler" (typically associated with
+            // Javadoc-related checks) which is an internal error and not actionable for users. Suppress it here
+            // to avoid surfacing a non-actionable false positive in pre-lint. This check is intentionally tight:
+            // - We match the exact message fragment reported by the buggy JDT versions.
+            // - We only apply this suppression to this specific compiler-internal message; all other diagnostics
+            //   continue to be evaluated by the normal filtering logic (shouldKeepJavaProblem) so we do not hide
+            //   real syntax or control-flow errors.
+            //
+            // Note: Previous narrow check required the Javadoc category but some JDT builds appear to emit this
+            // internal message with a null/absent category; match the message text itself is still very narrow and
+            // safe because the wording is an internal-implementation failure rather than a user-facing compiler error.
+            String msg = Objects.toString(prob.getMessage(), "");
+            if (msg.contains("Missing code implementation in the compiler")) {
+                // Skip this JDT-internal false positive
+                continue;
+            }
+
             if (!shouldKeepJavaProblem(id, prob.isError(), catId, hasShakyTypeInfo)) {
                 continue;
             }
