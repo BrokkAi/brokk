@@ -280,6 +280,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.fileTreePanel =
                 new FileTreePanel(List.of(), contextManager.getProject().getRoot());
 
+        // NOTE: Regression guard for GitHub Issue #2587 (partial commit/stash selection).
+        // See docs/testing/session-changes-panel-partial-commit.md for manual verification steps
+        // and rationale. This panel's file-tree context menu explicitly operates on the exact
+        // selectedFiles provided by FileTreePanel (no implicit fallback to a single default file).
+        // Tests or manual checks should verify that Commit and Stash actions receive the full
+        // selected set of ProjectFile instances.
+
         // leftSplitPane starts with commitsTable in PREVIEW mode
         this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitsTable, fileTreePanel);
         this.leftSplitPane.setResizeWeight(0.4);
