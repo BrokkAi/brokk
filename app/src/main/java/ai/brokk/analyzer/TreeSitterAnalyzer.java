@@ -612,9 +612,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected List<String> signaturesOf(CodeUnit codeUnit) {
-        // Signatures are no longer persisted in AnalyzerState. Return an empty list here.
-        // Language analyzers still build local signature maps during analysis (see analyzeFileContent),
-        // but those signatures are not part of the immutable AnalyzerState snapshot.
+        // Primary source: transient analyzer cache populated during file analysis.
+        try {
+            List<String> cached = cache.signatures().get(codeUnit);
+            if (cached != null) {
+                // Ensure we return an immutable copy to callers.
+                return List.copyOf(cached);
+            }
+        } catch (Exception e) {
+            // Defensive: if cache access fails for any reason, fall through to empty result.
+            log.debug("Failed to read signatures from cache for {}: {}", codeUnit, e.getMessage());
+        }
+
+        // No signatures found in the transient cache. Historically CodeUnitProperties.signatures()
+        // returned an empty list (signatures were removed from persistent AnalyzerState). To preserve
+        // legacy behavior, return an explicit empty list here and allow callers to still render children.
+        log.trace("No cached signatures for CU {}; returning empty signatures list", codeUnit.fqName());
         return Collections.emptyList();
     }
 
