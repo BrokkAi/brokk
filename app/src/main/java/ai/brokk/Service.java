@@ -74,8 +74,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             tempModelLocations.put(UNAVAILABLE, "not_a_model");
         }
 
-        this.modelLocations = Map.copyOf(tempModelLocations);
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
+        this.modelLocations = Map.copyOf(tempModelLocations);
 
         // STT model initialization
         var sttLocation = modelInfoMap.entrySet().stream()
@@ -359,7 +359,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                     }
 
                     var immutableModelInfo = Map.copyOf(modelInfo);
-                    infoTarget.put(modelLocation, immutableModelInfo);
+                    infoTarget.put(modelName, immutableModelInfo);
                     LogManager.getLogger(Service.class)
                             .debug(
                                     "Discovered model: {} -> {} with info {})",

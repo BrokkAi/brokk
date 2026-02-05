@@ -92,7 +92,7 @@ class ServiceCodexGatingTest {
             if (isCodex) {
                 info.put("is_codex", true);
             }
-            modelInfoMap.put(location, info);
+            modelInfoMap.put(name, info);
         }
 
         @Override
