@@ -491,7 +491,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     private void clearPersistedAnalyzerState() {
         try {
             var langs = project.getAnalyzerLanguages();
-            if (langs == null || langs.isEmpty()) {
+            if (langs.isEmpty()) {
                 logger.debug("No analyzer languages configured for project {}; skipping persisted state cleanup", root);
                 return;
             }
@@ -499,10 +499,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             for (var lang : langs) {
                 try {
                     Path storage = lang.getStoragePath(project);
-                    if (storage == null) {
-                        logger.debug("Language {} returned null storage path; skipping", lang);
-                        continue;
-                    }
 
                     if (Files.exists(storage)) {
                         try {
