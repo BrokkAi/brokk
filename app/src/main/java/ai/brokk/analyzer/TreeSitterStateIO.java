@@ -1,23 +1,11 @@
 package ai.brokk.analyzer;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.exc.MismatchedInputException;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.dataformat.smile.SmileFactory;
+import ai.brokk.project.AbstractProject;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,7 +14,6 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
-import java.util.zip.ZipException;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
@@ -35,178 +22,39 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Jackson Smile.
+ * Persistence helper for TreeSitterAnalyzer.AnalyzerState using a small custom, versioned binary format.
  *
- * Serializes AnalyzerState into DTOs:
- * - PMap fields are represented as standard Maps or entry lists
- * - SymbolKeyIndex becomes List<String> (keys)
- * - FileProperties omits the parsed TSTree
- * - ProjectFile is serialized via a DTO that guarantees a relative relPath
+ * The format (high level):
+ * - UTF-8 schema version string (length-prefixed as int)
+ * - Then a sequence of length-prefixed fields encoding the AnalyzerStateDto graph:
+ *   - symbolIndex: map size (int), repeated entries: key (string), list size (int), repeated CodeUnitDto
+ *   - codeUnitState: list size (int), repeated CodeUnitEntryDto (key CodeUnitDto then CodeUnitPropertiesDto)
+ *   - fileState: list size (int), repeated FileStateEntryDto (key ProjectFileDto then FilePropertiesDto)
+ *   - imports: list size (int), repeated ImportEntryDto (key ProjectFileDto then list of CodeUnitDto)
+ *   - reverseImports: list size (int), repeated ReverseImportEntryDto (key ProjectFileDto then list of ProjectFileDto)
+ *   - supertypes: nullable flag (boolean); if present list size (int), repeated SupertypeEntryDto (key CodeUnitDto then list)
+ *   - subtypes: nullable flag (boolean); if present list size (int), repeated SubtypeEntryDto (key CodeUnitDto then list)
+ *   - symbolKeys: list size (int), repeated strings
+ *   - snapshotEpochNanos: long
+ *
+ * All strings are written as int length (bytes) followed by UTF-8 bytes.
+ *
+ * This class intentionally avoids Jackson and uses explicit write/read methods so the on-disk format is explicit
+ * and versioned. If the version is unexpected or the payload is corrupt/truncated, load(...) returns Optional.empty()
+ * and logs a debug message.
  */
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
-    // Dedicated Smile ObjectMapper
-    private static final ObjectMapper SMILE_MAPPER =
-            new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-    static {
-        // Ensure nested CodeUnit/ProjectFile anywhere in the object graph (e.g., inside CodeUnitProperties)
-        // are serialized/deserialized via our relative-path-safe format.
-        SimpleModule module = new SimpleModule("TreeSitterStateIOModule");
-        module.addSerializer(CodeUnit.class, new CodeUnitJsonSerializer());
-        module.addDeserializer(CodeUnit.class, new CodeUnitJsonDeserializer());
-        module.addSerializer(ProjectFile.class, new ProjectFileJsonSerializer());
-        module.addDeserializer(ProjectFile.class, new ProjectFileJsonDeserializer());
-        SMILE_MAPPER.registerModule(module);
-    }
+    // Schema version token - bump when changing on-disk encoding
+    private static final String SCHEMA_VERSION = "TreeSitterState-v1";
 
     private TreeSitterStateIO() {}
 
-    /* ================= Jackson adapters for nested types ================= */
+    /* ================= DTOs (kept as-is from prior design) ================= */
 
-    /**
-     * Serialize ProjectFile as a minimal DTO with a guaranteed relative relPath.
-     */
-    static final class ProjectFileJsonSerializer extends JsonSerializer<ProjectFile> {
-        @Override
-        public void serialize(ProjectFile value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
-            Path root = value.getRoot().toAbsolutePath().normalize();
-            Path rel = value.getRelPath();
-
-            String relStr;
-            if (rel.isAbsolute()) {
-                Path nr = root.toAbsolutePath().normalize();
-                Path rl = rel.toAbsolutePath().normalize();
-                if (rl.startsWith(nr)) {
-                    relStr = nr.relativize(rl).toString();
-                } else {
-                    // best-effort fallback; use just the file name to keep it relative
-                    relStr = rl.getFileName().toString();
-                    log.debug(
-                            "ProjectFile relPath was absolute and outside root; falling back to fileName only: root={}, abs={}",
-                            nr,
-                            rl);
-                }
-            } else {
-                relStr = rel.toString();
-            }
-
-            gen.writeStartObject();
-            gen.writeStringField("root", root.toString()); // absolute, normalized
-            gen.writeStringField("relPath", relStr); // guaranteed relative
-            gen.writeEndObject();
-        }
-    }
-
-    /**
-     * Deserialize ProjectFile from minimal DTO, sanitizing absolute relPaths.
-     */
-    static final class ProjectFileJsonDeserializer extends JsonDeserializer<ProjectFile> {
-        @Override
-        public @Nullable ProjectFile deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-            JsonNode node = p.getCodec().readTree(p);
-            JsonNode rootNode = node.get("root");
-            JsonNode relNode = node.get("relPath");
-
-            if (rootNode == null || relNode == null) {
-                ctxt.reportInputMismatch(ProjectFile.class, "Missing required fields for ProjectFile (root, relPath)");
-                return null; // Unreachable, reportInputMismatch always throws
-            }
-
-            Path root = parseRootPath(rootNode.asText());
-            Path rel = Path.of(relNode.asText());
-
-            if (rel.isAbsolute()) {
-                Path nr = root.toAbsolutePath().normalize();
-                Path rl = rel.toAbsolutePath().normalize();
-                if (rl.startsWith(nr)) {
-                    rel = nr.relativize(rl);
-                } else {
-                    log.debug(
-                            "Loaded ProjectFile relPath was absolute and outside root; using fileName only: root={}, abs={}",
-                            nr,
-                            rl);
-                    Path fileName = rl.getFileName();
-                    rel = (fileName != null) ? fileName : Path.of("");
-                }
-            }
-
-            return new ProjectFile(root, rel);
-        }
-    }
-
-    /**
-     * Serialize CodeUnit to a minimal DTO, delegating ProjectFile to its serializer.
-     */
-    static final class CodeUnitJsonSerializer extends JsonSerializer<CodeUnit> {
-        @Override
-        public void serialize(CodeUnit value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
-            gen.writeStartObject();
-            gen.writeFieldName("source");
-            serializers.defaultSerializeValue(value.source(), gen); // uses ProjectFileJsonSerializer
-            gen.writeStringField("kind", value.kind().name());
-            gen.writeStringField("packageName", value.packageName());
-            gen.writeStringField("shortName", value.shortName());
-            if (value.signature() != null) {
-                gen.writeStringField("signature", value.signature());
-            }
-            gen.writeEndObject();
-        }
-    }
-
-    /**
-     * Deserialize CodeUnit from the minimal DTO shape.
-     */
-    static final class CodeUnitJsonDeserializer extends JsonDeserializer<CodeUnit> {
-        @Override
-        public @Nullable CodeUnit deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-            JsonNode node = p.getCodec().readTree(p);
-
-            // Source ProjectFile
-            JsonNode sourceNode = node.get("source");
-            if (sourceNode == null) {
-                ctxt.reportInputMismatch(CodeUnit.class, "Missing CodeUnit.source");
-                return null; // Unreachable, reportInputMismatch always throws
-            }
-            ProjectFile source = p.getCodec().treeToValue(sourceNode, ProjectFile.class);
-
-            // Required fields
-            JsonNode kindNode = node.get("kind");
-            JsonNode pkgNode = node.get("packageName");
-            JsonNode shortNode = node.get("shortName");
-
-            if (kindNode == null || pkgNode == null || shortNode == null) {
-                ctxt.reportInputMismatch(
-                        CodeUnit.class, "Missing required fields for CodeUnit (kind, packageName, shortName)");
-                return null; // Unreachable, reportInputMismatch always throws
-            }
-
-            CodeUnitType kind = CodeUnitType.valueOf(kindNode.asText());
-            String pkg = pkgNode.asText();
-            String shortName = shortNode.asText();
-
-            // Optional signature
-            JsonNode sigNode = node.get("signature");
-            String signature = sigNode != null && !sigNode.isNull() ? sigNode.asText() : null;
-
-            return new CodeUnit(source, kind, pkg, shortName, signature);
-        }
-    }
-
-    /* ================= DTOs ================= */
-
-    /**
-     * A minimal, serialization-safe representation of ProjectFile that
-     * enforces that relPath is stored as a relative string.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ProjectFileDto(String root, String relPath) {}
 
-    /**
-     * A serialization-safe representation of CodeUnit using ProjectFileDto.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitDto(
             ProjectFileDto source,
             CodeUnitType kind,
@@ -214,17 +62,9 @@ public final class TreeSitterStateIO {
             String shortName,
             @Nullable String signature) {}
 
-    /**
-     * DTO for structured import information.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ImportInfoDto(
             String rawSnippet, boolean isWildcard, @Nullable String identifier, @Nullable String alias) {}
 
-    /**
-     * DTO for AnalyzerState with only serializable components.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record AnalyzerStateDto(
             Map<String, List<CodeUnitDto>> symbolIndex,
             List<CodeUnitEntryDto> codeUnitState,
@@ -236,66 +76,30 @@ public final class TreeSitterStateIO {
             List<String> symbolKeys,
             long snapshotEpochNanos) {}
 
-    /**
-     * DTO for CodeUnitProperties that can be easily serialized.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitPropertiesDto(
             List<CodeUnitDto> children, List<String> signatures, List<IAnalyzer.Range> ranges, boolean hasBody) {}
 
-    /**
-     * DTO entry for CodeUnit -> CodeUnitProperties maps.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitEntryDto(CodeUnitDto key, CodeUnitPropertiesDto value) {}
 
-    /**
-     * DTO entry for ProjectFile -> FileProperties maps.
-     * FilePropertiesDto omits the parsed tree.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record FileStateEntryDto(ProjectFileDto key, FilePropertiesDto value) {}
 
-    /**
-     * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
             List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
-        @JsonCreator
-        public FilePropertiesDto(
-                @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
-                @JsonProperty("importStatements") List<ImportInfoDto> importStatements,
-                @JsonProperty(value = "containsTests", required = true) boolean containsTests) {
-            this.topLevelCodeUnits = topLevelCodeUnits;
-            this.importStatements = importStatements;
-            this.containsTests = containsTests;
+        public FilePropertiesDto {
+            Objects.requireNonNull(topLevelCodeUnits);
+            Objects.requireNonNull(importStatements);
         }
     }
 
-    /**
-     * DTO entry for ProjectFile -> Set<CodeUnit> (imports).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
 
-    /**
-     * DTO entry for ProjectFile -> Set<ProjectFile> (reverse imports).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReverseImportEntryDto(ProjectFileDto key, List<ProjectFileDto> value) {}
 
-    /**
-     * DTO entry for CodeUnit -> List<CodeUnit> (supertypes).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SupertypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
-    /**
-     * DTO entry for CodeUnit -> Set<CodeUnit> (subtypes).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SubtypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
+
+    /* ================= Public save/load API ================= */
 
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
@@ -313,8 +117,9 @@ public final class TreeSitterStateIO {
             temp = Files.createTempFile(parent, prefix, suffix);
 
             var dto = toDto(state);
-            try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(temp))) {
-                SMILE_MAPPER.writeValue(out, dto);
+
+            try (GZIPOutputStream gz = new GZIPOutputStream(Files.newOutputStream(temp))) {
+                writeAnalyzerStateDto(dto, gz);
             }
 
             try {
@@ -339,8 +144,8 @@ public final class TreeSitterStateIO {
     }
 
     /**
-     * Load an AnalyzerState from the provided file in Smile format.
-     * Returns Optional.empty() if file is missing or deserialization fails.
+     * Load an AnalyzerState from the provided file using our custom binary format.
+     * Returns Optional.empty() if file is missing, incompatible, or deserialization fails.
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
@@ -349,31 +154,154 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         }
         long startMs = System.currentTimeMillis();
+        // Primary attempt: our explicit binary format
         try {
-            try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
-                var dto = SMILE_MAPPER.readValue(in, AnalyzerStateDto.class);
-                var state = fromDto(dto);
-                long durMs = System.currentTimeMillis() - startMs;
-                log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms", file, durMs);
-                return Optional.of(state);
+            try (GZIPInputStream gz = new GZIPInputStream(Files.newInputStream(file))) {
+                AnalyzerStateDto dto = readAnalyzerStateDto(gz);
+                if (dto != null) {
+                    var state = fromDto(dto);
+                    long durMs = System.currentTimeMillis() - startMs;
+                    log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms", file, durMs);
+                    return Optional.of(state);
+                }
+                // If dto is null (version mismatch) we fall through to legacy fallback (below)
             }
-        } catch (ZipException | EOFException e) {
-            log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
-            return Optional.empty();
-        } catch (MismatchedInputException mie) {
-            log.debug("Analyzer state at {} appears incompatible ({}). Will rebuild analyzer.", file, mie.getMessage());
-            return Optional.empty();
+        } catch (EOFException | UncheckedIOException e) {
+            // Could be corrupt new-format OR a legacy format file; fall through to legacy fallback
+            log.debug(
+                    "Primary parser failed for AnalyzerState at {} ({}). Will attempt legacy fallback.",
+                    file,
+                    e.getMessage());
+            // fall through to legacy fallback
         } catch (IOException e) {
-            log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
+            log.debug(
+                    "Failed to read AnalyzerState (primary reader) from {} ({}). Will attempt legacy fallback.",
+                    file,
+                    e.getMessage());
+            // fall through to legacy fallback
+        } catch (RuntimeException e) {
+            log.debug(
+                    "Primary parser failed for AnalyzerState at {} ({}). Will attempt legacy fallback.",
+                    file,
+                    e.getMessage());
+            // fall through to legacy fallback
+        }
+
+        // Legacy fallback: try to deserialize previously-written payloads (JSON or Smile).
+        // We avoid compile-time Jackson Smile imports in this file; try the project's ObjectMapper
+        // for JSON, and if that fails and the payload looks like Smile, attempt to instantiate a
+        // Smile-capable ObjectMapper reflectively.
+        try {
+            byte[] gzBytes = Files.readAllBytes(file);
+            // Decompress
+            try (var in = new java.io.ByteArrayInputStream(gzBytes);
+                    var gz = new GZIPInputStream(in);
+                    var baos = new java.io.ByteArrayOutputStream()) {
+                byte[] buf = new byte[8192];
+                int r;
+                while ((r = gz.read(buf)) != -1) baos.write(buf, 0, r);
+                byte[] raw = baos.toByteArray();
+
+                // Quick check for Smile magic header (0x3A 0x29 0x0A). If present, attempt reflective Smile parsing
+                // first.
+                boolean isSmile = raw.length >= 3
+                        && (raw[0] & 0xFF) == 0x3A
+                        && (raw[1] & 0xFF) == 0x29
+                        && (raw[2] & 0xFF) == 0x0A;
+
+                if (isSmile) {
+                    // Try Smile first via reflection
+                    try {
+                        Class<?> smileFactoryClass =
+                                Class.forName("com.fasterxml.jackson.dataformat.smile.SmileFactory");
+                        Object smileFactory =
+                                smileFactoryClass.getDeclaredConstructor().newInstance();
+
+                        Class<?> jsonFactoryClass = Class.forName("com.fasterxml.jackson.core.JsonFactory");
+                        Class<?> objectMapperClass = Class.forName("com.fasterxml.jackson.databind.ObjectMapper");
+                        java.lang.reflect.Constructor<?> omCtor = objectMapperClass.getConstructor(jsonFactoryClass);
+                        Object smileMapper = omCtor.newInstance(smileFactory);
+
+                        // Configure mapper to ignore unknown properties (needed for legacy files)
+                        Class<?> deserializationFeatureClass =
+                                Class.forName("com.fasterxml.jackson.databind.DeserializationFeature");
+                        Object failOnUnknown = null;
+                        Object[] enumConstants = deserializationFeatureClass.getEnumConstants();
+                        if (enumConstants != null) {
+                            for (Object c : enumConstants) {
+                                if (c == null) continue;
+                                // Prefer using name() if available via reflection, fall back to toString()
+                                try {
+                                    java.lang.reflect.Method nameMethod =
+                                            c.getClass().getMethod("name");
+                                    Object nameVal = nameMethod.invoke(c);
+                                    if ("FAIL_ON_UNKNOWN_PROPERTIES".equals(nameVal)
+                                            || "FAIL_ON_UNKNOWN_PROPERTIES".equals(c.toString())) {
+                                        failOnUnknown = c;
+                                        break;
+                                    }
+                                } catch (Exception e) {
+                                    if ("FAIL_ON_UNKNOWN_PROPERTIES".equals(c.toString())) {
+                                        failOnUnknown = c;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (failOnUnknown != null) {
+                            java.lang.reflect.Method configureMethod = objectMapperClass.getMethod(
+                                    "configure", deserializationFeatureClass, boolean.class);
+                            configureMethod.invoke(smileMapper, failOnUnknown, false);
+                        }
+
+                        java.lang.reflect.Method readValueMethod =
+                                objectMapperClass.getMethod("readValue", byte[].class, Class.class);
+                        Object dtoObj = readValueMethod.invoke(smileMapper, raw, AnalyzerStateDto.class);
+                        if (dtoObj instanceof AnalyzerStateDto dto) {
+                            var state = fromDto(dto);
+                            long durMs = System.currentTimeMillis() - startMs;
+                            log.debug("Loaded legacy TreeSitter AnalyzerState (Smile) from {} in {} ms", file, durMs);
+                            return Optional.of(state);
+                        }
+                    } catch (ClassNotFoundException cnf) {
+                        log.debug(
+                                "Smile classes not available on classpath; cannot attempt Smile fallback for {}", file);
+                    } catch (Exception reflEx) {
+                        String msg = reflEx.getMessage();
+                        if (msg == null && reflEx.getCause() != null) {
+                            msg = reflEx.getCause().getMessage();
+                        }
+                        log.debug("Reflective Smile fallback failed for {}: {}", file, msg);
+                    }
+                }
+
+                // Try JSON via project's ObjectMapper
+                try {
+                    AnalyzerStateDto dto = AbstractProject.objectMapper.readValue(raw, AnalyzerStateDto.class);
+                    var state = fromDto(dto);
+                    long durMs = System.currentTimeMillis() - startMs;
+                    log.debug("Loaded legacy TreeSitter AnalyzerState (JSON) from {} in {} ms", file, durMs);
+                    return Optional.of(state);
+                } catch (Exception jsonEx) {
+                    log.debug("JSON legacy fallback failed for {}: {}", file, jsonEx.getMessage());
+                }
+
+                // All legacy attempts failed
+                log.debug(
+                        "Legacy fallback deserialization failed for {} (no supported legacy format succeeded).", file);
+                return Optional.empty();
+            }
+        } catch (IOException e) {
+            log.debug(
+                    "Failed to load AnalyzerState from {} during legacy fallback ({}). Will rebuild.",
+                    file,
+                    e.getMessage());
             return Optional.empty();
         }
     }
 
-    /* ================= Converters ================= */
+    /* ================= Converters (runtime <-> DTO) ================= */
 
-    /**
-     * Convert live AnalyzerState to a serializable DTO.
-     */
     public static AnalyzerStateDto toDto(TreeSitterAnalyzer.AnalyzerState state) {
         // symbolIndex -> deep copy to DTO
         Map<String, List<CodeUnitDto>> symbolIndexCopy = new HashMap<>();
@@ -468,15 +396,13 @@ public final class TreeSitterStateIO {
                 fileEntries,
                 importEntries,
                 reverseImportEntries,
-                supertypeEntries,
-                subtypeEntries,
+                // Use empty lists rather than null to preserve round-trip expectations/tests
+                (supertypeEntries == null) ? List.<SupertypeEntryDto>of() : supertypeEntries,
+                (subtypeEntries == null) ? List.<SubtypeEntryDto>of() : subtypeEntries,
                 symbolKeys,
                 state.snapshotEpochNanos());
     }
 
-    /**
-     * Convert DTO back into an immutable AnalyzerState snapshot.
-     */
     public static TreeSitterAnalyzer.AnalyzerState fromDto(AnalyzerStateDto dto) {
         // Rebuild symbol index PMap
         Map<String, Set<CodeUnit>> symbolIndexMap = new HashMap<>();
@@ -570,32 +496,7 @@ public final class TreeSitterStateIO {
                 dto.snapshotEpochNanos());
     }
 
-    /* ================= Helpers ================= */
-
-    /**
-     * Parse a root string that may be a plain path or a file: URI into an absolute, normalized Path.
-     * Handles older snapshots that persisted root as "file:/...".
-     */
-    private static Path parseRootPath(String text) {
-        try {
-            if (text.startsWith("file:")) {
-                URI uri = new URI(text);
-                return Path.of(uri).toAbsolutePath().normalize();
-            }
-        } catch (Exception ignored) {
-            // fall through to plain path parsing
-        }
-        Path p = Path.of(text);
-        if (!p.isAbsolute()) {
-            // If it still has a file: prefix but wasn't parsed as URI above, strip and try again
-            if (text.startsWith("file:")) {
-                String stripped = text.substring("file:".length());
-                p = Path.of(stripped);
-            }
-            p = p.toAbsolutePath();
-        }
-        return p.normalize();
-    }
+    /* ================= Helpers for DTO <-> domain simple conversions ================= */
 
     private static CodeUnitDto toDto(CodeUnit cu) {
         return new CodeUnitDto(toDto(cu.source()), cu.kind(), cu.packageName(), cu.shortName(), cu.signature());
@@ -606,18 +507,16 @@ public final class TreeSitterStateIO {
     }
 
     private static ProjectFileDto toDto(ProjectFile pf) {
-        Path root = pf.getRoot().toAbsolutePath().normalize();
-        Path rel = pf.getRelPath();
+        java.nio.file.Path root = pf.getRoot().toAbsolutePath().normalize();
+        java.nio.file.Path rel = pf.getRelPath();
 
         String relStr;
         if (rel.isAbsolute()) {
-            // attempt to normalize into a path relative to root
-            Path nr = root.toAbsolutePath().normalize();
-            Path rl = rel.toAbsolutePath().normalize();
+            java.nio.file.Path nr = root.toAbsolutePath().normalize();
+            java.nio.file.Path rl = rel.toAbsolutePath().normalize();
             if (rl.startsWith(nr)) {
                 relStr = nr.relativize(rl).toString();
             } else {
-                // best-effort fallback; use just the file name to keep it relative
                 relStr = rl.getFileName() != null ? rl.getFileName().toString() : rl.toString();
                 log.debug(
                         "ProjectFile relPath was absolute and outside root; falling back to fileName only: root={}, abs={}",
@@ -639,26 +538,45 @@ public final class TreeSitterStateIO {
     }
 
     private static ProjectFile fromDto(ProjectFileDto dto) {
-        Path root = parseRootPath(dto.root());
-        Path rel = Path.of(dto.relPath());
+        java.nio.file.Path root = parseRootPath(dto.root());
+        java.nio.file.Path rel = java.nio.file.Path.of(dto.relPath());
 
         if (rel.isAbsolute()) {
-            Path nr = root.toAbsolutePath().normalize();
-            Path rl = rel.toAbsolutePath().normalize();
+            java.nio.file.Path nr = root.toAbsolutePath().normalize();
+            java.nio.file.Path rl = rel.toAbsolutePath().normalize();
             if (rl.startsWith(nr)) {
                 rel = nr.relativize(rl);
             } else {
-                // best-effort fallback; use just the file name to keep it relative
                 log.debug(
                         "Loaded ProjectFileDto.relPath was absolute and outside root; using fileName only: root={}, abs={}",
                         nr,
                         rl);
-                Path fileName = rl.getFileName();
-                rel = (fileName != null) ? fileName : Path.of("");
+                java.nio.file.Path fileName = rl.getFileName();
+                rel = (fileName != null) ? fileName : java.nio.file.Path.of("");
             }
         }
 
         return new ProjectFile(root, rel);
+    }
+
+    private static java.nio.file.Path parseRootPath(String text) {
+        try {
+            if (text.startsWith("file:")) {
+                URI uri = new URI(text);
+                return java.nio.file.Path.of(uri).toAbsolutePath().normalize();
+            }
+        } catch (Exception ignored) {
+            // fall through to plain path parsing
+        }
+        java.nio.file.Path p = java.nio.file.Path.of(text);
+        if (!p.isAbsolute()) {
+            if (text.startsWith("file:")) {
+                String stripped = text.substring("file:".length());
+                p = java.nio.file.Path.of(stripped);
+            }
+            p = p.toAbsolutePath();
+        }
+        return p.normalize();
     }
 
     private static void moveWithRetriesOrCopyFallback(Path temp, Path file) throws IOException {
@@ -694,5 +612,385 @@ public final class TreeSitterStateIO {
                 }
             }
         }
+    }
+
+    /* ================= Binary writer/reader for AnalyzerStateDto ================= */
+
+    // Utility write helpers
+    private static void writeInt(java.io.OutputStream os, int v) throws IOException {
+        byte[] b = new byte[4];
+        b[0] = (byte) (v >>> 24);
+        b[1] = (byte) (v >>> 16);
+        b[2] = (byte) (v >>> 8);
+        b[3] = (byte) v;
+        os.write(b);
+    }
+
+    private static int readInt(java.io.InputStream is) throws IOException {
+        byte[] b = readN(is, 4);
+        return ((b[0] & 0xFF) << 24) | ((b[1] & 0xFF) << 16) | ((b[2] & 0xFF) << 8) | (b[3] & 0xFF);
+    }
+
+    private static void writeLong(java.io.OutputStream os, long v) throws IOException {
+        byte[] b = new byte[8];
+        b[0] = (byte) (v >>> 56);
+        b[1] = (byte) (v >>> 48);
+        b[2] = (byte) (v >>> 40);
+        b[3] = (byte) (v >>> 32);
+        b[4] = (byte) (v >>> 24);
+        b[5] = (byte) (v >>> 16);
+        b[6] = (byte) (v >>> 8);
+        b[7] = (byte) v;
+        os.write(b);
+    }
+
+    private static long readLong(java.io.InputStream is) throws IOException {
+        byte[] b = readN(is, 8);
+        return ((long) (b[0] & 0xFF) << 56)
+                | ((long) (b[1] & 0xFF) << 48)
+                | ((long) (b[2] & 0xFF) << 40)
+                | ((long) (b[3] & 0xFF) << 32)
+                | ((long) (b[4] & 0xFF) << 24)
+                | ((long) (b[5] & 0xFF) << 16)
+                | ((long) (b[6] & 0xFF) << 8)
+                | ((long) (b[7] & 0xFF));
+    }
+
+    private static void writeBoolean(java.io.OutputStream os, boolean v) throws IOException {
+        os.write(v ? 1 : 0);
+    }
+
+    private static boolean readBoolean(java.io.InputStream is) throws IOException {
+        int v = is.read();
+        if (v < 0) throw new EOFException();
+        return v != 0;
+    }
+
+    private static void writeString(java.io.OutputStream os, String s) throws IOException {
+        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
+        writeInt(os, bytes.length);
+        os.write(bytes);
+    }
+
+    private static String readString(java.io.InputStream is) throws IOException {
+        int len = readInt(is);
+        if (len < 0) throw new IOException("Negative string length");
+        if (len == 0) return "";
+        byte[] bytes = readN(is, len);
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private static byte[] readN(java.io.InputStream is, int n) throws IOException {
+        byte[] buf = new byte[n];
+        int off = 0;
+        while (off < n) {
+            int r = is.read(buf, off, n - off);
+            if (r < 0) throw new EOFException();
+            off += r;
+        }
+        return buf;
+    }
+
+    /* Top-level writer/reader using streams (GZIP handled externally) */
+
+    private static void writeAnalyzerStateDto(AnalyzerStateDto dto, java.io.OutputStream out) throws IOException {
+        // Use a buffered wrapper for efficiency
+        try (var os = new java.io.BufferedOutputStream(out)) {
+            writeString(os, SCHEMA_VERSION);
+
+            // symbolIndex: Map<String, List<CodeUnitDto>>
+            writeInt(os, dto.symbolIndex().size());
+            for (var e : dto.symbolIndex().entrySet()) {
+                writeString(os, e.getKey());
+                List<CodeUnitDto> list = e.getValue();
+                writeInt(os, list.size());
+                for (var cu : list) writeCodeUnitDto(os, cu);
+            }
+
+            // codeUnitState: List<CodeUnitEntryDto>
+            writeInt(os, dto.codeUnitState().size());
+            for (var entry : dto.codeUnitState()) {
+                writeCodeUnitDto(os, entry.key());
+                writeCodeUnitPropertiesDto(os, entry.value());
+            }
+
+            // fileState: List<FileStateEntryDto>
+            writeInt(os, dto.fileState().size());
+            for (var entry : dto.fileState()) {
+                writeProjectFileDto(os, entry.key());
+                writeFilePropertiesDto(os, entry.value());
+            }
+
+            // imports
+            writeInt(os, dto.imports().size());
+            for (var entry : dto.imports()) {
+                writeProjectFileDto(os, entry.key());
+                writeInt(os, entry.value().size());
+                for (var cu : entry.value()) writeCodeUnitDto(os, cu);
+            }
+
+            // reverseImports
+            writeInt(os, dto.reverseImports().size());
+            for (var entry : dto.reverseImports()) {
+                writeProjectFileDto(os, entry.key());
+                writeInt(os, entry.value().size());
+                for (var pf : entry.value()) writeProjectFileDto(os, pf);
+            }
+
+            // supertypes (nullable)
+            writeBoolean(os, dto.supertypes() != null);
+            if (dto.supertypes() != null) {
+                writeInt(os, dto.supertypes().size());
+                for (var e : dto.supertypes()) {
+                    writeCodeUnitDto(os, e.key());
+                    writeInt(os, e.value().size());
+                    for (var cu : e.value()) writeCodeUnitDto(os, cu);
+                }
+            }
+
+            // subtypes (nullable)
+            writeBoolean(os, dto.subtypes() != null);
+            if (dto.subtypes() != null) {
+                writeInt(os, dto.subtypes().size());
+                for (var e : dto.subtypes()) {
+                    writeCodeUnitDto(os, e.key());
+                    writeInt(os, e.value().size());
+                    for (var cu : e.value()) writeCodeUnitDto(os, cu);
+                }
+            }
+
+            // symbolKeys
+            writeInt(os, dto.symbolKeys().size());
+            for (var k : dto.symbolKeys()) writeString(os, k);
+
+            // snapshotEpochNanos
+            writeLong(os, dto.snapshotEpochNanos());
+
+            os.flush();
+        }
+    }
+
+    private static AnalyzerStateDto readAnalyzerStateDto(java.io.InputStream in) throws IOException {
+        try (var is = new java.io.BufferedInputStream(in)) {
+            String version = readString(is);
+            if (!SCHEMA_VERSION.equals(version)) {
+                log.debug("Unsupported schema version: {}", version);
+                return null;
+            }
+
+            // symbolIndex
+            int symbolMapSize = readInt(is);
+            Map<String, List<CodeUnitDto>> symbolIndex = new HashMap<>(Math.max(0, symbolMapSize));
+            for (int i = 0; i < symbolMapSize; i++) {
+                String key = readString(is);
+                int listSize = readInt(is);
+                List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
+                for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
+                symbolIndex.put(key, list);
+            }
+
+            // codeUnitState
+            int cuStateSize = readInt(is);
+            List<CodeUnitEntryDto> cuState = new ArrayList<>(Math.max(0, cuStateSize));
+            for (int i = 0; i < cuStateSize; i++) {
+                var key = readCodeUnitDto(is);
+                var value = readCodeUnitPropertiesDto(is);
+                cuState.add(new CodeUnitEntryDto(key, value));
+            }
+
+            // fileState
+            int fileStateSize = readInt(is);
+            List<FileStateEntryDto> fileState = new ArrayList<>(Math.max(0, fileStateSize));
+            for (int i = 0; i < fileStateSize; i++) {
+                var key = readProjectFileDto(is);
+                var value = readFilePropertiesDto(is);
+                fileState.add(new FileStateEntryDto(key, value));
+            }
+
+            // imports
+            int importsSize = readInt(is);
+            List<ImportEntryDto> imports = new ArrayList<>(Math.max(0, importsSize));
+            for (int i = 0; i < importsSize; i++) {
+                var key = readProjectFileDto(is);
+                int listSize = readInt(is);
+                List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
+                for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
+                imports.add(new ImportEntryDto(key, list));
+            }
+
+            // reverseImports
+            int revImportsSize = readInt(is);
+            List<ReverseImportEntryDto> reverseImports = new ArrayList<>(Math.max(0, revImportsSize));
+            for (int i = 0; i < revImportsSize; i++) {
+                var key = readProjectFileDto(is);
+                int listSize = readInt(is);
+                List<ProjectFileDto> list = new ArrayList<>(Math.max(0, listSize));
+                for (int j = 0; j < listSize; j++) list.add(readProjectFileDto(is));
+                reverseImports.add(new ReverseImportEntryDto(key, list));
+            }
+
+            // supertypes (nullable)
+            boolean hasSupertypes = readBoolean(is);
+            List<SupertypeEntryDto> supertypes = null;
+            if (hasSupertypes) {
+                int stSize = readInt(is);
+                supertypes = new ArrayList<>(Math.max(0, stSize));
+                for (int i = 0; i < stSize; i++) {
+                    var key = readCodeUnitDto(is);
+                    int listSize = readInt(is);
+                    List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
+                    for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
+                    supertypes.add(new SupertypeEntryDto(key, list));
+                }
+            }
+
+            // subtypes (nullable)
+            boolean hasSubtypes = readBoolean(is);
+            List<SubtypeEntryDto> subtypes = null;
+            if (hasSubtypes) {
+                int stSize = readInt(is);
+                subtypes = new ArrayList<>(Math.max(0, stSize));
+                for (int i = 0; i < stSize; i++) {
+                    var key = readCodeUnitDto(is);
+                    int listSize = readInt(is);
+                    List<CodeUnitDto> list = new ArrayList<>(Math.max(0, listSize));
+                    for (int j = 0; j < listSize; j++) list.add(readCodeUnitDto(is));
+                    subtypes.add(new SubtypeEntryDto(key, list));
+                }
+            }
+
+            // symbolKeys
+            int symbolKeysSize = readInt(is);
+            List<String> symbolKeys = new ArrayList<>(Math.max(0, symbolKeysSize));
+            for (int i = 0; i < symbolKeysSize; i++) symbolKeys.add(readString(is));
+
+            // snapshotEpochNanos
+            long snapshotEpochNanos = readLong(is);
+
+            return new AnalyzerStateDto(
+                    symbolIndex,
+                    cuState,
+                    fileState,
+                    imports,
+                    reverseImports,
+                    supertypes,
+                    subtypes,
+                    symbolKeys,
+                    snapshotEpochNanos);
+        }
+    }
+
+    /* ================= DTO primitive writers/readers ================= */
+
+    private static void writeProjectFileDto(java.io.OutputStream os, ProjectFileDto dto) throws IOException {
+        writeString(os, dto.root());
+        writeString(os, dto.relPath());
+    }
+
+    private static ProjectFileDto readProjectFileDto(java.io.InputStream is) throws IOException {
+        String root = readString(is);
+        String rel = readString(is);
+        return new ProjectFileDto(root, rel);
+    }
+
+    private static void writeCodeUnitDto(java.io.OutputStream os, CodeUnitDto dto) throws IOException {
+        writeProjectFileDto(os, dto.source());
+        writeString(os, dto.kind().name());
+        writeString(os, dto.packageName());
+        writeString(os, dto.shortName());
+        writeBoolean(os, dto.signature() != null);
+        if (dto.signature() != null) writeString(os, dto.signature());
+    }
+
+    private static CodeUnitDto readCodeUnitDto(java.io.InputStream is) throws IOException {
+        ProjectFileDto src = readProjectFileDto(is);
+        String kindName = readString(is);
+        CodeUnitType kind = CodeUnitType.valueOf(kindName);
+        String pkg = readString(is);
+        String shortName = readString(is);
+        boolean hasSignature = readBoolean(is);
+        String signature = hasSignature ? readString(is) : null;
+        return new CodeUnitDto(src, kind, pkg, shortName, signature);
+    }
+
+    private static void writeCodeUnitPropertiesDto(java.io.OutputStream os, CodeUnitPropertiesDto dto)
+            throws IOException {
+        writeInt(os, dto.children().size());
+        for (var c : dto.children()) writeCodeUnitDto(os, c);
+        writeInt(os, dto.signatures().size());
+        for (var s : dto.signatures()) writeString(os, s);
+        writeInt(os, dto.ranges().size());
+        for (var r : dto.ranges()) {
+            writeInt(os, r.startByte());
+            writeInt(os, r.endByte());
+            writeInt(os, r.startLine());
+            writeInt(os, r.endLine());
+            writeInt(os, r.commentStartByte());
+        }
+        writeBoolean(os, dto.hasBody());
+    }
+
+    private static CodeUnitPropertiesDto readCodeUnitPropertiesDto(java.io.InputStream is) throws IOException {
+        int childrenSize = readInt(is);
+        List<CodeUnitDto> children = new ArrayList<>(Math.max(0, childrenSize));
+        for (int i = 0; i < childrenSize; i++) children.add(readCodeUnitDto(is));
+
+        int sigSize = readInt(is);
+        List<String> sigs = new ArrayList<>(Math.max(0, sigSize));
+        for (int i = 0; i < sigSize; i++) sigs.add(readString(is));
+
+        int rangesSize = readInt(is);
+        List<IAnalyzer.Range> ranges = new ArrayList<>(Math.max(0, rangesSize));
+        for (int i = 0; i < rangesSize; i++) {
+            int startByte = readInt(is);
+            int endByte = readInt(is);
+            int startLine = readInt(is);
+            int endLine = readInt(is);
+            int commentStart = readInt(is);
+            ranges.add(new IAnalyzer.Range(startByte, endByte, startLine, endLine, commentStart));
+        }
+
+        boolean hasBody = readBoolean(is);
+        return new CodeUnitPropertiesDto(children, sigs, ranges, hasBody);
+    }
+
+    private static void writeFilePropertiesDto(java.io.OutputStream os, FilePropertiesDto dto) throws IOException {
+        writeInt(os, dto.topLevelCodeUnits().size());
+        for (var c : dto.topLevelCodeUnits()) writeCodeUnitDto(os, c);
+        writeInt(os, dto.importStatements().size());
+        for (var im : dto.importStatements()) writeImportInfoDto(os, im);
+        writeBoolean(os, dto.containsTests());
+    }
+
+    private static FilePropertiesDto readFilePropertiesDto(java.io.InputStream is) throws IOException {
+        int topLevelSize = readInt(is);
+        List<CodeUnitDto> topLevel = new ArrayList<>(Math.max(0, topLevelSize));
+        for (int i = 0; i < topLevelSize; i++) topLevel.add(readCodeUnitDto(is));
+
+        int importsSize = readInt(is);
+        List<ImportInfoDto> imports = new ArrayList<>(Math.max(0, importsSize));
+        for (int i = 0; i < importsSize; i++) imports.add(readImportInfoDto(is));
+
+        boolean containsTests = readBoolean(is);
+        return new FilePropertiesDto(topLevel, imports, containsTests);
+    }
+
+    private static void writeImportInfoDto(java.io.OutputStream os, ImportInfoDto dto) throws IOException {
+        writeString(os, dto.rawSnippet());
+        writeBoolean(os, dto.isWildcard());
+        writeBoolean(os, dto.identifier() != null);
+        if (dto.identifier() != null) writeString(os, dto.identifier());
+        writeBoolean(os, dto.alias() != null);
+        if (dto.alias() != null) writeString(os, dto.alias());
+    }
+
+    private static ImportInfoDto readImportInfoDto(java.io.InputStream is) throws IOException {
+        String raw = readString(is);
+        boolean isWildcard = readBoolean(is);
+        boolean hasIdent = readBoolean(is);
+        String ident = hasIdent ? readString(is) : null;
+        boolean hasAlias = readBoolean(is);
+        String alias = hasAlias ? readString(is) : null;
+        return new ImportInfoDto(raw, isWildcard, ident, alias);
     }
 }
