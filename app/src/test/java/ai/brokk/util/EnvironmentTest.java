@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.awt.SystemTray;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -90,5 +91,46 @@ class EnvironmentTest {
                     Environment.instance.runShellCommand("echo test", tmpRoot, s -> {}, Duration.ofSeconds(-1));
                 },
                 "Negative timeout should throw IllegalArgumentException");
+    }
+
+    @Test
+    void systemTrayIsNotSupportedOnLinux() {
+        Assumptions.assumeTrue(Environment.isLinux(), "Only assert Linux behavior when running on Linux");
+
+        assertFalse(Environment.instance.isSystemTrayNotificationSupported());
+    }
+
+    @Test
+    void systemTraySupportedOnWindowsWhenAwtReportsSupport() {
+        Assumptions.assumeTrue(Environment.isWindows(), "Only assert Windows behavior when running on Windows");
+        Assumptions.assumeTrue(
+                SystemTray.isSupported(), "Skip when AWT SystemTray is not supported (e.g., headless CI)");
+
+        assertTrue(Environment.instance.isSystemTrayNotificationSupported());
+    }
+
+    @Test
+    void sendNotificationAsyncDoesNotThrow() {
+        assertDoesNotThrow(() -> Environment.instance.sendNotificationAsync("test notification"));
+
+        // Give the async task a brief moment to execute; we do not assert on side effects.
+        try {
+            Thread.sleep(200);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @Test
+    void sendNotificationAsyncDoesNotThrowOnLinux() {
+        Assumptions.assumeTrue(Environment.isLinux(), "Only assert Linux behavior when running on Linux");
+
+        assertDoesNotThrow(() -> Environment.instance.sendNotificationAsync("linux notification"));
+
+        try {
+            Thread.sleep(200);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

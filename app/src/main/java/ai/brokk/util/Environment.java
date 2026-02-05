@@ -713,7 +713,7 @@ public class Environment {
         });
     }
 
-    private boolean isSystemTrayNotificationSupported() {
+    boolean isSystemTrayNotificationSupported() {
         // Only enable AWT SystemTray on platforms we explicitly intend to support (e.g., Windows).
         // Explicitly disable on macOS and Linux to avoid platform-specific AWT/system-tray issues.
         return isWindows() && SystemTray.isSupported();
