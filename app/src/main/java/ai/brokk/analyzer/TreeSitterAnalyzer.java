@@ -52,8 +52,15 @@ import org.treesitter.*;
  * Generic, language-agnostic skeleton extractor backed by Tree-sitter. Stores summarized skeletons for top-level
  * definitions only.
  *
- * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
- * how to map a capture to a {@link CodeUnit}.
+ * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query,
+ * and how to map a capture to a {@link CodeUnit}.
+ *
+ * <p>Important persistence note: heavy, variable-sized presentation data such as rendered signatures are intentionally
+ * NOT stored inside the immutable {@link AnalyzerState} snapshot. Such data is transient and cache-backed
+ * (see {@link ai.brokk.analyzer.cache.AnalyzerCache}), and is populated on-demand during analysis. The persisted
+ * AnalyzerState contains the structural, compact information required to reconstruct indices, ranges, imports, and
+ * type-hierarchy graphs, while signatures and other large presentation artifacts remain in the in-memory cache and
+ * are not serialized to disk.
  */
 public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider {
 
@@ -655,7 +662,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Exposes the current immutable AnalyzerState snapshot for persistence.
-     * Intended for use by Language.saveAnalyzer and other persistence hooks.
+     *
+     * <p>Intended for use by Language.saveAnalyzer and other persistence hooks.
+     *
+     * <p>Important: This snapshot explicitly excludes transient, cache-resident payloads such as rendered signatures.
+     * Signatures are maintained in {@link AnalyzerCache} (the {@code cache} field) and are not persisted into the
+     * AnalyzerState DTO. When snapshotting, any lazily-populated derived graphs that live in the transient cache
+     * (e.g., import/type-hierarchy forward/reverse mappings) are merged into the returned AnalyzerState so that
+     * subsequent loads have the necessary structural data; however, presentation-heavy lists of signature strings remain
+     * transient and must be recomputed or repopulated into a new AnalyzerCache after loading.
      */
     public AnalyzerState snapshotState() {
         if (cache.isEmpty()) {
@@ -3788,6 +3803,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         try {
                                             var parser = getTSParser();
                                             byte[] bytes = readFileBytes(file, null);
+
+                                            // Parse and update transient tree cache so other lazy operations (e.g.,
+                                            // raw supertype extraction) see the new parse tree immediately.
+                                            try {
+                                                String src = new String(bytes, StandardCharsets.UTF_8);
+                                                TSTree parsedTree = parser.parseString(null, src);
+                                                if (parsedTree != null) {
+                                                    cache.trees().put(file, parsedTree);
+                                                }
+                                            } catch (Exception e) {
+                                                // Non-fatal: log and continue to attempt analysis using the parser
+                                                log.debug(
+                                                        "Failed to parse and cache tree for {} during update: {}",
+                                                        file,
+                                                        e.getMessage());
+                                            }
+
                                             var analysisResult = analyzeFileContent(file, bytes, parser, null);
                                             mergeAnalysisResultIntoMaps(
                                                     file,
@@ -3856,7 +3888,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Re-run combined post-processing (imports + type analysis) after ingesting updates
         var typedState = runPostProcessing(nextState);
 
-        var filteredCache = new AnalyzerCache(this.cache, changedFiles);
+        // Transfer cache from the previous snapshot, excluding entries for changed files.
+        // The AnalyzerCache transfer constructor filters out entries sourced from changedFiles.
+        // We pass relevantFiles (all modified/added/deleted files) so their stale cache entries
+        // (rawSupertypes, typeHierarchy, etc.) are not transferred. Fresh entries for re-analyzed
+        // files were already populated into this.cache during the re-analysis loop above.
+        var filteredCache = new AnalyzerCache(this.cache, relevantFiles);
         return newSnapshot(typedState, getProgressListener(), filteredCache);
     }
 
