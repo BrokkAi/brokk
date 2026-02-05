@@ -472,9 +472,9 @@ tasks.withType<Test> {
         exclude("**/GitRepo*.class")
     }
 
-    // On Windows, use only 1 fork to avoid CI issues; on other platforms use half core count
-    // (half b/c spinning up JVMs is also slow so right now this is a good balance; as we add tests we will want to revisit)
-    maxParallelForks = if (System.getProperty("os.name").lowercase().contains("windows")) 1 else maxOf(6, Runtime.getRuntime().availableProcessors() / 2)
+    // Use a single fork for tests to avoid excessive OS thread/process usage in CI environments.
+    // Running many test JVM forks can cause "unable to create native thread" OOME on constrained runners.
+    maxParallelForks = 1
     forkEvery = 0  // Never fork new JVMs during test execution
 
     jvmArgs = listOf(
