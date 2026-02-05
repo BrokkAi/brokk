@@ -353,6 +353,88 @@ public class HistoryIoTest {
     }
 
     @Test
+    void testCountSessionStats_combinedCounts() throws Exception {
+        Path zipFile = tempDir.resolve("combined_stats.zip");
+
+        String fragmentId = UUID.randomUUID().toString();
+        String contentId = UUID.randomUUID().toString();
+
+        String fragmentsJson =
+                """
+            {
+              "version": 4,
+              "referenced": {},
+              "virtual": {
+                "%s": {
+                  "type": "ai.brokk.context.FragmentDtos$StringFragmentDto",
+                  "id": "%s",
+                  "contentId": "%s",
+                  "description": "Task List",
+                  "syntaxStyle": "json"
+                }
+              },
+              "task": {}
+            }
+            """
+                        .formatted(fragmentId, fragmentId, contentId);
+
+        // 2 AI responses (contexts with parsedOutputId), 3 tasks (2 incomplete)
+        String contextsJsonl =
+                """
+            {"id":"%s","editable":[],"readonly":[],"virtuals":["%s"],"pinned":[],"tasks":[],"parsedOutputId":"output1"}
+            {"id":"%s","editable":[],"readonly":[],"virtuals":["%s"],"pinned":[],"tasks":[],"parsedOutputId":null}
+            {"id":"%s","editable":[],"readonly":[],"virtuals":["%s"],"pinned":[],"tasks":[],"parsedOutputId":"output2"}
+            """
+                        .formatted(
+                                UUID.randomUUID().toString(),
+                                fragmentId,
+                                UUID.randomUUID().toString(),
+                                fragmentId,
+                                UUID.randomUUID().toString(),
+                                fragmentId);
+
+        String taskListContent =
+                """
+            {
+              "tasks": [
+                {"id": "%s", "title": "Task 1", "text": "First task", "done": false},
+                {"id": "%s", "title": "Task 2", "text": "Second task", "done": true},
+                {"id": "%s", "title": "Task 3", "text": "Third task", "done": false}
+              ]
+            }
+            """
+                        .formatted(
+                                UUID.randomUUID().toString(),
+                                UUID.randomUUID().toString(),
+                                UUID.randomUUID().toString());
+
+        try (var zos = new ZipOutputStream(Files.newOutputStream(zipFile))) {
+            zos.putNextEntry(new ZipEntry("fragments-v4.json"));
+            zos.write(fragmentsJson.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("contexts.jsonl"));
+            zos.write(contextsJsonl.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            zos.putNextEntry(new ZipEntry("content/" + contentId + ".txt"));
+            zos.write(taskListContent.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+
+        var stats = HistoryIo.countSessionStats(zipFile);
+        assertEquals(2, stats.aiResponses(), "Should count 2 AI responses");
+        assertEquals(new HistoryIo.TaskCounts(3, 2), stats.tasks(), "Should count 3 total, 2 incomplete tasks");
+
+        // Verify individual methods delegate correctly
+        assertEquals(2, HistoryIo.countAiResponses(zipFile), "countAiResponses should return same value");
+        assertEquals(
+                new HistoryIo.TaskCounts(3, 2),
+                HistoryIo.countIncompleteTasks(zipFile),
+                "countIncompleteTasks should return same value");
+    }
+
+    @Test
     void testCountAiResponses_blankLinesAndMalformedJson() throws Exception {
         // Create a zip with manually crafted contexts.jsonl
         Path zipFile = tempDir.resolve("malformed_contexts.zip");
