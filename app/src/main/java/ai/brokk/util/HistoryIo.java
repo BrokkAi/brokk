@@ -32,7 +32,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,6 +39,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 import org.apache.logging.log4j.LogManager;
@@ -76,97 +76,137 @@ public final class HistoryIo {
     /** Holds total and incomplete task counts for a session. */
     public record TaskCounts(int total, int incomplete) {}
 
+    /** Holds combined session statistics: AI response count and task counts. */
+    public record SessionCounts(int aiResponses, TaskCounts tasks) {}
+
     private static final String LEGACY_TASKLIST_FILENAME = "tasklist.json";
+
+    /**
+     * Counts both AI responses and tasks in a session zip with a single pass.
+     * More efficient than calling countAiResponses and countIncompleteTasks separately.
+     * @return SessionCounts with AI response count and task counts, or empty counts if file doesn't exist
+     */
+    @Blocking
+    public static SessionCounts countSessionStats(Path zip) throws IOException {
+        if (!Files.exists(zip)) {
+            return new SessionCounts(0, new TaskCounts(0, 0));
+        }
+
+        int aiResponseCount = 0;
+        String lastContextLine = null;
+        byte[] fragmentsBytes = null;
+        byte[] legacyTaskListBytes = null;
+
+        try (var zipFile = new ZipFile(zip.toFile())) {
+            // Read contexts.jsonl
+            var contextsEntry = zipFile.getEntry(CONTEXTS_FILENAME);
+            if (contextsEntry != null) {
+                var reader = new BufferedReader(
+                        new InputStreamReader(zipFile.getInputStream(contextsEntry), StandardCharsets.UTF_8));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.trim().isEmpty()) continue;
+                    try {
+                        var node = objectMapper.readTree(line);
+                        var parsedOutputId = node.get("parsedOutputId");
+                        if (parsedOutputId != null && !parsedOutputId.isNull()) {
+                            aiResponseCount++;
+                        }
+                        lastContextLine = line;
+                    } catch (Exception e) {
+                        logger.debug(
+                                "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
+                                line.length() > 200 ? line.substring(0, 200) + "..." : line,
+                                e.toString());
+                    }
+                }
+            }
+
+            // Read fragments (try v4 first, then v3)
+            var fragEntry = zipFile.getEntry(V4_FRAGMENTS_FILENAME);
+            if (fragEntry == null) {
+                fragEntry = zipFile.getEntry(V3_FRAGMENTS_FILENAME);
+            }
+            if (fragEntry != null) {
+                fragmentsBytes = zipFile.getInputStream(fragEntry).readAllBytes();
+            }
+
+            // Read legacy tasklist if present
+            var legacyEntry = zipFile.getEntry(LEGACY_TASKLIST_FILENAME);
+            if (legacyEntry != null) {
+                legacyTaskListBytes = zipFile.getInputStream(legacyEntry).readAllBytes();
+            }
+
+            // Determine taskListContentId from fragments + last context,
+            // then read ONLY that single content entry
+            TaskCounts taskCounts;
+            if (lastContextLine != null && fragmentsBytes != null) {
+                var contentId = findTaskListContentId(lastContextLine, fragmentsBytes);
+                if (contentId != null) {
+                    var contentEntry = zipFile.getEntry(CONTENT_DIR_PREFIX + contentId + ".txt");
+                    if (contentEntry != null) {
+                        var json =
+                                new String(zipFile.getInputStream(contentEntry).readAllBytes(), StandardCharsets.UTF_8);
+                        taskCounts = parseTaskListJson(json);
+                    } else {
+                        taskCounts = new TaskCounts(0, 0);
+                    }
+                } else if (legacyTaskListBytes != null) {
+                    taskCounts = countTasksFromLegacyJson(legacyTaskListBytes);
+                } else {
+                    taskCounts = new TaskCounts(0, 0);
+                }
+            } else if (legacyTaskListBytes != null) {
+                taskCounts = countTasksFromLegacyJson(legacyTaskListBytes);
+            } else {
+                taskCounts = new TaskCounts(0, 0);
+            }
+
+            return new SessionCounts(aiResponseCount, taskCounts);
+        }
+    }
 
     /**
      * Counts incomplete tasks in a session zip without full deserialization.
      * Supports two storage formats:
      * 1. New format: Task list as a StringFragment in virtuals with description "Task List"
      * 2. Legacy format: Task list in a separate tasklist.json file
+     *
+     * Note: If you also need AI response counts, use countSessionStats() instead to avoid
+     * reading the zip file twice.
      */
     @Blocking
     public static TaskCounts countIncompleteTasks(Path zip) throws IOException {
-        if (!Files.exists(zip)) {
-            return new TaskCounts(0, 0);
-        }
-
-        String lastContextLine = null;
-        byte[] fragmentsBytes = null;
-        byte[] legacyTaskListBytes = null;
-        Map<String, byte[]> contentBytesMap = new HashMap<>();
-
-        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                var entryName = entry.getName();
-                if (entryName.equals(CONTEXTS_FILENAME)) {
-                    var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (!line.trim().isEmpty()) {
-                            lastContextLine = line;
-                        }
-                    }
-                } else if (entryName.equals(V4_FRAGMENTS_FILENAME) || entryName.equals(V3_FRAGMENTS_FILENAME)) {
-                    fragmentsBytes = zis.readAllBytes();
-                } else if (entryName.equals(LEGACY_TASKLIST_FILENAME)) {
-                    legacyTaskListBytes = zis.readAllBytes();
-                } else if (entryName.startsWith(CONTENT_DIR_PREFIX) && !entry.isDirectory()) {
-                    String contentId =
-                            entryName.substring(CONTENT_DIR_PREFIX.length()).replaceFirst("\\.txt$", "");
-                    contentBytesMap.put(contentId, zis.readAllBytes());
-                }
-            }
-        }
-
-        // Try new format first (fragment-based)
-        if (lastContextLine != null && fragmentsBytes != null) {
-            var result = countTasksFromFragments(lastContextLine, fragmentsBytes, contentBytesMap);
-            if (result.isPresent()) {
-                return result.get();
-            }
-        }
-
-        // Fall back to legacy format (tasklist.json) only if no task list fragment was found
-        if (legacyTaskListBytes != null) {
-            return countTasksFromLegacyJson(legacyTaskListBytes);
-        }
-
-        return new TaskCounts(0, 0);
+        return countSessionStats(zip).tasks();
     }
 
     /**
-     * Attempts to count tasks from the new fragment-based format.
-     * @return Optional.empty() if no task list fragment was found (caller should fall back to legacy),
-     *         Optional.of(TaskCounts) if a task list fragment was found (even if empty)
+     * Finds the content ID of the "Task List" fragment in the last context.
+     * @return the content ID string, or null if no task list fragment was found
      */
-    private static Optional<TaskCounts> countTasksFromFragments(
-            String lastContextLine, byte[] fragmentsBytes, Map<String, byte[]> contentBytesMap) {
+    @Nullable
+    private static String findTaskListContentId(String lastContextLine, byte[] fragmentsBytes) {
         try {
             var contextNode = objectMapper.readTree(lastContextLine);
             var virtualsNode = contextNode.get("virtuals");
             if (virtualsNode == null || !virtualsNode.isArray()) {
-                return Optional.empty();
+                return null;
             }
 
-            // Collect virtual fragment IDs from context
             Set<String> virtualIds = new HashSet<>();
             for (var idNode : virtualsNode) {
                 virtualIds.add(idNode.asText());
             }
 
-            // Parse fragments file
             var fragmentsNode = objectMapper.readTree(fragmentsBytes);
             var virtualFragments = fragmentsNode.get("virtual");
             if (virtualFragments == null) {
-                return Optional.empty();
+                return null;
             }
 
-            // Find the Task List fragment (description == "Task List")
-            String taskListContentId = null;
             var fieldNames = virtualFragments.fieldNames();
             while (fieldNames.hasNext()) {
-                String fragmentId = fieldNames.next();
+                var fragmentId = fieldNames.next();
                 if (!virtualIds.contains(fragmentId)) {
                     continue;
                 }
@@ -175,30 +215,15 @@ public final class HistoryIo {
                 if (descriptionNode != null && "Task List".equals(descriptionNode.asText())) {
                     var contentIdNode = fragment.get("contentId");
                     if (contentIdNode != null && !contentIdNode.isNull()) {
-                        taskListContentId = contentIdNode.asText();
-                        break;
+                        return contentIdNode.asText();
                     }
                 }
             }
 
-            if (taskListContentId == null) {
-                // No task list fragment found in context - signal to fall back to legacy
-                return Optional.empty();
-            }
-
-            // Read the task list content
-            byte[] contentBytes = contentBytesMap.get(taskListContentId);
-            if (contentBytes == null) {
-                // Fragment found but content missing - treat as found but empty
-                return Optional.of(new TaskCounts(0, 0));
-            }
-            String taskListJson = new String(contentBytes, StandardCharsets.UTF_8);
-
-            return Optional.of(parseTaskListJson(taskListJson));
+            return null;
         } catch (Exception e) {
-            logger.debug("Error parsing task list from fragments: {}", e.getMessage());
-            // Parse error - signal to fall back to legacy
-            return Optional.empty();
+            logger.debug("Error finding task list content ID from fragments: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -235,41 +260,13 @@ public final class HistoryIo {
      * Counts AI responses in a session zip without full deserialization.
      * Only reads contexts.jsonl and counts entries with non-null parsedOutputId.
      * Uses JsonNode parsing to work with both V3 and V4 formats.
+     *
+     * Note: If you also need task counts, use countSessionStats() instead to avoid
+     * reading the zip file twice.
      */
+    @Blocking
     public static int countAiResponses(Path zip) throws IOException {
-        if (!Files.exists(zip)) {
-            return 0;
-        }
-
-        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().equals(CONTEXTS_FILENAME)) {
-                    // Stream line-by-line to avoid materializing entire file in memory
-                    var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
-                    int count = 0;
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (line.trim().isEmpty()) continue;
-                        try {
-                            var node = objectMapper.readTree(line);
-                            var parsedOutputId = node.get("parsedOutputId");
-                            if (parsedOutputId != null && !parsedOutputId.isNull()) {
-                                count++;
-                            }
-                        } catch (Exception e) {
-                            // Skip malformed lines, but log for troubleshooting
-                            logger.debug(
-                                    "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
-                                    line.length() > 200 ? line.substring(0, 200) + "..." : line,
-                                    e.toString());
-                        }
-                    }
-                    return count;
-                }
-            }
-        }
-        return 0;
+        return countSessionStats(zip).aiResponses();
     }
 
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {

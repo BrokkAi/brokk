@@ -269,12 +269,13 @@ public class RightPanel extends JPanel implements ThemeAware {
         list.setCellRenderer(new SessionInfoRenderer(taskCounts));
 
         // Load counts asynchronously and repaint as each completes
+        // Use countSessionStats to get both AI response and task counts in a single pass
         var sessionManager = contextManager.getProject().getSessionManager();
         for (var s : sessions) {
             var sessionId = s.id();
             contextManager.getBackgroundTasks().submit(() -> {
-                var counts = sessionManager.countIncompleteTasks(sessionId);
-                taskCounts.put(sessionId, counts);
+                var stats = sessionManager.countSessionStats(sessionId);
+                taskCounts.put(sessionId, stats.tasks());
                 SwingUtilities.invokeLater(list::repaint);
             });
         }
