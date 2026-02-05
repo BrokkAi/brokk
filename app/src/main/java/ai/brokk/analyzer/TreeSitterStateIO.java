@@ -122,12 +122,7 @@ public final class TreeSitterStateIO {
     public record FileStateEntryDto(ProjectFileDto key, FilePropertiesDto value) {}
 
     public record FilePropertiesDto(
-            List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
-        public FilePropertiesDto {
-            Objects.requireNonNull(topLevelCodeUnits);
-            Objects.requireNonNull(importStatements);
-        }
-    }
+            List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {}
 
     public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
 
@@ -226,12 +221,6 @@ public final class TreeSitterStateIO {
                 // Version matches; read the remainder of the payload using the stream positioned after the version
                 // header.
                 AnalyzerStateDto dto = readAnalyzerStateDtoFromStream(bis);
-                if (dto == null) {
-                    log.debug(
-                            "Failed to read AnalyzerStateDto from {} despite matching schema version; treating as incompatible.",
-                            file);
-                    return Optional.empty();
-                }
                 var state = fromDto(dto);
                 long durMs = System.currentTimeMillis() - startMs;
                 log.debug(
