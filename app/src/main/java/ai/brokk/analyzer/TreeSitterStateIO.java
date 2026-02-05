@@ -20,26 +20,66 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Persistence helper for TreeSitterAnalyzer.AnalyzerState using a small custom, versioned binary format.
+ * Persistence helper for TreeSitterAnalyzer.AnalyzerState using an explicit, versioned on-disk format.
  *
- * The format (high level):
- * - UTF-8 schema version string (length-prefixed as int)
- * - Then a sequence of length-prefixed fields encoding the AnalyzerStateDto graph:
- *   - symbolIndex: map size (int), repeated entries: key (string), list size (int), repeated CodeUnitDto
- *   - codeUnitState: list size (int), repeated CodeUnitEntryDto (key CodeUnitDto then CodeUnitPropertiesDto)
- *   - fileState: list size (int), repeated FileStateEntryDto (key ProjectFileDto then FilePropertiesDto)
- *   - imports: list size (int), repeated ImportEntryDto (key ProjectFileDto then list of CodeUnitDto)
- *   - reverseImports: list size (int), repeated ReverseImportEntryDto (key ProjectFileDto then list of ProjectFileDto)
- *   - supertypes: nullable flag (boolean); if present list size (int), repeated SupertypeEntryDto (key CodeUnitDto then list)
- *   - subtypes: nullable flag (boolean); if present list size (int), repeated SubtypeEntryDto (key CodeUnitDto then list)
- *   - symbolKeys: list size (int), repeated strings
- *   - snapshotEpochNanos: long
+ * <p>High-level on-disk format
+ * - The entire payload is GZIP-compressed to reduce size and avoid accidental text-editing by users.
+ * - The compressed payload begins with a length-prefixed UTF-8 schema version string. This string is the primary
+ *   compatibility token and MUST be read and validated before attempting to parse the rest of the payload.
+ * - After the version string the file contains a sequence of length-prefixed binary sections that represent the
+ *   AnalyzerStateDto graph. At a high level these sections include:
+ *     - symbolIndex (Map<String, List<CodeUnitDto>>)
+ *     - codeUnitState (List of CodeUnitEntryDto)
+ *     - fileState (List of FileStateEntryDto)
+ *     - imports and reverseImports (forward/reverse import graphs)
+ *     - optional type hierarchy sections (supertypes and subtypes)
+ *     - symbolKeys (list of strings used for prefix/autocomplete)
+ *     - snapshotEpochNanos (long)
  *
- * All strings are written as int length (bytes) followed by UTF-8 bytes.
+ * <p>Strings are encoded as an int length (byte count) followed by UTF-8 bytes. Primitive lengths and counts are
+ * written as fixed-size integers (big-endian). The concrete writer/reader methods are intentionally explicit so the
+ * on-disk layout is predictable and easy to evolve.
  *
- * This class intentionally avoids Jackson and uses explicit write/read methods so the on-disk format is explicit
- * and versioned. If the version is unexpected or the payload is corrupt/truncated, load(...) returns Optional.empty()
- * and logs a debug message.
+ * <p>Versioning and migration strategy
+ * - The schema version is an explicit UTF-8 string written at the very start of the (uncompressed) stream. The
+ *   version token is authoritative: when loading, the reader first attempts to read this string. If the token does
+ *   not match the current schema version the loader treats the snapshot as incompatible and returns Optional.empty().
+ * - This design favors safety and forward progress: incompatible or unknown versions do not cause runtime exceptions
+ *   or partial/inconsistent state to be loaded into the analyzer. Instead the analyzer rebuilds from source when a
+ *   snapshot cannot be trusted.
+ * - When the schema needs to evolve, bump the CURRENT_SCHEMA_VERSION constant to a new semantic token (for example
+ *   "1.1" or "2.0"), and add migration logic in the loader if you want to accept older versions explicitly.
+ *   Prefer explicit migration code paths over implicit tolerant parsing: explicit migrations are easier to review and
+ *   reason about, and they leave a clear audit trail for schema changes.
+ *
+ * <p>Error handling, corruption, and truncated payloads
+ * - The loader treats any I/O error, malformed header, truncated stream, or unexpected end-of-file as an indication
+ *   that the persisted snapshot cannot be trusted. In all of these cases load(...) returns Optional.empty() and logs
+ *   a debug-level message explaining the failure.
+ * - The rationale is conservative: a partially-decoded AnalyzerState could produce incorrect symbol lookups or
+ *   subtle incorrect behavior. It is safer to rebuild analyzer state from sources than to operate on a possibly
+ *   inconsistent snapshot.
+ *
+ * <p>Design influences
+ * - The compact, explicit, versioned-on-disk design is inspired by the pragmatic approach used in other tooling
+ *   projects such as Apache Fory: keep an explicit version token, write a small deterministic binary payload, and
+ *   always treat unknown or corrupted snapshots as needing reconstruction. This class captures that spirit without
+ *   copying any specific implementation details or code from those projects.
+ *
+ * <p>Developer notes
+ * - Where the state lives: Analyzers persist per-language state to the Language.getStoragePath(project) path (for
+ *   example, ".brokk/java.bin.gzip"). The AnalyzerWrapper coordinates saving for multi-language analyzers by asking
+ *   each Language to save its delegate analyzer state.
+ * - How state is invalidated: user-initiated "Refresh Code Intelligence" (requestRebuild) triggers deletion of the
+ *   per-language storage files. The AnalyzerWrapper takes a conservative approach: it deletes persisted snapshots and
+ *   marks a rebuild request so the next analyzer build will reparse sources from scratch. This ensures that stale on-disk
+ *   state does not cause confusing behavior after an explicit refresh.
+ *
+ * <p>Extending the schema
+ * - To add new fields: add new sections to the writer (appending at the end is preferred), bump the schema version,
+ *   and add corresponding reader logic. If you need to accept older versions, implement a migration path that branches
+ *   on the version token and reconstructs the missing data from other payload fields where possible.
+ * - Keep the version check early and fail-fast: do not attempt to interpret the payload when the version token differs.
  */
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
