@@ -458,23 +458,28 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
          *  - attempts to remove empty parent directory,
          *  - finally sets externalRebuildRequested = true so subsequent build logic knows a rebuild was requested.
          */
-        analyzerExecutor.submit(() -> {
-            try {
-                logger.debug("Pausing watch service to perform persisted analyzer state cleanup for {}", root);
-                watchService.pause();
-                clearPersistedAnalyzerState();
-            } catch (Throwable t) {
-                logger.warn("Exception while clearing persisted analyzer state: {}", t.toString());
-            } finally {
+        try {
+            analyzerExecutor.submit(() -> {
                 try {
-                    watchService.resume();
+                    logger.debug("Pausing watch service to perform persisted analyzer state cleanup for {}", root);
+                    watchService.pause();
+                    clearPersistedAnalyzerState();
                 } catch (Throwable t) {
-                    logger.warn("Failed to resume watch service after persisted state cleanup: {}", t.toString());
+                    logger.warn("Exception while clearing persisted analyzer state: {}", t.toString());
+                } finally {
+                    try {
+                        watchService.resume();
+                    } catch (Throwable t) {
+                        logger.warn("Failed to resume watch service after persisted state cleanup: {}", t.toString());
+                    }
+                    externalRebuildRequested = true;
                 }
-                externalRebuildRequested = true;
-            }
-            return null;
-        });
+                return null;
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ex) {
+            logger.warn("Analyzer executor rejected rebuild cleanup task; marking rebuild requested anyway", ex);
+            externalRebuildRequested = true; // preserve old behavior as a fallback
+        }
     }
 
     /**
