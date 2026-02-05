@@ -153,26 +153,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     public record CodeUnitProperties(List<CodeUnit> children, List<Range> ranges, boolean hasBody) {
 
-        /**
-         * Backwards-compatible constructor that accepts the legacy signatures parameter.
-         * The signatures are no longer stored in AnalyzerState; this constructor intentionally
-         * ignores the provided signatures list to preserve compatibility while
-         * allowing older call sites (and tests) to compile.
-         */
-        public CodeUnitProperties(
-                List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
-            this(children, ranges, hasBody);
-        }
-
-        /**
-         * Legacy accessor retained for compatibility. Signatures are not persisted in the
-         * AnalyzerState snapshot; callers should use language-specific local maps when
-         * signatures are needed. For now, always return an empty list.
-         */
-        public List<String> signatures() {
-            return Collections.emptyList();
-        }
-
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(Collections.emptyList(), Collections.emptyList(), false);
         }
@@ -3894,6 +3874,25 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // (rawSupertypes, typeHierarchy, etc.) are not transferred. Fresh entries for re-analyzed
         // files were already populated into this.cache during the re-analysis loop above.
         var filteredCache = new AnalyzerCache(this.cache, relevantFiles);
+
+        // Copy freshly-analyzed signatures from this.cache into the filtered cache.
+        // The transfer constructor excluded relevantFiles, but we just re-analyzed them and
+        // populated this.cache with their new signatures. Transfer those new entries now.
+        for (ProjectFile file : relevantFiles) {
+            if (Files.exists(file.absPath())) {
+                // Find all CodeUnits sourced from this file and transfer their signatures
+                for (var entry : newCodeUnitState.entrySet()) {
+                    CodeUnit cu = entry.getKey();
+                    if (cu.source().equals(file)) {
+                        List<String> sigs = this.cache.signatures().get(cu);
+                        if (sigs != null) {
+                            filteredCache.signatures().put(cu, sigs);
+                        }
+                    }
+                }
+            }
+        }
+
         return newSnapshot(typedState, getProgressListener(), filteredCache);
     }
 

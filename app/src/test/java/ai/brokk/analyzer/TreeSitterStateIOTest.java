@@ -165,7 +165,7 @@ public class TreeSitterStateIOTest {
         var cu = CodeUnit.cls(projectFile, "com.example", "Test");
 
         var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                List.of(), List.of("public class Test"), List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
+                List.of(), List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
 
         var stateMap = Map.of(cu, props);
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
@@ -188,7 +188,6 @@ public class TreeSitterStateIOTest {
 
         assertNotNull(loadedProps);
         assertEquals(props.ranges(), loadedProps.ranges());
-        assertEquals(props.signatures(), loadedProps.signatures());
         assertEquals(props.children(), loadedProps.children());
         assertEquals(props.hasBody(), loadedProps.hasBody());
     }
