@@ -781,7 +781,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     if (dep.getRelPath().getNameCount() < 3) {
                         return false;
                     }
-                    var depName = dep.getRelPath().getFileName().toString();
+                    var depName = dep.getRelPath().getName(2).toString();
                     return liveNamesSet.contains(depName);
                 })
                 .collect(Collectors.toSet());

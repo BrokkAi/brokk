@@ -155,10 +155,7 @@ public final class WorktreeProject extends AbstractProject {
             // First access in this worktree: copy parent's current effective active set into this worktree
             var parentDeps = parent.getLiveDependencies(); // effective set from parent
             String names = parentDeps.stream()
-                    .map(d -> {
-                        // The ProjectFile relPath is .brokk/dependencies/name
-                        return d.root().getRelPath().getFileName().toString();
-                    })
+                    .map(d -> d.root().getRelPath().getName(2).toString())
                     .collect(Collectors.joining(","));
             // Persist the copied list so future accesses are worktree-local
             workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, names);
