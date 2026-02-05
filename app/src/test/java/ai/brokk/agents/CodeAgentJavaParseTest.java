@@ -1039,4 +1039,161 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         // logger.warn("Quick Edit diagnostics: could not find target text in file (may have changed)");
         // and return early without computing diagnostics on wrong content
     }
+
+    // New test: reproduce JDT "Missing code implementation in the compiler" diagnostic on AnalyzerCache.java
+    @Test
+    void testParseJavaForDiagnostics_analyzerCache_missingCodeImplementationDiagnostic() throws Exception {
+        // Create a realistic AnalyzerCache.java in the test project root using the current source.
+        var javaFile = cm.toFile("AnalyzerCache.java");
+        javaFile.write(
+                """
+                package ai.brokk.analyzer.cache;
+
+                import ai.brokk.analyzer.CodeUnit;
+                import ai.brokk.analyzer.ProjectFile;
+                import java.util.Collections;
+                import java.util.List;
+                import java.util.Set;
+                import org.treesitter.TSTree;
+
+                /**
+                 * Composes all analyzer-specific caches into a single helper object.
+                 *
+                 * <p>Caches in this class are designed to be transferable across analyzer snapshots.
+                 * The {@link #AnalyzerCache(AnalyzerCache, Set)} constructor enables incremental updates
+                 * by transferring only those entries that remain valid given a set of changed files.
+                 */
+                public final class AnalyzerCache {
+
+                    private final SimpleCache<ProjectFile, TSTree> trees;
+                    private final SimpleCache<CodeUnit, List<String>> rawSupertypes;
+                    private final BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports;
+                    private final BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy;
+
+                    public AnalyzerCache() {
+                        this.trees = new CaffeineSimpleCache<>(1000);
+                        this.rawSupertypes = new CaffeineSimpleCache<>(5000);
+                        this.imports = new CaffeineBidirectionalCache<>(
+                                10000,
+                                (cache, resolved) -> {
+                                    // Logic for reverse population is handled by the caller during resolve
+                                },
+                                Collections::emptySet);
+                        this.typeHierarchy = new CaffeineBidirectionalCache<>(
+                                10000,
+                                (cache, supers) -> {
+                                    // Logic for reverse population is handled by the caller during resolve
+                                },
+                                Collections::emptyList);
+                    }
+
+                    /**
+                     * Transfer constructor for incremental updates.
+                     *
+                     * <p>Copies valid entries from the {@code previous} cache that are not affected by
+                     * the {@code changedFiles}. For bidirectional caches (imports and typeHierarchy),
+                     * only the forward mappings are transferred. Reverse mappings are left empty and
+                     * will be repopulated lazily as the new analyzer snapshot performs lookups.
+                     *
+                     * @param previous the cache from the preceding analyzer snapshot
+                     * @param changedFiles the set of files that were modified, added, or removed
+                     */
+                    public AnalyzerCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+                        this();
+                        previous.trees.forEach((file, tree) -> {
+                            if (!changedFiles.contains(file)) {
+                                this.trees.put(file, tree);
+                            }
+                        });
+
+                        previous.rawSupertypes.forEach((cu, supers) -> {
+                            if (!changedFiles.contains(cu.source())) {
+                                this.rawSupertypes.put(cu, List.copyOf(supers));
+                            }
+                        });
+
+                        previous.imports.forEachForward((file, units) -> {
+                            if (!changedFiles.contains(file)) {
+                                this.imports.putForward(file, Set.copyOf(units));
+                            }
+                        });
+
+                        previous.typeHierarchy.forEachForward((cu, supers) -> {
+                            if (!changedFiles.contains(cu.source())) {
+                                this.typeHierarchy.putForward(cu, List.copyOf(supers));
+                            }
+                        });
+                    }
+
+                    public SimpleCache<ProjectFile, TSTree> trees() {
+                        return trees;
+                    }
+
+                    public SimpleCache<CodeUnit, List<String>> rawSupertypes() {
+                        return rawSupertypes;
+                    }
+
+                    public BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports() {
+                        return imports;
+                    }
+
+                    public BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy() {
+                        return typeHierarchy;
+                    }
+
+                    /**
+                     * Returns true only if ALL caches are empty.
+                     */
+                    public boolean isEmpty() {
+                        return trees.isEmpty() && rawSupertypes.isEmpty() && imports.isEmpty() && typeHierarchy.isEmpty();
+                    }
+
+                    /**
+                     * Returns a snapshot of the current state of all caches.
+                     */
+                    public CacheSnapshot snapshot() {
+                        return new CacheSnapshot(trees, rawSupertypes, imports, typeHierarchy);
+                    }
+
+                    /**
+                     * Record containing the current state of all caches.
+                     */
+                    public record CacheSnapshot(
+                            SimpleCache<ProjectFile, TSTree> trees,
+                            SimpleCache<CodeUnit, List<String>> rawSupertypes,
+                            BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports,
+                            BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy) {}
+                }
+                """);
+
+        // Read back and run the JDT-based diagnostics parser.
+        var src = javaFile.read().orElseThrow();
+        var diags = CodeAgent.parseJavaForDiagnostics(javaFile, src);
+
+        // We expect at least one diagnostic from JDT for this file (the "Missing code implementation in the compiler"
+        // issue).
+        assertFalse(diags.isEmpty(), "Expected at least one diagnostic for AnalyzerCache.java pre-lint");
+
+        // Find the specific diagnostic with the known message fragment.
+        var maybe = diags.stream()
+                .filter(d -> d.description().contains("Missing code implementation in the compiler"))
+                .findFirst();
+        // If this assertion fails, the printed diagnostics below will help identify the different messages emitted by
+        // JDT.
+        assertTrue(
+                maybe.isPresent(),
+                "Expected a diagnostic containing 'Missing code implementation in the compiler' but got:\n" + diags);
+
+        var diag = maybe.orElseThrow();
+
+        // Record the numeric problemId and categoryId for characterization.
+        // NOTE: We do not hard-code expected numeric IDs here because they may vary across JDT versions.
+        // Running this test will print the observed IDs so maintainers can pin future expectations if desired.
+        // Some JDT versions may report a 0 problemId for this diagnostic; accept non-negative IDs to be tolerant.
+        assertTrue(diag.problemId() >= 0, "JDT problemId should be non-negative (observed: " + diag.problemId() + ")");
+        // categoryId may be null; include it in the printed output for later inspection.
+        System.out.println("AnalyzerCache Missing-code diagnostic: problemId=" + diag.problemId()
+                + ", categoryId=" + diag.categoryId()
+                + "\n" + diag.description());
+    }
 }
