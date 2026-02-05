@@ -392,42 +392,57 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         captureBtn.addActionListener(e -> handleCaptureDiff());
 
         fileTreePanel.setContextMenuProvider(selectedFiles -> {
-            if (!commitsTable.isOnlyWorkingSelected() || selectedFiles.isEmpty()) {
+            // If the user right-clicks with no selection (e.g. whitespace), show an informational
+            // notification and do not perform any commit/stash action. This avoids surprising
+            // all-files operations from the context menu.
+            if (selectedFiles == null || selectedFiles.isEmpty()) {
+                SwingUtilities.invokeLater(
+                        () -> chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files selected."));
                 return null;
             }
 
+            // Build context menu that operates strictly on the set of selected files provided
+            // by FileTreePanel. Do not attempt to fall back to any implicit single-file selection.
             var menu = new JPopupMenu();
 
             var commitItem = new JMenuItem("Commit");
             commitItem.addActionListener(evt -> {
-                var owner = chrome.getFrame();
-                var dialog = new CommitDialog(
-                        owner,
-                        chrome,
-                        cm,
-                        selectedFiles,
-                        commitResult -> SwingUtilities.invokeLater(() -> {
-                            chrome.notifyActionComplete("Committed " + commitResult.commitId());
-                            requestUpdate();
-                        }));
-                dialog.setVisible(true);
+                // Open CommitDialog on EDT with exactly the selected files.
+                SwingUtilities.invokeLater(() -> {
+                    var owner = chrome.getFrame();
+                    var dialog = new CommitDialog(
+                            owner,
+                            chrome,
+                            cm,
+                            selectedFiles,
+                            commitResult -> SwingUtilities.invokeLater(() -> {
+                                chrome.notifyActionComplete("Committed " + commitResult.commitId());
+                                requestUpdate();
+                            }));
+                    dialog.setVisible(true);
+                });
             });
             menu.add(commitItem);
 
             var stashItem = new JMenuItem("Stash");
-            stashItem.addActionListener(evt -> cm.submitExclusiveAction(() -> {
-                try {
-                    repo.createPartialStash("Stash selected files", selectedFiles);
-                    SwingUtilities.invokeLater(() -> {
-                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Stashed selected files.");
-                        requestUpdate();
-                    });
-                } catch (Exception ex) {
-                    SwingUtilities.invokeLater(
-                            () -> chrome.toolError("Stash failed: " + ex.getMessage(), "Stash Error"));
-                }
-                return null;
-            }));
+            stashItem.addActionListener(evt -> {
+                // Run stash on background/exclusive thread to avoid blocking the EDT.
+                // Capture the selection now (defensive copy) and pass to repo.createPartialStash.
+                List<ProjectFile> filesToStash = List.copyOf(selectedFiles);
+                cm.submitExclusiveAction(() -> {
+                    try {
+                        repo.createPartialStash("Stash selected files", filesToStash);
+                        SwingUtilities.invokeLater(() -> {
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Stashed selected files.");
+                            requestUpdate();
+                        });
+                    } catch (Exception ex) {
+                        SwingUtilities.invokeLater(
+                                () -> chrome.toolError("Stash failed: " + ex.getMessage(), "Stash Error"));
+                    }
+                    return null;
+                });
+            });
             menu.add(stashItem);
 
             return menu;
