@@ -78,19 +78,19 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         this.modelLocations = Map.copyOf(tempModelLocations);
 
         // STT model initialization
-        var sttLocation = modelInfoMap.entrySet().stream()
+        var sttModelName = modelInfoMap.entrySet().stream()
                 .filter(entry -> "audio_transcription".equals(entry.getValue().get("mode")))
                 .map(Map.Entry::getKey)
                 .findFirst()
                 .orElse(null);
 
-        if (sttLocation == null) {
+        if (sttModelName == null) {
             LogManager.getLogger(Service.class)
                     .warn("No suitable transcription model found via LiteLLM proxy. STT will be unavailable.");
             sttModel = new UnavailableSTT();
         } else {
-            LogManager.getLogger(Service.class).info("Found transcription model at {}", sttLocation);
-            sttModel = new OpenAIStt(sttLocation);
+            LogManager.getLogger(Service.class).info("Found transcription model: {}", sttModelName);
+            sttModel = new OpenAIStt(sttModelName);
         }
     }
 
@@ -585,10 +585,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
      */
     public class OpenAIStt implements SpeechToTextModel {
         private final Logger logger = LogManager.getLogger(OpenAIStt.class);
-        private final String modelLocation; // e.g., "openai/whisper-1"
+        private final String modelName; // e.g., "whisper-1"
 
-        public OpenAIStt(String modelLocation) {
-            this.modelLocation = modelLocation;
+        public OpenAIStt(String modelName) {
+            this.modelName = modelName;
         }
 
         private MediaType getMediaTypeFromFileName(String fileName) {
@@ -624,7 +624,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             var builder = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("file", file.getName(), fileBody)
-                    .addFormDataPart("model", modelLocation)
+                    .addFormDataPart("model", modelName)
                     .addFormDataPart("language", "en")
                     .addFormDataPart("response_format", "json");
 
