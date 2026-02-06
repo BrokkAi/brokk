@@ -201,15 +201,20 @@ public class RefactoringService {
     }
 
     private String formatRefactoringDescription(DetectedRefactoring ref) {
-        // Extract a concise description from the full description
         String desc = ref.description();
 
-        // The full description can be verbose; try to extract key info
-        // Format: "Refactoring Type description from X to Y"
-        // We'll use the description as-is but may truncate if too long
-        if (desc.length() > 200) {
-            desc = desc.substring(0, 197) + "...";
+        // RefactoringMiner's toString() prepends the refactoring type name directly
+        // to the details with no separator, e.g. "Extract VariablecontextBuilder : var".
+        // Since we already show the type in the section header, strip it to get just
+        // the details, and the result is cleaner.
+        String type = ref.type();
+        if (desc.startsWith(type)) {
+            desc = desc.substring(type.length()).stripLeading();
         }
+
+        // if (desc.length() > 200) {
+        //     desc = desc.substring(0, 197) + "...";
+        // }
 
         return desc;
     }
