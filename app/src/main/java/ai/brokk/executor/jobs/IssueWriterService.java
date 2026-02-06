@@ -1,7 +1,8 @@
 package ai.brokk.executor.jobs;
 
-import ai.brokk.ContextManager;
+import ai.brokk.IContextManager;
 import ai.brokk.agents.SearchAgent;
+import ai.brokk.context.Context;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.util.Json;
 import ai.brokk.util.TextUtil;
@@ -17,26 +18,28 @@ import org.jetbrains.annotations.Nullable;
 public final class IssueWriterService {
     private static final Logger logger = LogManager.getLogger(IssueWriterService.class);
 
-    private final ContextManager cm;
+    private final IContextManager cm;
     private final StreamingChatModel model;
     private final String userRequest;
+    private final ai.brokk.context.Context context;
 
-    public IssueWriterService(ContextManager cm, StreamingChatModel model, String userRequest) {
-        this.cm = cm;
+    public IssueWriterService(Context context, StreamingChatModel model, String userRequest) {
+        this.cm = context.getContextManager();
+        this.context = context;
         this.model = model;
         this.userRequest = userRequest;
     }
 
-    static boolean shouldEnrichIssuePrompt(@Nullable String body) {
+    public static boolean shouldEnrichIssuePrompt(@Nullable String body) {
         return TextUtil.countWords(body) < JobRunner.ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD;
     }
 
-    public record IssueResponse(String title, String bodyMarkdown) {}
+    public record IssueResult(String title, String bodyMarkdown, ai.brokk.context.Context context) {}
 
-    public IssueResponse execute() throws InterruptedException {
+    record ParsedIssue(String title, String bodyMarkdown) {}
+
+    public IssueResult execute() throws InterruptedException {
         try (var scope = cm.beginTaskUngrouped("Issue Writer")) {
-            var context = cm.liveContext();
-
             String goal =
                     """
                     Issue Writer: produce a high-quality GitHub issue by discovering and citing evidence in this repository.
@@ -48,13 +51,13 @@ public final class IssueWriterService {
 
             var agent = new SearchAgent(context, goal, model, SearchPrompts.Objective.ISSUE_DIAGNOSIS, scope);
             var result = agent.execute();
-            scope.append(result);
+            ai.brokk.context.Context resultingContext = scope.append(result);
 
             String raw = result.output().text().join();
             var parsed = parseIssueResponse(raw);
 
             String finalBodyMarkdown = maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
-            return new IssueResponse(parsed.title(), finalBodyMarkdown);
+            return new IssueResult(parsed.title(), finalBodyMarkdown, resultingContext);
         }
     }
 
@@ -81,7 +84,7 @@ public final class IssueWriterService {
         return out.toString();
     }
 
-    static IssueResponse parseIssueResponse(String rawText) {
+    static ParsedIssue parseIssueResponse(String rawText) {
         if (rawText.isBlank()) {
             throw new AssertionError(); // text is serialized by jackson in SearchAgent, should always be valid
         }
@@ -107,7 +110,7 @@ public final class IssueWriterService {
             throw new IllegalArgumentException("parseIssueResponse: missing or invalid 'bodyMarkdown' field");
         }
 
-        return new IssueResponse(
+        return new ParsedIssue(
                 root.get("title").asText(), root.get("bodyMarkdown").asText());
     }
 }

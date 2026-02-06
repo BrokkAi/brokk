@@ -453,6 +453,7 @@ public class SearchAgent {
     ToolCategory categorizeTool(String toolName) {
         return switch (toolName) {
             case "answer",
+                    "createIssue",
                     "askForClarification",
                     "callCodeAgent",
                     "createOrReplaceTaskList",

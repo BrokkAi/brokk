@@ -1009,6 +1009,7 @@ public final class JobRunner {
                                             String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
                                                     .formatted(issueNumber, details.title(), details.body());
 
+                                            var context = cm.liveContext();
                                             if (IssueWriterService.shouldEnrichIssuePrompt(details.body())) {
                                                 try {
                                                     store.appendEvent(
@@ -1016,36 +1017,21 @@ public final class JobRunner {
                                                             JobEvent.of(
                                                                     "NOTIFICATION",
                                                                     "Issue body is brief; performing prompt enrichment..."));
-                                                    try (var enrichmentScope =
-                                                            cm.beginTaskUngrouped("Prompt Enrichment")) {
-                                                        var enrichmentAgent = new SearchAgent(
-                                                                cm.liveContext(),
-                                                                issueTaskPrompt,
-                                                                issuePlannerModel,
-                                                                SearchPrompts.Objective.PROMPT_ENRICHMENT,
-                                                                enrichmentScope);
-                                                        var enrichmentResult = enrichmentAgent.execute();
-                                                        if (enrichmentResult
-                                                                        .stopDetails()
-                                                                        .reason()
-                                                                == TaskResult.StopReason.SUCCESS) {
-                                                            issueTaskPrompt += "\n\nEnriched Context:\n"
-                                                                    + enrichmentResult
-                                                                            .output()
-                                                                            .text()
-                                                                            .join();
-                                                            logger.info(
-                                                                    "ISSUE job {}: prompt enrichment successful",
-                                                                    jobId);
-                                                        } else {
-                                                            logger.warn(
-                                                                    "ISSUE job {}: prompt enrichment did not complete successfully: {}",
-                                                                    jobId,
-                                                                    enrichmentResult
-                                                                            .stopDetails()
-                                                                            .reason());
-                                                        }
-                                                    }
+
+                                                    var writerService = new IssueWriterService(
+                                                            context, issuePlannerModel, issueTaskPrompt);
+                                                    var enriched = writerService.execute();
+
+                                                    issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\n%s"
+                                                            .formatted(
+                                                                    issueNumber,
+                                                                    enriched.title(),
+                                                                    enriched.bodyMarkdown());
+
+                                                    // Update context with discovery from enrichment
+                                                    context = cm.pushContext(ctx -> enriched.context());
+
+                                                    logger.info("ISSUE job {}: prompt enrichment successful", jobId);
                                                 } catch (Exception e) {
                                                     logger.warn("ISSUE job {}: prompt enrichment failed", jobId, e);
                                                 }
@@ -1054,7 +1040,6 @@ public final class JobRunner {
                                             // 4. Lutz-style execution: Planning then Task Iteration
                                             String taskDescription = "Issue #" + issueNumber + ": " + details.title();
                                             try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
-                                                var context = cm.liveContext();
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         issueTaskPrompt,
@@ -1552,8 +1537,10 @@ public final class JobRunner {
 
                                         var model = resolveModelOrThrow(
                                                 spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
-                                        var writerService = new IssueWriterService(cm, model, spec.taskInput());
+                                        var writerService =
+                                                new IssueWriterService(cm.liveContext(), model, spec.taskInput());
                                         var parsed = writerService.execute();
+                                        cm.pushContext(ctx -> parsed.context());
 
                                         try {
                                             store.appendEvent(

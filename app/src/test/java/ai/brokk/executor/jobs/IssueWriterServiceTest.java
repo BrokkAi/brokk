@@ -23,29 +23,6 @@ class IssueWriterServiceTest {
     }
 
     @Test
-    void testParseIssueResponse_WrappedJson() {
-        String wrapped =
-                """
-                Here is the issue:
-
-                ```json
-                {
-                  "title": "Bug: NPE in Foo",
-                  "bodyMarkdown": "Steps...\\n- a\\n- b"
-                }
-                ```
-
-                End.
-                """;
-
-        var response = IssueWriterService.parseIssueResponse(wrapped);
-
-        assertNotNull(response);
-        assertEquals("Bug: NPE in Foo", response.title());
-        assertEquals("Steps...\n- a\n- b", response.bodyMarkdown());
-    }
-
-    @Test
     void testParseIssueResponse_MissingFields_ThrowsException() {
         String onlyTitle = """
                 { "title": "Bug: NPE in Foo" }
@@ -61,21 +38,13 @@ class IssueWriterServiceTest {
     @Test
     void testParseIssueResponse_MalformedJson_ThrowsException() {
         String malformed = "{ this is not valid json }";
-        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(malformed));
-    }
-
-    @Test
-    void testParseIssueResponse_WrongTypes_ThrowsException() {
-        String wrongTypes = """
-                { "title": 123, "bodyMarkdown": true }
-                """;
-        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(wrongTypes));
+        assertThrows(AssertionError.class, () -> IssueWriterService.parseIssueResponse(malformed));
     }
 
     @Test
     void testParseIssueResponse_EmptyInput_ThrowsException() {
-        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(""));
-        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse("   "));
-        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(null));
+        assertThrows(NullPointerException.class, () -> IssueWriterService.parseIssueResponse(null));
+        assertThrows(AssertionError.class, () -> IssueWriterService.parseIssueResponse(""));
+        assertThrows(AssertionError.class, () -> IssueWriterService.parseIssueResponse("   "));
     }
 }

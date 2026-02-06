@@ -200,7 +200,7 @@ public class SearchTools {
                 allDefinitions.addAll(analyzer.searchDefinitions(pattern));
             }
         }
-        logger.debug("Raw definitions: {}", allDefinitions);
+        logger.trace("Raw definitions: {}", allDefinitions);
 
         if (!includeTests) {
             allDefinitions = allDefinitions.stream()
