@@ -59,6 +59,7 @@ import picocli.CommandLine;
 @SuppressWarnings("NullAway.Init") // NullAway is upset that some fields are initialized in picocli's call()
 @CommandLine.Command(
         name = "brokk-cli",
+        version = "Brokk " + ai.brokk.BuildInfo.version,
         mixinStandardHelpOptions = true,
         description = "One-shot Brokk workspace and task runner.")
 public final class BprCli implements Callable<Integer> {
@@ -196,9 +197,7 @@ public final class BprCli implements Callable<Integer> {
     private AbstractProject project;
 
     public static void main(String[] args) {
-        logger.info("Starting Brokk CLI...");
         System.setProperty("java.awt.headless", "true");
-
         int exitCode = new CommandLine(new BprCli()).execute(args);
         System.exit(exitCode);
     }
@@ -214,6 +213,8 @@ public final class BprCli implements Callable<Integer> {
             System.out.println(modelsJson);
             return 0;
         }
+
+        logger.info("Starting Brokk CLI...");
 
         // Validate --project is provided when not using --build-commit or --list-models
         if (projectPath == null) {
