@@ -174,6 +174,26 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         widget = new BrokkJediTermWidget(terminalSettings);
         add(widget, BorderLayout.CENTER);
 
+        // Ensure the Swing components used by the widget default to dark theme as well.
+        // Some JediTerm components may paint their own background; explicitly set them here
+        // so they do not pick up any light-default UIManager colors.
+        try {
+            var display = widget.getTerminalDisplay();
+            if (display instanceof java.awt.Component comp) {
+                comp.setBackground(Color.BLACK);
+                comp.setForeground(Color.WHITE);
+                if (comp instanceof javax.swing.JComponent jc) {
+                    jc.setOpaque(true);
+                }
+            }
+            widget.setBackground(Color.BLACK);
+            widget.setForeground(Color.WHITE);
+            widget.setOpaque(true);
+        } catch (Exception ignored) {
+            // If JediTerm internals are not fully initialized yet, we'll rely on applyTerminalColors()
+            // to set the colors once ready. Silently ignore any early-access errors.
+        }
+
         // Apply initial dark terminal colors
         applyTerminalColors();
         startProcessAsync(cmd);
@@ -485,9 +505,30 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         settings.setSelectionBackground(selBg);
         settings.setSelectionForeground(selFg);
 
-        // Trigger repaint to apply the changes
+        // Also ensure the Swing components that host the terminal reflect the same colors.
+        // Some JediTerm rendering paths may paint row backgrounds independently; forcing
+        // the component background helps avoid accidental white row backgrounds.
         var w = widget;
         if (w != null) {
+            try {
+                var termPanel = w.getTerminalPanel();
+                if (termPanel != null) {
+                    termPanel.setBackground(new Color(0, 0, 0));
+                    termPanel.setForeground(new Color(255, 255, 255));
+                    termPanel.setOpaque(true);
+                }
+                var display = w.getTerminalDisplay();
+                if (display instanceof java.awt.Component comp) {
+                    comp.setBackground(new Color(0, 0, 0));
+                    comp.setForeground(new Color(255, 255, 255));
+                    if (comp instanceof javax.swing.JComponent jc) {
+                        jc.setOpaque(true);
+                    }
+                }
+            } catch (Exception ignored) {
+                // Be tolerant of JediTerm internals changing; settings provider is authoritative.
+            }
+
             // Force the terminal to pick up the new colors. Adjusting cursor shape is
             // used historically to ensure JediTerm refreshes its internal rendering.
             w.getTerminalPanel().setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
