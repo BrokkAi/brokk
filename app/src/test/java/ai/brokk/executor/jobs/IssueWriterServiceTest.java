@@ -2,7 +2,7 @@ package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +46,7 @@ class IssueWriterServiceTest {
     }
 
     @Test
-    void testParseIssueResponse_MissingFields_ReturnsNull() {
+    void testParseIssueResponse_MissingFields_ThrowsException() {
         String onlyTitle = """
                 { "title": "Bug: NPE in Foo" }
                 """;
@@ -54,28 +54,28 @@ class IssueWriterServiceTest {
                 { "bodyMarkdown": "Steps..." }
                 """;
 
-        assertNull(IssueWriterService.parseIssueResponse(onlyTitle));
-        assertNull(IssueWriterService.parseIssueResponse(onlyBody));
+        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(onlyTitle));
+        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(onlyBody));
     }
 
     @Test
-    void testParseIssueResponse_MalformedJson_ReturnsNull() {
+    void testParseIssueResponse_MalformedJson_ThrowsException() {
         String malformed = "{ this is not valid json }";
-        assertNull(IssueWriterService.parseIssueResponse(malformed));
+        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(malformed));
     }
 
     @Test
-    void testParseIssueResponse_WrongTypes_ReturnsNull() {
+    void testParseIssueResponse_WrongTypes_ThrowsException() {
         String wrongTypes = """
                 { "title": 123, "bodyMarkdown": true }
                 """;
-        assertNull(IssueWriterService.parseIssueResponse(wrongTypes));
+        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(wrongTypes));
     }
 
     @Test
-    void testParseIssueResponse_EmptyInput_ReturnsNull() {
-        assertNull(IssueWriterService.parseIssueResponse(""));
-        assertNull(IssueWriterService.parseIssueResponse("   "));
-        assertNull(IssueWriterService.parseIssueResponse(null));
+    void testParseIssueResponse_EmptyInput_ThrowsException() {
+        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(""));
+        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse("   "));
+        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(null));
     }
 }

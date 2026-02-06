@@ -509,6 +509,14 @@ public final class BprCli implements Callable<Integer> {
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();
 
+        // enhance prompt
+        if (lutzPrompt != null) {
+            // TODO IssueWriterService
+        }
+        if (lutzLitePrompt != null) {
+            // TODO IssueWriterService
+        }
+
         // --- Deep Scan ------------------------------------------------------
         boolean isStandaloneDeepScan = deepScan
                 && architectPrompt == null

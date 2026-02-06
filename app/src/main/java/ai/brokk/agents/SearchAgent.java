@@ -380,7 +380,7 @@ public class SearchAgent {
         var terminals = new ArrayList<String>();
         var allowed = objective.terminals();
 
-        if (allowed.contains(Terminal.ISSUE_JSON)) {
+        if (allowed.contains(Terminal.ISSUE)) {
             terminals.add("issueWriterOutput");
             terminals.add("abortSearch");
             return terminals;
@@ -982,11 +982,17 @@ public class SearchAgent {
             return queryForUser;
         }
 
-        @Tool(
-                "Issue Writer final output. Provide EXACTLY the JSON string. No markdown fences, no preamble, no additional text.")
+        @Tool("Issue Writer final output. Create a high-quality GitHub issue.")
         @SuppressWarnings("UnusedMethod")
-        public String issueWriterOutput(@P("A single JSON object string.") String json) {
+        public String createIssue(
+                @P("Concise, specific issue title.") String title,
+                @P("GitHub-flavored Markdown describing the problem and impact.") String body) {
             agent.terminalCompletionReported = true;
+            var json = ai.brokk.util.Json.getMapper()
+                    .createObjectNode()
+                    .put("title", title)
+                    .put("bodyMarkdown", body)
+                    .toString();
             agent.io.llmOutput(json, ChatMessageType.AI, LlmOutputMeta.newMessage());
             return json;
         }

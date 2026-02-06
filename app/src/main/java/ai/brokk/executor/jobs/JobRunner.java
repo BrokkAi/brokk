@@ -18,7 +18,6 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.util.TextUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -44,8 +43,6 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -1012,7 +1009,7 @@ public final class JobRunner {
                                             String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
                                                     .formatted(issueNumber, details.title(), details.body());
 
-                                            if (shouldEnrichIssuePrompt(details.body())) {
+                                            if (IssueWriterService.shouldEnrichIssuePrompt(details.body())) {
                                                 try {
                                                     store.appendEvent(
                                                             jobId,
@@ -1553,96 +1550,62 @@ public final class JobRunner {
                                                     ioe);
                                         }
 
-                                        try (var scope = cm.beginTaskUngrouped("Issue Writer")) {
-                                            var context = cm.liveContext();
+                                        var model = resolveModelOrThrow(
+                                                spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
+                                        var writerService = new IssueWriterService(cm, model, spec.taskInput());
+                                        var parsed = writerService.execute();
 
-                                            var model = resolveModelOrThrow(
-                                                    spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
-
-                                            String goal =
-                                                    """
-                                                    Issue Writer: produce a high-quality GitHub issue by discovering and citing evidence in this repository.
-
-                                                    User request:
-                                                    %s
-                                                    """
-                                                            .formatted(spec.taskInput());
-
-                                            var agent = new SearchAgent(
-                                                    context,
-                                                    goal,
-                                                    model,
-                                                    SearchPrompts.Objective.ISSUE_DIAGNOSIS,
-                                                    scope);
-                                            var result = agent.execute();
-                                            scope.append(result);
-
-                                            String raw = result.output().text().join();
-                                            var parsed = IssueWriterService.parseIssueResponse(raw);
-                                            if (parsed == null) {
-                                                String preview = raw == null
-                                                        ? "(null)"
-                                                        : (raw.length() > 500 ? raw.substring(0, 500) + "..." : raw);
-                                                throw new IllegalStateException(
-                                                        "ISSUE_WRITER discovery output was not valid JSON with required fields. Output preview: "
-                                                                + preview);
-                                            }
-
-                                            try {
-                                                store.appendEvent(
-                                                        jobId,
-                                                        JobEvent.of(
-                                                                "NOTIFICATION",
-                                                                "ISSUE_WRITER: discovery complete (title: "
-                                                                        + parsed.title() + ")"));
-                                            } catch (IOException ioe) {
-                                                logger.warn(
-                                                        "Failed to append ISSUE_WRITER discovery-complete notification for job {}: {}",
-                                                        jobId,
-                                                        ioe.getMessage(),
-                                                        ioe);
-                                            }
-
-                                            String finalBodyMarkdown = maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
-
-                                            logger.info(
-                                                    "ISSUE_WRITER job {}: creating GitHub issue in {}/{}",
+                                        try {
+                                            store.appendEvent(
                                                     jobId,
-                                                    repoOwner,
-                                                    repoName);
-
-                                            var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
-
-                                            var issueService = new GitHubIssueService(cm.getProject(), auth);
-
-                                            IssueHeader created =
-                                                    issueService.createIssue(parsed.title(), finalBodyMarkdown);
-
-                                            logger.info(
-                                                    "ISSUE_WRITER job {} created GitHub issue in {}/{}: id={} url={}",
+                                                    JobEvent.of(
+                                                            "NOTIFICATION",
+                                                            "ISSUE_WRITER: discovery complete (title: " + parsed.title()
+                                                                    + ")"));
+                                        } catch (IOException ioe) {
+                                            logger.warn(
+                                                    "Failed to append ISSUE_WRITER discovery-complete notification for job {}: {}",
                                                     jobId,
-                                                    repoOwner,
-                                                    repoName,
-                                                    created.id(),
-                                                    created.htmlUrl());
+                                                    ioe.getMessage(),
+                                                    ioe);
+                                        }
 
-                                            String createdMsg = "ISSUE_WRITER: issue created";
-                                            if (!created.id().isBlank()) {
-                                                createdMsg += " " + created.id();
-                                            }
-                                            if (created.htmlUrl() != null) {
-                                                createdMsg += " " + created.htmlUrl();
-                                            }
+                                        logger.info(
+                                                "ISSUE_WRITER job {}: creating GitHub issue in {}/{}",
+                                                jobId,
+                                                repoOwner,
+                                                repoName);
 
-                                            try {
-                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
-                                            } catch (IOException ioe) {
-                                                logger.warn(
-                                                        "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
-                                                        jobId,
-                                                        ioe.getMessage(),
-                                                        ioe);
-                                            }
+                                        var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+                                        var githubIssueService = new GitHubIssueService(cm.getProject(), auth);
+
+                                        IssueHeader created =
+                                                githubIssueService.createIssue(parsed.title(), parsed.bodyMarkdown());
+
+                                        logger.info(
+                                                "ISSUE_WRITER job {} created GitHub issue in {}/{}: id={} url={}",
+                                                jobId,
+                                                repoOwner,
+                                                repoName,
+                                                created.id(),
+                                                created.htmlUrl());
+
+                                        String createdMsg = "ISSUE_WRITER: issue created";
+                                        if (!created.id().isBlank()) {
+                                            createdMsg += " " + created.id();
+                                        }
+                                        if (created.htmlUrl() != null) {
+                                            createdMsg += " " + created.htmlUrl();
+                                        }
+
+                                        try {
+                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
+                                        } catch (IOException ioe) {
+                                            logger.warn(
+                                                    "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
+                                                    jobId,
+                                                    ioe.getMessage(),
+                                                    ioe);
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
@@ -2583,33 +2546,6 @@ public final class JobRunner {
         throw new IssueExecutionException(baseMessage);
     }
 
-    private static final Pattern DIFF_FENCE_PATTERN = Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
-
-    static String maybeAnnotateDiffBlocks(String bodyMarkdown) {
-        if (bodyMarkdown.isBlank() || !bodyMarkdown.contains("```diff")) {
-            return bodyMarkdown;
-        }
-
-        Matcher matcher = DIFF_FENCE_PATTERN.matcher(bodyMarkdown);
-        if (!matcher.find()) {
-            return bodyMarkdown;
-        }
-
-        matcher.reset();
-
-        var out = new StringBuilder();
-        int lastEnd = 0;
-        while (matcher.find()) {
-            out.append(bodyMarkdown, /* start= */ lastEnd, /* end= */ matcher.start());
-            String content = matcher.group(1);
-            String annotated = PrReviewService.annotateDiffWithLineNumbers(content);
-            out.append("```diff\n").append(annotated).append("\n```");
-            lastEnd = matcher.end();
-        }
-        out.append(bodyMarkdown.substring(lastEnd));
-        return out.toString();
-    }
-
     /**
      * Resolves build details for ISSUE mode: uses spec's build_settings if present and non-blank,
      * otherwise falls back to project-level build details.
@@ -2623,10 +2559,6 @@ public final class JobRunner {
         }
         // Fall back to repository-level build details
         return project.awaitBuildDetails();
-    }
-
-    static boolean shouldEnrichIssuePrompt(@Nullable String body) {
-        return TextUtil.countWords(body) < ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD;
     }
 
     static boolean issueDeliveryEnabled(JobSpec spec) {

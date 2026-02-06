@@ -115,9 +115,9 @@ class JobRunnerIssueModeTest {
 
     @Test
     void testShouldEnrichIssuePrompt() {
-        assertTrue(JobRunner.shouldEnrichIssuePrompt(null));
-        assertTrue(JobRunner.shouldEnrichIssuePrompt(""));
-        assertTrue(JobRunner.shouldEnrichIssuePrompt("Brief issue description."));
+        assertTrue(IssueWriterService.shouldEnrichIssuePrompt(null));
+        assertTrue(IssueWriterService.shouldEnrichIssuePrompt(""));
+        assertTrue(IssueWriterService.shouldEnrichIssuePrompt("Brief issue description."));
 
         // Generate exactly 100 words
         StringBuilder sb = new StringBuilder();
@@ -126,7 +126,7 @@ class JobRunnerIssueModeTest {
         }
         String hundredWords = sb.toString().trim();
         assertFalse(
-                JobRunner.shouldEnrichIssuePrompt(hundredWords),
+                IssueWriterService.shouldEnrichIssuePrompt(hundredWords),
                 "Should NOT enrich when body is exactly 100 words (threshold is < 100)");
 
         // Generate 99 words
@@ -136,7 +136,7 @@ class JobRunnerIssueModeTest {
         }
         String ninetyNineWords = sb.toString().trim();
         assertTrue(
-                JobRunner.shouldEnrichIssuePrompt(ninetyNineWords),
+                IssueWriterService.shouldEnrichIssuePrompt(ninetyNineWords),
                 "Should enrich when body is 99 words (threshold is < 100)");
     }
 
