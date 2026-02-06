@@ -943,10 +943,10 @@ public class Llm {
                         break;
                     }
                     if (echo) {
+                        var msg = "\nTool call validation errors:\n- " + String.join("\n- ", validationErrors);
+                        logger.debug(msg);
                         io.llmOutput(
-                                "\nTool call validation errors:\n- " + String.join("\n- ", validationErrors),
-                                ChatMessageType.CUSTOM,
-                                LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+                                msg, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     }
                     attemptMessages.add(new AiMessage(rawResult.text()));
                     attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(new IllegalArgumentException(
