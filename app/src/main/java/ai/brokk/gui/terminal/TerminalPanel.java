@@ -516,6 +516,10 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     termPanel.setBackground(new Color(0, 0, 0));
                     termPanel.setForeground(new Color(255, 255, 255));
                     termPanel.setOpaque(true);
+
+                    // Force the terminal to pick up the new colors. Adjusting cursor shape is
+                    // used historically to ensure JediTerm refreshes its internal rendering.
+                    termPanel.setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
                 }
                 var display = w.getTerminalDisplay();
                 if (display instanceof java.awt.Component comp) {
@@ -529,9 +533,6 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 // Be tolerant of JediTerm internals changing; settings provider is authoritative.
             }
 
-            // Force the terminal to pick up the new colors. Adjusting cursor shape is
-            // used historically to ensure JediTerm refreshes its internal rendering.
-            w.getTerminalPanel().setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
             w.repaint();
             // Also request a revalidation to be safe across LookAndFeel/theme swaps.
             w.revalidate();
