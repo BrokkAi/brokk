@@ -1553,6 +1553,67 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return result;
     }
 
+    /**
+     * Callback for task execution progress, invoked on the executing thread before each task starts.
+     */
+    @FunctionalInterface
+    public interface TaskProgressListener {
+        /**
+         * Called before each task begins execution.
+         * @param task the task about to be executed
+         * @param taskNumber 1-based position in the execution sequence
+         * @param totalTasks total number of tasks to execute
+         */
+        void onTaskStarting(TaskList.TaskItem task, int taskNumber, int totalTasks);
+    }
+
+    /**
+     * Execute all non-done tasks from the given task list data sequentially.
+     * Compresses history first, then runs each task via {@link #executeTask}.
+     * Stops on the first non-SUCCESS result.
+     *
+     * @param taskList the task list data whose non-done tasks will be executed
+     * @throws InterruptedException if the execution is interrupted
+     */
+    @Blocking
+    public void executeTasks(TaskList.TaskListData taskList) throws InterruptedException {
+        executeTasks(taskList, null);
+    }
+
+    /**
+     * Execute all non-done tasks from the given task list data sequentially.
+     * Compresses history first, then runs each task via {@link #executeTask}.
+     * Stops on the first non-SUCCESS result.
+     *
+     * @param taskList the task list data whose non-done tasks will be executed
+     * @param listener optional progress callback, invoked before each task starts
+     * @throws InterruptedException if the execution is interrupted
+     */
+    @Blocking
+    public void executeTasks(TaskList.TaskListData taskList, @Nullable TaskProgressListener listener)
+            throws InterruptedException {
+        var pending = taskList.tasks().stream().filter(t -> !t.done()).toList();
+        if (pending.isEmpty()) {
+            return;
+        }
+
+        compressGlobalHistory();
+
+        for (int i = 0; i < pending.size(); i++) {
+            var task = pending.get(i);
+            if (listener != null) {
+                listener.onTaskStarting(task, i + 1, pending.size());
+            }
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Running task %d of %d...".formatted(i + 1, pending.size()));
+            var result = executeTask(task);
+            if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                return;
+            }
+        }
+    }
+
     /** Replace the given task with its 'done=true' variant. */
     private Context markTaskDone(Context context, TaskList.TaskItem task) {
         var tasks = context.getTaskListDataOrEmpty().tasks();

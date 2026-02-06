@@ -3,9 +3,7 @@ package ai.brokk.gui.terminal;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.TaskResult;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.gui.Chrome;
@@ -976,13 +974,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void runArchitectOnIndices(int[] selected) {
         Arrays.sort(selected);
-        var toRun = new ArrayList<Integer>(selected.length);
+        var tasks = cm.getTaskList().tasks();
+        var toRun = new ArrayList<TaskList.TaskItem>();
+        var toRunIndices = new LinkedHashSet<Integer>();
         for (int idx : selected) {
-            if (idx >= 0 && idx < model.getSize()) {
-                TaskList.TaskItem it = model.getElementAt(idx);
-                if (!it.done()) {
-                    toRun.add(idx);
-                }
+            if (idx >= 0 && idx < tasks.size() && !tasks.get(idx).done()) {
+                toRun.add(tasks.get(idx));
+                toRunIndices.add(idx);
             }
         }
         if (toRun.isEmpty()) {
@@ -991,63 +989,56 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        // Set up UI state
         goStopButton.setEnabled(false);
         goStopButton.setToolTipText("Preparing to run tasks...");
-
-        currentRunOrder = List.copyOf(toRun);
-
-        int first = toRun.getFirst();
         pendingQueue.clear();
-        if (toRun.size() > 1) {
-            for (int i = 1; i < toRun.size(); i++) pendingQueue.add(toRun.get(i));
-            queueActive = true;
-        } else {
-            queueActive = false;
-        }
-
+        pendingQueue.addAll(toRunIndices);
+        queueActive = true;
+        currentRunOrder = List.copyOf(toRunIndices);
         list.repaint();
 
-        var cm = chrome.getContextManager();
-        chrome.showOutputSpinner("Compressing history...");
-        var cf = cm.compressHistoryAsync();
-        cf.whenComplete((v, ex) -> SwingUtilities.invokeLater(() -> {
-            chrome.hideOutputSpinner();
-            startRunForIndex(first);
-        }));
-    }
+        var taskListData = new TaskList.TaskListData(cm.getTaskList().bigPicture(), toRun);
 
-    private void startRunForIndex(int idx) {
-        if (idx < 0 || idx >= model.getSize()) {
-            startNextIfAny();
-            return;
-        }
-        TaskList.TaskItem item = model.getElementAt(idx);
-        if (item.done()) {
-            startNextIfAny();
-            return;
-        }
-
-        String originalPrompt = item.text();
-        if (originalPrompt.isBlank()) {
-            startNextIfAny();
-            return;
-        }
-
-        runningIndex = idx;
-        updateButtonStates();
-        runningAnimStartMs = System.currentTimeMillis();
-        runningFadeTimer.start();
-        list.repaint();
-
-        int totalToRun = currentRunOrder != null ? currentRunOrder.size() : 1;
-        int pos = (currentRunOrder != null) ? currentRunOrder.indexOf(idx) : -1;
-        final int numTask = (pos >= 0) ? pos + 1 : 1;
-        SwingUtilities.invokeLater(() -> chrome.showNotification(
-                IConsoleIO.NotificationRole.INFO, "Running task " + numTask + " of " + totalToRun + "..."));
-
-        var cm = chrome.getContextManager();
-
-        runArchitectOnTaskAsync(idx, cm);
+        cm.submitLlmAction(() -> {
+            try {
+                cm.executeTasks(taskListData, (task, num, total) -> {
+                    SwingUtilities.invokeLater(() -> {
+                        // Find the model index for this task by ID
+                        var currentTasks = cm.getTaskList().tasks();
+                        Integer modelIdx = null;
+                        for (int i = 0; i < currentTasks.size(); i++) {
+                            if (currentTasks.get(i).id().equals(task.id())) {
+                                modelIdx = i;
+                                break;
+                            }
+                        }
+                        if (modelIdx != null) {
+                            pendingQueue.remove(modelIdx);
+                        }
+                        runningIndex = modelIdx;
+                        runningAnimStartMs = System.currentTimeMillis();
+                        runningFadeTimer.start();
+                        list.repaint();
+                        updateButtonStates();
+                    });
+                });
+            } catch (InterruptedException e) {
+                logger.debug("Task execution interrupted by user");
+            } catch (RuntimeException ex) {
+                logger.error("Internal error running tasks", ex);
+            } finally {
+                SwingUtilities.invokeLater(() -> {
+                    runningIndex = null;
+                    runningFadeTimer.stop();
+                    pendingQueue.clear();
+                    queueActive = false;
+                    currentRunOrder = null;
+                    list.repaint();
+                    updateButtonStates();
+                });
+            }
+        });
     }
 
     private void startRunWithCommitGate(int[] indices) {
@@ -1121,69 +1112,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } else if (choice[0] == 1) {
             action.run();
         }
-    }
-
-    void runArchitectOnTaskAsync(int idx, ContextManager cm) {
-        cm.submitLlmAction(() -> {
-            chrome.showOutputSpinner("Executing Task command...");
-            final TaskResult result;
-            try {
-                result = cm.executeTask(cm.getTaskList().tasks().get(idx));
-            } catch (InterruptedException e) {
-                logger.debug("Task execution interrupted by user");
-                SwingUtilities.invokeLater(this::finishQueueOnError);
-                return;
-            } catch (RuntimeException ex) {
-                logger.error("Internal error running architect", ex);
-                SwingUtilities.invokeLater(this::finishQueueOnError);
-                return;
-            } finally {
-                chrome.hideOutputSpinner();
-                cm.checkBalanceAndNotify();
-            }
-
-            // UI refresh happens automatically via contextChanged() when markTaskDone pushes a new context
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                        finishQueueOnError();
-                        return;
-                    }
-                } finally {
-                    runningIndex = null;
-                    runningFadeTimer.stop();
-                    list.repaint();
-                    updateButtonStates();
-                    startNextIfAny();
-                }
-            });
-        });
-    }
-
-    private void startNextIfAny() {
-        if (pendingQueue.isEmpty()) {
-            // Queue finished
-            queueActive = false;
-            currentRunOrder = null;
-            list.repaint();
-            updateButtonStates();
-            return;
-        }
-        // Get next pending index in insertion order and start it
-        int next = pendingQueue.getFirst();
-        pendingQueue.remove(next);
-        list.repaint();
-        startRunForIndex(next);
-    }
-
-    private void finishQueueOnError() {
-        runningIndex = null;
-        runningFadeTimer.stop();
-        pendingQueue.clear();
-        queueActive = false;
-        currentRunOrder = null;
-        list.repaint();
-        updateButtonStates();
     }
 
     @Override
