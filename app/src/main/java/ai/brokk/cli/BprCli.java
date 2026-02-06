@@ -163,6 +163,13 @@ public final class BprCli implements Callable<Integer> {
     private String brokkApiKey;
 
     @CommandLine.Option(
+            names = "--proxy",
+            description =
+                    "LLM proxy setting override: BROKK, LOCALHOST, or STAGING (uses BROKK_PROXY env var if not specified).")
+    @Nullable
+    private String proxySetting;
+
+    @CommandLine.Option(
             names = "--deepscan",
             arity = "0..1",
             fallbackValue = "true",
@@ -230,6 +237,23 @@ public final class BprCli implements Callable<Integer> {
         if (effectiveBrokkKey != null && !effectiveBrokkKey.isBlank()) {
             MainProject.setHeadlessBrokkApiKeyOverride(effectiveBrokkKey);
             logger.info("Using CLI-specified Brokk API key (length={})", effectiveBrokkKey.length());
+        }
+
+        // Process proxy setting override (CLI flag > env var)
+        String effectiveProxy = proxySetting;
+        if (effectiveProxy == null || effectiveProxy.isBlank()) {
+            effectiveProxy = System.getenv("BROKK_PROXY");
+        }
+        if (effectiveProxy != null && !effectiveProxy.isBlank()) {
+            try {
+                var setting = MainProject.LlmProxySetting.valueOf(effectiveProxy.toUpperCase(Locale.ROOT));
+                MainProject.setHeadlessProxySettingOverride(setting);
+                logger.info("Using CLI-specified proxy setting: {}", setting);
+            } catch (IllegalArgumentException e) {
+                System.err.println(
+                        "Unknown proxy setting: " + effectiveProxy + ". Valid values: BROKK, LOCALHOST, STAGING");
+                return 1;
+            }
         }
 
         // --- Action Validation ---
