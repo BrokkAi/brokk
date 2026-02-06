@@ -54,15 +54,20 @@ import org.jetbrains.annotations.Nullable;
 
 /** Settings provider that allows runtime modification of terminal colors. */
 class MutableSettingsProvider extends DefaultSettingsProvider {
-    private TerminalColor bg = TerminalColor.BLACK;
-    private TerminalColor fg = TerminalColor.WHITE;
+    // Use an explicit deep-black background and bright white foreground to ensure
+    // unstyled terminal output appears with dark background and light text.
+    private TerminalColor bg = new TerminalColor(0, 0, 0);
+    private TerminalColor fg = new TerminalColor(255, 255, 255);
 
     // Selection colors: defaults chosen to be visible on dark background
+    // Use a noticeable blue-ish selection background with white text.
     private TerminalColor selBg = new TerminalColor(60, 100, 170);
-    private TerminalColor selFg = TerminalColor.WHITE;
+    private TerminalColor selFg = new TerminalColor(255, 255, 255);
 
     @Override
     public @NotNull TerminalColor getDefaultBackground() {
+        // JediTerm will use this as the default background for cells that do not emit
+        // ANSI background attributes. Return a true black to avoid accidental white lines.
         return bg;
     }
 
@@ -466,9 +471,11 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Always use dark terminal colors for consistent cross-platform visibility
-        TerminalColor bg = new TerminalColor(30, 30, 30);
-        TerminalColor fg = new TerminalColor(221, 221, 221);
+        // Use a true black background and bright white foreground so that any text
+        // without ANSI styling is rendered as white-on-black. Selection colors remain
+        // clearly visible against the dark background.
+        TerminalColor bg = new TerminalColor(0, 0, 0);
+        TerminalColor fg = new TerminalColor(255, 255, 255);
         TerminalColor selBg = new TerminalColor(60, 100, 170);
         TerminalColor selFg = new TerminalColor(255, 255, 255);
 
@@ -481,9 +488,12 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         // Trigger repaint to apply the changes
         var w = widget;
         if (w != null) {
-            // needed to force the color update
+            // Force the terminal to pick up the new colors. Adjusting cursor shape is
+            // used historically to ensure JediTerm refreshes its internal rendering.
             w.getTerminalPanel().setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
             w.repaint();
+            // Also request a revalidation to be safe across LookAndFeel/theme swaps.
+            w.revalidate();
         }
     }
 
