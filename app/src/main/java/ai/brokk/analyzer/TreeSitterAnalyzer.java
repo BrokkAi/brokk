@@ -37,7 +37,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -964,19 +963,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     private Set<CodeUnit> searchDefinitionsInternal(Pattern compiledPattern, @Nullable String substringFilter) {
-        var anonPredicate = new Predicate<CodeUnit>() {
-            @Override
-            public boolean test(CodeUnit codeUnit) {
-                return !isAnonymousStructure(codeUnit.fqName());
-            }
-        };
-
-        var matcher = compiledPattern.matcher("");
-        return this.state.codeUnitState.keySet().stream()
+        var threadLocalMatcher = ThreadLocal.withInitial(() -> compiledPattern.matcher(""));
+        return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> substringFilter == null
                         || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
-                .filter(cu -> matcher.reset(cu.fqName()).find())
-                .filter(anonPredicate)
+                .filter(cu -> threadLocalMatcher.get().reset(cu.fqName()).find())
+                .filter(cu -> !isAnonymousStructure(cu.fqName()))
                 .collect(Collectors.toSet());
     }
 
