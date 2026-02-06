@@ -637,4 +637,72 @@ public class SessionManagerTest {
 
         project.close();
     }
+
+    @Test
+    void testCountIncompleteTasks_updatesAfterTaskModification() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+
+        // 1-2: create session
+        SessionInfo info = sessionManager.newSession("Task Update Session");
+        UUID sessionId = info.id();
+
+        // 3: initial context with mixed tasks (t1=false, t2=true, t3=false)
+        var initialTasks = List.of(
+                new TaskList.TaskItem("t1", "body1", false),
+                new TaskList.TaskItem("t2", "body2", true),
+                new TaskList.TaskItem("t3", "body3", false)
+        );
+        var initialData = new TaskList.TaskListData(null, initialTasks);
+        Context initialCtx = new Context(mockContextManager).withTaskList(initialData);
+        ContextHistory initialHistory = new ContextHistory(initialCtx);
+
+        // 4: save initial history
+        sessionManager.saveHistory(initialHistory, sessionId);
+
+        // 5: wait for zip to be written
+        Path sessionZip = tempDir.resolve(".brokk").resolve("sessions").resolve(sessionId + ".zip");
+        assertEventually(() -> assertTrue(Files.exists(sessionZip)));
+
+        // 6: initial count should be 2
+        int initialCount = sessionManager.countIncompleteTasks(sessionId, mockContextManager);
+        assertEquals(2, initialCount, "Initial incomplete task count should be 2");
+
+        // capture modified timestamp before update
+        long beforeModified = sessionManager.listSessions().stream()
+                .filter(s -> s.id().equals(sessionId))
+                .findFirst()
+                .orElseThrow()
+                .modified();
+
+        // 7: modify tasks - mark all as done (or clear)
+        var updatedTasks = List.of(
+                new TaskList.TaskItem("t1", "body1", true),
+                new TaskList.TaskItem("t2", "body2", true),
+                new TaskList.TaskItem("t3", "body3", true)
+        );
+        var updatedData = new TaskList.TaskListData(null, updatedTasks);
+        Context updatedCtx = new Context(mockContextManager).withTaskList(updatedData);
+        ContextHistory updatedHistory = new ContextHistory(updatedCtx);
+
+        // 8: save updated history for same session
+        sessionManager.saveHistory(updatedHistory, sessionId);
+
+        // 9: wait for zip updated (existence is same file; allow async save to finish)
+        assertEventually(() -> assertTrue(Files.exists(sessionZip)));
+
+        // 10: count should reflect updated state (0)
+        int updatedCount = sessionManager.countIncompleteTasks(sessionId, mockContextManager);
+        assertEquals(0, updatedCount, "After marking all tasks done, incomplete count should be 0");
+
+        // Optionally check modified timestamp increased or changed
+        long afterModified = sessionManager.listSessions().stream()
+                .filter(s -> s.id().equals(sessionId))
+                .findFirst()
+                .orElseThrow()
+                .modified();
+        assertTrue(afterModified >= beforeModified, "Session modified timestamp should be updated after saving history");
+
+        project.close();
+    }
 }
