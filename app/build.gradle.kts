@@ -101,6 +101,7 @@ dependencies {
     implementation(libs.jackson.smile)
     implementation(libs.jspecify)
     implementation(libs.picocli)
+    implementation(libs.lanterna)
     implementation(libs.bundles.jediterm)
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)

@@ -24,6 +24,7 @@ import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.cli.tui.TuiConsole;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -57,6 +58,7 @@ import picocli.CommandLine;
             BrokkCli.CodeCommand.class,
             BrokkCli.MergeCommand.class,
             BrokkCli.BuildCommand.class,
+            BrokkCli.TuiCommand.class,
             BrokkCli.FindSymbolsCommand.class,
             BrokkCli.FindUsagesCommand.class,
             BrokkCli.ListIdentifiersCommand.class,
@@ -107,7 +109,7 @@ public final class BrokkCli implements Callable<Integer> {
                         "Commands (Agentic Search)",
                         List.of("scan", "find-symbols", "find-usages", "list-identifiers")),
                 new CommandGroup("Commands (Semantic Retrieval)", List.of("fetch-summary", "fetch-source")),
-                new CommandGroup("Commands (Agentic Coding)", List.of("code", "merge", "build")),
+                new CommandGroup("Commands (Agentic Coding)", List.of("code", "tui", "merge", "build")),
                 new CommandGroup("Commands (Account)", List.of("status", "login", "logout", "newsession")));
     }
 
@@ -419,7 +421,12 @@ public final class BrokkCli implements Callable<Integer> {
     }
 
     private static void prepareHeadless(ContextManager cm, BuildAgent.BuildDetails bd, boolean newSession) {
-        cm.createHeadless(bd, newSession, new CliConsole());
+        prepareHeadless(cm, bd, newSession, new CliConsole());
+    }
+
+    private static void prepareHeadless(
+            ContextManager cm, BuildAgent.BuildDetails bd, boolean newSession, ai.brokk.IConsoleIO io) {
+        cm.createHeadless(bd, newSession, io);
         cm.dropWithHistorySemantics(List.of());
     }
 
@@ -974,6 +981,125 @@ public final class BrokkCli implements Callable<Integer> {
                 }
 
                 return runBuildMode(cm);
+            }
+        }
+    }
+
+    @CommandLine.Command(
+            name = "tui",
+            description = "Run code mode inside a full-screen terminal UI (Lanterna).")
+    static final class TuiCommand implements Callable<Integer> {
+        @CommandLine.Spec
+        @Nullable
+        CommandLine.Model.CommandSpec spec;
+
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Mixin
+        GoalRequiredMixin goalRequired = new GoalRequiredMixin();
+
+        @CommandLine.Mixin
+        FilesMixin filesMixin = new FilesMixin();
+
+        @CommandLine.Mixin
+        AutocommitMixin autocommitMixin = new AutocommitMixin();
+
+        @CommandLine.Mixin
+        ModelSelectionMixin modelSelection = new ModelSelectionMixin();
+
+        @CommandLine.Mixin
+        BuildTestConfigMixin buildTestConfig = new BuildTestConfigMixin();
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
+
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                var bd = resolveBuildDetails(project, buildTestConfig);
+
+                boolean missingBuild = bd.equals(BuildAgent.BuildDetails.EMPTY)
+                        || bd.buildLintCommand().isBlank();
+                boolean missingTests =
+                        bd.testAllCommand().isBlank() && bd.testSomeCommand().isBlank();
+
+                if (missingBuild || missingTests) {
+                    var missingLines = new ArrayList<String>();
+                    if (missingBuild) {
+                        missingLines.add("  - Build command (configure with --build-only-cmd \"...\")");
+                    }
+                    if (missingTests) {
+                        missingLines.add(
+                                "  - Test command (configure with --test-some-cmd \"...\" or --test-all-cmd \"...\")");
+                    }
+
+                    System.err.printf(
+                            """
+                            # Error: Missing required project commands for tui
+
+                            The following required configuration is missing:
+                            %s
+                            %n""",
+                            String.join("\n", missingLines));
+                    requireNonNull(spec).commandLine().usage(System.err);
+                    return 1;
+                }
+
+                resolveAndSaveModels(project, modelSelection);
+
+                var tuiConsole = TuiConsole.createDefault();
+                var app = tuiConsole.getApp();
+                app.setTitle("Brokk TUI - " + projectPath.getFileName());
+                app.setStatus("Starting...");
+
+                try (app) {
+                    prepareHeadless(cm, bd, false, tuiConsole);
+                    if (!modelsInitializedOk(cm, project)) {
+                        return 1;
+                    }
+
+                    addFilesToWorkspaceIfAny(cm, filesMixin.files);
+
+                    StreamingChatModel planModel = requirePlanModel(cm, project);
+                    StreamingChatModel codeModel = requireCodeModel(cm, project);
+
+                    var resultRef = new java.util.concurrent.atomic.AtomicReference<Integer>();
+                    var errorRef = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+                    var worker = Thread.ofVirtual().name("brokk-tui-worker").start(() -> {
+                        try {
+                            int r = runCodeMode(cm, planModel, codeModel, goal, autocommitMixin.autocommit);
+                            resultRef.set(r);
+                        } catch (Throwable t) {
+                            errorRef.set(t);
+                        }
+                    });
+
+                    app.runUiLoop(() -> resultRef.get() != null || errorRef.get() != null || app.exitRequested());
+
+                    if (app.exitRequested() && resultRef.get() == null && errorRef.get() == null) {
+                        worker.interrupt();
+                        return 1;
+                    }
+
+                    Throwable err = errorRef.get();
+                    if (err != null) {
+                        cm.getIo().showNotification(NotificationRole.ERROR, "TUI execution failed: " + err.getMessage());
+                        logger.error("TUI execution failed", err);
+                        return 1;
+                    }
+
+                    return Optional.ofNullable(resultRef.get()).orElse(1);
+                }
             }
         }
     }
