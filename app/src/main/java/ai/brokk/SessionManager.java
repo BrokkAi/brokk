@@ -608,6 +608,83 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Counts incomplete tasks (tasks with done == false) for the given session.
+     *
+     * This method loads only the session history necessary to obtain the live context
+     * and reads the TaskList data from that context. It is defensive: on any error,
+     * unsupported history, missing task list, or parse problems it logs and returns 0.
+     *
+     * Note: This may perform I/O (loading the session history) and is therefore marked @Blocking.
+     */
+    @Blocking
+    public int countIncompleteTasks(UUID sessionId, IContextManager contextManager) {
+        try {
+            // Load the session history (may quarantine on failure). This returns null on failure.
+            var ch = loadHistory(sessionId, contextManager);
+            if (ch == null) return 0;
+
+            var live = ch.liveContext();
+            if (live == null) return 0;
+
+            // Safely obtain TaskList data; Context.getTaskListDataOrEmpty is defensive and returns empty on parse error.
+            var data = live.getTaskListDataOrEmpty();
+            if (data == null || data.tasks() == null || data.tasks().isEmpty()) {
+                return 0;
+            }
+
+            // Count tasks where done == false
+            return (int) data.tasks().stream().filter(t -> !t.done()).count();
+        } catch (Exception e) {
+            // Mirror behavior of countAiResponses: log and return 0 on unexpected failures.
+            logger.warn("Failed to count incomplete tasks for session {}", sessionId, e);
+            return 0;
+        }
+    }
+
+    /**
+     * Counts incomplete tasks (tasks where TaskItem.done == false) for the given session.
+     *
+     * This method may perform blocking I/O (history loading) and is therefore annotated @Blocking.
+     * It intentionally mirrors the defensive behavior of countAiResponses: on any failure
+     * (unreadable history, unsupported version, malformed task list, etc.) it returns 0 and logs a warning.
+     *
+     * Note: This method requires an IContextManager so that Context snapshots can be refreshed if needed.
+     */
+    @Blocking
+    public int countIncompleteTasks(UUID sessionId, IContextManager contextManager) {
+        try {
+            // Load history defensively (may quarantine on failure inside loadHistory)
+            ContextHistory ch = loadHistory(sessionId, contextManager);
+            if (ch == null) {
+                return 0;
+            }
+
+            // Use the live context (most recent snapshot). Do not force a refresh here to avoid extra work;
+            // callers that need a refreshed view can call loadHistoryAndRefresh instead.
+            var live = ch.liveContext();
+            if (live == null) {
+                return 0;
+            }
+
+            try {
+                var taskList = live.getTaskListDataOrEmpty();
+                if (taskList == null || taskList.tasks() == null || taskList.tasks().isEmpty()) {
+                    return 0;
+                }
+                return (int) taskList.tasks().stream().filter(t -> !t.done()).count();
+            } catch (Exception e) {
+                // Parsing/malformed/legacy data should not throw to callers; log and return 0
+                logger.warn("Failed to read task list for session {}: {}", sessionId, e.getMessage());
+                return 0;
+            }
+        } catch (Exception e) {
+            // Be defensive: any unexpected failure should be logged and result in 0.
+            logger.warn("Failed to count incomplete tasks for session {}:", sessionId, e);
+            return 0;
+        }
+    }
+
     @Blocking
     @Nullable
     public ContextHistory loadHistoryAndRefresh(UUID sessionId, IContextManager contextManager) {

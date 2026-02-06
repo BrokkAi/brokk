@@ -12,6 +12,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
@@ -273,7 +274,6 @@ public class SessionManagerTest {
 
     @Test
     void testNewSessionCreationAndListing() throws Exception {
-        // Create a Project instance using the tempDir
         MainProject project = new MainProject(tempDir);
         var sessionManager = project.getSessionManager();
 
@@ -458,7 +458,6 @@ public class SessionManagerTest {
     void testCountAiResponses_missingSession() throws Exception {
         MainProject project = new MainProject(tempDir);
         var sessionManager = project.getSessionManager();
-        ;
 
         // Use a random UUID that doesn't exist
         UUID nonExistentId = SessionManager.newSessionId();
@@ -550,5 +549,92 @@ public class SessionManagerTest {
             String json = mapper.writeValueAsString(info);
             Files.writeString(manifestPath, json);
         }
+    }
+
+    // New tests for countIncompleteTasks
+
+    @Test
+    void testCountIncompleteTasks_noTasksReturnsZero() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo info = sessionManager.newSession("No Tasks Session");
+        UUID sessionId = info.id();
+
+        // Create a history with an initial Context that has no task list fragment
+        ContextHistory history = new ContextHistory(new Context(mockContextManager));
+        sessionManager.saveHistory(history, sessionId);
+
+        // Wait for save to complete and file to be visible
+        assertEventually(() -> assertTrue(Files.exists(tempDir.resolve(".brokk").resolve("sessions").resolve(sessionId + ".zip"))));
+
+        int count = sessionManager.countIncompleteTasks(sessionId, mockContextManager);
+        assertEquals(0, count, "Session with no tasks should return 0");
+
+        project.close();
+    }
+
+    @Test
+    void testCountIncompleteTasks_mixedCompletedAndIncomplete() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo info = sessionManager.newSession("Mixed Tasks Session");
+        UUID sessionId = info.id();
+
+        // Build a Context with a TaskList containing both done and undone tasks
+        var tasks = List.of(
+                new TaskList.TaskItem("t1", "body1", false),
+                new TaskList.TaskItem("t2", "body2", true),
+                new TaskList.TaskItem("t3", "body3", false)
+        );
+        var data = new TaskList.TaskListData(null, tasks);
+        Context ctx = new Context(mockContextManager).withTaskList(data);
+        ContextHistory history = new ContextHistory(ctx);
+
+        sessionManager.saveHistory(history, sessionId);
+
+        // Wait for save to be visible
+        assertEventually(() -> assertTrue(Files.exists(tempDir.resolve(".brokk").resolve("sessions").resolve(sessionId + ".zip"))));
+
+        int count = sessionManager.countIncompleteTasks(sessionId, mockContextManager);
+        assertEquals(2, count, "Should count 2 incomplete tasks");
+
+        project.close();
+    }
+
+    @Test
+    void testCountIncompleteTasks_allTasksCompletedReturnsZero() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo info = sessionManager.newSession("All Done Session");
+        UUID sessionId = info.id();
+
+        var tasks = List.of(
+                new TaskList.TaskItem("t1", "body1", true),
+                new TaskList.TaskItem("t2", "body2", true)
+        );
+        var data = new TaskList.TaskListData(null, tasks);
+        Context ctx = new Context(mockContextManager).withTaskList(data);
+        ContextHistory history = new ContextHistory(ctx);
+
+        sessionManager.saveHistory(history, sessionId);
+
+        assertEventually(() -> assertTrue(Files.exists(tempDir.resolve(".brokk").resolve("sessions").resolve(sessionId + ".zip"))));
+
+        int count = sessionManager.countIncompleteTasks(sessionId, mockContextManager);
+        assertEquals(0, count, "All completed tasks should result in 0 incomplete count");
+
+        project.close();
+    }
+
+    @Test
+    void testCountIncompleteTasks_nonExistentSessionReturnsZero() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+
+        UUID nonExistent = SessionManager.newSessionId();
+        int count = sessionManager.countIncompleteTasks(nonExistent, mockContextManager);
+        assertEquals(0, count, "Non-existent session should return 0");
+
+        project.close();
     }
 }
