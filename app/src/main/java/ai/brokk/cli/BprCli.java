@@ -165,6 +165,13 @@ public final class BprCli implements Callable<Integer> {
     private String proxySetting;
 
     @CommandLine.Option(
+            names = "--favorite-models",
+            description =
+                    "Favorite models override as JSON array (uses BROKK_FAVORITE_MODELS env var if not specified).")
+    @Nullable
+    private String favoriteModelsJson;
+
+    @CommandLine.Option(
             names = "--deepscan",
             arity = "0..1",
             fallbackValue = "true",
@@ -247,6 +254,25 @@ public final class BprCli implements Callable<Integer> {
             } catch (IllegalArgumentException e) {
                 System.err.println(
                         "Unknown proxy setting: " + effectiveProxy + ". Valid values: BROKK, LOCALHOST, STAGING");
+                return 1;
+            }
+        }
+
+        // Process favorite models override (CLI flag > env var)
+        String effectiveFavoriteModels = favoriteModelsJson;
+        if (effectiveFavoriteModels == null || effectiveFavoriteModels.isBlank()) {
+            effectiveFavoriteModels = System.getenv("BROKK_FAVORITE_MODELS");
+        }
+        if (effectiveFavoriteModels != null && !effectiveFavoriteModels.isBlank()) {
+            try {
+                var objectMapper = AbstractProject.objectMapper;
+                var typeFactory = objectMapper.getTypeFactory();
+                var listType = typeFactory.constructCollectionType(List.class, Service.FavoriteModel.class);
+                List<Service.FavoriteModel> models = objectMapper.readValue(effectiveFavoriteModels, listType);
+                MainProject.setHeadlessFavoriteModelsOverride(models);
+                logger.info("Using CLI-specified favorite models ({} models)", models.size());
+            } catch (Exception e) {
+                System.err.println("Error parsing favorite models JSON: " + e.getMessage());
                 return 1;
             }
         }
