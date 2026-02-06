@@ -270,12 +270,14 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         list.setCellRenderer(new SessionInfoRenderer(taskCounts));
 
-        // Load counts asynchronously and repaint as each completes
+        // Load incomplete-task counts asynchronously and repaint as each completes.
+        // Use the ContextManager background executor to avoid blocking the EDT.
         var sessionManager = contextManager.getProject().getSessionManager();
         for (var s : sessions) {
             var sessionId = s.id();
             contextManager.getBackgroundTasks().submit(() -> {
-                int count = sessionManager.countAiResponses(sessionId);
+                // This may perform blocking I/O; run off the EDT.
+                int count = sessionManager.countIncompleteTasks(sessionId, contextManager);
                 taskCounts.put(sessionId, count);
                 SwingUtilities.invokeLater(list::repaint);
             });
@@ -388,9 +390,17 @@ public class RightPanel extends JPanel implements ThemeAware {
             var instant = Instant.ofEpochMilli(value.modified());
             timeLabel.setText(GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault())));
 
-            // Read pre-computed count; -1 means still loading
+            // Read pre-computed incomplete-task count; -1 means still loading.
             int cnt = taskCounts.getOrDefault(value.id(), -1);
-            countLabel.setText(cnt < 0 ? "..." : String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks"));
+            if (cnt < 0) {
+                countLabel.setText("...");
+            } else if (cnt == 0) {
+                // Unobtrusive: no label for zero incomplete tasks
+                countLabel.setText("");
+            } else {
+                // Show number of incomplete tasks. Example: "3 incomplete"
+                countLabel.setText(String.format("%d incomplete", cnt));
+            }
 
             // Apply selection colors
             var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
