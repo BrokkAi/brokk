@@ -18,8 +18,10 @@ import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
@@ -147,7 +149,7 @@ public final class FuzzyUsageFinder {
         if (isUnique) {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
             logger.debug("Found {} hits for unique code unit {}", hits.size(), target);
-            return new FuzzyResult.Success(hits);
+            return new FuzzyResult.Success(Map.of(target, hits));
         } else if (hits.size() > maxUsages) {
             // Case 3: Too many call sites to disambiguate with the LLM
             logger.debug(
@@ -214,7 +216,7 @@ public final class FuzzyUsageFinder {
             logger.debug("Found {} disambiguated hits", finalHits.size());
         }
 
-        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, finalHits);
+        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, Map.of(target, finalHits));
     }
 
     /**
@@ -307,7 +309,7 @@ public final class FuzzyUsageFinder {
     public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) throws InterruptedException {
         if (isEffectivelyEmpty()) {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
-            return new FuzzyResult.Success(Set.of());
+            return new FuzzyResult.Success(Map.of());
         }
         var definitions = analyzer.getDefinitions(fqName);
         if (definitions.isEmpty()) {
@@ -320,14 +322,18 @@ public final class FuzzyUsageFinder {
         CodeUnit cu = new CodeUnit(def.source(), def.kind(), def.packageName(), def.shortName(), null);
 
         // Aggregate usages from all definitions
-        Set<UsageHit> allHits = new HashSet<>();
+        Map<CodeUnit, Set<UsageHit>> allHitsByOverload = new HashMap<>();
         var result = findUsages(cu, maxFiles, maxUsages);
         switch (result) {
             case FuzzyResult.Success success -> {
-                allHits.addAll(success.hits());
+                success.hitsByOverload().forEach((k, v) -> allHitsByOverload
+                        .computeIfAbsent(k, key -> new HashSet<>())
+                        .addAll(v));
             }
             case FuzzyResult.Ambiguous ambiguous -> {
-                allHits.addAll(ambiguous.hits());
+                ambiguous.hitsByOverload().forEach((k, v) -> allHitsByOverload
+                        .computeIfAbsent(k, key -> new HashSet<>())
+                        .addAll(v));
             }
             case FuzzyResult.TooManyCallsites tooMany -> {
                 logger.debug(
@@ -343,14 +349,21 @@ public final class FuzzyUsageFinder {
         }
 
         // Throw out very low confidence
-        var filteredHits = filterByConfidence(allHits);
-        logger.debug("Filtered to {} hits for {} out of {}", filteredHits.size(), fqName, allHits.size());
+        var filteredHitsByOverload = filterByConfidence(allHitsByOverload);
+        int totalBefore =
+                allHitsByOverload.values().stream().mapToInt(Set::size).sum();
+        int totalAfter =
+                filteredHitsByOverload.values().stream().mapToInt(Set::size).sum();
+        logger.debug("Filtered to {} hits for {} out of {}", totalAfter, fqName, totalBefore);
 
-        return new FuzzyResult.Success(filteredHits);
+        return new FuzzyResult.Success(filteredHitsByOverload);
     }
 
-    static Set<UsageHit> filterByConfidence(Set<UsageHit> allHits) {
-        return allHits.stream().filter(h -> h.confidence() >= 0.1).collect(Collectors.toSet());
+    static Map<CodeUnit, Set<UsageHit>> filterByConfidence(Map<CodeUnit, Set<UsageHit>> allHitsByOverload) {
+        return allHitsByOverload.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().stream()
+                        .filter(h -> h.confidence() >= 0.1)
+                        .collect(Collectors.toSet())));
     }
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {

@@ -87,6 +87,17 @@ public class SearchPrompts {
                 return EnumSet.of(Terminal.ISSUE);
             }
         },
+        PROMPT_ENRICHMENT(
+                "prompt_enrichment",
+                "You are the Search Agent, a code researcher focused on enriching prompts with codebase context.",
+                "Your goal is to gather enough context to produce an enriched, execution-ready version of the user's request.",
+                "an enriched prompt (via answer(String))",
+                false) {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER);
+            }
+        },
         CODE_ONLY(
                 "task",
                 "You are the Search Agent, a code researcher.",
