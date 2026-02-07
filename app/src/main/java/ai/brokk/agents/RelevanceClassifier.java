@@ -5,6 +5,7 @@ import ai.brokk.Llm;
 import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.StringDiskCache;
+import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessage;
@@ -375,8 +376,8 @@ public final class RelevanceClassifier {
                 if (parsed != null && parsed.size() == expectedCount) {
                     return parsed.stream().map(RelevanceClassifier::clamp01).toList();
                 }
-            } catch (Throwable t) {
-                logger.trace("Failed to parse array-style scores via Jackson", t);
+            } catch (JacksonException | RuntimeException e) {
+                logger.trace("Failed to parse array-style scores via Jackson", e);
             }
         }
 
@@ -400,8 +401,8 @@ public final class RelevanceClassifier {
                 double v = Double.parseDouble(m.group(1));
                 return clamp01(v);
             }
-        } catch (Throwable t) {
-            logger.trace("Failed to parse JSON-style score", t);
+        } catch (RuntimeException e) {
+            logger.trace("Failed to parse JSON-style score", e);
         }
 
         // Try first number present
@@ -412,8 +413,8 @@ public final class RelevanceClassifier {
                 double v = Double.parseDouble(m.group(1));
                 return clamp01(v);
             }
-        } catch (Throwable t) {
-            logger.trace("Failed to extract numeric score", t);
+        } catch (RuntimeException e) {
+            logger.trace("Failed to extract numeric score", e);
         }
 
         return Double.NaN;
