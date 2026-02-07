@@ -983,7 +983,7 @@ public class ContextAgent {
     // --- Discarded context helper ---
 
     private String getDiscardedContextNote() {
-        var discardedMap = cm.liveContext().getDiscardedFragmentsNote();
+        var discardedMap = cm.liveContext().getDiscardedFragmentsNotes();
         if (discardedMap.isEmpty()) {
             return "";
         }

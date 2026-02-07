@@ -14,7 +14,6 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import javax.swing.*;
@@ -367,14 +366,8 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
             }
         } else {
             // Without complete URI, need to copy code for manual entry
-            try {
-                var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-                var stringSelection = new StringSelection(response.userCode());
-                clipboard.setContents(stringSelection, null);
-                logger.info("Device code automatically copied to clipboard");
-            } catch (Exception ex) {
-                logger.error("Failed to copy code to clipboard", ex);
-            }
+            contextManager.copyToClipboard(response.userCode());
+            logger.info("Device code automatically copied to clipboard");
 
             if (gitHubDeviceCodeLabel != null) {
                 gitHubDeviceCodeLabel.setText("CODE: " + response.userCode() + " (copied to clipboard)");

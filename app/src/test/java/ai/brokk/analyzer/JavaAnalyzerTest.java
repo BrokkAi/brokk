@@ -100,16 +100,16 @@ public class JavaAnalyzerTest {
 
     @Test
     public void extractMethodSourceConstructor() {
-        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "B.B", true); // TODO: Should we handle <init>?
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "B.B", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
 
         final var expected =
                 """
-                        public B() {
-                                System.out.println("B constructor");
-                            }
-                        """;
+                public B() {
+                        System.out.println("B constructor");
+                    }
+                """;
 
         assertCodeEquals(expected, source);
     }
@@ -320,6 +320,9 @@ public class JavaAnalyzerTest {
                 CodeUnit.cls(file, "", "D.DSub"),
                 CodeUnit.cls(file, "", "D.DSubStatic"),
                 // Methods
+                CodeUnit.fn(file, "", "D.D"),
+                CodeUnit.fn(file, "", "D.DSub.DSub"),
+                CodeUnit.fn(file, "", "D.DSubStatic.DSubStatic"),
                 CodeUnit.fn(file, "", "D.methodD1"),
                 CodeUnit.fn(file, "", "D.methodD2"),
                 // Fields
@@ -348,7 +351,8 @@ public class JavaAnalyzerTest {
                 // Class
                 CodeUnit.cls(file, "io.github.jbellis.brokk", "Foo"),
                 // Method
-                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar")
+                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar"),
+                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.Foo")
                 // No fields in Packaged.java
                 );
         assertEquals(expected, declarations);
@@ -445,6 +449,7 @@ public class JavaAnalyzerTest {
 
         final var expected = Stream.of(
                         // Methods
+                        CodeUnit.fn(file, "", "D.D"),
                         CodeUnit.fn(file, "", "D.methodD1"),
                         CodeUnit.fn(file, "", "D.methodD2"),
                         // Fields
@@ -474,6 +479,7 @@ public class JavaAnalyzerTest {
                         CodeUnit.cls(file, "", "D.DSub"),
                         CodeUnit.cls(file, "", "D.DSubStatic"),
                         // Methods
+                        CodeUnit.fn(file, "", "D.D"),
                         CodeUnit.fn(file, "", "D.methodD1"),
                         CodeUnit.fn(file, "", "D.methodD2"),
                         // Fields
@@ -742,6 +748,7 @@ public class JavaAnalyzerTest {
     @Test
     public void testDefinitionAndSourcesWithNormalizedConstructorNames() {
         // Based on log example: Type.Type for constructor (and possibly with generics on the type)
+        // Note: B has an explicit constructor, so it should resolve via B.B
         assertTrue(
                 AnalyzerUtil.getSource(analyzer, "B<B>.B", true).isPresent(),
                 "Constructor lookup with generics on the type should normalize and resolve");
@@ -859,6 +866,124 @@ public class JavaAnalyzerTest {
                     List.of("p1.A", "p1.B"),
                     children,
                     "Module children should include only top-level classes A and B (no nested types)");
+        }
+    }
+
+    @Test
+    public void implicitConstructorCodeUnit_isResolvableViaGetDefinitions() throws IOException {
+        try (var testProject =
+                InlineTestProjectCreator.code("public class Foo {}", "Foo.java").build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // Implicit constructors use the class name naming convention (Foo.Foo)
+            var definitions = analyzer.getDefinitions("Foo.Foo");
+            assertTrue(
+                    definitions.stream().anyMatch(cu -> cu.kind() == CodeUnitType.FUNCTION),
+                    "Implicit constructor Foo.Foo should be resolvable");
+        }
+    }
+
+    @Test
+    public void interfaceDoesNotGetImplicitConstructor() throws IOException {
+        try (var testProject =
+                InlineTestProjectCreator.code("public interface I {}", "I.java").build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // Interface I should NOT have an implicit constructor I.I
+            var definitions = analyzer.getDefinitions("I.I");
+            assertTrue(
+                    definitions.isEmpty(), "Interface should not produce an implicit constructor; got: " + definitions);
+        }
+    }
+
+    @Test
+    public void enumDoesNotGetImplicitConstructor() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code("public enum E { A, B }", "E.java")
+                .build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // Enum E should NOT have an implicit constructor E.E
+            var definitions = analyzer.getDefinitions("E.E");
+            assertTrue(definitions.isEmpty(), "Enum should not produce an implicit constructor; got: " + definitions);
+        }
+    }
+
+    @Test
+    public void recordDoesNotGetImplicitConstructor() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code("public record R(int x) {}", "R.java")
+                .build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // Record R should NOT have an implicit constructor R.R
+            // Records have canonical constructors generated by the compiler, not implicit no-arg ones
+            var definitions = analyzer.getDefinitions("R.R");
+            assertTrue(definitions.isEmpty(), "Record should not produce an implicit constructor; got: " + definitions);
+        }
+    }
+
+    @Test
+    public void annotationDoesNotGetImplicitConstructor() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code("public @interface A {}", "A.java")
+                .build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // Annotation @interface A should NOT have an implicit constructor A.A
+            var definitions = analyzer.getDefinitions("A.A");
+            assertTrue(
+                    definitions.isEmpty(),
+                    "Annotation should not produce an implicit constructor; got: " + definitions);
+        }
+    }
+
+    @Test
+    public void explicitConstructorPreventsImplicitSynthesis() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code("public class Bar { public Bar(int x) {} }", "Bar.java")
+                .build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            var definitions = analyzer.getDefinitions("Bar.Bar");
+
+            // Should only have the explicit one
+            assertEquals(1, definitions.size(), "Should have exactly one definition for Bar.Bar (the explicit one)");
+
+            var constructorCu = definitions.iterator().next();
+            assertTrue(
+                    analyzer.getSource(constructorCu, true).isPresent(),
+                    "The constructor should have source (meaning it's the explicit one, not synthetic)");
+        }
+    }
+
+    @Test
+    public void implicitConstructor_returnsEmptySource() throws IOException {
+        try (var testProject =
+                InlineTestProjectCreator.code("public class Foo {}", "Foo.java").build()) {
+
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // Implicit constructors use Foo.Foo naming convention
+            var constructorCu = analyzer.getDefinitions("Foo.Foo").stream()
+                    .filter(cu -> cu.kind() == CodeUnitType.FUNCTION)
+                    .findFirst()
+                    .get();
+
+            // Assert direct analyzer methods return empty for synthetic/implicit units
+            assertTrue(
+                    analyzer.getSources(constructorCu, true).isEmpty(),
+                    "Implicit constructor should have no source blocks");
+            assertTrue(
+                    analyzer.getSource(constructorCu, true).isEmpty(),
+                    "Implicit constructor source should be empty Optional");
+
+            // Assert AnalyzerUtil helper also behaves correctly
+            assertTrue(
+                    AnalyzerUtil.getSource(analyzer, "Foo.Foo", true).isEmpty(),
+                    "AnalyzerUtil.getSource should return empty for implicit constructor");
         }
     }
 

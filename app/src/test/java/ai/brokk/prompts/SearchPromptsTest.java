@@ -30,9 +30,8 @@ class SearchPromptsTest {
     }
 
     @Test
-    void issueDiagnosisTerminals_isIssueJsonOnly() {
-        assertEquals(
-                EnumSet.of(SearchPrompts.Terminal.ISSUE_JSON), SearchPrompts.Objective.ISSUE_DIAGNOSIS.terminals());
+    void issueDiagnosisTerminals_isIssueOnly() {
+        assertEquals(EnumSet.of(SearchPrompts.Terminal.ISSUE), SearchPrompts.Objective.ISSUE_DIAGNOSIS.terminals());
     }
 
     @Test
@@ -60,7 +59,7 @@ class SearchPromptsTest {
                     .searchSystemPrompt(ctx, SearchPrompts.Objective.ISSUE_DIAGNOSIS)
                     .text();
             assertTrue(issueDiagnosis.contains("Objective: ISSUE_DIAGNOSIS"));
-            assertTrue(issueDiagnosis.contains("Deliverable: a single JSON issue report"));
+            assertTrue(issueDiagnosis.contains("Deliverable: a high-quality GitHub issue"));
 
             var promptEnrichment = SearchPrompts.instance
                     .searchSystemPrompt(ctx, SearchPrompts.Objective.PROMPT_ENRICHMENT)

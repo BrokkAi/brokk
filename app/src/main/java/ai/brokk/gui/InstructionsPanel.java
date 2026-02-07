@@ -491,7 +491,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         applyAdvancedMode(GlobalUiSettings.isAdvancedMode());
 
         // Subscribe to events
-        contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
+        contextManager.addServiceReloadListener(() -> LoggingFuture.runVirtual(this::updateButtonStates));
         contextManager.addContextListener(this);
     }
 
@@ -698,30 +698,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             @Override
             public void actionPerformed(ActionEvent e) {
                 var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-                var contents = clipboard.getContents(null);
-                boolean imageHandled = false;
+                int maxAttempts = 3;
+                int delayMs = 50;
+                boolean imageFound = false;
 
-                if (contents == null) {
-                    return;
-                }
-
-                for (var flavor : contents.getTransferDataFlavors()) {
+                for (int i = 0; i < maxAttempts; i++) {
                     try {
-                        if (flavor.equals(DataFlavor.imageFlavor)
-                                || flavor.getMimeType().startsWith("image/")) {
-                            // Re-use existing ContextActions logic
-                            chrome.getContextActionsHandler()
-                                    .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
-                            imageHandled = true;
+                        var contents = clipboard.getContents(null);
+                        if (contents != null) {
+                            for (var flavor : contents.getTransferDataFlavors()) {
+                                if (flavor.equals(DataFlavor.imageFlavor)
+                                        || flavor.getMimeType().startsWith("image/")) {
+                                    imageFound = true;
+                                    break;
+                                }
+                            }
+                        }
+                        break;
+                    } catch (IllegalStateException ex) {
+                        if (i == maxAttempts - 1) {
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
                             break;
                         }
-                    } catch (Exception ex) {
-                        // Log at trace to avoid noise; proceed with default paste handling
-                        logger.trace("Clipboard flavor probe failed during smartPaste; falling back to default", ex);
+                        try {
+                            Thread.sleep(delayMs);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
                     }
                 }
 
-                if (!imageHandled) {
+                if (imageFound) {
+                    chrome.getContextActionsHandler()
+                            .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
+                } else {
                     area.paste(); // Default text paste
                 }
             }
@@ -1855,9 +1867,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
+        assert SwingUtilities.isEventDispatchThread();
         final var modelToUse = selectDropdownModelOrShowError("Ask");
         if (modelToUse == null) {
-            updateButtonStates();
+            LoggingFuture.runVirtual(this::updateButtonStates);
             return;
         }
         prepareAndRunAskCommand(modelToUse, input);
@@ -1905,10 +1918,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query, String action) {
+        assert SwingUtilities.isEventDispatchThread();
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
-            updateButtonStates();
+            LoggingFuture.runVirtual(this::updateButtonStates);
             return;
         }
 
@@ -2037,7 +2051,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 chrome.showOutputSpinner(spinnerText);
                 var title = input.length() > 50 ? input.substring(0, 47) + "..." : input;
-                try (var scope = cm.beginTask(input, false, "Lutz Mode: " + title)) {
+                try (var scope = cm.beginTask(input, true, "Lutz Mode: " + title)) {
                     var result = task.apply(scope);
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
@@ -2092,11 +2106,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Called when actions complete.
      */
     private void updateButtonStates() {
-        SwingUtilities.invokeLater(() -> {
-            // Check if service is online
-            var service = contextManager.getService();
-            boolean serviceIsOnline = service.isOnline();
+        assert !SwingUtilities.isEventDispatchThread();
+        // Check if service is online
+        var service = contextManager.getService();
+        boolean serviceIsOnline = service.isOnline();
 
+        SwingUtilities.invokeLater(() -> {
             if (!serviceIsOnline) {
                 // Service is offline: show offline state
                 actionButton.showOfflineMode();
@@ -2162,7 +2177,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     void enableButtons() {
         // Called when an action completes. Reset buttons based on current CM/project state.
-        updateButtonStates();
+        LoggingFuture.runVirtual(this::updateButtonStates);
     }
 
     private String loadActionMode() {
@@ -2201,6 +2216,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void onActionButtonPressed() {
+        assert SwingUtilities.isEventDispatchThread();
         if (isActionRunning()) {
             // Stop action
             chrome.getContextManager().interruptLlmAction();
@@ -2209,10 +2225,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             switch (storedAction) {
                 case ACTION_CODE -> {
                     var model = selectDropdownModelOrShowError("Code");
-                    if (model != null) {
-                        prepareAndRunCodeCommand(model);
+                    if (model == null) {
+                        LoggingFuture.runVirtual(this::updateButtonStates);
                     } else {
-                        updateButtonStates();
+                        prepareAndRunCodeCommand(model);
                     }
                 }
                 case ACTION_LUTZ -> runSearchCommand();

@@ -1,10 +1,14 @@
 package ai.brokk.tools;
 
 import ai.brokk.exception.GlobalExceptionHandler;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.CoercionAction;
+import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -31,7 +35,21 @@ import org.jetbrains.annotations.Nullable;
  */
 public class ToolRegistry {
     private static final Logger logger = LogManager.getLogger(ToolRegistry.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = createObjectMapper();
+
+    private static ObjectMapper createObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+
+        // Convert missing/empty Collection values to empty collections
+        mapper.coercionConfigFor(Collection.class)
+                .setCoercion(CoercionInputShape.EmptyObject, CoercionAction.AsEmpty)
+                .setCoercion(CoercionInputShape.EmptyString, CoercionAction.AsEmpty);
+
+        // Globally treat explicit nulls as empty values (useful for Collections and Strings)
+        mapper.setDefaultSetterInfo(JsonSetter.Value.forValueNulls(Nulls.AS_EMPTY));
+
+        return mapper;
+    }
 
     // Backing map for tools. Use a synchronized LinkedHashMap for deterministic ordering while remaining thread-safe.
     private final Map<String, ToolInvocationTarget> toolMap;
@@ -204,7 +222,7 @@ public class ToolRegistry {
         } catch (InterruptedException ie) {
             throw ie;
         } catch (Exception e) {
-            GlobalExceptionHandler.handle(e, st -> {});
+            GlobalExceptionHandler.handle(e);
             return ToolExecutionResult.internalError(
                     request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
         }

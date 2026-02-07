@@ -25,6 +25,10 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
         handle(Thread.currentThread(), th, notifier);
     }
 
+    public static void handle(Throwable th) {
+        handle(Thread.currentThread(), th, st -> {});
+    }
+
     /**
      * 1. Log exception
      * 2. Upload it

@@ -773,21 +773,137 @@ public class GitRepo implements Closeable, IGitRepo {
      *
      * @return The commit ID of the new commit
      */
-    public String commitFiles(Collection<ProjectFile> files, String message) throws GitAPIException {
-        add(files);
+    public String commitFiles(Collection<ProjectFile> files, String commitMessage) throws GitAPIException {
+        var fileList = List.copyOf(files);
+        var repoPaths = fileList.stream().map(this::toRepoRelativePath).toList();
 
-        var commitCommand = commitCommand().setMessage(message);
+        try {
+            add(fileList);
 
-        if (!files.isEmpty()) {
-            for (var file : files) {
-                commitCommand.setOnly(toRepoRelativePath(file));
+            var commitCommand = commitCommand().setMessage(commitMessage);
+
+            if (!fileList.isEmpty()) {
+                for (var repoPath : repoPaths) {
+                    commitCommand.setOnly(repoPath);
+                }
             }
+
+            var commitResult = commitCommand.call();
+            var commitId = commitResult.getId().getName();
+            invalidateCaches();
+            return commitId;
+        } catch (GitAPIException | RuntimeException e) {
+            throw enrichCommitFailure(fileList, repoPaths, commitMessage, e);
+        }
+    }
+
+    // temporary? debugging aid
+    private GitAPIException enrichCommitFailure(
+            List<ProjectFile> files, List<String> repoPaths, String commitMessage, Exception cause) {
+        logger.error(
+                "Commit failed (files={}, projectRoot={}, workTreeRoot={}, gitTopLevel={})",
+                files,
+                projectRoot,
+                getWorkTreeRoot(),
+                gitTopLevel,
+                cause);
+
+        String subject =
+                commitMessage.contains("\n") ? commitMessage.substring(0, commitMessage.indexOf('\n')) : commitMessage;
+        String commitMsgInfo = "'" + subject + "' (" + commitMessage.length() + " chars)";
+
+        String statusSummary;
+        try {
+            var status = git.status().call();
+            statusSummary = "added="
+                    + status.getAdded()
+                    + ", changed="
+                    + status.getChanged()
+                    + ", modified="
+                    + status.getModified()
+                    + ", removed="
+                    + status.getRemoved()
+                    + ", missing="
+                    + status.getMissing()
+                    + ", untracked="
+                    + status.getUntracked()
+                    + ", conflicting="
+                    + status.getConflicting();
+        } catch (Exception e) {
+            statusSummary = "unavailable (" + (e.getMessage() != null ? e.getMessage() : e.toString()) + ")";
         }
 
-        var commitResult = commitCommand.call();
-        var commitId = commitResult.getId().getName();
-        invalidateCaches();
-        return commitId;
+        String missingEntryPath = extractMissingEntryPath(cause);
+        String missingEntryInfo = (missingEntryPath == null) ? "n/a" : missingEntryPath;
+
+        var perFileInfo = new ArrayList<String>(files.size());
+        for (int i = 0; i < files.size(); i++) {
+            var f = files.get(i);
+            var repoPath = repoPaths.get(i);
+            boolean existsOnDisk;
+            try {
+                existsOnDisk = Files.exists(f.absPath());
+            } catch (SecurityException se) {
+                existsOnDisk = false;
+            }
+            boolean underWorkTree = f.absPath().normalize().startsWith(getWorkTreeRoot());
+            perFileInfo.add(repoPath
+                    + " -> abs="
+                    + f.absPath()
+                    + ", exists="
+                    + existsOnDisk
+                    + ", underWorkTree="
+                    + underWorkTree);
+        }
+
+        String details =
+                """
+                Git commit failed.
+
+                Cause: %s
+                Missing index entry (if detected): %s
+
+                Commit message: %s
+                projectRoot: %s
+                workTreeRoot: %s
+                gitTopLevel: %s
+
+                Requested paths:
+                %s
+
+                git status (jgit): %s
+                """
+                        .stripIndent()
+                        .formatted(
+                                (cause.getMessage() != null ? cause.getMessage() : cause.toString()),
+                                missingEntryInfo,
+                                commitMsgInfo,
+                                projectRoot,
+                                getWorkTreeRoot(),
+                                gitTopLevel,
+                                String.join("\n", perFileInfo),
+                                statusSummary);
+
+        return new GitRepoException(details, cause);
+    }
+
+    private static @Nullable String extractMissingEntryPath(Throwable t) {
+        Throwable curr = t;
+        while (curr != null) {
+            String msg = curr.getMessage();
+            if (msg != null) {
+                int idx = msg.indexOf("Entry not found by path:");
+                if (idx >= 0) {
+                    String suffix = msg.substring(idx + "Entry not found by path:".length())
+                            .trim();
+                    if (!suffix.isEmpty()) {
+                        return suffix;
+                    }
+                }
+            }
+            curr = curr.getCause();
+        }
+        return null;
     }
 
     /**

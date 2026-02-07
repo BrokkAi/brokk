@@ -19,7 +19,7 @@ public final class LoggingFuture {
                 if (cf.isCancelled() && (th instanceof InterruptedException || th instanceof CancellationException)) {
                     return;
                 }
-                GlobalExceptionHandler.handle(th, st -> {});
+                GlobalExceptionHandler.handle(th);
                 cf.completeExceptionally(th);
             }
         });
@@ -44,7 +44,7 @@ public final class LoggingFuture {
             try {
                 cf.complete(callable.call());
             } catch (Throwable th) {
-                GlobalExceptionHandler.handle(th, st -> {});
+                GlobalExceptionHandler.handle(th);
                 cf.completeExceptionally(th);
             }
         });
@@ -83,7 +83,7 @@ public final class LoggingFuture {
         var result = new EdtAwareFuture<Void>();
         CompletableFuture.allOf(cfs).whenComplete((v, th) -> {
             if (th != null) {
-                GlobalExceptionHandler.handle(th, st -> {});
+                GlobalExceptionHandler.handle(th);
                 result.completeExceptionally(th);
             } else {
                 result.complete(null);
@@ -96,7 +96,7 @@ public final class LoggingFuture {
         var result = new EdtAwareFuture<Object>();
         CompletableFuture.anyOf(cfs).whenComplete((v, th) -> {
             if (th != null) {
-                GlobalExceptionHandler.handle(th, st -> {});
+                GlobalExceptionHandler.handle(th);
                 result.completeExceptionally(th);
             } else {
                 result.complete(v);

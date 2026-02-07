@@ -334,13 +334,7 @@ public class SessionsDialog extends BaseThemedDialog {
         // Update MOP with task history if available
         var taskHistory = context.getTaskHistory();
         if (taskHistory.isEmpty()) {
-            // Fall back to parsed output for contexts that are not part of a task history
-            if (context.getParsedOutput() != null) {
-                markdownOutputPanel.setMainThenHistoryAsync(
-                        context.getParsedOutput().messages(), List.of());
-            } else {
-                markdownOutputPanel.clear(); // clears main view, history, and cache
-            }
+            markdownOutputPanel.clear(); // clears main view, history, and cache
         } else {
             var history = taskHistory.subList(0, taskHistory.size() - 1);
             var main = taskHistory.getLast();

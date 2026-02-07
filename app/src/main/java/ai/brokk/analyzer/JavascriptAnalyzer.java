@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
@@ -22,6 +23,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
             Set.of(VARIABLE_DECLARATOR),
             Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
+            Set.of(),
             IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName
@@ -45,17 +47,19 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         super(project, Languages.JAVASCRIPT, listener);
     }
 
-    private JavascriptAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.JAVASCRIPT, state, listener);
+    private JavascriptAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.JAVASCRIPT, state, listener, cache);
     }
 
     public static JavascriptAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new JavascriptAnalyzer(project, state, listener);
+        return new JavascriptAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected JavascriptAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new JavascriptAnalyzer(getProject(), state, listener);
+    protected JavascriptAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new JavascriptAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override

@@ -46,14 +46,17 @@ class CodeUnitExtractorTest {
 
             // Expected output is sorted: CLASS, FIELD, FUNCTION, MODULE
             // Format: kind,fqName,shortName,identifier,relSourcePath
-            assertEquals(4, lines.size());
+            assertEquals(5, lines.size());
             assertEquals("CLASS,com.example.MyClass,MyClass,MyClass,com/example/MyClass.java", lines.get(0));
             assertEquals(
                     "FIELD,com.example.MyClass.myField,MyClass.myField,myField,com/example/MyClass.java", lines.get(1));
             assertEquals(
-                    "FUNCTION,com.example.MyClass.myMethod,MyClass.myMethod,myMethod,com/example/MyClass.java",
+                    "FUNCTION,com.example.MyClass.MyClass,MyClass.MyClass,MyClass,com/example/MyClass.java",
                     lines.get(2));
-            assertEquals("MODULE,com.example,example,example,com/example/MyClass.java", lines.get(3));
+            assertEquals(
+                    "FUNCTION,com.example.MyClass.myMethod,MyClass.myMethod,myMethod,com/example/MyClass.java",
+                    lines.get(3));
+            assertEquals("MODULE,com.example,example,example,com/example/MyClass.java", lines.get(4));
         }
     }
 
