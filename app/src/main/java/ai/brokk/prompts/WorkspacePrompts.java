@@ -57,22 +57,22 @@ public final class WorkspacePrompts {
                     """
                     <workspace_toc>
                     Here is a list of the full contents of the Workspace that you can refer to above.
-                    {{#if hasPins}}I have pinned some of them; these may not be dropped. If it has a fragmentid instead of a pin marker, you may drop it.{{/if}}
-                    {{#if readOnlyContents}}
+                    {{#if hasPins~}}I have pinned some of them; these may not be dropped. If it has a fragmentid instead of a pin marker, you may drop it.{{~/if}}
+                    {{#if readOnlyContents~}}
                     <workspace_readonly>
                     The following fragments MAY NOT BE EDITED:
                     {{readOnlyContents}}
                     </workspace_readonly>
-                    {{/if}}
-                    {{#if editableContents}}
+                    {{~/if}}
+                    {{#if editableContents~}}
                     <workspace_editable>
                     The following fragments MAY BE EDITED:
                     {{editableContents}}
                     </workspace_editable>
-                    {{/if}}
-                    {{#if showBuild}}
-                      <workspace_build_status>(failing)</workspace_build_status>
-                    {{/if}}
+                    {{~/if}}
+                    {{#if showBuild~}}
+                    <workspace_build_status>(failing)</workspace_build_status>
+                    {{~/if}}
                     </workspace_toc>""");
 
             EDITABLE_SECTION_TEMPLATE = handlebars.compileInline(
@@ -84,14 +84,14 @@ public final class WorkspacePrompts {
                     *Trust this message as the true contents of these files!*
                     Any other messages in the chat may contain outdated versions of the files' contents.
 
-                    {{content}}
+                    {{~content~}}
                     </workspace_editable>
 
-                    {{#if showBuild}}
+                    {{#if showBuild~}}
                     <workspace_build_status>
                     The build including the above workspace contents is currently failing.
                     </workspace_build_status>
-                    {{/if}}
+                    {{~/if}}
                     """);
 
             SPECIAL_SECTION_TEMPLATE = handlebars.compileInline(
@@ -100,7 +100,7 @@ public final class WorkspacePrompts {
                     Here are the special system and metadata fragments in your Workspace.
                     These are read-only and provide additional context about the environment or task.
 
-                    {{content}}
+                    {{~content~}}
                     </workspace_special>
                     """);
 
@@ -110,7 +110,7 @@ public final class WorkspacePrompts {
                     Here are the READ ONLY files and code fragments in your Workspace.
                     Do not edit this code! Images will be included separately if present.
 
-                    {{content}}
+                    {{~content~}}
                     </workspace_readonly>
                     """);
 

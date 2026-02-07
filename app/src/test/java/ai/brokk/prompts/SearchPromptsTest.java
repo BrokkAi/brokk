@@ -3,19 +3,12 @@ package ai.brokk.prompts;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.Service;
-import ai.brokk.TaskResult;
-import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.context.Context;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.util.EnumSet;
-import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class SearchPromptsTest {

@@ -485,10 +485,9 @@ public class CodePrompts {
            tell the user their full class or file names and ask them to *add them to the Context*;
            end your reply and wait for their approval.
 
-        {{#if showExplanationInstruction}}
+        {{#if showExplanationInstruction~}}
         1. Explain the needed changes in a few short sentences.
-
-        {{/if}}
+        {{~/if}}
         1. Give each change as a *SEARCH/REPLACE* block.
 
         If an appropriate test file is in the Workspace, add or update tests to cover the changes you make.
@@ -519,14 +518,14 @@ public class CodePrompts {
 
         | Priority | Type | When to use |
         |----------|------|-------------|
-        {{#if hasMergeMarkers}}
+        {{#if hasMergeMarkers~}}
         | 1 | `BRK_CONFLICT_n` | Resolving regions wrapped in BRK_CONFLICT markers |
-        {{/if}}
+        {{~/if}}
         | {{#if hasMergeMarkers}}2{{else}}1{{/if}} | Line-based | Default choice for localized edits |
-        {{#if hasSyntaxAware}}
+        {{#if hasSyntaxAware~}}
         | {{#if hasMergeMarkers}}3{{else}}2{{/if}} | `BRK_FUNCTION` | Replacing a complete method (signature + body) |
         | {{#if hasMergeMarkers}}3{{else}}2{{/if}} | `BRK_CLASS` | Replacing the entire body of a class |
-        {{/if}}
+        {{~/if}}
         | {{#if hasSyntaxAware}}{{#if hasMergeMarkers}}4{{else}}3{{/if}}{{else}}{{#if hasMergeMarkers}}3{{else}}2{{/if}}{{/if}} | `BRK_ENTIRE_FILE` | Creating a new file or rewriting most of a file |
 
         Every *SEARCH/REPLACE block* must use this format:
@@ -535,7 +534,7 @@ public class CodePrompts {
         3. The start of search block: <<<<<<< SEARCH
         4. One of the following SEARCH types:
           - Line-based SEARCH: a contiguous chunk of the EXACT lines to search for in the existing source code,
-        {{#if hasSyntaxAware}}
+        {{#if hasSyntaxAware~}}
           - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
             `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
             or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
@@ -549,11 +548,11 @@ public class CodePrompts {
             If you need to modify package or import statements, perform a separate line-based SEARCH/REPLACE that
             targets those lines, or use `BRK_ENTIRE_FILE` for a full-file replacement. Including `package` or `import`
             lines in a BRK_CLASS REPLACE will cause duplication and can introduce build errors.
-        {{/if}}
-        {{#if hasMergeMarkers}}
+        {{~/if}}
+        {{#if hasMergeMarkers~}}
           - Conflict SEARCH: a single line consisting of the conflict marker ID: `BRK_CONFLICT_$n`
             where $n is the conflict number.
-        {{/if}}
+        {{~/if}}
           - Full-file SEARCH: a single line `BRK_ENTIRE_FILE` indicating replace-the-entire-file, or create-new-file
         5. The dividing line: =======
         6. The lines to replace into the source code
@@ -590,15 +589,15 @@ public class CodePrompts {
         - Line-based SEARCH is the primary option for most edits. Use it for adding, modifying, or removing localized
           blocks of code, including new methods or inner classes in existing files. Include the changing lines plus a
           few surrounding lines only when needed for uniqueness.
-        {{#if hasMergeMarkers}}
+        {{#if hasMergeMarkers~}}
         - When you are fixing conflicts wrapped in BRK_CONFLICT markers, use conflict SEARCH (`BRK_CONFLICT_n`)
           so that the entire conflict region is replaced in one block.
-        {{/if}}
-        {{#if hasSyntaxAware}}
+        {{~/if}}
+        {{#if hasSyntaxAware~}}
         - Use syntax-aware SEARCH when you are replacing an entire class or function:
           - `BRK_FUNCTION` for a complete, non-overloaded method (signature, annotations, body, and Javadoc).
           - `BRK_CLASS` for the full body of a class-like declaration (without the surrounding package/imports).
-        {{/if}}
+        {{~/if}}
         - Use `BRK_ENTIRE_FILE` when you are creating a brand new file, or when you are intentionally rewriting most
           of an existing file so that a whole-file replacement is clearer than multiple smaller edits.
 
@@ -609,12 +608,11 @@ public class CodePrompts {
         Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
 
         {{reminder}}
-        {{#if goal}}
-
+        {{#if goal~}}
         <goal>
         {{goal}}
         </goal>
-        {{/if}}
+        {{~/if}}
         You are diligent and tireless!
         You NEVER leave comments describing code without implementing it!
         You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
@@ -636,22 +634,21 @@ public class CodePrompts {
                 The other blocks could not be applied. The details follow. Carefully examine the current contents of the corresponding parts of the Workspace, and issue corrected SEARCH/REPLACE blocks if the intended changes are still necessary.
                 </instructions>
 
-                {{#each failuresByFile}}
+                {{#each failuresByFile~}}
                 <target_file name="{{filename}}">
                 <failed_blocks>
                 {{failedBlocksList}}
                 </failed_blocks>
                 </target_file>
-
-                {{/each}}
-                {{#if showBuildFailureReminder}}
+                {{~/each}}
+                {{#if showBuildFailureReminder~}}
                 <reminder>
                   The build is currently failing; the details are in the conversation history.
                   If no edits are made, the task will fail. Still, the guidance from earlier
                   applies: better to fail fast than guess if you do not have the correct files
                   or APIs in the Workspace to solve the problem accurately.
                 </reminder>
-                {{/if}}
+                {{~/if}}
                 """;
         try {
             APPLY_RETRY_TEMPLATE = handlebars.compileInline(applyRetryTemplateText.trim());
@@ -661,28 +658,28 @@ public class CodePrompts {
 
         String semanticEnrichmentTemplateText =
                 """
-                {{base}}
-                {{#if (or (eq reason "NO_MATCH") (eq reason "AMBIGUOUS_MATCH"))}}
+                {{~base~}}
+                {{#if (or (eq reason "NO_MATCH") (eq reason "AMBIGUOUS_MATCH"))~}}
                 Suggestions:
-                {{#if (eq reason "NO_MATCH")}}
-                {{#if (eq kind "CLASS")}}
+                {{#if (eq reason "NO_MATCH")~}}
+                {{#if (eq kind "CLASS")~}}
                 - Verify the fully qualified class name (package.ClassName).
                 - Ensure the class exists in the workspace and the file path is correct.
                 - If in doubt, open the file and copy the exact class declaration's package and name.
                 - As a fallback, use a line-based SEARCH for the specific class body you want to replace.
-                {{else}}
+                {{else~}}
                 - Verify the fully qualified method name (package.ClassName.method).
                 - Ensure the owning class exists and is spelled correctly.
                 - Consider copying the exact method you want to change and using a line-based SEARCH.
-                {{/if}}
-                {{else if (eq reason "AMBIGUOUS_MATCH")}}
-                {{#if (eq kind "FUNCTION")}}
+                {{~/if}}
+                {{else if (eq reason "AMBIGUOUS_MATCH")~}}
+                {{#if (eq kind "FUNCTION")~}}
                 - The function appears to be overloaded; BRK_FUNCTION cannot disambiguate overloads.
                 - Use a line-based SEARCH that includes enough unique lines from the target method body.
                 - Alternatively, modify only one method at a time by targeting it with a unique line-based SEARCH.
-                {{/if}}
-                {{/if}}
-                {{/if}}
+                {{~/if}}
+                {{~/if}}
+                {{~/if}}
                 """;
         try {
             SEMANTIC_ENRICHMENT_TEMPLATE = handlebars.compileInline(semanticEnrichmentTemplateText);
