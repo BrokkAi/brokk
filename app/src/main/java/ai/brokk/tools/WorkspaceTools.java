@@ -509,8 +509,15 @@ public class WorkspaceTools {
             output.append("## Overload: ").append(sig).append("\n\n");
             for (var hit : hits) {
                 analyzer.getSource(hit.enclosing(), true).ifPresent(source -> {
+                    var lang = Languages.fromExtension(hit.file().extension())
+                            .name()
+                            .toLowerCase();
                     output.append("File: ").append(hit.file()).append("\n");
-                    output.append("```java\n").append(source).append("\n```\n\n");
+                    output.append("```")
+                            .append(lang)
+                            .append("\n")
+                            .append(source)
+                            .append("\n```\n\n");
                 });
             }
         });
