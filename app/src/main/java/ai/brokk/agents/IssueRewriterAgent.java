@@ -54,8 +54,7 @@ public final class IssueRewriterAgent {
             var result = agent.execute();
             Context resultingContext = scope.append(result);
 
-            String raw = result.output().text().join();
-            var parsed = parseIssueResponse(raw);
+            var parsed = parseIssueResponse(result.stopDetails().explanation());
 
             String finalBodyMarkdown = maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
             return new IssueResult(parsed.title(), finalBodyMarkdown, resultingContext);
@@ -87,7 +86,7 @@ public final class IssueRewriterAgent {
 
     static ParsedIssue parseIssueResponse(String rawText) {
         if (rawText.isBlank()) {
-            throw new AssertionError(); // text is serialized by jackson in SearchAgent, should always be valid
+            throw new IllegalArgumentException("parseIssueResponse: input text is null or blank");
         }
 
         logger.trace("parseIssueResponse: rawText length={}", rawText.length());
@@ -96,7 +95,7 @@ public final class IssueRewriterAgent {
         try {
             root = Json.getMapper().readTree(rawText);
         } catch (JacksonException initialParseError) {
-            throw new AssertionError(); // text is serialized by jackson in SearchAgent, should always be valid
+            throw new IllegalArgumentException("parseIssueResponse: invalid JSON", initialParseError);
         }
 
         if (!root.has("title")
@@ -105,13 +104,12 @@ public final class IssueRewriterAgent {
             throw new IllegalArgumentException("parseIssueResponse: missing or invalid 'title' field");
         }
 
-        if (!root.has("bodyMarkdown")
-                || !root.get("bodyMarkdown").isTextual()
-                || root.get("bodyMarkdown").asText().isBlank()) {
-            throw new IllegalArgumentException("parseIssueResponse: missing or invalid 'bodyMarkdown' field");
+        if (!root.has("body")
+                || !root.get("body").isTextual()
+                || root.get("body").asText().isBlank()) {
+            throw new IllegalArgumentException("parseIssueResponse: missing or invalid 'body' field");
         }
 
-        return new ParsedIssue(
-                root.get("title").asText(), root.get("bodyMarkdown").asText());
+        return new ParsedIssue(root.get("title").asText(), root.get("body").asText());
     }
 }

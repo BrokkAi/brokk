@@ -80,22 +80,23 @@ public class SearchAgent {
     public record ScanConfig(
             boolean autoScan, // Whether to auto-scan when workspace is empty or on first search tool
             @Nullable StreamingChatModel scanModel, // Model to use for ContextAgent (null = use project default)
-            boolean appendToScope // Whether to append scan results to scope history
+            boolean appendToScope, // Whether to append scan results to scope history
+            boolean autoPrune // Whether to run a janitor turn before starting search proper
             ) {
         public static ScanConfig defaults() {
-            return new ScanConfig(true, null, true);
+            return new ScanConfig(true, null, true, true);
         }
 
         public static ScanConfig disabled() {
-            return new ScanConfig(false, null, true);
+            return new ScanConfig(false, null, true, false);
         }
 
         public static ScanConfig withModel(StreamingChatModel model) {
-            return new ScanConfig(true, model, true);
+            return new ScanConfig(true, model, true, true);
         }
 
         public static ScanConfig noAppend() {
-            return new ScanConfig(true, null, false);
+            return new ScanConfig(true, null, false, true);
         }
     }
 
@@ -992,7 +993,7 @@ public class SearchAgent {
             var json = ai.brokk.util.Json.getMapper()
                     .createObjectNode()
                     .put("title", title)
-                    .put("bodyMarkdown", body)
+                    .put("body", body)
                     .toString();
             agent.io.llmOutput(json, ChatMessageType.AI, LlmOutputMeta.newMessage());
             return json;
@@ -1050,12 +1051,17 @@ public class SearchAgent {
     }
 
     private TaskResult createResult(String action, String goal, Context context) {
-        return createResult(action, goal, taskMeta(), context);
+        return createResult(
+                action, goal, taskMeta(), context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }
 
     private TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta, Context context) {
+        return createResult(action, goal, meta, context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+    }
+
+    private TaskResult createResult(
+            String action, String goal, TaskResult.TaskMeta meta, Context context, TaskResult.StopDetails stopDetails) {
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
-        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
         recordFinalWorkspaceState(context);
@@ -1305,6 +1311,14 @@ public class SearchAgent {
                             TaskResult.StopReason.LLM_ABORTED, "Aborted: " + pendingTerminal.resultText()),
                     taskMeta(),
                     context);
+        }
+        if ("createIssue".equals(pendingTerminal.toolName())) {
+            return createResult(
+                    pendingTerminal.toolName(),
+                    goal,
+                    taskMeta(),
+                    context,
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, pendingTerminal.resultText()));
         }
         return createResult(pendingTerminal.toolName(), goal, context);
     }

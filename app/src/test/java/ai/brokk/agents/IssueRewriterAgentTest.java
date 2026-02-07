@@ -1,10 +1,9 @@
-package ai.brokk.executor.jobs;
+package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import ai.brokk.agents.IssueRewriterAgent;
 import org.junit.jupiter.api.Test;
 
 class IssueRewriterAgentTest {
@@ -39,13 +38,13 @@ class IssueRewriterAgentTest {
     @Test
     void testParseIssueResponse_MalformedJson_ThrowsException() {
         String malformed = "{ this is not valid json }";
-        assertThrows(AssertionError.class, () -> IssueRewriterAgent.parseIssueResponse(malformed));
+        assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse(malformed));
     }
 
     @Test
     void testParseIssueResponse_EmptyInput_ThrowsException() {
-        assertThrows(NullPointerException.class, () -> IssueRewriterAgent.parseIssueResponse(null));
-        assertThrows(AssertionError.class, () -> IssueRewriterAgent.parseIssueResponse(""));
-        assertThrows(AssertionError.class, () -> IssueRewriterAgent.parseIssueResponse("   "));
+        assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse(null));
+        assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse(""));
+        assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse("   "));
     }
 }

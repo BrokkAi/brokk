@@ -784,12 +784,16 @@ public final class BprCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
+                    var config = new SearchAgent.ScanConfig(true, null, true, false);
                     var agent = new SearchAgent(
-                            cm.liveContext(),
+                            context,
                             requireNonNull(lutzPrompt),
                             planModel,
                             SearchPrompts.Objective.TASKS_ONLY,
-                            scope);
+                            scope,
+                            cm.getIo(),
+                            config,
+                            null);
                     result = agent.execute();
                     context = scope.append(result);
 
