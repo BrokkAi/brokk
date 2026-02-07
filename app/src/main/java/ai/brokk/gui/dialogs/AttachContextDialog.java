@@ -7,7 +7,9 @@ import ai.brokk.FuzzyMatcher;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.AutoCompleteUtil;
 import ai.brokk.gui.Constants;
 import ai.brokk.gui.components.MaterialToggleButton;
@@ -26,10 +28,12 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -81,6 +85,7 @@ public class AttachContextDialog extends BaseThemedDialog {
     private final JTextField searchField = new JTextField(30);
     private final JCheckBox includeSubfoldersCheck = new JCheckBox("Include subfolders");
     private final JCheckBox includeTestFilesCheck = new JCheckBox("Include tests");
+    private final JCheckBox sampleCheck = new JCheckBox("Sample");
     private final JCheckBox summarizeCheck = new JCheckBox("Summarize");
     private final OverlayPanel searchOverlay;
     private final ClosingAutoCompletion ac;
@@ -203,6 +208,11 @@ public class AttachContextDialog extends BaseThemedDialog {
         includeTestFilesCheck.setSelected(true); // Default to including tests
         includeTestFilesCheck.setVisible(false); // Only visible for Usages tab
 
+        // Sample (Usages tab only)
+        sampleCheck.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+        sampleCheck.setMargin(new Insets(0, 0, 0, 0));
+        sampleCheck.setVisible(false);
+
         // Summarize checkbox below the include-subfolders
         summarizeCheck.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
         summarizeCheck.setMargin(new Insets(0, 0, 0, 0));
@@ -219,6 +229,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         summarizePanel.setLayout(new BoxLayout(summarizePanel, BoxLayout.Y_AXIS));
         summarizePanel.add(includeSubfoldersCheck);
         summarizePanel.add(includeTestFilesCheck);
+        summarizePanel.add(sampleCheck);
         summarizePanel.add(summarizeCheck);
         searchAndSummarize.add(summarizePanel, BorderLayout.SOUTH);
 
@@ -373,6 +384,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         // Update checkbox visibility for each tab
         includeSubfoldersCheck.setVisible(getActiveTab() == TabType.FOLDERS);
         includeTestFilesCheck.setVisible(getActiveTab() == TabType.USAGES);
+        sampleCheck.setVisible(getActiveTab() == TabType.USAGES);
         summarizeCheck.setVisible(true);
 
         searchField.requestFocusInWindow();
@@ -400,12 +412,14 @@ public class AttachContextDialog extends BaseThemedDialog {
         methodsBtn.setEnabled(analyzerReady);
         usagesBtn.setEnabled(analyzerReady);
         includeTestFilesCheck.setEnabled(analyzerReady);
+        sampleCheck.setEnabled(analyzerReady);
 
         classesBtn.setToolTipText(analyzerReady ? hotkeyModifierString + "-3" : "Classes" + ANALYZER_NOT_READY_TOOLTIP);
         methodsBtn.setToolTipText(analyzerReady ? hotkeyModifierString + "-4" : "Methods" + ANALYZER_NOT_READY_TOOLTIP);
         usagesBtn.setToolTipText(analyzerReady ? hotkeyModifierString + "-5" : "Usages" + ANALYZER_NOT_READY_TOOLTIP);
         includeTestFilesCheck.setToolTipText(
                 analyzerReady ? "Include tests" : "Include tests" + ANALYZER_NOT_READY_TOOLTIP);
+        sampleCheck.setToolTipText(analyzerReady ? "Sample" : "Sample" + ANALYZER_NOT_READY_TOOLTIP);
 
         if (!analyzerReady) {
             // Ensure a valid selection when gating
@@ -477,8 +491,39 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-        var frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, input, includeTestFilesCheck.isSelected());
-        selection = frag.map(Set::of).orElse(null);
+
+        if (sampleCheck.isSelected()) {
+            try {
+                var finder = FuzzyUsageFinder.create(
+                        cm,
+                        f -> includeTestFilesCheck.isSelected()
+                                || !cm.getTestFiles().contains(f));
+                var fuzzyResult = finder.findUsages(input);
+                var hitsByOverload =
+                        switch (fuzzyResult) {
+                            case ai.brokk.analyzer.usages.FuzzyResult.Success s -> s.hitsByOverload();
+                            case ai.brokk.analyzer.usages.FuzzyResult.Ambiguous a -> a.hitsByOverload();
+                            default ->
+                                java.util.Map
+                                        .<ai.brokk.analyzer.CodeUnit, java.util.Set<ai.brokk.analyzer.usages.UsageHit>>
+                                                of();
+                        };
+
+                var sampled = AnalyzerUtil.sampleUsageHits(hitsByOverload, analyzer);
+                Set<ContextFragment> fragments = sampled.values().stream()
+                        .flatMap(Collection::stream)
+                        .map(hit -> new ContextFragments.CodeFragment(cm, hit.enclosing()))
+                        .collect(Collectors.toSet());
+
+                selection = fragments.isEmpty() ? null : fragments;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                selection = null;
+            }
+        } else {
+            var frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, input, includeTestFilesCheck.isSelected());
+            selection = frag.map(Set::of).orElse(null);
+        }
         dispose();
     }
 
