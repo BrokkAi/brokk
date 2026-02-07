@@ -6,12 +6,19 @@ package ai.brokk.agents;
  *
  * @param filterDescription description of what we are looking for
  * @param candidateText the text to score against the filter
+ * @param expectedScoreCount number of scores to expect from the LLM
  */
-public record RelevanceTask(String filterDescription, String candidateText) {
+public record RelevanceTask(String filterDescription, String candidateText, int expectedScoreCount) {
+
+    public RelevanceTask(String filterDescription, String candidateText) {
+        this(filterDescription, candidateText, 1);
+    }
 
     @Override
     public String toString() {
-        return "RelevanceTask[filter=" + preview(filterDescription) + ", candidate=" + preview(candidateText) + "]";
+        String suffix = expectedScoreCount > 1 ? ", expectedScores=" + expectedScoreCount : "";
+        return "RelevanceTask[filter=" + preview(filterDescription) + ", candidate=" + preview(candidateText) + suffix
+                + "]";
     }
 
     private static String preview(String s) {

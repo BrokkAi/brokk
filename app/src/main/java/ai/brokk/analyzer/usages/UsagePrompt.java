@@ -31,7 +31,8 @@ public record UsagePrompt(String filterDescription, String candidateText, String
             boolean hierarchySupported,
             IAnalyzer analyzer,
             String shortName,
-            int maxTokens) {
+            int maxTokens,
+            List<CodeUnit> overloads) {
         return build(
                 List.of(hit),
                 codeUnitTarget,
@@ -40,7 +41,8 @@ public record UsagePrompt(String filterDescription, String candidateText, String
                 hierarchySupported,
                 analyzer,
                 shortName,
-                maxTokens);
+                maxTokens,
+                overloads);
     }
 
     /**
@@ -64,7 +66,8 @@ public record UsagePrompt(String filterDescription, String candidateText, String
             boolean hierarchySupported,
             IAnalyzer analyzer,
             String shortName,
-            int maxTokens) {
+            int maxTokens,
+            List<CodeUnit> overloads) {
         if (hits.isEmpty()) {
             throw new IllegalArgumentException("hits must not be empty");
         }
@@ -88,13 +91,31 @@ public record UsagePrompt(String filterDescription, String candidateText, String
                                     .collect(Collectors.joining(", ")));
         }
 
+        // Build overload info section if applicable
+        String overloadSection;
+        if (overloads.size() > 1 && codeUnitTarget.isFunction()) {
+            var overloadLines = new StringBuilder();
+            overloadLines.append("\nThe target method has the following overloads (distinct signatures):");
+            for (int i = 0; i < overloads.size(); i++) {
+                var ol = overloads.get(i);
+                String sig = ol.hasSignature() ? ol.signature() : ol.shortName();
+                overloadLines.append("\n%d. %s".formatted(i + 1, sig));
+            }
+            overloadLines.append(
+                    "\nReturn a JSON array of %d probabilities [p1, p2, ...] corresponding to each overload."
+                            .formatted(overloads.size()));
+            overloadSection = overloadLines.toString();
+        } else {
+            overloadSection =
+                    "\nReturn a real number in [0.0, 1.0] representing your confidence that this snippet is referring to\n%s."
+                            .formatted(codeUnitTarget.fqName());
+        }
+
         // Filter description for RelevanceClassifier.relevanceScore
         String filterDescription =
                 """
                 Determine if the candidate snippet represents a usage of the %s %s, and not another symbol with the same name.
-                Symbols with the same name (that we do NOT want to match) are: %s.%s
-                Return a real number in [0.0, 1.0] representing your confidence that this snippet is referring to
-                %s."""
+                Symbols with the same name (that we do NOT want to match) are: %s.%s%s"""
                         .formatted(
                                 codeUnitTarget.kind().name(),
                                 codeUnitTarget.fqName(),
@@ -104,7 +125,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
                                                 .map(CodeUnit::fqName)
                                                 .collect(Collectors.joining(", ")),
                                 polyInfo,
-                                codeUnitTarget.fqName());
+                                overloadSection);
 
         // Gather imports (best effort)
         List<String> imports;

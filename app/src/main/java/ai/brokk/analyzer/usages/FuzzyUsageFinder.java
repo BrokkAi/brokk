@@ -193,7 +193,8 @@ public final class FuzzyUsageFinder {
                         hierarchySupported,
                         analyzer,
                         identifier,
-                        8_000);
+                        8_000,
+                        List.of());
 
                 var task = new RelevanceTask(prompt.filterDescription(), prompt.promptText());
                 tasks.add(task);
