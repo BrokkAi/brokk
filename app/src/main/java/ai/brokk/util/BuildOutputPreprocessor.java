@@ -105,8 +105,9 @@ public class BuildOutputPreprocessor {
                 The build output is very large (%d lines).
                 Brokk will summarize it to find the most relevant errors.
 
-                Note: Summarization may omit some details which could affect
-                analysis quality.
+                Smmarization may omit some details which could affect
+                analysis quality. Consider reducing debug output or build chatter,
+                if possible.
                 """
                                 .formatted(lines.size()),
                         "Large Build Output",
