@@ -415,6 +415,102 @@ public class WorkspaceTools {
 
     @Tool(
             """
+            Finds all usages of a symbol and asks a scan model to answer a specific question about each call site.
+            Use this for auditing, finding specific patterns, or answering complex questions across many usages.
+            """)
+    public String scanUsages(
+            @P("Fully qualified symbol name (e.g., 'com.example.MyClass.myMethod') to find usages of.") String symbol,
+            @P(
+                            "The question to ask the model about each usage site. It is very important to give any background knowledge of relevant APIs in the question because the scanner will not be able to supplement its knowledge externally; it will only have the question text + method source.")
+                    String question)
+            throws InterruptedException {
+        var cm = context.getContextManager();
+        var finder = FuzzyUsageFinder.create(cm);
+        var fuzzyResult = finder.findUsages(symbol);
+
+        Set<UsageHit> hits =
+                switch (fuzzyResult) {
+                    case FuzzyResult.Success s -> s.hits();
+                    case FuzzyResult.Ambiguous a -> a.hits();
+                    default -> Set.of();
+                };
+
+        if (hits.isEmpty()) {
+            return "No usages found for symbol: " + symbol;
+        }
+
+        Set<ProjectFile> files = hits.stream().map(UsageHit::file).collect(Collectors.toSet());
+
+        var scanModel = cm.getService().getModel(ai.brokk.project.ModelProperties.ModelType.SCAN);
+        var config = new ai.brokk.agents.BlitzForge.RunConfig(
+                question, scanModel, () -> "", () -> "", null, ai.brokk.agents.BlitzForge.ParallelOutputMode.ALL);
+
+        var mutedIo = new ai.brokk.MutedConsoleIO(cm.getIo());
+        var listener = mutedIo.getBlitzForgeListener(() -> {});
+        var engine = new ai.brokk.agents.BlitzForge(cm, cm.getService(), config, listener);
+        Map<ProjectFile, String> fileResults = new java.util.concurrent.ConcurrentHashMap<>();
+
+        engine.executeParallel(files, file -> {
+            var contentOpt = file.read();
+            if (contentOpt.isEmpty()) {
+                return new ai.brokk.agents.BlitzForge.FileResult(file, false, "Could not read file", "");
+            }
+
+            // Group hits for this file
+            var fileHits = hits.stream().filter(h -> h.file().equals(file)).toList();
+            StringBuilder contextBuilder = new StringBuilder();
+            contextBuilder.append("Usages of ").append(symbol).append(" in this file:\n\n");
+            for (var hit : fileHits) {
+                contextBuilder
+                        .append("Enclosing method: ")
+                        .append(hit.enclosing().fqName())
+                        .append("\nSnippet:\n")
+                        .append(hit.snippet())
+                        .append("\n---\n");
+            }
+
+            var prompt = "Question: " + question + "\n\nFile Context:\n" + contextBuilder + "\nFull Source:\n"
+                    + contentOpt.get();
+
+            // Use Llm wrapper for synchronous-style model call
+            var llm = cm.getLlm(scanModel, "Scan usages", ai.brokk.TaskResult.Type.SCAN);
+            llm.setOutput(mutedIo);
+            try {
+                var result = llm.sendRequest(java.util.List.of(dev.langchain4j.data.message.UserMessage.from(prompt)));
+                var response = result.text();
+
+                fileResults.put(file, response);
+                return new ai.brokk.agents.BlitzForge.FileResult(file, false, null, response);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new ai.brokk.agents.BlitzForge.FileResult(file, false, "Scan interrupted", "");
+            }
+        });
+
+        var aggregatedResults = new StringBuilder();
+        aggregatedResults.append("# Scan Results for ").append(symbol).append("\n\n");
+        aggregatedResults.append("Question: ").append(question).append("\n\n");
+
+        files.stream().sorted().forEach(file -> {
+            var output = fileResults.get(file);
+            if (output != null) {
+                aggregatedResults
+                        .append("## File: ")
+                        .append(file.toString())
+                        .append("\n")
+                        .append(output)
+                        .append("\n\n");
+            }
+        });
+
+        context = context.addFragments(new ContextFragments.StringFragment(
+                cm, aggregatedResults.toString(), "Scan results for " + symbol, SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+
+        return "Completed scan of %d files. Results added to Workspace.".formatted(files.size());
+    }
+
+    @Tool(
+            """
             Samples a few representative usage examples for a symbol and adds them to the Workspace.
             Use this to quickly understand the common calling patterns of a method or class.
             """)
@@ -514,6 +610,7 @@ public class WorkspaceTools {
             "addSymbolUsagesToWorkspace",
             "addFileSummariesToWorkspace",
             "sampleUsages",
+            "scanUsages",
             // Search tools
             "searchSymbols",
             "getSymbolLocations",
