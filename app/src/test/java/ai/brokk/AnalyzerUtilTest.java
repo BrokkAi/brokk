@@ -30,7 +30,7 @@ public class AnalyzerUtilTest {
         // Create 5 hits with enclosing source lengths: 10, 20, 30, 40, 50
         for (int i = 1; i <= 5; i++) {
             CodeUnit enclosing = CodeUnit.fn(pf, "pkg", String.valueOf(i * 10));
-            hits.add(new UsageHit(pf, i, 0, 0, enclosing, 1.0, "snippet"));
+            hits.add(new UsageHit(pf, i, i * 10, i * 10 + 5, enclosing, 1.0, "snippet"));
         }
 
         Map<CodeUnit, Set<UsageHit>> input = Map.of(overload, hits);
