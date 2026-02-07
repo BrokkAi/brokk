@@ -1,7 +1,11 @@
 package ai.brokk.tools;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.*;
+import ai.brokk.analyzer.usages.FuzzyResult;
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -411,6 +415,50 @@ public class WorkspaceTools {
 
     @Tool(
             """
+            Samples a few representative usage examples for a symbol and adds them to the Workspace.
+            Use this to quickly understand the common calling patterns of a method or class.
+            """)
+    public String sampleUsages(@P("Fully qualified symbol name to find usage samples for.") String symbol)
+            throws InterruptedException {
+        var cm = context.getContextManager();
+        var analyzer = getAnalyzer();
+        var finder = FuzzyUsageFinder.create(cm);
+        var result = finder.findUsages(symbol);
+
+        Map<CodeUnit, Set<UsageHit>> hitsByOverload =
+                switch (result) {
+                    case FuzzyResult.Success s -> s.hitsByOverload();
+                    case FuzzyResult.Ambiguous a -> a.hitsByOverload();
+                    default -> Map.of();
+                };
+
+        if (hitsByOverload.isEmpty()) {
+            return "No usages found for symbol: " + symbol;
+        }
+
+        var sampledHits = AnalyzerUtil.sampleUsageHits(hitsByOverload, analyzer);
+        StringBuilder output = new StringBuilder();
+        output.append("# Usage Samples for ").append(symbol).append("\n\n");
+
+        sampledHits.forEach((overload, hits) -> {
+            String sig = overload.signature() != null ? overload.signature() : overload.fqName();
+            output.append("## Overload: ").append(sig).append("\n\n");
+            for (var hit : hits) {
+                analyzer.getSource(hit.enclosing(), true).ifPresent(source -> {
+                    output.append("File: ").append(hit.file()).append("\n");
+                    output.append("```java\n").append(source).append("\n```\n\n");
+                });
+            }
+        });
+
+        context = context.addFragments(new ContextFragments.StringFragment(
+                cm, output.toString(), "Usage samples for " + symbol, SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+
+        return "Added usage samples for '%s' to the Workspace.".formatted(symbol);
+    }
+
+    @Tool(
+            """
                   Retrieves the full source code of specific methods or functions and adds to the Workspace each as a separate read-only text fragment.
                   Faster and more efficient than including entire files or classes when you only need a few methods.
                   """)
@@ -465,6 +513,7 @@ public class WorkspaceTools {
             "addMethodsToWorkspace",
             "addSymbolUsagesToWorkspace",
             "addFileSummariesToWorkspace",
+            "sampleUsages",
             // Search tools
             "searchSymbols",
             "getSymbolLocations",

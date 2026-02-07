@@ -5,6 +5,7 @@ import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import java.nio.file.Path;
@@ -156,6 +157,37 @@ public class AnalyzerUtil {
      */
     public static Optional<ProjectFile> getFileFor(IAnalyzer analyzer, String fqName) {
         return analyzer.getDefinitions(fqName).stream().findFirst().map(CodeUnit::source);
+    }
+
+    /**
+     * Samples up to 3 representative usage hits per overload: shortest, median, and longest by enclosing source.
+     */
+    public static Map<CodeUnit, List<UsageHit>> sampleUsageHits(
+            Map<CodeUnit, Set<UsageHit>> hitsByOverload, IAnalyzer analyzer) {
+        Map<CodeUnit, List<UsageHit>> sampled = new LinkedHashMap<>();
+
+        for (var entry : hitsByOverload.entrySet()) {
+            CodeUnit overload = entry.getKey();
+            List<UsageHit> hits = new ArrayList<>(entry.getValue());
+
+            if (hits.size() <= 3) {
+                sampled.put(overload, hits);
+                continue;
+            }
+
+            // Sort by source length of the enclosing code unit
+            hits.sort(Comparator.comparingInt(h ->
+                    analyzer.getSource(h.enclosing(), true).map(String::length).orElse(0)));
+
+            List<UsageHit> selection = new ArrayList<>();
+            selection.add(hits.get(0)); // Shortest
+            selection.add(hits.get(hits.size() / 2)); // Median
+            selection.add(hits.get(hits.size() - 1)); // Longest
+
+            sampled.put(overload, selection.stream().distinct().toList());
+        }
+
+        return sampled;
     }
 
     /**
