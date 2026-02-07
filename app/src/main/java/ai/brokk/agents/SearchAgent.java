@@ -100,7 +100,7 @@ public class SearchAgent {
         }
     }
 
-    private static final int SUMMARIZE_THRESHOLD = 1_000;
+    private static final int SUMMARIZE_THRESHOLD = 3_000;
 
     private final IContextManager cm;
     private final StreamingChatModel model;

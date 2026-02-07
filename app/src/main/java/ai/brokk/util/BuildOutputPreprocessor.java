@@ -5,11 +5,14 @@ import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.project.ModelProperties.ModelType;
 import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import javax.swing.JOptionPane;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -86,16 +89,36 @@ public class BuildOutputPreprocessor {
      *     fails. Never returns null - empty input returns empty string.
      */
     public static String maybePreprocessOutput(String buildOutput, IContextManager cm) throws InterruptedException {
+        if (Strings.isNullOrEmpty(buildOutput)) {
+            return "";
+        }
+
         List<String> lines = Splitter.on('\n').splitToList(buildOutput);
         logger.debug("Build output has {} lines, preprocessing threshold is {}", lines.size(), THRESHOLD_LINES);
         if (lines.size() <= THRESHOLD_LINES) {
             return buildOutput;
         }
 
-        // Limit build output to fit within token constraints
+        cm.getIo()
+                .showConfirmDialog(
+                        """
+                The build output is very large (%d lines).
+                Brokk will summarize it to find the most relevant errors.
+
+                Note: Summarization may omit some details which could affect
+                analysis quality.
+                """
+                                .formatted(lines.size()),
+                        "Large Build Output",
+                        JOptionPane.DEFAULT_OPTION,
+                        JOptionPane.INFORMATION_MESSAGE);
+
+        // Step 2: Limit build output to fit within token constraints
         var model = cm.getService().getModel(ModelType.BUILD_PROCESSOR);
         var llm = cm.getLlm(model, "BuildOutputPreprocessor", TaskResult.Type.SUMMARIZE);
         String truncatedOutput = truncateToTokenLimit(buildOutput, model, cm);
+
+        // Step 3: LLM summarization
         return preprocessOutput(truncatedOutput, cm, llm);
     }
 
