@@ -51,7 +51,7 @@ public interface ExceptionMapper {
             if (rootCause instanceof UnresolvedAddressException
                     || rootCause instanceof UnknownHostException
                     || rootCause instanceof NoRouteToHostException) {
-                return new UnresolvedModelServerException(rootCause);
+                return new UnresolvedModelServerException(rootCause.getMessage(), rootCause);
             }
 
             if (rootCause instanceof SSLException) {
