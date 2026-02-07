@@ -128,7 +128,7 @@ tasks.register("tidy") {
 }
 
 
-configure(subprojects.filter { it.name != "brokk-code" }) {
+subprojects {
     apply(plugin = "java-library")
     apply(plugin = "com.autonomousapps.dependency-analysis")
     apply(plugin = "com.diffplug.spotless")
