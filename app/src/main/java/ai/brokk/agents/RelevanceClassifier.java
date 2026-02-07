@@ -8,6 +8,7 @@ import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -56,7 +57,7 @@ public final class RelevanceClassifier {
             if (!hasRel && hasIrr) return false;
 
             logger.debug("Ambiguous relevance response, retrying...");
-            messages.add(new UserMessage(response));
+            messages.add(new AiMessage(response));
             messages.add(new UserMessage("You must respond with exactly one of the markers {%s, %s}"
                     .formatted(RELEVANT_MARKER, IRRELEVANT_MARKER)));
         }
@@ -141,7 +142,7 @@ public final class RelevanceClassifier {
             if (!Double.isNaN(parsed)) return parsed;
 
             logger.debug("Ambiguous scoring response, retrying...");
-            messages.add(new UserMessage(response));
+            messages.add(new AiMessage(response));
             messages.add(new UserMessage("Respond with only a single number between 0.0 and 1.0, inclusive."));
         }
 
@@ -274,7 +275,7 @@ public final class RelevanceClassifier {
             if (!parsed.isEmpty()) return parsed;
 
             logger.debug("Ambiguous multi-scoring response, retrying...");
-            messages.add(new UserMessage(response));
+            messages.add(new AiMessage(response));
             messages.add(
                     new UserMessage("Respond with only a JSON array of %d numbers between 0.0 and 1.0, e.g. [0.8, 0.3]."
                             .formatted(expectedCount)));
