@@ -7,7 +7,9 @@ import ai.brokk.FuzzyMatcher;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.AutoCompleteUtil;
@@ -32,6 +34,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
@@ -499,14 +502,11 @@ public class AttachContextDialog extends BaseThemedDialog {
                         f -> includeTestFilesCheck.isSelected()
                                 || !cm.getTestFiles().contains(f));
                 var fuzzyResult = finder.findUsages(input);
-                var hitsByOverload =
+                Map<CodeUnit, Set<UsageHit>> hitsByOverload =
                         switch (fuzzyResult) {
-                            case ai.brokk.analyzer.usages.FuzzyResult.Success s -> s.hitsByOverload();
-                            case ai.brokk.analyzer.usages.FuzzyResult.Ambiguous a -> a.hitsByOverload();
-                            default ->
-                                java.util.Map
-                                        .<ai.brokk.analyzer.CodeUnit, java.util.Set<ai.brokk.analyzer.usages.UsageHit>>
-                                                of();
+                            case FuzzyResult.Success s -> s.hitsByOverload();
+                            case FuzzyResult.Ambiguous a -> a.hitsByOverload();
+                            default -> Map.of();
                         };
 
                 var sampled = AnalyzerUtil.sampleUsageHits(hitsByOverload, analyzer);
