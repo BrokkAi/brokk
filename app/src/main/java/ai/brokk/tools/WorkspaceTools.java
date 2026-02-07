@@ -427,9 +427,7 @@ public class WorkspaceTools {
         var mutedIo = new ai.brokk.MutedConsoleIO(cm.getIo());
         var listener = mutedIo.getBlitzForgeListener(() -> {});
         var engine = new ai.brokk.agents.BlitzForge(cm, cm.getService(), config, listener);
-        Map<ProjectFile, String> fileResults = new java.util.concurrent.ConcurrentHashMap<>();
-
-        engine.executeParallel(files, file -> {
+        var taskResult = engine.executeParallel(files, file -> {
             var contentOpt = file.read();
             if (contentOpt.isEmpty()) {
                 return new ai.brokk.agents.BlitzForge.FileResult(file, false, "Could not read file", "");
@@ -457,8 +455,6 @@ public class WorkspaceTools {
             try {
                 var result = llm.sendRequest(java.util.List.of(dev.langchain4j.data.message.UserMessage.from(prompt)));
                 var response = result.text();
-
-                fileResults.put(file, response);
                 return new ai.brokk.agents.BlitzForge.FileResult(file, false, null, response);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -466,24 +462,17 @@ public class WorkspaceTools {
             }
         });
 
-        var aggregatedResults = new StringBuilder();
-        aggregatedResults.append("# Scan Results for ").append(symbol).append("\n\n");
-        aggregatedResults.append("Question: ").append(question).append("\n\n");
+        // Extract the aggregated output from BlitzForge's TaskResult
+        var aggregatedOutput = taskResult.output().messages().stream()
+                .filter(m -> m instanceof dev.langchain4j.data.message.AiMessage)
+                .map(m -> ((dev.langchain4j.data.message.AiMessage) m).text())
+                .findFirst()
+                .orElse("No results");
 
-        files.stream().sorted().forEach(file -> {
-            var output = fileResults.get(file);
-            if (output != null) {
-                aggregatedResults
-                        .append("## File: ")
-                        .append(file.toString())
-                        .append("\n")
-                        .append(output)
-                        .append("\n\n");
-            }
-        });
+        var scanResults = "# Scan Results for " + symbol + "\n\n" + "Question: " + question + "\n\n" + aggregatedOutput;
 
         context = context.addFragments(new ContextFragments.StringFragment(
-                cm, aggregatedResults.toString(), "Scan results for " + symbol, SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+                cm, scanResults, "Scan results for " + symbol, SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
 
         return "Completed scan of %d files. Results added to Workspace.".formatted(files.size());
     }
