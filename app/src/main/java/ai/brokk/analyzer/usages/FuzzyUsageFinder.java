@@ -18,6 +18,7 @@ import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -95,11 +96,14 @@ public final class FuzzyUsageFinder {
     }
 
     /**
-     * Find usages for a specific CodeUnit.
+     * Find usages for a list of overloads.
      *
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
-    private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) throws InterruptedException {
+    private FuzzyResult findUsages(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {
+        assert !overloads.isEmpty() : "overloads must not be empty";
+        var target = overloads.getFirst();
+
         // non-nested identifier
         final String identifier = target.identifier();
 
@@ -159,7 +163,6 @@ public final class FuzzyUsageFinder {
             return new FuzzyResult.TooManyCallsites(target.shortName(), hits.size(), maxUsages);
         }
 
-        Set<UsageHit> finalHits = hits;
         if (llm != null && !hits.isEmpty()) {
             // Case 4: This symbol is not unique among code units, disambiguate with LLM if possible
             logger.debug("Disambiguating {} hits among {} code units", hits.size(), matchingCodeUnits.size());
@@ -192,32 +195,48 @@ public final class FuzzyUsageFinder {
                         polymorphicMatches,
                         hierarchySupported,
                         analyzer,
-                        identifier,
                         8_000,
-                        List.of());
+                        overloads);
 
-                var task = new RelevanceTask(prompt.filterDescription(), prompt.promptText());
+                var task = new RelevanceTask(prompt.filterDescription(), prompt.promptText(), overloads.size());
                 tasks.add(task);
                 taskToHits.add(hitsInGroup);
             }
 
-            var scores = RelevanceClassifier.relevanceScoreBatch(project.getDiskCache(), llm, service, tasks);
-            var resultHits = new HashSet<UsageHit>(hits.size());
+            var scores = RelevanceClassifier.relevanceScoreBatchMulti(project.getDiskCache(), llm, service, tasks);
+            var resultHitsByOverload = new HashMap<CodeUnit, Set<UsageHit>>(overloads.size());
 
             for (int i = 0; i < tasks.size(); i++) {
                 var task = tasks.get(i);
                 var hitsInGroup = taskToHits.get(i);
-                var score = scores.getOrDefault(task, 0.0);
+                var overloadScores = scores.getOrDefault(task, Collections.nCopies(overloads.size(), 0.0));
 
+                // Find the overload with the highest score
+                int bestIdx = 0;
+                double bestScore = overloadScores.getFirst();
+                for (int j = 1; j < overloadScores.size(); j++) {
+                    if (overloadScores.get(j) > bestScore) {
+                        bestScore = overloadScores.get(j);
+                        bestIdx = j;
+                    }
+                }
+
+                var bestOverload = overloads.get(bestIdx);
                 for (var hit : hitsInGroup) {
-                    resultHits.add(hit.withConfidence(score));
+                    resultHitsByOverload
+                            .computeIfAbsent(bestOverload, k -> new HashSet<>())
+                            .add(hit.withConfidence(bestScore));
                 }
             }
-            finalHits = resultHits;
-            logger.debug("Found {} disambiguated hits", finalHits.size());
+
+            logger.debug(
+                    "Found {} disambiguated hits across {} overloads",
+                    resultHitsByOverload.values().stream().mapToInt(Set::size).sum(),
+                    resultHitsByOverload.size());
+            return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, resultHitsByOverload);
         }
 
-        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, Map.of(target, finalHits));
+        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, Map.of(target, hits));
     }
 
     /**
@@ -318,13 +337,12 @@ public final class FuzzyUsageFinder {
             return new FuzzyResult.Failure(fqName, "No definitions found");
         }
 
-        // FUF is signature-blind, so we can collapse overloads to reduce the work
-        var def = definitions.iterator().next();
-        CodeUnit cu = new CodeUnit(def.source(), def.kind(), def.packageName(), def.shortName(), null);
+        // Build overloads list from all definitions (preserving signatures for the LLM prompt)
+        var overloads = List.copyOf(definitions);
 
         // Aggregate usages from all definitions
         Map<CodeUnit, Set<UsageHit>> allHitsByOverload = new HashMap<>();
-        var result = findUsages(cu, maxFiles, maxUsages);
+        var result = findUsages(overloads, maxFiles, maxUsages);
         switch (result) {
             case FuzzyResult.Success success -> {
                 success.hitsByOverload().forEach((k, v) -> allHitsByOverload
@@ -338,14 +356,14 @@ public final class FuzzyUsageFinder {
             }
             case FuzzyResult.TooManyCallsites tooMany -> {
                 logger.debug(
-                        "Too many callsites for {} when finding usages of {}: {} > {}",
-                        cu.fqName(),
+                        "Too many callsites for {} ({}): {} > {}",
                         fqName,
+                        overloads.getFirst().kind(),
                         tooMany.totalCallsites(),
                         tooMany.limit());
             }
             case FuzzyResult.Failure failure -> {
-                logger.debug("Failure for {} when finding usages of {}: {}", cu.fqName(), fqName, failure.reason());
+                logger.debug("Failure when finding usages of {}: {}", fqName, failure.reason());
             }
         }
 

@@ -77,15 +77,7 @@ public class UsagePromptJavaTest {
 
         // When
         UsagePrompt prompt = UsagePrompt.build(
-                hit,
-                target,
-                List.of(),
-                List.of(),
-                true,
-                analyzer,
-                "A.method2",
-                10_000,
-                List.of() // generous token budget
+                hit, target, List.of(), List.of(), true, analyzer, 10_000, List.of(target) // generous token budget
                 );
 
         // Field-level assertions
@@ -127,8 +119,8 @@ public class UsagePromptJavaTest {
         CodeUnit alt2 = CodeUnit.fn(file, "another", "method2");
         UsageHit hit = new UsageHit(file, 10, 0, 10, enclosing, 1.0, "snippet");
 
-        UsagePrompt prompt = UsagePrompt.build(
-                hit, target, List.of(alt1, alt2), List.of(), true, analyzer, "method2", 10_000, List.of());
+        UsagePrompt prompt =
+                UsagePrompt.build(hit, target, List.of(alt1, alt2), List.of(), true, analyzer, 10_000, List.of(target));
 
         assertTrue(
                 prompt.filterDescription().contains("other.method2, another.method2"),
@@ -150,7 +142,7 @@ public class UsagePromptJavaTest {
         int maxTokens = 200; // 800 chars, well above the 512 min floor in the builder
         int maxChars = maxTokens * 4;
         UsagePrompt prompt =
-                UsagePrompt.build(hit, target, List.of(), List.of(), true, analyzer, "A.method2", maxTokens, List.of());
+                UsagePrompt.build(hit, target, List.of(), List.of(), true, analyzer, maxTokens, List.of(target));
 
         String text = prompt.promptText();
 
@@ -176,7 +168,7 @@ public class UsagePromptJavaTest {
         UsageHit hit = new UsageHit(file, 5, 0, 3, enclosing, 1.0, "sa");
 
         UsagePrompt prompt =
-                UsagePrompt.build(hit, target, List.of(), List.of(), true, analyzer, "A.method2", 10_000, List.of());
+                UsagePrompt.build(hit, target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
 
         String text = prompt.promptText();
         assertFalse(text.contains("Short Name of Search: "), "Metadata headers should be removed");
@@ -199,7 +191,7 @@ public class UsagePromptJavaTest {
         UsageHit hit2 = new UsageHit(file, 20, 500, 520, enclosing, 1.0, snippet2);
 
         UsagePrompt prompt = UsagePrompt.build(
-                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, "method2", 10_000, List.of());
+                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
 
         String text = prompt.promptText();
         assertTrue(text.contains("foo();"), "Prompt should contain the first snippet code");
@@ -223,7 +215,7 @@ public class UsagePromptJavaTest {
         UsageHit hit2 = new UsageHit(file, 7, 30, 40, enclosing, 1.0, snippet2);
 
         UsagePrompt prompt = UsagePrompt.build(
-                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, "method2", 10_000, List.of());
+                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
 
         String text = prompt.promptText();
 
@@ -246,9 +238,9 @@ public class UsagePromptJavaTest {
         UsageHit hit = new UsageHit(file, 10, 100, 110, enclosing, 1.0, "snippet");
 
         UsagePrompt singlePrompt =
-                UsagePrompt.build(hit, target, List.of(), List.of(), true, analyzer, "method2", 10_000, List.of());
-        UsagePrompt listPrompt = UsagePrompt.build(
-                List.of(hit), target, List.of(), List.of(), true, analyzer, "method2", 10_000, List.of());
+                UsagePrompt.build(hit, target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
+        UsagePrompt listPrompt =
+                UsagePrompt.build(List.of(hit), target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
 
         assertEquals(singlePrompt.promptText(), listPrompt.promptText(), "Prompt text should match");
         assertEquals(singlePrompt.candidateText(), listPrompt.candidateText(), "Candidate text should match");
@@ -271,7 +263,7 @@ public class UsagePromptJavaTest {
         UsageHit hit2 = new UsageHit(file, 11, 30, 40, enclosing, 1.0, snippet2);
 
         UsagePrompt prompt = UsagePrompt.build(
-                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, "method2", 10_000, List.of());
+                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
 
         String text = prompt.promptText();
 
@@ -303,7 +295,7 @@ public class UsagePromptJavaTest {
         UsageHit hit2 = new UsageHit(file, 9, 30, 40, enclosing, 1.0, snippet2);
 
         UsagePrompt prompt = UsagePrompt.build(
-                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, "method2", 10_000, List.of());
+                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
 
         String text = prompt.promptText();
 
@@ -335,7 +327,7 @@ public class UsagePromptJavaTest {
         UsageHit hit2 = new UsageHit(file, 20, 100, 110, enclosing, 1.0, snippet2);
 
         UsagePrompt prompt = UsagePrompt.build(
-                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, "method2", 10_000, List.of());
+                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
 
         String text = prompt.promptText();
 
@@ -370,7 +362,7 @@ public class UsagePromptJavaTest {
         UsageHit hit2 = new UsageHit(file, 100, 500, 510, enclosing, 1.0, identicalSnippet);
 
         UsagePrompt prompt = UsagePrompt.build(
-                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, "method2", 10_000, List.of());
+                List.of(hit1, hit2), target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
 
         String candidateText = prompt.candidateText();
 
@@ -395,8 +387,8 @@ public class UsagePromptJavaTest {
         String originalSnippet = "line1\nline2\nline3\nhit-line\nline5\nline6\nline7";
         UsageHit hit = new UsageHit(file, 5, 10, 20, enclosing, 1.0, originalSnippet);
 
-        UsagePrompt prompt = UsagePrompt.build(
-                List.of(hit), target, List.of(), List.of(), true, analyzer, "method2", 10_000, List.of());
+        UsagePrompt prompt =
+                UsagePrompt.build(List.of(hit), target, List.of(), List.of(), true, analyzer, 10_000, List.of(target));
 
         // candidateText should contain the original snippet
         assertTrue(prompt.candidateText().contains("hit-line"), "Single hit should contain the snippet");
@@ -416,7 +408,7 @@ public class UsagePromptJavaTest {
         UsageHit hit = new UsageHit(file, 10, 0, 10, enclosing, 1.0, "snippet");
 
         UsagePrompt prompt = UsagePrompt.build(
-                hit, target, List.of(), List.of(poly1, poly2), true, analyzer, "method2", 10_000, List.of());
+                hit, target, List.of(), List.of(poly1, poly2), true, analyzer, 10_000, List.of(target));
 
         String desc = prompt.filterDescription();
         assertTrue(desc.contains("SubA1"), "filterDescription should contain first polymorphic match");
@@ -437,7 +429,7 @@ public class UsagePromptJavaTest {
         UsageHit hit = new UsageHit(file, 10, 0, 10, enclosing, 1.0, "snippet");
 
         UsagePrompt prompt =
-                UsagePrompt.build(hit, target, List.of(), List.of(), false, analyzer, "method2", 10_000, List.of());
+                UsagePrompt.build(hit, target, List.of(), List.of(), false, analyzer, 10_000, List.of(target));
 
         String desc = prompt.filterDescription();
         assertTrue(

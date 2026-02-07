@@ -79,8 +79,6 @@ import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * The main orchestrator for sending requests to an LLM, possibly with tools, collecting streaming responses, etc.
- *
- * Preserves model chain-of-thought, so you should create a new instance for every conversation.
  */
 public class Llm {
     private static final Logger logger = LogManager.getLogger(Llm.class);
