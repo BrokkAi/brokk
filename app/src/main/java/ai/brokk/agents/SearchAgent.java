@@ -226,7 +226,8 @@ public class SearchAgent {
         tools.add("skimDirectory");
 
         // Workspace analyzer tools
-        tools.add("addSymbolUsagesToWorkspace");
+        tools.add("sampleUsages");
+        tools.add("scanUsages");
         tools.add("addClassesToWorkspace");
         tools.add("addClassSummariesToWorkspace");
         tools.add("addMethodsToWorkspace");

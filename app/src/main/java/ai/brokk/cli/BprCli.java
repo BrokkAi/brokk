@@ -505,7 +505,7 @@ public final class BprCli implements Callable<Integer> {
             tools.addUrlContentsToWorkspace(url);
         }
         for (var symbol : addUsages) {
-            tools.addSymbolUsagesToWorkspace(symbol);
+            tools.scanUsages(symbol, "Describe how this symbol is used in this context.");
         }
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();

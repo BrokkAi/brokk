@@ -291,27 +291,6 @@ public class WorkspaceTools {
 
     @Tool(
             """
-                  Finds usages of a specific symbol (class, method, field) and adds the full source of the calling methods to the Workspace. Only call when you have identified specific symbols.
-                  Use this for questions like “how is X used/accessed/obtained/wired”.
-                  If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
-                  """)
-    public String addSymbolUsagesToWorkspace(
-            @P(
-                            "Fully qualified symbol name (e.g., 'com.example.MyClass', 'com.example.MyClass.myMethod', 'com.example.MyClass.myField') to find usages for.")
-                    String symbol) {
-        assert !getAnalyzer().isEmpty() : "Cannot add usages: Code Intelligence is not available.";
-        if (symbol.isBlank()) {
-            return "Cannot add usages: symbol cannot be empty";
-        }
-
-        var fragment = new ContextFragments.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
-        context = context.addFragments(List.of(fragment));
-
-        return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
-    }
-
-    @Tool(
-            """
                   Retrieves summaries (fields and method signatures) for specified classes and adds them to the Workspace.
                   Faster and more efficient than reading entire files or classes when you just need the API and not the full source code.
                   Only call when you have identified specific class names.")
@@ -607,7 +586,6 @@ public class WorkspaceTools {
             "addClassesToWorkspace",
             "addClassSummariesToWorkspace",
             "addMethodsToWorkspace",
-            "addSymbolUsagesToWorkspace",
             "addFileSummariesToWorkspace",
             "sampleUsages",
             "scanUsages",
