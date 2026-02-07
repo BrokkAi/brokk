@@ -382,7 +382,11 @@ public final class FuzzyUsageFinder {
         return allHitsByOverload.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().stream()
                         .filter(h -> h.confidence() >= 0.1)
-                        .collect(Collectors.toSet())));
+                        .collect(Collectors.toSet())))
+                .entrySet()
+                .stream()
+                .filter(e -> !e.getValue().isEmpty())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {

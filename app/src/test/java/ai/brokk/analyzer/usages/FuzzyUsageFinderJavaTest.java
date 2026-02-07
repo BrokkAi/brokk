@@ -375,6 +375,33 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
+    public void filterByConfidenceExcludesEntriesWithAllLowConfidenceHits() {
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var file = new ProjectFile(root, Path.of("A.java"));
+
+        var overloadKept = new CodeUnit(file, CodeUnitType.CLASS, "", "Kept", null);
+        var overloadDropped = new CodeUnit(file, CodeUnitType.CLASS, "", "Dropped", null);
+
+        UsageHit hitKept = new UsageHit(file, 1, 0, 1, overloadKept, 0.5, "");
+        UsageHit hitLow1 = new UsageHit(file, 2, 10, 11, overloadDropped, 0.05, "");
+        UsageHit hitLow2 = new UsageHit(file, 3, 20, 21, overloadDropped, 0.01, "");
+
+        var allHitsByOverload = new HashMap<CodeUnit, Set<UsageHit>>();
+        allHitsByOverload.put(overloadKept, new HashSet<>(Set.of(hitKept)));
+        allHitsByOverload.put(overloadDropped, new HashSet<>(Set.of(hitLow1, hitLow2)));
+
+        var filtered = FuzzyUsageFinder.filterByConfidence(allHitsByOverload);
+
+        // The overloadDropped entry should be entirely absent (not present with an empty set)
+        assertEquals(1, filtered.size(), "Should only contain the entry with high-confidence hits");
+        assertTrue(filtered.containsKey(overloadKept), "Should contain the kept overload");
+        assertFalse(
+                filtered.containsKey(overloadDropped),
+                "Should NOT contain the dropped overload (all hits below threshold)");
+        assertEquals(Set.of(hitKept), filtered.get(overloadKept));
+    }
+
+    @Test
     public void testMultipleHitsInSameMethodAreKeptSeparate() throws Exception {
         String fooContent = "public class Foo { public void process() {} }";
         String callerContent =
