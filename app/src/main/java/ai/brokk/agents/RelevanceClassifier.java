@@ -231,7 +231,7 @@ public final class RelevanceClassifier {
     public static List<Double> scoreRelevanceMulti(
             Llm llm, IStringDiskCache diskCache, String systemPrompt, String userPrompt, int expectedCount)
             throws InterruptedException {
-        var cacheKey = relevanceScoreCacheKey(llm, systemPrompt, userPrompt);
+        var cacheKey = relevanceScoreCacheKey(llm, systemPrompt, userPrompt, expectedCount);
         var cached = diskCache.computeIfAbsentInterruptibly(
                 cacheKey, () -> scoreRelevanceMultiUncached(llm, systemPrompt, userPrompt, expectedCount).stream()
                         .map(Object::toString)
@@ -431,7 +431,11 @@ public final class RelevanceClassifier {
     }
 
     private static String relevanceScoreCacheKey(Llm llm, String systemPrompt, String userPrompt) {
-        var payload = llm + "\n" + systemPrompt + "\n---\n" + userPrompt;
+        return relevanceScoreCacheKey(llm, systemPrompt, userPrompt, 1);
+    }
+
+    private static String relevanceScoreCacheKey(Llm llm, String systemPrompt, String userPrompt, int expectedCount) {
+        var payload = llm + "\n" + systemPrompt + "\n---\n" + userPrompt + "\ncount=" + expectedCount;
         return "relevance_" + StringDiskCache.sha1Hex(payload);
     }
 }
