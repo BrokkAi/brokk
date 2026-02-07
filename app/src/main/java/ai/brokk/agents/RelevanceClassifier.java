@@ -5,6 +5,8 @@ import ai.brokk.Llm;
 import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.StringDiskCache;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -24,6 +26,7 @@ public final class RelevanceClassifier {
     public static final String RELEVANT_MARKER = "BRK_RELEVANT";
     public static final String IRRELEVANT_MARKER = "BRK_IRRELEVANT";
     private static final int MAX_RELEVANCE_TRIES = 3;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private RelevanceClassifier() {}
 
@@ -362,26 +365,19 @@ public final class RelevanceClassifier {
     static List<Double> extractScores(String response, int expectedCount) {
         if (response.isEmpty()) return List.of();
 
-        // Try to find a bracketed list like [0.8, 0.3, 0.1]
-        try {
-            Pattern arrayPattern = Pattern.compile("\\[([\\d.,\\s+\\-eE]+)\\]");
-            Matcher m = arrayPattern.matcher(response);
-            if (m.find()) {
-                String inner = m.group(1);
-                String[] parts = inner.split(",");
-                var scores = new ArrayList<Double>(parts.length);
-                for (String part : parts) {
-                    String trimmed = part.strip();
-                    if (!trimmed.isEmpty()) {
-                        scores.add(clamp01(Double.parseDouble(trimmed)));
-                    }
+        // Try to find and parse a JSON array like [0.8, 0.3, 0.1]
+        int start = response.indexOf('[');
+        int end = response.lastIndexOf(']');
+        if (start != -1 && end != -1 && end > start) {
+            try {
+                String json = response.substring(start, end + 1);
+                List<Double> parsed = objectMapper.readValue(json, new TypeReference<>() {});
+                if (parsed != null && parsed.size() == expectedCount) {
+                    return parsed.stream().map(RelevanceClassifier::clamp01).toList();
                 }
-                if (scores.size() == expectedCount) {
-                    return List.copyOf(scores);
-                }
+            } catch (Throwable t) {
+                logger.trace("Failed to parse array-style scores via Jackson", t);
             }
-        } catch (Throwable t) {
-            logger.trace("Failed to parse array-style scores", t);
         }
 
         // Fallback: try single score and replicate
