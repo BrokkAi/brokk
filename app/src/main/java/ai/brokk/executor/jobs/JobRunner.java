@@ -8,6 +8,7 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
@@ -227,8 +228,6 @@ public final class JobRunner {
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
-
-    static final int ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD = 100;
 
     enum Mode {
         ARCHITECT,
@@ -1010,7 +1009,7 @@ public final class JobRunner {
                                                     .formatted(issueNumber, details.title(), details.body());
 
                                             var context = cm.liveContext();
-                                            if (IssueWriterService.shouldEnrichIssuePrompt(details.body())) {
+                                            if (IssueRewriterAgent.shouldEnrichIssuePrompt(details.body())) {
                                                 try {
                                                     store.appendEvent(
                                                             jobId,
@@ -1018,7 +1017,7 @@ public final class JobRunner {
                                                                     "NOTIFICATION",
                                                                     "Issue body is brief; performing prompt enrichment..."));
 
-                                                    var writerService = new IssueWriterService(
+                                                    var writerService = new IssueRewriterAgent(
                                                             context, issuePlannerModel, issueTaskPrompt);
                                                     var enriched = writerService.execute();
 
@@ -1538,7 +1537,7 @@ public final class JobRunner {
                                         var model = resolveModelOrThrow(
                                                 spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
                                         var writerService =
-                                                new IssueWriterService(cm.liveContext(), model, spec.taskInput());
+                                                new IssueRewriterAgent(cm.liveContext(), model, spec.taskInput());
                                         var parsed = writerService.execute();
                                         cm.pushContext(ctx -> parsed.context());
 

@@ -1,8 +1,8 @@
-package ai.brokk.executor.jobs;
+package ai.brokk.agents;
 
 import ai.brokk.IContextManager;
-import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
+import ai.brokk.executor.jobs.PrReviewService;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.util.Json;
 import ai.brokk.util.TextUtil;
@@ -15,15 +15,16 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public final class IssueWriterService {
-    private static final Logger logger = LogManager.getLogger(IssueWriterService.class);
+public final class IssueRewriterAgent {
+    static final int ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD = 100;
+    private static final Logger logger = LogManager.getLogger(IssueRewriterAgent.class);
 
     private final IContextManager cm;
     private final StreamingChatModel model;
     private final String userRequest;
-    private final ai.brokk.context.Context context;
+    private final Context context;
 
-    public IssueWriterService(Context context, StreamingChatModel model, String userRequest) {
+    public IssueRewriterAgent(Context context, StreamingChatModel model, String userRequest) {
         this.cm = context.getContextManager();
         this.context = context;
         this.model = model;
@@ -31,10 +32,10 @@ public final class IssueWriterService {
     }
 
     public static boolean shouldEnrichIssuePrompt(@Nullable String body) {
-        return TextUtil.countWords(body) < JobRunner.ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD;
+        return TextUtil.countWords(body) < ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD;
     }
 
-    public record IssueResult(String title, String bodyMarkdown, ai.brokk.context.Context context) {}
+    public record IssueResult(String title, String bodyMarkdown, Context context) {}
 
     record ParsedIssue(String title, String bodyMarkdown) {}
 
@@ -51,7 +52,7 @@ public final class IssueWriterService {
 
             var agent = new SearchAgent(context, goal, model, SearchPrompts.Objective.ISSUE_DIAGNOSIS, scope);
             var result = agent.execute();
-            ai.brokk.context.Context resultingContext = scope.append(result);
+            Context resultingContext = scope.append(result);
 
             String raw = result.output().text().join();
             var parsed = parseIssueResponse(raw);

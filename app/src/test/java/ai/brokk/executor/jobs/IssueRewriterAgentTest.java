@@ -4,9 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import ai.brokk.agents.IssueRewriterAgent;
 import org.junit.jupiter.api.Test;
 
-class IssueWriterServiceTest {
+class IssueRewriterAgentTest {
 
     @Test
     void testParseIssueResponse_ValidJson() {
@@ -15,7 +16,7 @@ class IssueWriterServiceTest {
                 { "title": "Bug: NPE in Foo", "bodyMarkdown": "Steps...\\n1) Do X\\n2) Do Y" }
                 """;
 
-        var response = IssueWriterService.parseIssueResponse(json);
+        var response = IssueRewriterAgent.parseIssueResponse(json);
 
         assertNotNull(response);
         assertEquals("Bug: NPE in Foo", response.title());
@@ -31,20 +32,20 @@ class IssueWriterServiceTest {
                 { "bodyMarkdown": "Steps..." }
                 """;
 
-        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(onlyTitle));
-        assertThrows(IllegalArgumentException.class, () -> IssueWriterService.parseIssueResponse(onlyBody));
+        assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse(onlyTitle));
+        assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse(onlyBody));
     }
 
     @Test
     void testParseIssueResponse_MalformedJson_ThrowsException() {
         String malformed = "{ this is not valid json }";
-        assertThrows(AssertionError.class, () -> IssueWriterService.parseIssueResponse(malformed));
+        assertThrows(AssertionError.class, () -> IssueRewriterAgent.parseIssueResponse(malformed));
     }
 
     @Test
     void testParseIssueResponse_EmptyInput_ThrowsException() {
-        assertThrows(NullPointerException.class, () -> IssueWriterService.parseIssueResponse(null));
-        assertThrows(AssertionError.class, () -> IssueWriterService.parseIssueResponse(""));
-        assertThrows(AssertionError.class, () -> IssueWriterService.parseIssueResponse("   "));
+        assertThrows(NullPointerException.class, () -> IssueRewriterAgent.parseIssueResponse(null));
+        assertThrows(AssertionError.class, () -> IssueRewriterAgent.parseIssueResponse(""));
+        assertThrows(AssertionError.class, () -> IssueRewriterAgent.parseIssueResponse("   "));
     }
 }

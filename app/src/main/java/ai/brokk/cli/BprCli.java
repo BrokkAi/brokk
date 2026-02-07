@@ -12,6 +12,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
@@ -19,7 +20,6 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.executor.jobs.IssueWriterService;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.InstructionsPanel;
@@ -511,15 +511,15 @@ public final class BprCli implements Callable<Integer> {
         var context = cm.liveContext();
 
         // enhance prompt
-        if (lutzPrompt != null && IssueWriterService.shouldEnrichIssuePrompt(lutzPrompt)) {
-            var writer = new IssueWriterService(context, requireNonNull(planModel), lutzPrompt);
+        if (lutzPrompt != null && IssueRewriterAgent.shouldEnrichIssuePrompt(lutzPrompt)) {
+            var writer = new IssueRewriterAgent(context, requireNonNull(planModel), lutzPrompt);
             var response = writer.execute();
             lutzPrompt = response.bodyMarkdown();
             context = cm.pushContext(ctx -> response.context());
             logger.info("Enriched lutz prompt: {}", lutzPrompt);
         }
-        if (lutzLitePrompt != null && IssueWriterService.shouldEnrichIssuePrompt(lutzLitePrompt)) {
-            var writer = new IssueWriterService(context, requireNonNull(planModel), lutzLitePrompt);
+        if (lutzLitePrompt != null && IssueRewriterAgent.shouldEnrichIssuePrompt(lutzLitePrompt)) {
+            var writer = new IssueRewriterAgent(context, requireNonNull(planModel), lutzLitePrompt);
             var response = writer.execute();
             lutzLitePrompt = response.bodyMarkdown();
             context = cm.pushContext(ctx -> response.context());
