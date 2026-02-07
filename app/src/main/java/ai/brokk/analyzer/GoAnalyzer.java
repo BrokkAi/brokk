@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -45,6 +46,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             Set.of(TYPE_SPEC, TYPE_ALIAS), // classLikeNodeTypes
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
+            Set.of(), // constructorNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
             CaptureNames.IMPORT_DECLARATION, // importNodeType - matches @import.declaration capture in go.scm
             "name", // identifierFieldName (used as fallback if specific .name capture is missing)
@@ -80,17 +82,19 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         super(project, Languages.GO, listener);
     }
 
-    private GoAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.GO, state, listener);
+    private GoAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.GO, state, listener, cache);
     }
 
     public static GoAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new GoAnalyzer(project, state, listener);
+        return new GoAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new GoAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new GoAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override

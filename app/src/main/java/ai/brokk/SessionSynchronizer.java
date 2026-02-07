@@ -479,6 +479,7 @@ class SessionSynchronizer {
             if (actions.isEmpty()) {
                 break;
             }
+            logger.trace("Sync plan for project {}: {}", remoteProject, actions);
 
             // Execute
             result = executor.execute(actions, syncCallbacks, openContextManagers, remoteProject);

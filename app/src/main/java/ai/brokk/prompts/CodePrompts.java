@@ -663,8 +663,7 @@ public class CodePrompts {
                 """
                 {{base}}
                 {{#if (or (eq reason "NO_MATCH") (eq reason "AMBIGUOUS_MATCH"))}}
-                {{#if (and (eq base "") false)}}{{else}}
-                {{/if}}Suggestions:
+                Suggestions:
                 {{#if (eq reason "NO_MATCH")}}
                 {{#if (eq kind "CLASS")}}
                 - Verify the fully qualified class name (package.ClassName).

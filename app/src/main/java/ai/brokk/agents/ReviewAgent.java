@@ -140,7 +140,7 @@ public class ReviewAgent {
         String diff = changes.toReviewDiff(cm.getAnalyzer());
         var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
 
-        try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {
+        try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm)
                     .addFragments(diffFragment)

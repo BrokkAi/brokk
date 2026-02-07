@@ -54,7 +54,7 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
     private Optional<IAnalyzer> delegateFor(ProjectFile file) {
         var lang = Languages.fromExtension(file.extension());
         var delegate = delegates.get(lang);
-        if (delegate == null) {
+        if (delegate == null && !lang.equals(Languages.NONE)) {
             log.debug("No delegate found for language {} (from file {})", lang, file);
         }
         return Optional.ofNullable(delegate);

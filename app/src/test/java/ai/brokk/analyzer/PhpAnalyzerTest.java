@@ -248,6 +248,23 @@ public class PhpAnalyzerTest {
     }
 
     @Test
+    void testIsConstructor() {
+        assertNotNull(analyzer, "Analyzer should be initialized.");
+
+        CodeUnit classCU =
+                analyzer.getDefinitions("My.Lib.Foo").stream().findFirst().orElseThrow();
+        CodeUnit constructCU = analyzer.getDefinitions("My.Lib.Foo.__construct").stream()
+                .findFirst()
+                .orElseThrow();
+        CodeUnit otherMethodCU = analyzer.getDefinitions("My.Lib.Foo.getValue").stream()
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(analyzer.isConstructor(constructCU, classCU, ""), "__construct should be a constructor");
+        assertFalse(analyzer.isConstructor(otherMethodCU, classCU, ""), "getValue should not be a constructor");
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "BaseClass";

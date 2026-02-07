@@ -80,22 +80,22 @@ public class SearchPrompts {
                 "issue_diagnosis",
                 "You are the Search Agent, a code researcher focused on diagnosing issues.",
                 "Your goal is to gather enough context to diagnose the issue and produce a formal issue report with evidence from the repo.",
-                "a single JSON issue report (via issueWriterOutput(String json))",
+                "a high-quality GitHub issue (via createIssue(String, String))",
                 false) {
             @Override
             public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.ISSUE_JSON);
+                return EnumSet.of(Terminal.ISSUE);
             }
         },
-        PROMPT_ENRICHMENT(
-                "prompt_enrichment",
-                "You are the Search Agent, a code researcher focused on prompt enrichment.",
-                "Your goal is to gather enough context to enrich the user's request into an execution-ready prompt for another LLM.",
-                "an enriched prompt (via answer(String))",
-                false) {
+        CODE_ONLY(
+                "task",
+                "You are the Search Agent, a code researcher.",
+                "Your goal is to gather enough context for the Code Agent to implement the requested change.",
+                "a curated Workspace ready for the Code Agent",
+                true) {
             @Override
             public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.ANSWER);
+                return EnumSet.of(Terminal.CODE);
             }
         };
 
@@ -258,7 +258,7 @@ public class SearchPrompts {
             boolean terminalTasks,
             boolean terminalWorkspace,
             boolean terminalCode,
-            boolean terminalIssueJson) {}
+            boolean terminalIssue) {}
 
     private static final Template SEARCH_SYSTEM_TEMPLATE;
     private static final Template DIRECTIVE_TEMPLATE;
@@ -396,50 +396,16 @@ public class SearchPrompts {
 
                 <search-objective>
                 {{#if (eq (lower objectiveTag) "issue_diagnosis")}}
-                Deliver ONLY a single JSON object using the issueWriterOutput(String json) tool.
-
-                Required output schema (STRICT):
-                  { "title": "...", "bodyMarkdown": "..." }
+                Deliver a high-quality GitHub issue using the createIssue(String title, String body) tool.
 
                 Requirements:
-                  - Output MUST be a single JSON object (no fences, no preamble, no trailing text).
                   - "title": concise, specific issue title.
-                  - "bodyMarkdown": GitHub-flavored Markdown describing the problem and impact.
+                  - "body": GitHub-flavored Markdown describing the problem and impact.
                     It MUST include evidence/references to code, such as:
                       - file paths
                       - identifiers/symbol names
                       - fragment ids when available
-                    It MAY include a section like "## Agent Instructions" but it must be inside bodyMarkdown.
-                {{else if (eq (lower objectiveTag) "prompt_enrichment")}}
-                Write an execution-ready enrichment of the user's request. Output ONLY the enriched prompt text via answer(String).
-
-                Rules:
-                  - Restate the request and preserve ALL explicit facts/constraints from the input.
-                  - Do NOT invent. Do NOT guess. Do NOT add new tech, requirements, or details not stated.
-                  - Ambiguities/missing info must become questions under **Open Questions** (no assumptions).
-                  - Identify the primary code changes needed in this repo to implement the request (what to edit/add/remove at a high level).
-                  - If input names files/functions/symbols, cite them; otherwise do NOT invent paths/symbols.
-                  - Put test/verification expectations in **Acceptance Criteria** and/or **Verification**.
-
-                Output (REQUIRED; exact labels, in order):
-                **Summary**
-                **Context**
-                **Requirements**
-                **Constraints**
-                **Edge Cases**
-                **Acceptance Criteria**
-                **Open Questions**
-                **Verification**
-                **Plan** (explicit step-by-step; in **Plan**, name the key files/modules/classes/methods to change only if supported by the input or discovered from the repo; otherwise ask in **Open Questions**)
-                {{else if (eq (lower objectiveTag) "query")}}
-                Deliver a written answer using the answer(String) tool.
-                {{else if (eq (lower objectiveTag) "query_or_instructions")}}
-                Either deliver a written answer, solve the problem by invoking Code Agent, or decompose the problem into a task list.
-                {{else if (eq (lower objectiveTag) "instructions")}}
-                Deliver a task list using the createOrReplaceTaskList(String explanation, List<String> tasks) tool.
-                {{else if (eq (lower objectiveTag) "task")}}
-                Deliver a curated Workspace containing everything required for the follow-on Code Agent
-                to solve the given task.
+                    It MAY include a section like "## Agent Instructions" inside the body as well.
                 {{/if}}
 
                 {{#if terminalTasks}}
@@ -505,7 +471,7 @@ public class SearchPrompts {
 
                 Finalization options:
                 {{#if isIssueDiagnosis}}
-                - Use issueWriterOutput(String json) to finalize. Output MUST be ONLY a single JSON object (no fences, no preamble, no trailing text). abortSearch(explanation) is the only other allowed final tool.
+                - Use createIssue(String title, String body) to finalize. abortSearch(explanation) is the only other allowed final tool.
                 {{else}}
                 {{#if terminalAnswer}}
                 - Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <markdown-reminder>).
@@ -535,7 +501,7 @@ public class SearchPrompts {
                 You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
                 usefully do so.
 
-                Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, callCodeAgent, issueWriterOutput, abortSearch)
+                Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, callCodeAgent, createIssue, abortSearch)
                 must be the ONLY tool in a turn. If final cleanup is needed (for example, dropWorkspaceFragments), do it first,
                 then finalize on the next turn. If you include a terminal together with other tools, the terminal will be ignored for this turn.
 
@@ -676,7 +642,7 @@ public class SearchPrompts {
                 terminals.contains(Terminal.TASK_LIST),
                 terminals.contains(Terminal.WORKSPACE),
                 terminals.contains(Terminal.CODE),
-                terminals.contains(Terminal.ISSUE_JSON));
+                terminals.contains(Terminal.ISSUE));
 
         String directive;
         try {
@@ -695,6 +661,6 @@ public class SearchPrompts {
         WORKSPACE,
         CODE,
         REVIEW,
-        ISSUE_JSON
+        ISSUE
     }
 }

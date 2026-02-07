@@ -6,19 +6,39 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.SourceContent;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.treesitter.TSNode;
 
 public class JavaTypeHierarchyTest {
+
+    private static class TrackingJavaAnalyzer extends JavaAnalyzer {
+        final AtomicInteger extractionCount = new AtomicInteger(0);
+
+        TrackingJavaAnalyzer(IProject project) {
+            super(project);
+        }
+
+        @Override
+        protected List<String> extractRawSupertypesForClassLike(
+                CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
+            extractionCount.incrementAndGet();
+            return super.extractRawSupertypesForClassLike(cu, classNode, signature, sourceContent);
+        }
+    }
 
     @Test
     public void directExtends_singleFile() throws IOException {
@@ -819,6 +839,37 @@ public class JavaTypeHierarchyTest {
             // again should return cached results instantly
             var cachedDescendants = hierarchy.getDirectDescendants(unrelatedBase);
             assertEquals(descendants, cachedDescendants, "Cached descendants should match original query");
+        }
+    }
+
+    @Test
+    public void lazyExtraction_notCalledDuringInitialParse() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                        public class A extends B {}
+                        public class B {}
+                        """,
+                        "LazyTest.java")
+                .build()) {
+
+            // Create our tracking analyzer
+            var analyzer = new TrackingJavaAnalyzer(testProject);
+
+            // 1. Verify extraction hasn't happened yet after constructor
+            assertEquals(0, analyzer.extractionCount.get(), "Extraction should not happen during initial parse");
+
+            // 2. Trigger hierarchy computation
+            var maybeA = analyzer.getDefinitions("A").stream().findFirst();
+            assertTrue(maybeA.isPresent());
+            CodeUnit a = maybeA.get();
+
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            List<CodeUnit> ancestors = hierarchy.getDirectAncestors(a);
+
+            // 3. Verify extraction was triggered
+            assertTrue(analyzer.extractionCount.get() > 0, "Extraction should be triggered on-demand");
+            assertEquals(1, ancestors.size());
+            assertEquals("B", ancestors.getFirst().fqName());
         }
     }
 }
