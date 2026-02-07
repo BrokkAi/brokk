@@ -497,29 +497,33 @@ public class WorkspaceTools {
         }
 
         var sampledHits = AnalyzerUtil.sampleUsageHits(hitsByOverload, analyzer);
-        StringBuilder output = new StringBuilder();
-        output.append("# Usage Samples for ").append(symbol).append("\n\n");
 
-        sampledHits.forEach((overload, hits) -> {
-            String sig = overload.signature() != null ? overload.signature() : overload.fqName();
-            output.append("## Overload: ").append(sig).append("\n\n");
-            for (var hit : hits) {
-                analyzer.getSource(hit.enclosing(), true).ifPresent(source -> {
-                    var lang = Languages.fromExtension(hit.file().extension())
-                            .name()
-                            .toLowerCase();
-                    output.append("File: ").append(hit.file()).append("\n");
-                    output.append("```")
-                            .append(lang)
-                            .append("\n")
-                            .append(source)
-                            .append("\n```\n\n");
-                });
-            }
-        });
+        String header = "# Usage Samples for %s\n\n".formatted(symbol);
+        String body = sampledHits.entrySet().stream()
+                .map(entry -> {
+                    CodeUnit overload = entry.getKey();
+                    String sig = overload.signature() != null ? overload.signature() : overload.fqName();
+                    String sectionHeader = "## Overload: %s\n\n".formatted(sig);
+
+                    String samples = entry.getValue().stream()
+                            .map(hit -> analyzer.getSource(hit.enclosing(), true)
+                                    .map(source -> {
+                                        String lang = Languages.fromExtension(
+                                                        hit.file().extension())
+                                                .name()
+                                                .toLowerCase();
+                                        return "File: %s\n```%s\n%s\n```\n\n".formatted(hit.file(), lang, source);
+                                    })
+                                    .orElse(""))
+                            .filter(s -> !s.isEmpty())
+                            .collect(Collectors.joining());
+
+                    return sectionHeader + samples;
+                })
+                .collect(Collectors.joining());
 
         context = context.addFragments(new ContextFragments.StringFragment(
-                cm, output.toString(), "Usage samples for " + symbol, SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+                cm, header + body, "Usage samples for " + symbol, SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
 
         return "Added usage samples for '%s' to the Workspace.".formatted(symbol);
     }
