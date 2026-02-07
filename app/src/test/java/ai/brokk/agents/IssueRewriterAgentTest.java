@@ -12,7 +12,7 @@ class IssueRewriterAgentTest {
     void testParseIssueResponse_ValidJson() {
         String json =
                 """
-                { "title": "Bug: NPE in Foo", "bodyMarkdown": "Steps...\\n1) Do X\\n2) Do Y" }
+                { "title": "Bug: NPE in Foo", "body": "Steps...\\n1) Do X\\n2) Do Y" }
                 """;
 
         var response = IssueRewriterAgent.parseIssueResponse(json);
@@ -28,7 +28,7 @@ class IssueRewriterAgentTest {
                 { "title": "Bug: NPE in Foo" }
                 """;
         String onlyBody = """
-                { "bodyMarkdown": "Steps..." }
+                { "body": "Steps..." }
                 """;
 
         assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse(onlyTitle));
@@ -43,7 +43,6 @@ class IssueRewriterAgentTest {
 
     @Test
     void testParseIssueResponse_EmptyInput_ThrowsException() {
-        assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse(null));
         assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse(""));
         assertThrows(IllegalArgumentException.class, () -> IssueRewriterAgent.parseIssueResponse("   "));
     }

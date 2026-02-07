@@ -291,7 +291,9 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
-        pruneContext();
+        if (scanConfig.autoPrune()) {
+            pruneContext();
+        }
         if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
             performAutoScan();
         }

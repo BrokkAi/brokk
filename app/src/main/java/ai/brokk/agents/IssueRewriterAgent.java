@@ -86,7 +86,7 @@ public final class IssueRewriterAgent {
 
     static ParsedIssue parseIssueResponse(String rawText) {
         if (rawText.isBlank()) {
-            throw new IllegalArgumentException("parseIssueResponse: input text is null or blank");
+            throw new IllegalArgumentException("parseIssueResponse: input text is blank");
         }
 
         logger.trace("parseIssueResponse: rawText length={}", rawText.length());
