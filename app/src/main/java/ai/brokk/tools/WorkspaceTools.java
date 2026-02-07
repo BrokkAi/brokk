@@ -2,6 +2,8 @@ package ai.brokk.tools;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.LlmOutputMeta;
+import ai.brokk.MutedConsoleIO;
+import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
@@ -13,10 +15,12 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HtmlToMarkdown;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.output.structured.Description;
 import java.io.BufferedReader;
@@ -420,20 +424,20 @@ public class WorkspaceTools {
 
         Set<ProjectFile> files = hits.stream().map(UsageHit::file).collect(Collectors.toSet());
 
-        var scanModel = cm.getService().getModel(ai.brokk.project.ModelProperties.ModelType.SCAN);
-        var config = new ai.brokk.agents.BlitzForge.RunConfig(
-                question, scanModel, () -> "", () -> "", null, ai.brokk.agents.BlitzForge.ParallelOutputMode.ALL);
+        var scanModel = cm.getService().getModel(ModelType.SCAN);
+        var config = new BlitzForge.RunConfig(
+                question, scanModel, () -> "", () -> "", null, BlitzForge.ParallelOutputMode.ALL);
 
-        var mutedIo = new ai.brokk.MutedConsoleIO(cm.getIo());
+        var mutedIo = new MutedConsoleIO(cm.getIo());
         var listener = mutedIo.getBlitzForgeListener(() -> {});
-        var engine = new ai.brokk.agents.BlitzForge(cm, cm.getService(), config, listener);
+        var engine = new BlitzForge(cm, cm.getService(), config, listener);
         var taskResult = engine.executeParallel(files, file -> {
             var contentOpt = file.read();
             if (contentOpt.isEmpty()) {
-                return new ai.brokk.agents.BlitzForge.FileResult(file, false, "Could not read file", "");
+                return new BlitzForge.FileResult(file, false, "Could not read file", "");
             }
 
-            // Group hits for this file
+            // Group hits for this file to provide context in the per-file LLM instructions
             var fileHits = hits.stream().filter(h -> h.file().equals(file)).toList();
             StringBuilder contextBuilder = new StringBuilder();
             contextBuilder.append("Usages of ").append(symbol).append(" in this file:\n\n");
@@ -446,26 +450,18 @@ public class WorkspaceTools {
                         .append("\n---\n");
             }
 
-            var prompt = "Question: " + question + "\n\nFile Context:\n" + contextBuilder + "\nFull Source:\n"
+            // Note: BlitzForge handles the actual model call using the instructions from RunConfig.
+            // We provide the per-file source and usage context here.
+            var response = "Question: " + question + "\n\nFile Context:\n" + contextBuilder + "\nFull Source:\n"
                     + contentOpt.get();
 
-            // Use Llm wrapper for synchronous-style model call
-            var llm = cm.getLlm(scanModel, "Scan usages", ai.brokk.TaskResult.Type.SCAN);
-            llm.setOutput(mutedIo);
-            try {
-                var result = llm.sendRequest(java.util.List.of(dev.langchain4j.data.message.UserMessage.from(prompt)));
-                var response = result.text();
-                return new ai.brokk.agents.BlitzForge.FileResult(file, false, null, response);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return new ai.brokk.agents.BlitzForge.FileResult(file, false, "Scan interrupted", "");
-            }
+            return new BlitzForge.FileResult(file, false, null, response);
         });
 
         // Extract the aggregated output from BlitzForge's TaskResult
         var aggregatedOutput = taskResult.output().messages().stream()
-                .filter(m -> m instanceof dev.langchain4j.data.message.AiMessage)
-                .map(m -> ((dev.langchain4j.data.message.AiMessage) m).text())
+                .filter(m -> m instanceof AiMessage)
+                .map(m -> ((AiMessage) m).text())
                 .findFirst()
                 .orElse("No results");
 
