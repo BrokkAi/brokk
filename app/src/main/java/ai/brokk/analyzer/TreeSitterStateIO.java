@@ -37,14 +37,68 @@ import org.slf4j.LoggerFactory;
 /**
  * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Jackson Smile.
  *
- * Serializes AnalyzerState into DTOs:
- * - PMap fields are represented as standard Maps or entry lists
- * - SymbolKeyIndex becomes List<String> (keys)
- * - FileProperties omits the parsed TSTree
- * - ProjectFile is serialized via a DTO that guarantees a relative relPath
+ * <p>Design notes for migration to a Fory-based, versioned format:
+ *
+ * <p>Versioning strategy
+ * - A simple string constant FORMAT_VERSION is declared (currently "1"). This represents the
+ *   schema version for the analyzer state payload. On load, future code should compare the
+ *   persisted version value with the supported FORMAT_VERSION to determine compatibility.
+ * - Interpretation on load (policy):
+ *   - If the persisted version equals FORMAT_VERSION, proceed with deserialization of the
+ *     payload as documented below.
+ *   - If the persisted version is missing or differs, treat as incompatible and fall back to
+ *     rebuilding the analyzer (i.e., return Optional.empty()). Tests in this module already
+ *     expect selective compatibility behavior for legacy shapes; keep that logic in load().
+ *
+ * <p>Root serialized structure (logical)
+ * - The root object persisted to disk SHOULD be a small versioned wrapper that contains:
+ *   {
+ *     "version": "<FORMAT_VERSION>",   // string, required for strict equality checks
+ *     "payload": { ... }               // the existing AnalyzerStateDto structure
+ *   }
+ *
+ * - The "payload" field contains the same DTO structure currently represented by AnalyzerStateDto
+ *   (symbolIndex, codeUnitState, fileState, imports, reverseImports, supertypes, subtypes,
+ *   symbolKeys, snapshotEpochNanos). These DTOs already encode nested types (ProjectFileDto,
+ *   CodeUnitDto, CodeUnitPropertiesDto, FilePropertiesDto, ImportInfoDto, etc.) and are suitable
+ *   for inclusion as the payload.
+ *
+ * - Rationale: keeping the payload DTOs unchanged preserves all data necessary to reconstruct
+ *   TreeSitterAnalyzer.AnalyzerState (symbol index, per-code-unit properties, file properties,
+ *   import graph and type hierarchy). Wrapping them with a version string enables straightforward
+ *   schema evolution without changing the existing DTO layout immediately.
+ *
+ * <p>Migration implications
+ * - Existing files (current behavior): today the code writes the AnalyzerStateDto directly in Smile
+ *   format compressed with GZIP. To migrate to the versioned wrapper, the writer must wrap the
+ *   AnalyzerStateDto under the "payload" key and include the "version" key, preserving Smile + GZIP.
+ * - Compatibility on read: the loader should first attempt to read the versioned wrapper. If that
+ *   fails due to structure differences (for example older snapshots that contain AnalyzerStateDto
+ *   directly), the loader should continue to attempt to read the legacy (unwrapped) AnalyzerStateDto
+ *   for backwards compatibility. This file's current tests exercise several legacy behaviors; any
+ *   migration should preserve those tests until they are explicitly updated.
+ *
+ * <p>Notes about current implementation in this class
+ * - The existing implementation serializes AnalyzerStateDto directly using Jackson Smile and GZIP.
+ * - The following change is a documentation and design addition only: a VERSION constant is added
+ *   below and the intended root wrapper format is described. No read or write behavior is changed
+ *   in this pass so tests continue to pass. Actual on-disk format migration (wrapping/unwrapping)
+ *   will be implemented in a follow-up change that updates both save() and load() to produce and
+ *   consume the versioned wrapper while preserving legacy read behavior.
  */
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
+
+    /**
+     * Analyzer state on-disk schema version.
+     *
+     * Semantics:
+     * - Current value "1" denotes the first explicit versioned format. On load, callers should
+     *   prefer exact equality checks (i.e., only accept persisted states whose "version" field
+     *   equals FORMAT_VERSION). If the version field is missing (legacy files) or different,
+     *   the loader should fall back to legacy parsing behavior or treat the state as incompatible.
+     */
+    public static final String FORMAT_VERSION = "1";
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -341,6 +395,15 @@ public final class TreeSitterStateIO {
     /**
      * Load an AnalyzerState from the provided file in Smile format.
      * Returns Optional.empty() if file is missing or deserialization fails.
+     *
+     * Note: When migrating to the versioned wrapper format described above, the loader should:
+     * 1) Attempt to read a wrapper object containing { "version": "...", "payload": AnalyzerStateDto }.
+     * 2) If the wrapper is present and the version matches FORMAT_VERSION, deserialize payload -> AnalyzerState.
+     * 3) If the wrapper is present but version mismatches, treat as incompatible (Optional.empty()).
+     * 4) If wrapper parsing fails (legacy files), fall back to current legacy behavior of reading AnalyzerStateDto
+     *    directly to preserve backward compatibility until migrations are rolled out.
+     *
+     * This implementation currently reads the legacy direct AnalyzerStateDto shape to keep tests stable.
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
