@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -297,6 +298,21 @@ public class DtoMapper {
                 // Construct UsageFragment (subclass of SimpleUsageFragment) for backward compatibility
                 yield new ContextFragments.UsageFragment(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles(), snapshot);
+            }
+            case LocationUsageFragmentDto locDto -> {
+                String snapshot = locDto.snapshotText() != null ? reader.readContent(locDto.snapshotText()) : null;
+                yield new ContextFragments.LocationUsageFragment(
+                        locDto.id(), mgr, locDto.targetIdentifier(), locDto.includeTestFiles(), snapshot);
+            }
+            case LocalUsageFragmentDto localDto -> {
+                String snapshot = localDto.snapshotText() != null ? reader.readContent(localDto.snapshotText()) : null;
+                yield new ContextFragments.LocalUsageFragment(
+                        localDto.id(),
+                        mgr,
+                        localDto.targetIdentifier(),
+                        localDto.includeTestFiles(),
+                        snapshot,
+                        Set.copyOf(localDto.selectedEnclosingFqns()));
             }
             case PasteTextFragmentDto pasteTextDto ->
                 ContextFragments.PasteTextFragment.withResolvedDescription(

@@ -1365,6 +1365,194 @@ public class ContextFragments {
         }
     }
 
+    /**
+     * Compact "overview" variant of the usage fragment. Reuses the shared snapshot (sources/files/text)
+     * but renders a small machine-friendly listing of locations grouped by file then by enclosing unit FQN.
+     *
+     * The overview intentionally omits code snippets to keep size bounded. Agents can reference entries
+     * using "file" + "enclosing" keys when requesting expansions.
+     */
+    public static class LocationUsageFragment extends AbstractUsageFragment {
+        public LocationUsageFragment(
+                IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, null);
+        }
+
+        public LocationUsageFragment(
+                String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            this(id, contextManager, targetIdentifier, includeTestFiles, null);
+        }
+
+        public LocationUsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
+            super(id, contextManager, targetIdentifier, includeTestFiles, snapshotText, () -> {
+                // snapshot is provided by parent computeTask in other variants; overview does not compute independently
+                // but AbstractUsageFragment requires a computeTask when snapshotText==null. We reuse
+                // SimpleUsageFragment logic.
+                return SimpleUsageFragment.computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager);
+            });
+        }
+
+        @Override
+        public String repr() {
+            return "LocationUsageOverview('%s')".formatted(targetIdentifier);
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new LocationUsageFragment(id, contextManager, targetIdentifier, includeTestFiles);
+        }
+
+        /**
+         * Render compact machine-friendly overview.
+         * Format (one entry per file):
+         * file: <relPath>, usages: fqName1,fqName2,...
+         */
+        @Override
+        public ComputedValue<String> text() {
+            return derived("overviewText", snap -> {
+                Map<String, List<String>> byFile = new LinkedHashMap<>();
+                for (CodeUnit cu : snap.sources()) {
+                    String file = cu.source().toString();
+                    byFile.computeIfAbsent(file, k -> new ArrayList<>()).add(cu.fqName());
+                }
+                // If sources empty, try to extract from files()
+                if (byFile.isEmpty()) {
+                    for (ProjectFile pf : snap.files()) {
+                        byFile.putIfAbsent(pf.toString(), List.of());
+                    }
+                }
+
+                StringBuilder sb = new StringBuilder();
+                byFile.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> {
+                    String file = e.getKey();
+                    List<String> fqns =
+                            e.getValue().stream().distinct().sorted().toList();
+                    sb.append("file: ").append(file).append(", usages: ");
+                    if (fqns.isEmpty()) {
+                        sb.append("(no resolved enclosing units)");
+                    } else {
+                        sb.append(String.join(", ", fqns));
+                    }
+                    sb.append("\n");
+                });
+                String out = sb.toString().trim();
+                return out.isEmpty() ? "No usages found." : out;
+            });
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.USAGE;
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (this == other) return true;
+            if (!(other instanceof LocationUsageFragment that)) return false;
+            return this.targetIdentifier.equals(that.targetIdentifier)
+                    && this.includeTestFiles == that.includeTestFiles;
+        }
+    }
+
+    /**
+     * Local expansion variant that renders full snippets only for a selected subset of locations.
+     * The selection is expressed as a set of enclosing CodeUnit fully-qualified names; only those
+     * CodeUnits present in the snapshot will be rendered with full source. The fragment still reuses
+     * the canonical snapshot for sources/files metadata.
+     */
+    public static class LocalUsageFragment extends AbstractUsageFragment {
+        private final Set<String> selectedEnclosingFqns;
+
+        public LocalUsageFragment(
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                Set<String> selectedEnclosingFqns) {
+            this(
+                    UUID.randomUUID().toString(),
+                    contextManager,
+                    targetIdentifier,
+                    includeTestFiles,
+                    null,
+                    selectedEnclosingFqns);
+        }
+
+        public LocalUsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText,
+                Set<String> selectedEnclosingFqns) {
+            super(id, contextManager, targetIdentifier, includeTestFiles, snapshotText, () -> {
+                return SimpleUsageFragment.computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager);
+            });
+            this.selectedEnclosingFqns = Set.copyOf(selectedEnclosingFqns);
+        }
+
+        @Override
+        public String repr() {
+            return "LocalUsageExpansion('%s', selected=%s)".formatted(targetIdentifier, selectedEnclosingFqns);
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new LocalUsageFragment(
+                    id, contextManager, targetIdentifier, includeTestFiles, null, selectedEnclosingFqns);
+        }
+
+        @Override
+        public ComputedValue<String> text() {
+            return derived("localText", snap -> {
+                // Filter CodeUnit sources by selection
+                List<CodeUnit> toRender;
+                if (selectedEnclosingFqns == null || selectedEnclosingFqns.isEmpty()) {
+                    toRender = snap.sources().stream().sorted().toList();
+                } else {
+                    toRender = snap.sources().stream()
+                            .filter(cu -> selectedEnclosingFqns.contains(cu.fqName()))
+                            .sorted()
+                            .toList();
+                }
+
+                if (toRender.isEmpty()) {
+                    return "No matching locations selected for expansion.";
+                }
+
+                var analyzer = contextManager.getAnalyzerUninterrupted();
+                List<AnalyzerUtil.CodeWithSource> parts = AnalyzerUtil.processUsages(analyzer, toRender);
+                String formatted = AnalyzerUtil.CodeWithSource.text(analyzer, parts);
+
+                // Prepend explicit FQNs for clarity
+                StringBuilder sb = new StringBuilder();
+                for (var cu : toRender) {
+                    sb.append("Enclosing: ").append(cu.fqName()).append("\n");
+                }
+                sb.append("\n").append(formatted);
+                return sb.toString().trim();
+            });
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.USAGE;
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (this == other) return true;
+            if (!(other instanceof LocalUsageFragment that)) return false;
+            return this.targetIdentifier.equals(that.targetIdentifier)
+                    && this.includeTestFiles == that.includeTestFiles
+                    && this.selectedEnclosingFqns.equals(that.selectedEnclosingFqns);
+        }
+    }
+
     public static final class UsageFragment extends SimpleUsageFragment {
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             super(contextManager, targetIdentifier);

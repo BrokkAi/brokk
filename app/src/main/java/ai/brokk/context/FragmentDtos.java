@@ -41,6 +41,8 @@ public class FragmentDtos {
                     SkeletonFragmentDto,
                     SummaryFragmentDto,
                     UsageFragmentDto,
+                    LocationUsageFragmentDto,
+                    LocalUsageFragmentDto,
                     PasteTextFragmentDto,
                     PasteImageFragmentDto,
                     StacktraceFragmentDto,
@@ -189,6 +191,39 @@ public class FragmentDtos {
             if (targetIdentifier.isEmpty()) {
                 throw new IllegalArgumentException("targetIdentifier cannot be null or empty");
             }
+        }
+    }
+
+    /** DTO for LocationUsageFragment (overview) - compact listing, reuses snapshotText when present. */
+    public record LocationUsageFragmentDto(
+            String id,
+            String targetIdentifier,
+            @JsonProperty(value = "includeTestFiles", defaultValue = "false") boolean includeTestFiles,
+            @Nullable String snapshotText)
+            implements VirtualFragmentDto {
+        public LocationUsageFragmentDto {
+            if (targetIdentifier.isEmpty()) {
+                throw new IllegalArgumentException("targetIdentifier cannot be null or empty");
+            }
+        }
+    }
+
+    /**
+     * DTO for LocalUsageFragment (local expansion) - includes a list of selected enclosing FQNs to render snippets for.
+     * The snapshotText can be provided to avoid recomputing the underlying usage snapshot.
+     */
+    public record LocalUsageFragmentDto(
+            String id,
+            String targetIdentifier,
+            @JsonProperty(value = "includeTestFiles", defaultValue = "false") boolean includeTestFiles,
+            List<String> selectedEnclosingFqns,
+            @Nullable String snapshotText)
+            implements VirtualFragmentDto {
+        public LocalUsageFragmentDto {
+            if (targetIdentifier.isEmpty()) {
+                throw new IllegalArgumentException("targetIdentifier cannot be null or empty");
+            }
+            selectedEnclosingFqns = List.copyOf(selectedEnclosingFqns);
         }
     }
 
