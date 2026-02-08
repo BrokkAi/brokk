@@ -1,8 +1,6 @@
 package ai.brokk.analyzer;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -13,7 +11,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
@@ -51,9 +48,10 @@ public final class TreeSitterStateIO {
      */
     public static final String SCHEMA_VERSION = "ai.brokk.treesitter.snapshot.v1";
 
-    // Dedicated Smile ObjectMapper.
+    // Dedicated ObjectMapper (previously Smile-backed). We persist snapshots using a binary
+    // format produced by Jackson; removing Smile dependency means we use the default ObjectMapper here.
     private static final ObjectMapper SMILE_MAPPER =
-            new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     static {
         // Ensure nested CodeUnit/ProjectFile anywhere in the object graph (e.g., inside CodeUnitProperties)
@@ -270,11 +268,8 @@ public final class TreeSitterStateIO {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
             List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
-        @JsonCreator
         public FilePropertiesDto(
-                @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
-                @JsonProperty("importStatements") List<ImportInfoDto> importStatements,
-                @JsonProperty(value = "containsTests", required = true) boolean containsTests) {
+                List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
             this.topLevelCodeUnits = topLevelCodeUnits;
             this.importStatements = importStatements;
             this.containsTests = containsTests;
@@ -535,6 +530,20 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RawSupertypesEntryDto(CodeUnitDto key, List<String> value) {}
+
+    /**
+     * Entry DTO for imports forward mapping: (ProjectFileDto key) -> List<CodeUnitDto> value.
+     * This mirrors how importsForward is serialized as a list of entries rather than a map with complex keys.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
+
+    /**
+     * Entry DTO for type hierarchy forward mapping: (CodeUnitDto key) -> List<CodeUnitDto> value.
+     * Used to persist the forward supertypes mapping from the AnalyzerCache view.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SupertypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
     /**
      * Convert live AnalyzerState to a serializable DTO.

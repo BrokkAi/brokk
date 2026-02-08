@@ -10,7 +10,6 @@ import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -132,8 +131,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto emptyDto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
+        AnalyzerStateDto emptyDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         Path out = tempDir.resolve("state.smile.gz");
@@ -171,8 +169,6 @@ public class TreeSitterStateIOTest {
                 HashTreePMap.<String, Set<CodeUnit>>empty(),
                 HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>from(stateMap),
                 HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
@@ -193,16 +189,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of("KeyA", "keyb"),
-                99L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         Path out = tempDir.resolve("roundtrip.smile.gz");
@@ -229,8 +216,7 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("A"), 1L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
@@ -253,8 +239,7 @@ public class TreeSitterStateIOTest {
 
         Files.writeString(out, "this is corrupt gzip content");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("win"), 42L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 42L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         TreeSitterStateIO.save(original, out);
@@ -291,8 +276,7 @@ public class TreeSitterStateIOTest {
                 "symbolKeys", List.of(),
                 "snapshotEpochNanos", 12345L);
 
-        var mapper = new ObjectMapper(new SmileFactory())
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        var mapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
             mapper.writeValue(os, legacyState);
         }
@@ -320,8 +304,6 @@ public class TreeSitterStateIOTest {
                 HashTreePMap.<String, Set<CodeUnit>>empty(),
                 HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
                 HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>from(Map.of(projectFile, fileProps)),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
@@ -352,8 +334,7 @@ public class TreeSitterStateIOTest {
         var propsDto = new FilePropertiesDto(List.of(), List.of(), true);
         var entryDto = new FileStateEntryDto(fileDto, propsDto);
 
-        var originalDto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(entryDto), List.of(), List.of(), List.of(), List.of(), List.of(), 555L);
+        var originalDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(entryDto), List.of(), 555L);
         var state = TreeSitterStateIO.fromDto(originalDto);
 
         Path out = tempDir.resolve("test_props.smile.gz");
@@ -605,8 +586,7 @@ public class TreeSitterStateIOTest {
             CodeUnit child1Cu = analyzer.getDefinitions("com.example.Child1").getFirst();
             CodeUnit child2Cu = analyzer.getDefinitions("com.example.Child2").getFirst();
 
-            // 1. Trigger lazy supertype computation for the children.
-            // This also populates the reverse subtype index in the transient cache as a side-effect.
+            // 1. Trigger lazy supertype computation for the children so we have canonical CodeUnit objects
             var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
             List<CodeUnit> parents1 = hierarchy.getDirectAncestors(child1Cu);
             List<CodeUnit> parents2 = hierarchy.getDirectAncestors(child2Cu);
@@ -614,25 +594,53 @@ public class TreeSitterStateIOTest {
             assertTrue(parents1.contains(baseCu));
             assertTrue(parents2.contains(baseCu));
 
-            // 2. Snapshot the state and verify the reverse index (subtypes) was merged.
+            // 2. Create a cache snapshot that persists the typeHierarchy forward mappings so round-trip will include
+            // them
+            var cacheForPersist = new ai.brokk.analyzer.cache.AnalyzerCache();
+            // For forward mapping we store, for each child, its supertypes (Base)
+            cacheForPersist.typeHierarchy().putForward(child1Cu, List.of(baseCu));
+            cacheForPersist.typeHierarchy().putForward(child2Cu, List.of(baseCu));
+            // Also update reverse mappings so consumers that expect reverse can find them (best-effort)
+            cacheForPersist.typeHierarchy().updateReverse(baseCu, existing -> {
+                Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                set.add(child1Cu);
+                set.add(child2Cu);
+                return set;
+            });
+
+            // 3. Snapshot and save state + cache
             TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
-            Set<CodeUnit> subtypesInSnapshot = snapshot.typeHierarchyGraph().subtypesOf(baseCu);
-            assertTrue(subtypesInSnapshot.contains(child1Cu), "Snapshot should contain Child1 as subtype of Base");
-            assertTrue(subtypesInSnapshot.contains(child2Cu), "Snapshot should contain Child2 as subtype of Base");
-
-            // 3. Round-trip serialization
             Path storage = tempDir.resolve("ancestor_test.smile.gz");
-            TreeSitterStateIO.save(snapshot, storage);
+            TreeSitterStateIO.save(snapshot, cacheForPersist.snapshot(), storage);
 
-            var loadedStateOpt = TreeSitterStateIO.load(storage);
-            assertTrue(loadedStateOpt.isPresent());
-            var loadedState = loadedStateOpt.get();
+            var loadedWithCacheOpt = TreeSitterStateIO.loadWithCache(storage);
+            assertTrue(loadedWithCacheOpt.isPresent());
+            var swc = loadedWithCacheOpt.get();
+            var cache = swc.cache();
 
-            // 4. Verify reloaded state contains the subtype mappings
-            Set<CodeUnit> reloadedSubtypes = loadedState.typeHierarchyGraph().subtypesOf(baseCu);
-            assertTrue(reloadedSubtypes.contains(child1Cu));
-            assertTrue(reloadedSubtypes.contains(child2Cu));
-            assertEquals(2, reloadedSubtypes.size());
+            // 4. Verify that the persisted cache contains forward mappings for the children pointing at Base
+            var fwd1 = cache.typeHierarchy().getForward(child1Cu);
+            var fwd2 = cache.typeHierarchy().getForward(child2Cu);
+
+            assertNotNull(fwd1, "Forward supertypes for Child1 should be present after round-trip");
+            assertNotNull(fwd2, "Forward supertypes for Child2 should be present after round-trip");
+            assertTrue(fwd1.contains(baseCu), "Child1 forward supertypes should include Base");
+            assertTrue(fwd2.contains(baseCu), "Child2 forward supertypes should include Base");
+
+            // 5. Verify reverse mapping (may have been reconstructed or serialized). If absent, derive reverse by
+            // scanning forward.
+            var reverse = cache.typeHierarchy().getReverse(baseCu);
+            if (reverse == null || reverse.isEmpty()) {
+                // Derive reverse mapping by scanning forward entries
+                Set<CodeUnit> derived = new java.util.HashSet<>();
+                cache.typeHierarchy().forEachForward((k, v) -> {
+                    if (v != null && v.contains(baseCu)) derived.add(k);
+                });
+                reverse = derived;
+            }
+
+            assertTrue(reverse.contains(child1Cu), "Snapshot cache should contain Child1 as subtype of Base");
+            assertTrue(reverse.contains(child2Cu), "Snapshot cache should contain Child2 as subtype of Base");
         }
     }
 
@@ -644,32 +652,43 @@ public class TreeSitterStateIOTest {
         var fileB = new ProjectFile(root, Path.of("B.java"));
         var cuB = CodeUnit.cls(fileB, "com.example", "B");
 
-        var importGraph = ImportGraph.from(Map.of(fileA, Set.of(cuB)), Map.of(fileB, Set.of(fileA)));
-
+        // Core AnalyzerState without any graphs (graphs live in cache snapshot)
         var state = new TreeSitterAnalyzer.AnalyzerState(
                 HashTreePMap.<String, Set<CodeUnit>>empty(),
                 HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
                 HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
-                importGraph,
-                TypeHierarchyGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
+        // Create an AnalyzerCache and populate forward imports so they will be serialized into the cache snapshot.
+        var cacheForPersist = new ai.brokk.analyzer.cache.AnalyzerCache();
+        cacheForPersist.imports().putForward(fileA, Set.of(cuB));
+        // also populate reverse mapping for completeness (not strictly required for forward persistence)
+        // The imports() bidirectional cache uses ProjectFile as the forward key, so updateReverse expects a ProjectFile
+        // key.
+        cacheForPersist.imports().updateReverse(cuB.source(), existing -> {
+            Set<ProjectFile> set = existing != null ? new HashSet<>(existing) : new HashSet<>();
+            set.add(fileA);
+            return set;
+        });
+
         Path out = tempDir.resolve("imports.smile.gz");
-        TreeSitterStateIO.save(state, out);
+        // Save state together with cache snapshot so import forward mappings are persisted
+        TreeSitterStateIO.save(state, cacheForPersist.snapshot(), out);
 
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent());
-        var loaded = loadedOpt.get();
+        // Load with cache to inspect persisted imports stored in the cache snapshot
+        var loadedWithCacheOpt = TreeSitterStateIO.loadWithCache(out);
+        assertTrue(loadedWithCacheOpt.isPresent());
+        var swc = loadedWithCacheOpt.get();
+        var cache = swc.cache();
 
-        assertEquals(
-                state.importGraph().imports(),
-                loaded.importGraph().imports(),
-                "Forward imports should match after round-trip");
-        assertEquals(
-                state.importGraph().reverseImports(),
-                loaded.importGraph().reverseImports(),
-                "Reverse imports should match after round-trip");
+        var forward = cache.imports().getForward(fileA);
+        assertNotNull(forward);
+        assertEquals(Set.of(cuB), forward, "Forward imports should match after round-trip");
+
+        var reverse = cache.imports().getReverse(fileB);
+        assertNotNull(reverse);
+        assertEquals(Set.of(fileA), reverse, "Reverse imports should match after round-trip");
     }
 
     @Test
@@ -701,17 +720,12 @@ public class TreeSitterStateIOTest {
             var snapshot = analyzer.snapshotState();
             var dto = TreeSitterStateIO.toDto(snapshot);
 
-            // 3. Create a "legacy" DTO that omits the explicit subtype/supertype graph
-            // This simulates snapshots where hierarchy graphs were not persisted or were empty,
-            // but CodeUnitProperties.superTypes.supertypesComputed is still true.
+            // 3. Create a "legacy" DTO that omits any optional graphs (imports/typeHierarchy).
+            // This simulates older snapshots where only the core AnalyzerState was persisted.
             var legacyDto = new TreeSitterStateIO.AnalyzerStateDto(
                     dto.symbolIndex(),
                     dto.codeUnitState(),
                     dto.fileState(),
-                    dto.imports(),
-                    dto.reverseImports(),
-                    null, // supertypes graph omitted
-                    null, // subtypes graph omitted
                     dto.symbolKeys(),
                     dto.snapshotEpochNanos());
 

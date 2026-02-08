@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -33,7 +32,7 @@ class TreeSitterStateIORangeTest {
     @Test
     void testRangeSmileDeserializationWithExtraFieldFailsWithoutMixIn() throws Exception {
         ObjectMapper smileMapper =
-                new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+                new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
 
         byte[] payloadWithExtra = smileMapper.writeValueAsBytes(rangePayloadWithExtraField("empty", true));
 
@@ -46,7 +45,7 @@ class TreeSitterStateIORangeTest {
     @Test
     void testRangeSmileDeserializationWithExtraFieldSucceedsWithMixIn() throws Exception {
         ObjectMapper smileMapper =
-                new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+                new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
         smileMapper.addMixIn(IAnalyzer.Range.class, RangeMixIn.class);
 
         byte[] payloadWithExtra = smileMapper.writeValueAsBytes(rangePayloadWithExtraField("empty", true));
