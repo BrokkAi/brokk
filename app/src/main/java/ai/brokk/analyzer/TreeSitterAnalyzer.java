@@ -2536,7 +2536,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         unionKeys.addAll(finalLocalSourceRanges.keySet());
         for (var cu : unionKeys) {
             var kids = finalLocalChildren.getOrDefault(cu, List.of());
-            var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
             boolean hasBody = localHasBody.getOrDefault(cu, false);
             localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(rngs), hasBody));
