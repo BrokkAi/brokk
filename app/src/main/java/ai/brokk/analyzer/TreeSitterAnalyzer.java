@@ -602,15 +602,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected List<String> signaturesOf(CodeUnit codeUnit) {
         // Primary source: transient analyzer cache populated during file analysis.
-        try {
-            List<String> cached = cache.signatures().get(codeUnit);
-            if (cached != null) {
-                // Ensure we return an immutable copy to callers.
-                return List.copyOf(cached);
-            }
-        } catch (Exception e) {
-            // Defensive: if cache access fails for any reason, fall through to empty result.
-            log.debug("Failed to read signatures from cache for {}: {}", codeUnit, e.getMessage());
+        List<String> cached = cache.signatures().get(codeUnit);
+        if (cached != null) {
+            // Ensure we return an immutable copy to callers.
+            return List.copyOf(cached);
         }
 
         // No signatures found in the transient cache. Historically CodeUnitProperties.signatures()
@@ -2551,18 +2546,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // Populate transient per-CodeUnit signatures cache so later lazy lookups can use these values.
         // Overwrite any existing entries for re-analyzed files by calling put for each CU found in this file.
-        try {
-            localSignatures.forEach((cu, sigs) -> {
-                if (sigs == null || sigs.isEmpty()) {
-                    // Ensure we store an explicit empty list to signal "no signatures" rather than leaving old values.
-                    cache.signatures().put(cu, List.of());
-                } else {
-                    cache.signatures().put(cu, List.copyOf(sigs));
-                }
-            });
-        } catch (Exception e) {
-            log.debug("Failed to populate signatures cache for file {}: {}", file, e.getMessage());
-        }
+        localSignatures.forEach((cu, sigs) -> {
+            if (sigs == null || sigs.isEmpty()) {
+                // Ensure we store an explicit empty list to signal "no signatures" rather than leaving old values.
+                cache.signatures().put(cu, List.of());
+            } else {
+                cache.signatures().put(cu, List.copyOf(sigs));
+            }
+        });
 
         for (var cu : localStates.keySet()) {
             String identifierKey = cu.identifier();
