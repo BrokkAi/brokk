@@ -824,4 +824,41 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Loader should return empty for truncated/corrupt Fory file");
     }
+
+    @Test
+    void refreshDeletesPersistedAnalyzerState(@TempDir Path tempDir) throws Exception {
+        // Create a project directory with a Java source file
+        Path srcDir = tempDir.resolve("src/main/java/com/example");
+        Files.createDirectories(srcDir);
+        Files.writeString(
+                srcDir.resolve("RefreshTest.java"),
+                """
+                package com.example;
+                public class RefreshTest {
+                    public int add(int a, int b) { return a + b; }
+                }
+                """);
+
+        // Use MainProject.forTests which properly implements getSessionManager()
+        try (var project = ai.brokk.project.MainProject.forTests(tempDir)) {
+            // Build and snapshot analyzer so a state file is created
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            var state = analyzer.snapshotState();
+            Path storage = Languages.JAVA.getStoragePath(project);
+            TreeSitterStateIO.save(state, storage);
+            assertTrue(Files.exists(storage), "Expected analyzer state file to exist before refresh: " + storage);
+
+            // Create a headless ContextManager and trigger a refresh which should delete persisted state files
+            ai.brokk.ContextManager cm = new ai.brokk.ContextManager(project);
+            cm.createHeadless(ai.brokk.agents.BuildAgent.BuildDetails.EMPTY, false);
+            // Ensure wrapper initialized
+            assertNotNull(cm.getAnalyzerWrapper());
+
+            // Call requestRebuild which now deletes persisted snapshots before rebuild
+            cm.requestRebuild();
+
+            // File should be gone (deleted) by requestRebuild's cleanup logic
+            assertFalse(Files.exists(storage), "Analyzer state file should be deleted by refresh");
+        }
+    }
 }

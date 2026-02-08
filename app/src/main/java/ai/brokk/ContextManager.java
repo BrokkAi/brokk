@@ -291,8 +291,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private void initializeCurrentSessionAndHistory(boolean forceNew) {
-        // load last active session, if present
-        var lastActiveSessionId = ((AbstractProject) project).getLastActiveSession();
+        // load last active session, if present.
+        // Note: In tests or other environments, project may not be an AbstractProject implementation
+        // (for example InlineTestProjectCreator returns a lightweight EphemeralTestProject). Guard the cast.
+        Optional<UUID> lastActiveSessionId;
+        if (project instanceof AbstractProject ap) {
+            lastActiveSessionId = ap.getLastActiveSession();
+        } else {
+            lastActiveSessionId = Optional.empty();
+        }
         var sessionManager = project.getSessionManager();
         var sessions = sessionManager.listSessions();
         UUID sessionIdToLoad;
@@ -904,7 +911,79 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void requestRebuild() {
         project.getRepo().invalidateCaches();
+
+        // Delete persisted analyzer snapshots so refresh always starts from fresh analysis.
+        // Supports both new Fory-based snapshots and legacy Jackson/Smile variants, and
+        // removes temporary files left over from atomic save attempts.
+        try {
+            var languages = project.getAnalyzerLanguages();
+            for (var lang : languages) {
+                try {
+                    Path storagePath = lang.getStoragePath(project);
+                    if (storagePath != null) {
+                        // Delete the canonical storage file if present
+                        if (Files.exists(storagePath)) {
+                            Files.deleteIfExists(storagePath);
+                            logger.debug("Deleted analyzer state file for {}: {}", lang, storagePath);
+                        }
+
+                        // Also attempt common legacy/alternate names in the same parent dir:
+                        Path parent = storagePath.getParent();
+                        String base = storagePath.getFileName().toString();
+                        if (parent != null && Files.isDirectory(parent)) {
+                            // legacy smile/jackson suffixes and fory variants
+                            List<String> altSuffixes = List.of(".smile.gz", ".fory.gz", ".gz");
+                            for (String s : altSuffixes) {
+                                Path alt = parent.resolve(replaceFileExtension(base, s));
+                                if (!alt.equals(storagePath) && Files.exists(alt)) {
+                                    Files.deleteIfExists(alt);
+                                    logger.debug("Deleted alternate analyzer state file for {}: {}", lang, alt);
+                                }
+                            }
+
+                            // Temporary files produced during save: .<basename>.*.tmp
+                            String tmpPrefix = "." + base + ".";
+                            try (var stream = Files.list(parent)) {
+                                stream.filter(p -> {
+                                            String name = p.getFileName().toString();
+                                            return name.startsWith(tmpPrefix) && name.endsWith(".tmp");
+                                        })
+                                        .forEach(p -> {
+                                            try {
+                                                Files.deleteIfExists(p);
+                                                logger.debug("Deleted analyzer temp file: {}", p);
+                                            } catch (IOException e) {
+                                                logger.debug(
+                                                        "Failed to delete analyzer temp file {}: {}",
+                                                        p,
+                                                        e.getMessage());
+                                            }
+                                        });
+                            } catch (IOException e) {
+                                logger.debug(
+                                        "Error scanning for analyzer temp files in {}: {}", parent, e.getMessage());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Error deleting analyzer state for language {}: {}", lang, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Unexpected error while deleting analyzer state files: {}", e.getMessage());
+        }
+
         requireNonNull(analyzerWrapper).requestRebuild();
+    }
+
+    private static String replaceFileExtension(String fileName, String newSuffix) {
+        int idx = fileName.lastIndexOf('.');
+        if (idx <= 0) {
+            // no extension - just append
+            return fileName + newSuffix;
+        }
+        String base = fileName.substring(0, idx);
+        return base + newSuffix;
     }
 
     /** undo last context change */
@@ -2709,7 +2788,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         cleanupOldHistoryAsync();
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
         // otherwise we leave them empty
-        var mp = project.getMainProject();
+        MainProject mp;
+        if (project instanceof MainProject m) {
+            mp = m;
+        } else {
+            // In test/headless scenarios the IProject may not be a MainProject; create a test MainProject wrapper.
+            mp = MainProject.forTests(project.getRoot());
+        }
         if (mp.loadBuildDetails().isEmpty()) {
             mp.setBuildDetails(buildDetails);
         }
