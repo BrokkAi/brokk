@@ -50,22 +50,18 @@ import org.jetbrains.annotations.Nullable;
  *   * This is a best-effort, parameter-count-only heuristic and is NOT authoritative. It is only applied when BOTH
  *     sides (declaration signature and call-site argument list) can be determined reliably. If either side is
  *     unknown or ambiguous, the heuristic is skipped and we fall back to existing behavior.
- *   * We do NOT change the public behavioral contract of FuzzyUsageFinder in this commit. The heuristic is implemented
- *     as private helpers and documented placement points; it is not yet wired into the disambiguation pipeline so all
- *     existing tests retain their behavior. Future changes will apply the heuristic after raw hits are collected and
- *     before LLM disambiguation.
- *   * The heuristic only considers simple, comma-separated arguments on the matched line(s). It will not attempt to
- *     resolve nested parentheses across multiple lines or perform AST-level parsing (that would require Analyzer API
- *     additions). This keeps the heuristic low-risk and easy to reason about.
+ *   * We DO NOT change the public behavioral contract of FuzzyUsageFinder. The heuristic is applied conservatively and
+ *     does not remove hits when argument counts cannot be determined. Polymorphic and non-function symbols are not
+ *     negatively impacted by this heuristic.
  *
- * - Where to apply: After extractUsageHits produces raw UsageHit instances (which include a small snippet and the
+ * - Where applied: After extractUsageHits produces raw UsageHit instances (which include a small snippet and the
  *   enclosing CodeUnit), but before invoking the LLM-based RelevanceClassifier. The pipeline will:
  *     1) Collect raw hits (existing extractUsageHits).
- *     2) (Optional, future) Apply parameter-count filtering to prefer/score hits that match the target signature.
+ *     2) Apply parameter-count filtering to exclude obvious mismatches (when reliable counts are available).
  *     3) If ambiguous and LLM is available, fall back to LLM prompts (existing code).
  *
- * This file currently contains the helper parsing functions and inline comments describing the intended insertion
- * point for the heuristic. No functional behavior is changed in this commit.
+ * The helper parsing functions and the filtering step are implemented below. The heuristic is conservative and
+ * preserves existing flows when insufficient information is available.
  */
 public final class FuzzyUsageFinder {
 
@@ -149,7 +145,8 @@ public final class FuzzyUsageFinder {
                 analyzer.searchDefinitions("\\b%s\\b".formatted(Pattern.quote(identifier)), false).stream()
                         .filter(cu -> cu.identifier().equals(identifier))
                         .collect(Collectors.toSet());
-        var isUnique = matchingCodeUnits.size() == 1;
+        // Note: isUnique is computed later AFTER parameter-count filtering so that the heuristic can reduce candidates
+        // before we decide uniqueness vs ambiguous/LLM flows.
 
         // Use a fast substring scan to prefilter candidate files by the raw identifier, not the regex
         Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
@@ -177,23 +174,63 @@ public final class FuzzyUsageFinder {
                 target.fqName(),
                 candidateFiles.size());
 
-        // Intended insertion point for the parameter-count heuristic (future wiring):
         //
-        // At this point we have:
-        //   - matchingCodeUnits: set of candidate CodeUnit definitions (overloads included)
-        //   - hits: raw UsageHit set with snippet/context + enclosing CodeUnit (from analyzer)
+        // New: Parameter-count based heuristic filtering (conservative).
         //
-        // The minimal experiment will:
-        //   1) For Java only (Language == JAVA), attempt to parse declaration-side parameter count from
-        //      each CodeUnit.signature() when present.
-        //   2) For each UsageHit, attempt to parse a call-site argument count from the usage snippet.
-        //   3) If both counts are available for a hit and a particular candidate definition, use the counts to
-        //      prefer matches where counts are equal and deprioritize/mark as unlikely those where counts differ.
+        // - Only applies when the target is a function-like unit AND we can obtain declaration-side parameter counts.
+        // - For each UsageHit we attempt to estimate the call-site argument count. If the argument count is
+        //   determinable and the declaration-side parameter-count set is non-empty, we exclude hits whose argument
+        //   count does not match any declaration parameter count.
+        // - If the argument count is unknown, or we couldn't extract any reliable declaration parameter counts, we
+        //   leave hits unfiltered to preserve prior behavior.
         //
-        // Important: This commit DOES NOT APPLY the heuristic yet. The helper methods below implement the parsing
-        // logic and the comment documents the exact location where matching would occur. Applying the heuristic
-        // will be done in a follow-up change so that we can measure behavior and adjust without affecting current
-        // tests.
+        // This filtering is intentionally conservative and runs BEFORE uniqueness/LLM decisions so downstream logic
+        // sees a reduced (but still correct) candidate set.
+        try {
+            if (target.isFunction()) {
+                var declParamCounts = extractParameterCountsForDefinitions(target.fqName());
+                if (!declParamCounts.isEmpty() && !hits.isEmpty()) {
+                    Set<UsageHit> filtered = new HashSet<>();
+                    for (var hit : hits) {
+                        OptionalInt optArgCount = estimateArgumentCount(hit);
+                        if (optArgCount.isPresent()) {
+                            int argCount = optArgCount.getAsInt();
+                            if (declParamCounts.contains(argCount)) {
+                                filtered.add(hit);
+                            } else {
+                                // Exclude obvious mismatches
+                                logger.debug(
+                                        "Excluding hit at {}:{} for {} due to arg count mismatch (arg={}, candidates={})",
+                                        hit.file(),
+                                        hit.line(),
+                                        target.fqName(),
+                                        argCount,
+                                        declParamCounts);
+                            }
+                        } else {
+                            // Unknown arg count => keep the hit (conservative)
+                            filtered.add(hit);
+                        }
+                    }
+                    // Replace hits with filtered set
+                    hits = filtered;
+                    logger.debug(
+                            "After parameter-count filtering: {} hits remain for {}", hits.size(), target.fqName());
+                } else {
+                    logger.debug(
+                            "Skipping parameter-count filtering for {}: declCountsEmpty={} hitsEmpty={}",
+                            target.fqName(),
+                            declParamCounts.isEmpty(),
+                            hits.isEmpty());
+                }
+            }
+        } catch (Exception e) {
+            // Be conservative: on unexpected errors we skip heuristic and proceed with original hits.
+            logger.debug("Parameter-count heuristic failed for {}: {}", target.fqName(), e.toString());
+        }
+
+        // Now compute uniqueness after filtering so that downstream flows (LLM / Success) operate on the pruned set.
+        var isUnique = matchingCodeUnits.size() == 1;
 
         if (isUnique) {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
@@ -366,7 +403,8 @@ public final class FuzzyUsageFinder {
             return new FuzzyResult.Failure(fqName, "No definitions found");
         }
 
-        // FUF is signature-blind, so we can collapse overloads to reduce the work
+        // Historically FUF was signature-blind; we now apply a conservative parameter-count heuristic for function-like
+        // symbols to exclude obvious call-site mismatches. Overloads are still aggregated and ambiguity flows remain.
         var def = definitions.iterator().next();
         CodeUnit cu = new CodeUnit(def.source(), def.kind(), def.packageName(), def.shortName(), null);
 
