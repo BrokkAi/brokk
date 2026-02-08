@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -110,7 +109,8 @@ public final class TreeSitterStateIO {
      */
     static final class ProjectFileJsonDeserializer extends JsonDeserializer<ProjectFile> {
         @Override
-        public @Nullable ProjectFile deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+        public @Nullable ProjectFile deserialize(
+                JsonParser p, com.fasterxml.jackson.databind.DeserializationContext ctxt) throws IOException {
             JsonNode node = p.getCodec().readTree(p);
             JsonNode rootNode = node.get("root");
             JsonNode relNode = node.get("relPath");
@@ -166,7 +166,8 @@ public final class TreeSitterStateIO {
      */
     static final class CodeUnitJsonDeserializer extends JsonDeserializer<CodeUnit> {
         @Override
-        public @Nullable CodeUnit deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+        public @Nullable CodeUnit deserialize(JsonParser p, com.fasterxml.jackson.databind.DeserializationContext ctxt)
+                throws IOException {
             JsonNode node = p.getCodec().readTree(p);
 
             // Source ProjectFile
@@ -260,7 +261,6 @@ public final class TreeSitterStateIO {
 
     /**
      * DTO entry for ProjectFile -> FileProperties maps.
-     * FilePropertiesDto omits the parsed tree.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FileStateEntryDto(ProjectFileDto key, FilePropertiesDto value) {}
