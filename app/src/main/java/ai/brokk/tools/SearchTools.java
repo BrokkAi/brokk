@@ -275,32 +275,71 @@ public class SearchTools {
         }
 
         List<String> results = new ArrayList<>();
+        // Budgeting thresholds (conservative defaults)
+        final int LOCAL_SNIPPET_TOKEN_LIMIT = 12_000; // tokens reserved for adding snippet-heavy fragments
+        final int MAX_REPLY_TOKENS = 32_000; // very conservative upper bound for reply budget
+
+        // Approximate current workspace token footprint once per call to avoid repeated blocking work
+        int workspaceTokens = 0;
+        try {
+            workspaceTokens = Messages.getApproximateTokens(contextManager.liveContext());
+        } catch (Exception e) {
+            logger.debug("Unable to compute workspace token estimate, assuming 0");
+        }
+
         for (String symbol : symbols) {
             if (symbol.isBlank()) continue;
 
-            // Instead of eagerly returning full snippets (which may be huge), return a compact locations overview.
+            // Build compact overview first (cheap)
             var overview = new ContextFragments.LocationUsageFragment(contextManager, symbol, includeTests);
-            String text = overview.text().join();
+            String overviewText = overview.text().join();
+            if (overviewText.isBlank()) {
+                continue;
+            }
 
-            // If the overview indicates few resolved enclosing units (heuristic: contains "no resolved" or only one
-            // file),
-            // also compute full snippets to be helpful for small result sets.
-            boolean small = text.lines().count() <= 3; // heuristic threshold
-            if (small) {
-                var full = new ContextFragments.UsageFragment(contextManager, symbol, includeTests);
-                String fullText = full.text().join();
-                if (!fullText.isBlank()) {
+            int overviewTokens = Messages.getApproximateTokens(overviewText);
+
+            // If the overview is tiny, prefer returning full snippets (best-effort).
+            boolean tinyOverview = overviewText.lines().count() <= 3;
+
+            // Compute an approximate remaining budget for adding snippet-heavy output for this symbol.
+            int approxRemainingForSnippets = Math.max(
+                    0, Math.min(MAX_REPLY_TOKENS, LOCAL_SNIPPET_TOKEN_LIMIT) - workspaceTokens - overviewTokens);
+
+            if (tinyOverview && approxRemainingForSnippets > 0) {
+                // Try to construct the full snippet view and estimate its token cost before returning it.
+                var fullFrag = new ContextFragments.UsageFragment(contextManager, symbol, includeTests);
+                String fullText = fullFrag.text().join();
+                int fullTokens = Messages.getApproximateTokens(fullText);
+
+                if (fullTokens > 0 && fullTokens <= approxRemainingForSnippets) {
+                    // Safe to include full snippets inline
                     results.add("Full usages for " + symbol + ":\n\n" + fullText);
+                    // Update budget accounting to reflect we've "used" these tokens (best-effort)
+                    workspaceTokens += Math.min(fullTokens, approxRemainingForSnippets);
                     continue;
                 }
             }
 
-            // Otherwise return locations-only overview and guidance for expansion
-            if (!text.isBlank()) {
-                results.add(
-                        "Locations overview for " + symbol + ":\n\n" + text
-                                + "\n\nTo expand specific locations into full snippets, call WorkspaceTools.expandUsageLocationsToWorkspace(symbol, enclosingFqns, includeTests, pathPrefixes).");
+            // If we reach here we either determined that snippets would exceed the conservative budget
+            // or the overview wasn't tiny. Emit locations-only overview and concise guidance to expand.
+            String guidance =
+                    "\n\nTo expand specific locations into full snippets, call WorkspaceTools.expandUsageLocationsToWorkspace(symbol, enclosingFqns, includeTests, pathPrefixes).";
+            // If we think the set is large, add a short note that we downgraded to locations-only due to budget.
+            String downgradeNote = "";
+            // Heuristic: many files listed in overview implies large fan-out
+            long fileCount = overviewText.lines().count();
+            if (workspaceTokens + overviewTokens > LOCAL_SNIPPET_TOKEN_LIMIT || fileCount > 8) {
+                downgradeNote =
+                        "Note: the usage set appears large or workspace context is sizeable, so returning a bounded locations overview instead of full snippets to avoid exceeding context limits. "
+                                + "You can expand selected locations with the WorkspaceTools expansion methods.";
             }
+
+            results.add("Locations overview for " + symbol + ":\n\n" + overviewText
+                    + (downgradeNote.isEmpty() ? "" : "\n\n" + downgradeNote)
+                    + guidance);
+            // Account for overview tokens in workspace estimate for subsequent symbols
+            workspaceTokens += overviewTokens;
         }
 
         if (results.isEmpty()) {

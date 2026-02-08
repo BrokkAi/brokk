@@ -11,6 +11,7 @@ import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HtmlToMarkdown;
+import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -295,8 +296,56 @@ public class WorkspaceTools {
             @P(
                             "Fully qualified symbol name (e.g., 'com.example.MyClass', 'com.example.MyClass.myMethod', 'com.example.MyClass.myField') to find usages for.")
                     String symbol) {
-        // Backwards-compatible default: prefer locations overview for potentially large result sets.
-        return addSymbolUsageLocationsToWorkspace(symbol, false, List.of());
+        if (symbol.isBlank()) return "Cannot add usages: symbol cannot be empty";
+
+        // Conservative token thresholds (tunable)
+        final int SNIPPET_TOKEN_THRESHOLD =
+                12_000; // If estimated tokens for a snippet view would exceed this, downgrade
+        final int OVERVIEW_TOKEN_COST_ESTIMATE = 200; // rough cost for adding a locations overview fragment
+
+        var cm = context.getContextManager();
+        var analyzer = getAnalyzer();
+
+        // Build a lightweight overview first (cheap)
+        var overviewFrag = new ContextFragments.LocationUsageFragment(context.getContextManager(), symbol, false);
+        String overviewText = overviewFrag.text().join();
+        int overviewTokens = Messages.getApproximateTokens(overviewText);
+
+        // Estimate current workspace token footprint
+        int workspaceTokens = 0;
+        try {
+            workspaceTokens = Messages.getApproximateTokens(context);
+        } catch (Exception e) {
+            logger.debug("Unable to compute workspace token estimate, assuming 0");
+        }
+
+        // If the overview suggests a tiny result set, attempt to add snippet-heavy fragment.
+        boolean tinyOverview = overviewText.lines().count() <= 3;
+
+        if (tinyOverview) {
+            // Create a candidate snippet fragment and estimate its tokens (blocking on its text computation)
+            var snippetFrag = new ContextFragments.UsageFragment(context.getContextManager(), symbol, false);
+            String snippetText = snippetFrag.text().join();
+            int snippetTokens = Messages.getApproximateTokens(snippetText);
+
+            // If including snippet would remain within threshold relative to workspace, add it.
+            if (snippetTokens > 0 && (workspaceTokens + snippetTokens) <= SNIPPET_TOKEN_THRESHOLD) {
+                context = context.addFragments(snippetFrag);
+                return "Added full usage snippets for '%s' to the Workspace.".formatted(symbol);
+            }
+        }
+
+        // Otherwise fall back to adding compact locations-only overview and instruct how to expand.
+        var locFrag = new ContextFragments.LocationUsageFragment(
+                UUID.randomUUID().toString(), context.getContextManager(), symbol, false, null, List.of());
+        context = context.addFragments(locFrag);
+
+        String note =
+                "Added locations-only overview for '%s' to the Workspace because the usage set is large or adding snippets would exceed our conservative context budget. "
+                        + "To expand specific locations into full snippets, call expandUsageLocationsToWorkspace with the enclosing FQNs you want to materialize."
+                                .formatted(symbol);
+
+        return note;
     }
 
     @Tool(
