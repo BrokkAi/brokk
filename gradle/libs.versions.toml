@@ -21,6 +21,7 @@ pnpm = "9.15.4"
 jediterm = "3.54"
 jediterm-pty = "2.69"
 pty4j = "0.13.11"
+fory = "0.14.1"
 
 [libraries]
 # Logging
@@ -73,6 +74,7 @@ mustache = "com.github.spullara.mustache.java:compiler:0.9.10"
 mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.12.1" }
 uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
 pcollections = "org.pcollections:pcollections:5.0.0"
+fory-core = { module = "org.apache.fory:fory-core", version.ref = "fory" }
 
 # Terminal
 jediterm-ui = { module = "org.jetbrains.jediterm:jediterm-ui", version.ref = "jediterm" }

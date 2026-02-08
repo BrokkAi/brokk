@@ -109,6 +109,7 @@ dependencies {
     implementation(libs.mcp.sdk)
     implementation(libs.pcollections)
     implementation(libs.caffeine)
+    implementation(libs.fory.core)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
 

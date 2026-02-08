@@ -46,6 +46,12 @@ import org.slf4j.LoggerFactory;
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
+    /**
+     * Snapshot schema version. Increment this when you change the on-disk layout.
+     * Consumers of on-disk snapshots should consult this value to decide how to migrate/load.
+     */
+    public static final String SCHEMA_VERSION = "ai.brokk.treesitter.snapshot.v1";
+
     // Dedicated Smile ObjectMapper.
     private static final ObjectMapper SMILE_MAPPER =
             new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -300,8 +306,19 @@ public final class TreeSitterStateIO {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SubtypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
+    /**
+     * Save an AnalyzerState together with an optional serializable cache snapshot into a versioned top-level
+     * snapshot object. This new top-level model cleanly separates the immutable AnalyzerState from the
+     * transient AnalyzerCache representation (a serializable view of the currently-populated transient caches).
+     *
+     * For backward compatibility, callers that only have an AnalyzerState may call the old save(state, file)
+     * which delegates to this method with an empty cache snapshot.
+     */
     @Blocking
-    public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
+    public static void save(
+            TreeSitterAnalyzer.AnalyzerState state,
+            ai.brokk.analyzer.cache.AnalyzerCache.CacheSnapshot cacheSnapshot,
+            Path file) {
         long startMs = System.currentTimeMillis();
         Path temp = null;
         Path parent = (file.getParent() != null ? file.getParent() : Path.of("."))
@@ -315,7 +332,7 @@ public final class TreeSitterStateIO {
             String suffix = ".tmp";
             temp = Files.createTempFile(parent, prefix, suffix);
 
-            var dto = toDto(state);
+            var dto = toTopLevelDto(state, cacheSnapshot);
             try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(temp))) {
                 SMILE_MAPPER.writeValue(out, dto);
             }
@@ -328,9 +345,9 @@ public final class TreeSitterStateIO {
             }
 
             long durMs = System.currentTimeMillis() - startMs;
-            log.debug("Saved TreeSitter AnalyzerState to {} in {} ms", file, durMs);
+            log.debug("Saved TreeSitter Snapshot (state + cache view) to {} in {} ms", file, durMs);
         } catch (IOException e) {
-            log.warn("Failed to save TreeSitter AnalyzerState to {}: {}", file, e.getMessage(), e);
+            log.warn("Failed to save TreeSitter Snapshot to {}: {}", file, e.getMessage(), e);
             if (temp != null) {
                 try {
                     Files.deleteIfExists(temp);
@@ -342,8 +359,28 @@ public final class TreeSitterStateIO {
     }
 
     /**
+     * Backwards-compatible overload for callers that only provide AnalyzerState (no cache snapshot).
+     */
+    @Blocking
+    public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
+        save(state, new ai.brokk.analyzer.cache.AnalyzerCache().snapshot(), file);
+    }
+
+    /**
      * Load an AnalyzerState from the provided file in Smile format.
      * Returns Optional.empty() if file is missing or deserialization fails.
+     *
+     * Note: The on-disk format is a versioned top-level SnapshotDto that contains:
+     *  - schemaVersion (string)
+     *  - analyzerState (AnalyzerStateDto)
+     *  - cacheSnapshot (CacheSnapshotDto) // optional/nullable
+     *
+     * For compatibility we read the top-level SnapshotDto and extract the AnalyzerState portion.
+     * Future versions may use schemaVersion to change load behavior or to attempt automatic migrations.
+     *
+     * Legacy snapshots (pre-v1) stored AnalyzerStateDto directly at the root without the SnapshotDto wrapper.
+     * When we detect such a snapshot (null schemaVersion and null analyzerState in the parsed SnapshotDto),
+     * we return empty to trigger a rebuild rather than attempting complex migration.
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
@@ -354,10 +391,29 @@ public final class TreeSitterStateIO {
         long startMs = System.currentTimeMillis();
         try {
             try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
-                var dto = SMILE_MAPPER.readValue(in, AnalyzerStateDto.class);
-                var state = fromDto(dto);
+                var top = SMILE_MAPPER.readValue(in, SnapshotDto.class);
+
+                // Handle legacy snapshots that were stored as raw AnalyzerStateDto (not wrapped in SnapshotDto).
+                // When Jackson deserializes such data into SnapshotDto, all fields will be null or default.
+                if (top.analyzerState() == null) {
+                    log.debug(
+                            "Snapshot at {} appears to be legacy format (no analyzerState field). Will rebuild.", file);
+                    return Optional.empty();
+                }
+
+                if (!SCHEMA_VERSION.equals(top.schemaVersion())) {
+                    log.debug(
+                            "Snapshot schemaVersion mismatch: expected={}, found={}. Will attempt best-effort load of state portion.",
+                            SCHEMA_VERSION,
+                            top.schemaVersion());
+                }
+                var state = fromDto(top.analyzerState());
                 long durMs = System.currentTimeMillis() - startMs;
-                log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms", file, durMs);
+                log.debug(
+                        "Loaded TreeSitter AnalyzerState from {} (schema={}) in {} ms",
+                        file,
+                        top.schemaVersion(),
+                        durMs);
                 return Optional.of(state);
             }
         } catch (ZipException | EOFException e) {
@@ -373,6 +429,44 @@ public final class TreeSitterStateIO {
     }
 
     /* ================= Converters ================= */
+
+    /**
+     * Top-level Snapshot DTO that will be written to disk. Includes a schemaVersion so future migrations can alter
+     * behavior based on that version.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SnapshotDto(
+            String schemaVersion, AnalyzerStateDto analyzerState, @Nullable CacheSnapshotDto cacheSnapshot) {}
+
+    /**
+     * Serializable view of AnalyzerCache.CacheSnapshot. Note: not all cache contents are persisted;
+     * some items (e.g., TSTree) are intentionally omitted because they are not easily serializable or safe to persist.
+     * The goal is to allow transfer of presentation-heavy but safe data such as signatures and raw supertypes,
+     * and forward mappings for imports/typeHierarchy.
+     *
+     * Note: Jackson does not support complex POJOs as map keys by default when deserializing. To avoid requiring
+     * a Map Key deserializer for CodeUnitDto, we represent signature/rawSupertypes maps as explicit entry lists
+     * (pairs) instead of Map<CodeUnitDto, ...>.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CacheSnapshotDto(
+            List<SignatureEntryDto> signatures,
+            List<RawSupertypesEntryDto> rawSupertypes,
+            List<ImportEntryDto> importsForward,
+            List<SupertypeEntryDto> typeHierarchyForward) {}
+
+    /**
+     * Entry DTO for signatures: (CodeUnitDto key) -> List<String> value.
+     * Used to avoid using complex objects as Map keys.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SignatureEntryDto(CodeUnitDto key, List<String> value) {}
+
+    /**
+     * Entry DTO for raw supertypes map: (CodeUnitDto key) -> List<String> value.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RawSupertypesEntryDto(CodeUnitDto key, List<String> value) {}
 
     /**
      * Convert live AnalyzerState to a serializable DTO.
@@ -475,6 +569,46 @@ public final class TreeSitterStateIO {
                 subtypeEntries,
                 symbolKeys,
                 state.snapshotEpochNanos());
+    }
+
+    /**
+     * Convert a cache snapshot into a serializable DTO.
+     */
+    public static CacheSnapshotDto cacheSnapshotToDto(ai.brokk.analyzer.cache.AnalyzerCache.CacheSnapshot snapshot) {
+        // Convert signatures map into a list of SignatureEntryDto to avoid complex map keys.
+        List<SignatureEntryDto> signatures = new ArrayList<>();
+        snapshot.signatures()
+                .forEach((cu, sigs) -> signatures.add(new SignatureEntryDto(toDto(cu), List.copyOf(sigs))));
+
+        // Convert raw supertypes map into a list of RawSupertypesEntryDto.
+        List<RawSupertypesEntryDto> rawSupertypes = new ArrayList<>();
+        snapshot.rawSupertypes()
+                .forEach((cu, supers) -> rawSupertypes.add(new RawSupertypesEntryDto(toDto(cu), List.copyOf(supers))));
+
+        List<ImportEntryDto> importsForward = new ArrayList<>();
+        snapshot.imports()
+                .forEachForward((file, units) -> importsForward.add(new ImportEntryDto(
+                        toDto(file),
+                        units.stream().map(TreeSitterStateIO::toDto).toList())));
+
+        List<SupertypeEntryDto> typeForward = new ArrayList<>();
+        snapshot.typeHierarchy()
+                .forEachForward((cu, supers) -> typeForward.add(new SupertypeEntryDto(
+                        toDto(cu), supers.stream().map(TreeSitterStateIO::toDto).toList())));
+
+        return new CacheSnapshotDto(signatures, rawSupertypes, importsForward, typeForward);
+    }
+
+    /**
+     * Produce the top-level SnapshotDto combining the AnalyzerState DTO and an optional
+     * serializable cache snapshot. Centralizes the schemaVersion assignment so future
+     * migrations can gate behavior based on this single constant.
+     */
+    public static SnapshotDto toTopLevelDto(
+            TreeSitterAnalyzer.AnalyzerState state, ai.brokk.analyzer.cache.AnalyzerCache.CacheSnapshot cacheSnapshot) {
+        CacheSnapshotDto csd = cacheSnapshot != null ? cacheSnapshotToDto(cacheSnapshot) : null;
+        AnalyzerStateDto asd = toDto(state);
+        return new SnapshotDto(SCHEMA_VERSION, asd, csd);
     }
 
     /**
