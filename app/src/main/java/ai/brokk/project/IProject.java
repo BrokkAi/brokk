@@ -578,12 +578,20 @@ public interface IProject extends AutoCloseable {
         private static final Logger logger = LogManager.getLogger(Dependency.class);
 
         public Set<ProjectFile> files() {
-            try (var pathStream = Files.walk(root.absPath())) {
-                var masterRoot = root.getRoot();
-                return pathStream
-                        .filter(Files::isRegularFile)
-                        .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
-                        .collect(Collectors.toSet());
+            try {
+                try (var pathStream = Files.walk(root.absPath())) {
+                    var masterRoot = root.getRoot();
+                    return pathStream
+                            .filter(Files::isRegularFile)
+                            .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
+                            .collect(Collectors.toSet());
+                }
+            } catch (java.nio.file.FileSystemLoopException e) {
+                logger.warn(
+                        "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
+                        root.absPath(),
+                        e.getMessage());
+                return Set.of();
             } catch (IOException e) {
                 logger.error("Error loading dependency files from {}: {}", root.absPath(), e.getMessage());
                 return Set.of();

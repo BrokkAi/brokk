@@ -1,7 +1,7 @@
 package ai.brokk.util;
 
 import java.io.IOException;
-import java.nio.file.FileVisitOption;
+import java.nio.file.FileSystemLoopException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -18,6 +18,10 @@ import org.apache.maven.artifact.versioning.ComparableVersion;
 /**
  * Scans local dependency caches (Maven, Gradle, Ivy, Coursier, sbt) for JAR files.
  * Shared between GUI (JavaLanguage) and CLI (DependencyTools).
+ *
+ * <p>Security / robustness note (GH#2622): avoid following symbolic links when scanning user caches.
+ * Following links can enter symlink cycles and throw FileSystemLoopException. Where a scan encounters
+ * a loop, we log a concise warning and skip that root rather than letting the exception propagate.
  */
 public final class LocalCacheScanner {
     private static final Logger logger = LogManager.getLogger(LocalCacheScanner.class);
@@ -138,7 +142,8 @@ public final class LocalCacheScanner {
             if (!Files.isDirectory(root) || root.toString().contains(".m2")) {
                 continue;
             }
-            try (Stream<Path> walk = Files.walk(root, FileVisitOption.FOLLOW_LINKS)) {
+            // Do NOT follow links by default to avoid symlink cycles. If a loop is encountered, skip the root.
+            try (Stream<Path> walk = Files.walk(root)) {
                 walk.filter(Files::isRegularFile).forEach(p -> {
                     var name = p.getFileName().toString();
                     if (name.endsWith("-sources.jar") || name.endsWith("-javadoc.jar")) {
@@ -149,8 +154,12 @@ public final class LocalCacheScanner {
                         versions.add(matcher.group(1));
                     }
                 });
-            } catch (IOException | SecurityException e) {
-                logger.debug("Error scanning {}: {}", root, e.getMessage());
+            } catch (FileSystemLoopException e) {
+                logger.warn("Symlink loop while scanning cache root {}: {}; skipping this root", root, e.getMessage());
+            } catch (IOException e) {
+                logger.warn("Error scanning {}: {}", root, e.getMessage());
+            } catch (SecurityException e) {
+                logger.warn("Permission denied scanning {}: {}", root, e.getMessage());
             }
         }
 
@@ -195,7 +204,7 @@ public final class LocalCacheScanner {
                 continue;
             }
             logger.debug("Scanning {} for {}", root, expectedName);
-            try (Stream<Path> walk = Files.walk(root, FileVisitOption.FOLLOW_LINKS)) {
+            try (Stream<Path> walk = Files.walk(root)) {
                 var found = walk.filter(Files::isRegularFile)
                         .filter(p -> p.getFileName().toString().equals(expectedName))
                         .findFirst();
@@ -203,6 +212,8 @@ public final class LocalCacheScanner {
                     logger.info("Found {} in cache: {}", expectedName, found.get());
                     return found;
                 }
+            } catch (FileSystemLoopException e) {
+                logger.warn("Symlink loop while scanning cache root {}: {}; skipping this root", root, e.getMessage());
             } catch (IOException e) {
                 logger.warn("Error scanning {}: {}", root, e.getMessage());
             } catch (SecurityException e) {
@@ -229,8 +240,15 @@ public final class LocalCacheScanner {
                 .filter(Files::isDirectory)
                 .peek(root -> logger.debug("Scanning for JARs under: {}", root))
                 .flatMap(root -> {
-                    try (Stream<Path> s = Files.walk(root, FileVisitOption.FOLLOW_LINKS)) {
+                    // Do NOT follow links by default to avoid cycles. If we detect a loop, skip this root.
+                    try (Stream<Path> s = Files.walk(root)) {
                         return s.filter(Files::isRegularFile).toList().stream();
+                    } catch (FileSystemLoopException e) {
+                        logger.warn(
+                                "Symlink loop while scanning cache root {}: {}; skipping this root",
+                                root,
+                                e.getMessage());
+                        return Stream.empty();
                     } catch (IOException e) {
                         logger.warn("Error walking directory {}: {}", root, e.getMessage());
                         return Stream.empty();
