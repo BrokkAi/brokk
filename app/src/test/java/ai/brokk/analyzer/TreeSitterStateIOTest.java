@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateDto;
+import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateRoot;
 import ai.brokk.analyzer.TreeSitterStateIO.FilePropertiesDto;
 import ai.brokk.analyzer.TreeSitterStateIO.FileStateEntryDto;
 import ai.brokk.analyzer.TreeSitterStateIO.ProjectFileDto;
@@ -13,13 +14,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.TreeSet;
 import java.util.zip.GZIPOutputStream;
+import org.apache.fory.Fory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -137,7 +135,7 @@ public class TreeSitterStateIOTest {
                 Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
-        Path out = tempDir.resolve("state.smile.gz");
+        Path out = tempDir.resolve("state.fory.gz");
         TreeSitterStateIO.save(state, out);
 
         assertTrue(Files.exists(out), "Expected final state file to exist");
@@ -177,7 +175,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("props_roundtrip.smile.gz");
+        Path out = tempDir.resolve("props_roundtrip.fory.gz");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -207,7 +205,7 @@ public class TreeSitterStateIOTest {
                 99L);
         var original = TreeSitterStateIO.fromDto(dto);
 
-        Path out = tempDir.resolve("roundtrip.smile.gz");
+        Path out = tempDir.resolve("roundtrip.fory.gz");
         TreeSitterStateIO.save(original, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -224,7 +222,7 @@ public class TreeSitterStateIOTest {
             disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
     void loadReturnsEmptyOnCorruptGzip(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("state.smile.gz");
+        Path out = tempDir.resolve("state.fory.gz");
 
         Files.writeString(out, "not a gzip");
 
@@ -251,7 +249,7 @@ public class TreeSitterStateIOTest {
             disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
     void replacesExistingCorruptFileOnWindows(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("state.smile.gz");
+        Path out = tempDir.resolve("state.fory.gz");
 
         Files.writeString(out, "this is corrupt gzip content");
 
@@ -327,7 +325,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("imports_roundtrip.smile.gz");
+        Path out = tempDir.resolve("imports_roundtrip.fory.gz");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -358,7 +356,7 @@ public class TreeSitterStateIOTest {
                 Map.of(), List.of(), List.of(entryDto), List.of(), List.of(), List.of(), List.of(), List.of(), 555L);
         var state = TreeSitterStateIO.fromDto(originalDto);
 
-        Path out = tempDir.resolve("test_props.smile.gz");
+        Path out = tempDir.resolve("test_props.fory.gz");
         TreeSitterStateIO.save(state, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -391,7 +389,7 @@ public class TreeSitterStateIOTest {
             assertNotNull(analyzer.treeOf(file), "Original analyzer should have parsed tree");
 
             // 3. Save state to temp file
-            Path stateFile = tempDir.resolve("lazy_test.smile.gz");
+            Path stateFile = tempDir.resolve("lazy_test.fory.gz");
             TreeSitterStateIO.save(analyzer.snapshotState(), stateFile);
             assertTrue(Files.exists(stateFile), "State file should exist after save");
 
@@ -533,7 +531,7 @@ public class TreeSitterStateIOTest {
             assertTrue(subtypesInSnapshot.contains(child2Cu), "Snapshot should contain Child2 as subtype of Base");
 
             // 3. Round-trip serialization
-            Path storage = tempDir.resolve("ancestor_test.smile.gz");
+            Path storage = tempDir.resolve("ancestor_test.fory.gz");
             TreeSitterStateIO.save(snapshot, storage);
 
             var loadedStateOpt = TreeSitterStateIO.load(storage);
@@ -567,7 +565,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("imports.smile.gz");
+        Path out = tempDir.resolve("imports.fory.gz");
         TreeSitterStateIO.save(state, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -784,5 +782,46 @@ public class TreeSitterStateIOTest {
         assertTrue(
                 loaded.isEmpty(),
                 "Legacy Jackson/Smile state is now treated as incompatible and should be ignored (Optional.empty())");
+    }
+
+    // ----------------- New tests for Fory-based format specifics -----------------
+
+    @Test
+    void versionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("version_mismatch.fory.gz");
+
+        // Create a valid DTO payload but with a deliberately incorrect version string.
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
+        AnalyzerStateRoot root = new AnalyzerStateRoot("INCOMPATIBLE_VERSION", dto);
+
+        // Serialize using Fory into GZIP to mimic the on-disk format but with wrong version.
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            Fory fory = Fory.builder().requireClassRegistration(false).build();
+            fory.serializeJavaObject(os, root);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isEmpty(), "Loader should return empty for snapshot with incompatible version");
+    }
+
+    @Test
+    void truncatedForyFileReturnsEmpty(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("truncated.fory.gz");
+
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 2L);
+        var state = TreeSitterStateIO.fromDto(dto);
+        // Write a valid file first
+        TreeSitterStateIO.save(state, out);
+        assertTrue(Files.exists(out));
+
+        // Truncate the file to simulate corruption/truncation
+        byte[] bytes = Files.readAllBytes(out);
+        int cut = Math.max(1, bytes.length / 3);
+        Files.write(out, Arrays.copyOf(bytes, cut));
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isEmpty(), "Loader should return empty for truncated/corrupt Fory file");
     }
 }
