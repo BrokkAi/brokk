@@ -466,7 +466,7 @@ public final class TreeSitterStateIO {
             }
         }
 
-        // Restore imports forward
+        // Restore imports forward and populate reverse mappings so consumers can query reverse quickly.
         if (dto.importsForward() != null) {
             for (var entry : dto.importsForward()) {
                 if (entry == null || entry.key() == null) continue;
@@ -475,10 +475,20 @@ public final class TreeSitterStateIO {
                         ? Set.of()
                         : entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet());
                 target.imports().putForward(pf, units);
+
+                // Populate reverse mapping for each CodeUnit's source ProjectFile.
+                for (CodeUnit cu : units) {
+                    ProjectFile cuSource = cu.source();
+                    target.imports().updateReverse(cuSource, existing -> {
+                        Set<ProjectFile> set = existing != null ? new HashSet<>(existing) : new HashSet<>();
+                        set.add(pf);
+                        return set;
+                    });
+                }
             }
         }
 
-        // Restore typeHierarchy forward (supertypes)
+        // Restore typeHierarchy forward (supertypes) and populate reverse mappings (subtypes)
         if (dto.typeHierarchyForward() != null) {
             for (var entry : dto.typeHierarchyForward()) {
                 if (entry == null || entry.key() == null) continue;
@@ -487,6 +497,15 @@ public final class TreeSitterStateIO {
                         ? List.of()
                         : entry.value().stream().map(TreeSitterStateIO::fromDto).toList();
                 target.typeHierarchy().putForward(key, value);
+
+                // Populate reverse mapping: for each supertype, record 'key' as its subtype
+                for (CodeUnit superCu : value) {
+                    target.typeHierarchy().updateReverse(superCu, existing -> {
+                        Set<CodeUnit> set = existing != null ? new HashSet<>(existing) : new HashSet<>();
+                        set.add(key);
+                        return set;
+                    });
+                }
             }
         }
     }
