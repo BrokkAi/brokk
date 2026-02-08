@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
@@ -147,7 +148,7 @@ public final class FuzzyUsageFinder {
         if (isUnique) {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
             logger.debug("Found {} hits for unique code unit {}", hits.size(), target);
-            return new FuzzyResult.Success(hits);
+            return new FuzzyResult.Success(Map.of(target, hits));
         } else if (hits.size() > maxUsages) {
             // Case 3: Too many call sites to disambiguate with the LLM
             logger.debug(
@@ -214,7 +215,7 @@ public final class FuzzyUsageFinder {
             logger.debug("Found {} disambiguated hits", finalHits.size());
         }
 
-        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, finalHits);
+        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, Map.of(target, finalHits));
     }
 
     /**
@@ -307,7 +308,7 @@ public final class FuzzyUsageFinder {
     public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) throws InterruptedException {
         if (isEffectivelyEmpty()) {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
-            return new FuzzyResult.Success(Set.of());
+            return new FuzzyResult.Success(Map.of());
         }
         var definitions = analyzer.getDefinitions(fqName);
         if (definitions.isEmpty()) {
@@ -346,7 +347,7 @@ public final class FuzzyUsageFinder {
         var filteredHits = filterByConfidence(allHits);
         logger.debug("Filtered to {} hits for {} out of {}", filteredHits.size(), fqName, allHits.size());
 
-        return new FuzzyResult.Success(filteredHits);
+        return new FuzzyResult.Success(Map.of(cu, filteredHits));
     }
 
     static Set<UsageHit> filterByConfidence(Set<UsageHit> allHits) {

@@ -2,6 +2,7 @@ package ai.brokk.analyzer.usages;
 
 import ai.brokk.analyzer.CodeUnit;
 import java.util.*;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -57,8 +58,8 @@ public sealed interface FuzzyResult
         }
 
         Set<UsageHit> uses = new HashSet<>();
-        if (this instanceof FuzzyResult.Success(Set<UsageHit> hits)) {
-            uses.addAll(hits);
+        if (this instanceof FuzzyResult.Success success) {
+            uses.addAll(success.hits());
         } else if (this instanceof FuzzyResult.Ambiguous ambiguous) {
             var filteredHits = ambiguous.hits().stream()
                     .filter(x -> x.confidence() >= CONFIDENCE_THRESHOLD)
@@ -69,14 +70,18 @@ public sealed interface FuzzyResult
     }
 
     /** Successful resolution of usages (possibly empty). */
-    record Success(Set<UsageHit> hits) implements FuzzyResult {
-        public Success(Set<UsageHit> hits) {
-            this.hits = Set.copyOf(hits);
+    record Success(Map<CodeUnit, Set<UsageHit>> hitsByOverload) implements FuzzyResult {
+        public Success(Map<CodeUnit, Set<UsageHit>> hitsByOverload) {
+            this.hitsByOverload = Map.copyOf(hitsByOverload);
+        }
+
+        public Set<UsageHit> hits() {
+            return hitsByOverload.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
         }
 
         @Override
         public String toString() {
-            return "Success{hits=" + hits.size() + "}";
+            return "Success{hits=" + hits().size() + "}";
         }
     }
 
@@ -89,17 +94,23 @@ public sealed interface FuzzyResult
     }
 
     /** Ambiguous result: indicates multiple candidate targets. */
-    record Ambiguous(String shortName, Set<CodeUnit> candidateTargets, Set<UsageHit> hits) implements FuzzyResult {
-        public Ambiguous(String shortName, Set<CodeUnit> candidateTargets, Set<UsageHit> hits) {
+    record Ambiguous(String shortName, Set<CodeUnit> candidateTargets, Map<CodeUnit, Set<UsageHit>> hitsByOverload)
+            implements FuzzyResult {
+        public Ambiguous(
+                String shortName, Set<CodeUnit> candidateTargets, Map<CodeUnit, Set<UsageHit>> hitsByOverload) {
             this.shortName = shortName;
             this.candidateTargets = Set.copyOf(candidateTargets);
-            this.hits = Set.copyOf(hits);
+            this.hitsByOverload = Map.copyOf(hitsByOverload);
+        }
+
+        public Set<UsageHit> hits() {
+            return hitsByOverload.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
         }
 
         @Override
         public String toString() {
             return "Ambiguous{shortName=" + shortName + ", candidates=" + candidateTargets.size() + ", hits="
-                    + hits.size() + "}";
+                    + hits().size() + "}";
         }
     }
 
