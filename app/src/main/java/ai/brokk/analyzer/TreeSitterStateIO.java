@@ -47,9 +47,8 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Dedicated Smile ObjectMapper.
-    // We use FAIL_ON_UNKNOWN_PROPERTIES to catch schema drifts in our primary DTOs.
     private static final ObjectMapper SMILE_MAPPER =
-            new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+            new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     /**
      * Backwards-compatibility guard for {@link IAnalyzer.Range}.
@@ -215,11 +214,13 @@ public final class TreeSitterStateIO {
      * A minimal, serialization-safe representation of ProjectFile that
      * enforces that relPath is stored as a relative string.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ProjectFileDto(String root, String relPath) {}
 
     /**
      * A serialization-safe representation of CodeUnit using ProjectFileDto.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitDto(
             ProjectFileDto source,
             CodeUnitType kind,
@@ -230,12 +231,14 @@ public final class TreeSitterStateIO {
     /**
      * DTO for structured import information.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ImportInfoDto(
             String rawSnippet, boolean isWildcard, @Nullable String identifier, @Nullable String alias) {}
 
     /**
      * DTO for AnalyzerState with only serializable components.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record AnalyzerStateDto(
             Map<String, List<CodeUnitDto>> symbolIndex,
             List<CodeUnitEntryDto> codeUnitState,
@@ -260,17 +263,20 @@ public final class TreeSitterStateIO {
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitEntryDto(CodeUnitDto key, CodeUnitPropertiesDto value) {}
 
     /**
      * DTO entry for ProjectFile -> FileProperties maps.
      * FilePropertiesDto omits the parsed tree.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record FileStateEntryDto(ProjectFileDto key, FilePropertiesDto value) {}
 
     /**
      * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
             List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
         @JsonCreator
@@ -287,21 +293,25 @@ public final class TreeSitterStateIO {
     /**
      * DTO entry for ProjectFile -> Set<CodeUnit> (imports).
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
 
     /**
      * DTO entry for ProjectFile -> Set<ProjectFile> (reverse imports).
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReverseImportEntryDto(ProjectFileDto key, List<ProjectFileDto> value) {}
 
     /**
      * DTO entry for CodeUnit -> List<CodeUnit> (supertypes).
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SupertypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
     /**
      * DTO entry for CodeUnit -> Set<CodeUnit> (subtypes).
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SubtypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
     @Blocking
