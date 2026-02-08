@@ -1989,10 +1989,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         TSTree tree = localParser.parseString(null, src);
         long __parseEnd = System.nanoTime();
 
-        if (tree != null) {
-            cache.trees().put(file, tree);
-        }
-
         if (timing != null) {
             timing.parseStageNanos().addAndGet(__parseEnd - __parseStart);
             timing.parseStageFirstStartNanos().accumulateAndGet(__parseStart, Math::min);
