@@ -294,6 +294,7 @@ public class DtoMapper {
                         ContextFragment.SummaryType.valueOf(summaryDto.summaryType()));
             case UsageFragmentDto usageDto -> {
                 String snapshot = usageDto.snapshotText() != null ? reader.readContent(usageDto.snapshotText()) : null;
+                // Construct UsageFragment (subclass of SimpleUsageFragment) for backward compatibility
                 yield new ContextFragments.UsageFragment(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles(), snapshot);
             }
@@ -720,7 +721,10 @@ public class DtoMapper {
                     return new ContextFragments.SummaryFragment(mgr, targetIdentifier, summaryType);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment",
-                        "ai.brokk.context.ContextFragment$UsageFragment" -> {
+                        "ai.brokk.context.ContextFragment$UsageFragment",
+                        // Accept previous and current class names for compatibility with different versions.
+                        "ai.brokk.context.ContextFragments$SimpleUsageFragment",
+                        "ai.brokk.context.ContextFragments$UsageFragment" -> {
                     var targetIdentifier = meta.get("targetIdentifier");
                     if (targetIdentifier == null) {
                         throw new IllegalArgumentException("Missing 'targetIdentifier' for UsageFragment");
@@ -728,6 +732,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
+                    // Construct UsageFragment (subclass of SimpleUsageFragment) for backward compatibility
                     return new ContextFragments.UsageFragment(mgr, targetIdentifier, true, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",

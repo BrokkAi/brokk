@@ -1155,58 +1155,36 @@ public class ContextFragments {
         }
     }
 
-    public static class UsageFragment extends AbstractComputedFragment {
-        private final String targetIdentifier;
-        private final boolean includeTestFiles;
+    /**
+     * Abstract base for usage-style fragments. Encapsulates the common identity fields and snapshot compute/decode
+     * behavior so different presentation variants can reuse the same underlying usage snapshot.
+     */
+    abstract static class AbstractUsageFragment extends AbstractComputedFragment {
+        protected final String targetIdentifier;
+        protected final boolean includeTestFiles;
 
-        public UsageFragment(IContextManager contextManager, String targetIdentifier) {
-            this(contextManager, targetIdentifier, true, null);
-        }
-
-        public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-            this(contextManager, targetIdentifier, includeTestFiles, null);
-        }
-
-        public UsageFragment(
-                IContextManager contextManager,
-                String targetIdentifier,
-                boolean includeTestFiles,
-                @Nullable String snapshotText) {
-            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, snapshotText);
-        }
-
-        public UsageFragment(String id, IContextManager contextManager, String targetIdentifier) {
-            this(id, contextManager, targetIdentifier, true, null);
-        }
-
-        public UsageFragment(
-                String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-            this(id, contextManager, targetIdentifier, includeTestFiles, null);
-        }
-
-        public UsageFragment(
+        protected AbstractUsageFragment(
                 String id,
                 IContextManager contextManager,
                 String targetIdentifier,
                 boolean includeTestFiles,
-                @Nullable String snapshotText) {
+                @Nullable String snapshotText,
+                Callable<ContentSnapshot> computeTask) {
             super(
                     id,
                     contextManager,
                     "Uses of " + targetIdentifier,
                     "Uses of " + targetIdentifier,
-                    SyntaxConstants.SYNTAX_STYLE_NONE, // Will be updated if we find files/units
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
                     snapshotText == null
                             ? null
                             : decodeFrozen(contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
-                    snapshotText == null
-                            ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager)
-                            : null);
+                    snapshotText == null ? computeTask : null);
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
         }
 
-        private static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
+        protected static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             String text = new String(bytes, StandardCharsets.UTF_8);
 
@@ -1288,17 +1266,58 @@ public class ContextFragments {
             return FragmentType.USAGE;
         }
 
-        @Override
-        public String repr() {
-            return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
-        }
-
         public String targetIdentifier() {
             return targetIdentifier;
         }
 
         public boolean includeTestFiles() {
             return includeTestFiles;
+        }
+    }
+
+    /**
+     * Simple concrete usage fragment that preserves the previous snippet-heavy formatting behavior.
+     * Internally it reuses the snapshot compute path provided by AbstractUsageFragment.
+     */
+    public static class SimpleUsageFragment extends AbstractUsageFragment {
+        public SimpleUsageFragment(IContextManager contextManager, String targetIdentifier) {
+            this(contextManager, targetIdentifier, true, null);
+        }
+
+        public SimpleUsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            this(contextManager, targetIdentifier, includeTestFiles, null);
+        }
+
+        public SimpleUsageFragment(
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
+            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, snapshotText);
+        }
+
+        public SimpleUsageFragment(String id, IContextManager contextManager, String targetIdentifier) {
+            this(id, contextManager, targetIdentifier, true, null);
+        }
+
+        public SimpleUsageFragment(
+                String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            this(id, contextManager, targetIdentifier, includeTestFiles, null);
+        }
+
+        public SimpleUsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
+            super(
+                    id,
+                    contextManager,
+                    targetIdentifier,
+                    includeTestFiles,
+                    snapshotText,
+                    () -> computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager));
         }
 
         private static ContentSnapshot computeSnapshotFor(
@@ -1336,8 +1355,49 @@ public class ContextFragments {
         }
 
         @Override
+        public String repr() {
+            return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
+        }
+
+        @Override
         public ContextFragment refreshCopy() {
-            return new UsageFragment(id, contextManager, targetIdentifier, includeTestFiles, null);
+            return new SimpleUsageFragment(id, contextManager, targetIdentifier, includeTestFiles, null);
+        }
+    }
+
+    public static final class UsageFragment extends SimpleUsageFragment {
+        public UsageFragment(IContextManager contextManager, String targetIdentifier) {
+            super(contextManager, targetIdentifier);
+        }
+
+        public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            super(contextManager, targetIdentifier, includeTestFiles);
+        }
+
+        public UsageFragment(
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
+            super(contextManager, targetIdentifier, includeTestFiles, snapshotText);
+        }
+
+        public UsageFragment(String id, IContextManager contextManager, String targetIdentifier) {
+            super(id, contextManager, targetIdentifier);
+        }
+
+        public UsageFragment(
+                String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            super(id, contextManager, targetIdentifier, includeTestFiles);
+        }
+
+        public UsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
+            super(id, contextManager, targetIdentifier, includeTestFiles, snapshotText);
         }
     }
 
