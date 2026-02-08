@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.project.IProject;
@@ -13,6 +14,7 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -234,5 +236,37 @@ public class AnalyzerUtilSelectionTest {
         assertTrue(frag.get() instanceof ContextFragments.UsageFragment, "Expected UsageFragment");
         ContextFragments.UsageFragment u = (ContextFragments.UsageFragment) frag.get();
         assertEquals("noSuchSymbol", u.targetIdentifier(), "Target identifier should be the raw input");
+    }
+
+    @Test
+    void testSampleUsageHitsSelection() {
+        // Mocking IAnalyzer to return specific source lengths
+        TestAnalyzer mockAnalyzer = new TestAnalyzer(List.of(), Map.of()) {
+            @Override
+            public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+                // Return a string of length equal to the shortName parsed as int
+                return Optional.of(" ".repeat(Integer.parseInt(codeUnit.shortName())));
+            }
+        };
+
+        CodeUnit overload = CodeUnit.fn(pfA, "pkg", "method");
+
+        Set<UsageHit> hits = new HashSet<>();
+        // Create 5 hits with enclosing source lengths: 10, 20, 30, 40, 50
+        for (int i = 1; i <= 5; i++) {
+            CodeUnit enclosing = CodeUnit.fn(pfA, "pkg", String.valueOf(i * 10));
+            hits.add(new UsageHit(pfA, i, i * 10, i * 10 + 5, enclosing, 1.0, "snippet"));
+        }
+
+        Map<CodeUnit, Set<UsageHit>> input = Map.of(overload, hits);
+        Map<CodeUnit, List<UsageHit>> result = AnalyzerUtil.sampleUsageHits(input, mockAnalyzer);
+
+        List<UsageHit> sampled = result.get(overload);
+        assertEquals(3, sampled.size());
+
+        // Shortest (10), Median (30), Longest (50)
+        assertEquals("10", sampled.get(0).enclosing().shortName());
+        assertEquals("30", sampled.get(1).enclosing().shortName());
+        assertEquals("50", sampled.get(2).enclosing().shortName());
     }
 }
