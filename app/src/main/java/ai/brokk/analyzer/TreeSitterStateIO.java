@@ -396,11 +396,23 @@ public final class TreeSitterStateIO {
                     entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
         }
 
-        var subtypeEntries = dto.subtypes() != null ? dto.subtypes() : List.<SubtypeEntryDto>of();
-        for (var entry : subtypeEntries) {
-            subtypesMap.put(
-                    fromDto(entry.key()),
-                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
+        var subtypeEntries = dto.subtypes();
+        if (subtypeEntries != null) {
+            for (var entry : subtypeEntries) {
+                subtypesMap.put(
+                        fromDto(entry.key()),
+                        entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
+            }
+        } else {
+            // If explicit subtype graph missing, reconstruct by inverting the supertypes map.
+            // This ensures descendants/subtypes queries work after loading older snapshots
+            // that only persisted supertypes.
+            for (var e : supertypesMap.entrySet()) {
+                CodeUnit child = e.getKey();
+                for (CodeUnit sup : e.getValue()) {
+                    subtypesMap.computeIfAbsent(sup, k -> new HashSet<>()).add(child);
+                }
+            }
         }
 
         // Rebuild SymbolKeyIndex
