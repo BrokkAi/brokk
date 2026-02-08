@@ -241,10 +241,11 @@ public final class TreeSitterStateIO {
     /**
      * DTO for CodeUnitProperties that can be easily serialized.
      *
-     * Note: signatures were removed from the persisted CodeUnitProperties shape. Strict mapping
-     * is enforced here to ensure that older snapshots containing unknown fields (like signatures)
-     * fail to load, maintaining schema integrity across versions.
+     * <p>Note: signatures were removed from the persisted CodeUnitProperties shape. Permissive
+     * unknown-property handling is used here so that older snapshots containing removed fields
+     * (like signatures) can still be deserialized.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitPropertiesDto(List<CodeUnitDto> children, List<IAnalyzer.Range> ranges, boolean hasBody) {}
 
     /**
