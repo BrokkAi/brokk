@@ -377,14 +377,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                 ioExecutor)
                         .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
                         .thenAcceptAsync(
-                                analysisResult -> mergeAnalysisResultIntoMaps(
-                                        pf,
-                                        analysisResult,
-                                        timing,
-                                        localSymbolIndex,
-                                        localCodeUnitState,
-                                        localFileState,
-                                        moduleKeyCache),
+                                analysisResult -> {
+                                    mergeAnalysisResultIntoMaps(
+                                            pf,
+                                            analysisResult,
+                                            timing,
+                                            localSymbolIndex,
+                                            localCodeUnitState,
+                                            localFileState,
+                                            moduleKeyCache);
+                                    // Populate local cache from analysis results
+                                    analysisResult.signatures().forEach((cu, sigs) -> {
+                                        this.cache.signatures().put(cu, List.copyOf(sigs));
+                                    });
+                                },
                                 ingestExecutor)
                         .whenComplete((ignored, ex) -> {
                             progressReporter.increment();
@@ -2539,17 +2545,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(rngs), hasBody));
         }
 
-        // Populate transient per-CodeUnit signatures cache so later lazy lookups can use these values.
-        // Overwrite any existing entries for re-analyzed files by calling put for each CU found in this file.
-        localSignatures.forEach((cu, sigs) -> {
-            if (sigs == null || sigs.isEmpty()) {
-                // Ensure we store an explicit empty list to signal "no signatures" rather than leaving old values.
-                cache.signatures().put(cu, List.of());
-            } else {
-                cache.signatures().put(cu, List.copyOf(sigs));
-            }
-        });
-
         for (var cu : localStates.keySet()) {
             String identifierKey = cu.identifier();
             localCodeUnitsBySymbol
@@ -3793,7 +3788,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                             // Populate the new cache with signatures from re-analysis immediately.
                                             // This avoids an O(N*M) scan of the entire state later.
                                             analysisResult.signatures().forEach((cu, sigs) -> {
-                                                filteredCache.signatures().put(cu, List.copyOf(sigs));
+                                                if (sigs == null || sigs.isEmpty()) {
+                                                    filteredCache.signatures().put(cu, List.of());
+                                                } else {
+                                                    filteredCache.signatures().put(cu, List.copyOf(sigs));
+                                                }
                                             });
 
                                             reanalyzedCount.incrementAndGet();

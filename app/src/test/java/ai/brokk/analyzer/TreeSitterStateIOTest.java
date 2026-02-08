@@ -447,7 +447,7 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void skeletonsRemainConsistentAcrossSaveAndLoad(@TempDir Path tempDir) throws Exception {
+    void skeletonsRemainConsistentAcrossSaveAndLoad() throws Exception {
         var builder = InlineTestProjectCreator.code(
                 """
                         package com.example;
@@ -505,7 +505,7 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void roundTripTypeHierarchy(@TempDir Path tempDir) throws Exception {
+    void roundTripTypeHierarchy() throws Exception {
         var builder = InlineTestProjectCreator.code(
                 """
                 package com.example;
@@ -541,7 +541,7 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void roundTripLazySubtypes(@TempDir Path tempDir) throws Exception {
+    void roundTripLazySubtypes() throws Exception {
         var builder = InlineTestProjectCreator.code(
                 """
                 package com.example;
