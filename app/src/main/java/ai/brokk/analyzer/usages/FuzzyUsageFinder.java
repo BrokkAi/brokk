@@ -549,4 +549,40 @@ public final class FuzzyUsageFinder {
         }
         return count;
     }
+
+    /**
+     * Experimental heuristic: derive the set of declaration-side parameter counts for the given fully-qualified
+     * name by inspecting CodeUnit.signature() values returned by analyzer.getDefinitions(fqName).
+     *
+     * Notes and constraints:
+     * - Limited to function-like code units (CodeUnit.isFunction()). Class/field/module definitions are ignored.
+     * - Parsing is intentionally simple and defensive: when a signature is null or cannot be parsed, that CodeUnit
+     *   is skipped and does not contribute to the returned set.
+     * - Works purely in-memory on signature strings; does not trigger analyzer work or read files.
+     * - Returns an empty set when no reliable parameter counts can be obtained.
+     */
+    private Set<Integer> extractParameterCountsForDefinitions(String fqName) {
+        var defs = analyzer.getDefinitions(fqName);
+        if (defs == null || defs.isEmpty()) {
+            return Set.of();
+        }
+        var counts = new HashSet<Integer>();
+        for (CodeUnit def : defs) {
+            // Only consider function-like definitions (methods/constructors); skip classes/fields/modules.
+            if (!def.isFunction()) {
+                continue;
+            }
+            try {
+                String sig = def.signature();
+                int parsed = parseParameterCountFromSignature(sig);
+                if (parsed >= 0) {
+                    counts.add(parsed);
+                }
+            } catch (Exception e) {
+                // Be conservative: skip any definition that causes unexpected parsing errors.
+                logger.debug("Skipping definition {} due to signature parse error: {}", def, e.toString());
+            }
+        }
+        return counts;
+    }
 }
