@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
@@ -584,5 +585,232 @@ public final class FuzzyUsageFinder {
             }
         }
         return counts;
+    }
+
+    /**
+     * NEW HELPER:
+     *
+     * Estimate the number of arguments passed at the call corresponding to a UsageHit.
+     *
+     * - Returns OptionalInt.empty() when unknown/unreliable.
+     * - Applies only for function-like enclosing units and for languages we support (initially Java).
+     * - Uses only the snippet text previously captured; does not read the file or call analyzer APIs that trigger I/O.
+     *
+     * Heuristic (Java):
+     *  - Look for the enclosing identifier in the snippet and try to find a '(' following that occurrence.
+     *  - Extract the parenthesized text on the same line (or nearby) and count top-level commas respecting simple
+     *    nesting for angle brackets and parentheses and string quoting.
+     *  - Be conservative: if parentheses appear unbalanced or we cannot confidently locate the argument list,
+     *    return empty.
+     */
+    private OptionalInt estimateArgumentCount(UsageHit hit) {
+        if (hit == null) return OptionalInt.empty();
+        CodeUnit enclosing = hit.enclosing();
+        if (enclosing == null) return OptionalInt.empty();
+
+        // Only attempt for function-like code unit kinds.
+        if (!enclosing.isFunction()) {
+            return OptionalInt.empty();
+        }
+
+        // Only handle Java for now.
+        Language lang = Languages.fromExtension(hit.file().extension());
+        if (lang != Languages.JAVA) {
+            return OptionalInt.empty();
+        }
+
+        String snippet = hit.snippet();
+        if (snippet == null || snippet.isBlank()) {
+            return OptionalInt.empty();
+        }
+
+        String identifier = enclosing.identifier();
+        if (identifier == null || identifier.isBlank()) {
+            return OptionalInt.empty();
+        }
+
+        // Find occurrences of the identifier in the snippet. Choose the occurrence that has a '(' following it
+        // reasonably soon. Be conservative about method references ("::") and field access (".").
+        int bestPos = -1;
+        int bestParenPos = -1;
+        int bestDistance = Integer.MAX_VALUE;
+        String[] lines = snippet.split("\\R", -1);
+        for (int li = 0; li < lines.length; li++) {
+            String line = lines[li];
+            int from = 0;
+            while (true) {
+                int pos = line.indexOf(identifier, from);
+                if (pos < 0) break;
+                // ignore occurrences that are part of a longer identifier (alnum or $ after or before)
+                boolean leftOk = pos == 0 || !Character.isJavaIdentifierPart(line.charAt(pos - 1));
+                int afterIdx = pos + identifier.length();
+                boolean rightOk = afterIdx >= line.length() || !Character.isJavaIdentifierPart(line.charAt(afterIdx));
+                if (!leftOk || !rightOk) {
+                    from = pos + 1;
+                    continue;
+                }
+                // check if next non-space chars include '(' (skip dot, spaces, generics)
+                int scan = afterIdx;
+                // Skip spaces
+                while (scan < line.length() && Character.isWhitespace(line.charAt(scan))) scan++;
+                // If there's a dot immediately, this might be receiver.method() scenario; we still allow if '(' appears
+                // later
+                // But if '::' method reference, treat as non-call
+                if (scan + 1 < line.length() && line.charAt(scan) == ':' && line.charAt(scan + 1) == ':') {
+                    from = pos + 1;
+                    continue; // method reference, not a call
+                }
+
+                // Find '(' after pos in the same line
+                int parenPos = -1;
+                for (int k = afterIdx; k < line.length(); k++) {
+                    char c = line.charAt(k);
+                    if (c == '(') {
+                        parenPos = k;
+                        break;
+                    }
+                    // stop scanning if we hit a semicolon or comment start which suggests no call here
+                    if (c == ';' || c == '{' || c == '}' || c == '/') {
+                        break;
+                    }
+                }
+                if (parenPos >= 0) {
+                    // Prefer the occurrence closest to the center of the snippet (heuristic)
+                    int center = snippet.length() / 2;
+                    int globalPos = computeGlobalPos(lines, li, pos);
+                    int distance = Math.abs(globalPos - center);
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestPos = globalPos;
+                        bestParenPos = computeGlobalPos(lines, li, parenPos);
+                    }
+                }
+                from = pos + 1;
+            }
+        }
+
+        // If not found a '(' following identifier on same lines, try a broader search for any parentheses pair in
+        // snippet
+        if (bestParenPos < 0) {
+            int lp = snippet.indexOf('(');
+            int rp = -1;
+            if (lp >= 0) rp = snippet.indexOf(')', lp + 1);
+            if (lp >= 0 && rp > lp) {
+                String inside = snippet.substring(lp + 1, rp);
+                int cnt = countTopLevelArgs(inside);
+                if (cnt >= 0) return OptionalInt.of(cnt);
+            }
+            return OptionalInt.empty();
+        }
+
+        // Now extract the parenthesized content starting from bestParenPos within the snippet
+        int relLp = bestParenPos;
+        // find matching ')' considering nested parentheses within snippet bounds
+        int depth = 0;
+        int rp = -1;
+        for (int i = relLp; i < snippet.length(); i++) {
+            char c = snippet.charAt(i);
+            if (c == '(') depth++;
+            else if (c == ')') {
+                depth--;
+                if (depth == 0) {
+                    rp = i;
+                    break;
+                }
+            } else if (c == '"' || c == '\'') {
+                // Skip strings naively
+                char quote = c;
+                i++;
+                while (i < snippet.length()) {
+                    char cc = snippet.charAt(i);
+                    if (cc == '\\') {
+                        i++; // skip escaped char
+                    } else if (cc == quote) {
+                        break;
+                    }
+                    i++;
+                }
+            }
+        }
+        if (rp < 0) {
+            // Unbalanced or not within snippet
+            return OptionalInt.empty();
+        }
+        String inside = snippet.substring(relLp + 1, rp);
+        int cnt = countTopLevelArgs(inside);
+        if (cnt < 0) return OptionalInt.empty();
+        return OptionalInt.of(cnt);
+    }
+
+    private static int countTopLevelArgs(String inside) {
+        if (inside == null) return -1;
+        int len = inside.length();
+        int depthParen = 0;
+        int depthAngle = 0;
+        boolean inSingle = false;
+        boolean inDouble = false;
+        int args = 0;
+        StringBuilder token = new StringBuilder();
+        for (int i = 0; i < len; i++) {
+            char c = inside.charAt(i);
+            if (c == '\'' && !inDouble) {
+                inSingle = !inSingle;
+                token.append(c);
+                continue;
+            } else if (c == '"' && !inSingle) {
+                inDouble = !inDouble;
+                token.append(c);
+                continue;
+            }
+            if (inSingle || inDouble) {
+                if (c == '\\') {
+                    token.append(c);
+                    if (i + 1 < len) {
+                        token.append(inside.charAt(i + 1));
+                        i++;
+                    }
+                    continue;
+                } else {
+                    token.append(c);
+                    continue;
+                }
+            }
+            if (c == '(') {
+                depthParen++;
+                token.append(c);
+            } else if (c == ')') {
+                if (depthParen > 0) depthParen--;
+                token.append(c);
+            } else if (c == '<') {
+                depthAngle++;
+                token.append(c);
+            } else if (c == '>') {
+                if (depthAngle > 0) depthAngle--;
+                token.append(c);
+            } else if (c == ',' && depthParen == 0 && depthAngle == 0) {
+                // top-level separator
+                if (token.toString().trim().length() > 0) {
+                    args++;
+                }
+                token.setLength(0);
+            } else {
+                token.append(c);
+            }
+        }
+        if (token.toString().trim().length() > 0) {
+            args++;
+        }
+        // If the inside was empty or only whitespace, return 0
+        if (args == 0 && inside.trim().isEmpty()) return 0;
+        return args;
+    }
+
+    private static int computeGlobalPos(String[] lines, int lineIndex, int col) {
+        int pos = 0;
+        for (int i = 0; i < lineIndex; i++) {
+            pos += lines[i].length();
+            pos += 1; // account for the '\n' that was removed by split
+        }
+        return pos + col;
     }
 }
