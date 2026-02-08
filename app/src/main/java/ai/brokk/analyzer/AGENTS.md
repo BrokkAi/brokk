@@ -24,6 +24,7 @@
 ### 4. Analyzer Snapshot Architecture
 1. **Immutability**: Analyzers are **immutable snapshots** of the project state at a point in time.
 1. **Update behavior**: Calling `analyzer.update()` returns a **new** analyzer instance; it does not mutate the existing one. Instance fields on an analyzer represent the state of that specific snapshot and should not be modified.
-1. **Persistent State**: If state needs to persist across `update()` calls (e.g., caches, indexes), it must be stored in the `AnalyzerState` record.
+1. **Persistent State**: If state needs to persist across `update()` calls (e.g., compact structural indexes, ranges, import graphs, type-hierarchy graphs), it must be stored in the `AnalyzerState` record.
+   - Note: Presentational or heavy variable-sized data (for example, rendered function/class "signatures") MUST NOT be stored in AnalyzerState. Such data belongs in the transient, transferable `AnalyzerCache` (see `ai.brokk.analyzer.cache.AnalyzerCache`). Keeping signatures in the cache avoids bloating persisted snapshots and allows on-demand recomputation or cache transfer during incremental updates.
 1. **PMap usage**: `AnalyzerState` uses `PMap` (persistent/immutable maps from `pcollections`) to enable efficient structural sharing and avoid unnecessary garbage collection.
-1. **Lazy caches**: Lazy caches (like `LazyTypeHierarchyCache`, `LazyImportCache`) are instance-level and reset on `update()`; their computed values are merged into `AnalyzerState` via `snapshotState()` for serialization.
+1. **Lazy caches**: Lazy caches (like `LazyTypeHierarchyCache`, `LazyImportCache`) are instance-level and reset on `update()`; their computed values are merged into `AnalyzerState` via `snapshotState()` for serialization where appropriate (forward mappings). Again, signatures are handled separately by `AnalyzerCache` and are not persisted in snapshots.
