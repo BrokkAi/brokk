@@ -5,6 +5,10 @@ import ai.brokk.Llm;
 import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.StringDiskCache;
+import com.fasterxml.jackson.core.JacksonException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -13,6 +17,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -23,6 +28,7 @@ public final class RelevanceClassifier {
     public static final String RELEVANT_MARKER = "BRK_RELEVANT";
     public static final String IRRELEVANT_MARKER = "BRK_IRRELEVANT";
     private static final int MAX_RELEVANCE_TRIES = 3;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private RelevanceClassifier() {}
 
@@ -51,7 +57,7 @@ public final class RelevanceClassifier {
             if (!hasRel && hasIrr) return false;
 
             logger.debug("Ambiguous relevance response, retrying...");
-            messages.add(new UserMessage(response));
+            messages.add(new AiMessage(response));
             messages.add(new UserMessage("You must respond with exactly one of the markers {%s, %s}"
                     .formatted(RELEVANT_MARKER, IRRELEVANT_MARKER)));
         }
@@ -136,7 +142,7 @@ public final class RelevanceClassifier {
             if (!Double.isNaN(parsed)) return parsed;
 
             logger.debug("Ambiguous scoring response, retrying...");
-            messages.add(new UserMessage(response));
+            messages.add(new AiMessage(response));
             messages.add(new UserMessage("Respond with only a single number between 0.0 and 1.0, inclusive."));
         }
 
@@ -227,6 +233,164 @@ public final class RelevanceClassifier {
         return recommendationTasks;
     }
 
+    public static List<Double> scoreRelevanceMulti(
+            Llm llm, IStringDiskCache diskCache, String systemPrompt, String userPrompt, int expectedCount)
+            throws InterruptedException {
+        var cacheKey = relevanceScoreCacheKey(llm, systemPrompt, userPrompt, expectedCount);
+        var cached = diskCache.computeIfAbsentInterruptibly(
+                cacheKey, () -> scoreRelevanceMultiUncached(llm, systemPrompt, userPrompt, expectedCount).stream()
+                        .map(Object::toString)
+                        .collect(Collectors.joining(",")));
+        return Arrays.stream(cached.split(","))
+                .map(String::strip)
+                .map(Double::parseDouble)
+                .toList();
+    }
+
+    private static List<Double> scoreRelevanceMultiUncached(
+            Llm llm, String systemPrompt, String userPrompt, int expectedCount) throws InterruptedException {
+        List<ChatMessage> messages = new ArrayList<>(2);
+        messages.add(new SystemMessage(systemPrompt));
+        messages.add(new UserMessage(userPrompt));
+
+        for (int attempt = 1; attempt <= MAX_RELEVANCE_TRIES; attempt++) {
+            logger.trace("Invoking relevance multi-scorer (attempt {}/{})", attempt, MAX_RELEVANCE_TRIES);
+            var result = llm.sendRequest(messages);
+
+            if (result.error() != null) {
+                logger.debug("Error scoring response (attempt {}): {}", attempt, result);
+                continue;
+            }
+
+            var response = result.text().strip();
+            logger.trace("Relevance multi-scorer response (attempt {}): {}", attempt, response);
+
+            // Accept marker-based outputs as degenerate cases
+            boolean hasRel = response.contains(RELEVANT_MARKER);
+            boolean hasIrr = response.contains(IRRELEVANT_MARKER);
+            if (hasRel && !hasIrr) return Collections.nCopies(expectedCount, 1.0);
+            if (!hasRel && hasIrr) return Collections.nCopies(expectedCount, 0.0);
+
+            var parsed = extractScores(response, expectedCount);
+            if (!parsed.isEmpty()) return parsed;
+
+            logger.debug("Ambiguous multi-scoring response, retrying...");
+            messages.add(new AiMessage(response));
+            messages.add(
+                    new UserMessage("Respond with only a JSON array of %d numbers between 0.0 and 1.0, e.g. [0.8, 0.3]."
+                            .formatted(expectedCount)));
+        }
+
+        logger.debug("Defaulting to all-zeros after {} attempts", MAX_RELEVANCE_TRIES);
+        return Collections.nCopies(expectedCount, 0.0);
+    }
+
+    public static List<Double> relevanceScoreMulti(
+            Llm llm, IStringDiskCache diskCache, String filterDescription, String candidateText, int expectedCount)
+            throws InterruptedException {
+        var systemPrompt =
+                """
+                           You are an assistant that scores how relevant the candidate text is,
+                           given a user-provided filter description.
+                           Respond with only a JSON array of %d numbers between 0.0 and 1.0 (inclusive),
+                           where 0.0 means not relevant and 1.0 means highly relevant.
+                           """
+                        .formatted(expectedCount);
+
+        if (!candidateText.contains("</candidate>")) {
+            candidateText = "<candidate>\n" + candidateText + "\n</candidate>";
+        }
+        var userPrompt =
+                """
+                         <filter>
+                         %s
+                         </filter>
+
+                         %s
+
+                         Output only a JSON array of %d numbers in [0.0, 1.0].
+                         """
+                        .formatted(filterDescription, candidateText, expectedCount);
+
+        return scoreRelevanceMulti(llm, diskCache, systemPrompt, userPrompt, expectedCount);
+    }
+
+    public static Map<RelevanceTask, List<Double>> relevanceScoreBatchMulti(
+            IStringDiskCache diskCache, Llm llm, AbstractService service, List<RelevanceTask> tasks)
+            throws InterruptedException {
+        if (tasks.isEmpty()) return Collections.emptyMap();
+
+        var results = new HashMap<RelevanceTask, List<Double>>();
+
+        try (var executor = AdaptiveExecutor.create(service, llm.getModel(), tasks.size())) {
+            var recommendationTasks = getRecommendationTasksMulti(llm, diskCache, tasks);
+            var futures = executor.invokeAll(recommendationTasks);
+
+            for (var future : futures) {
+                try {
+                    var result = future.get();
+                    results.put(result.task(), result.scores());
+                } catch (ExecutionException e) {
+                    logger.error("Execution of a task failed while waiting for result", e);
+                }
+            }
+        }
+
+        return Map.copyOf(results);
+    }
+
+    private record RelevanceResultMulti(RelevanceTask task, List<Double> scores) {}
+
+    private static List<Callable<RelevanceResultMulti>> getRecommendationTasksMulti(
+            Llm llm, IStringDiskCache diskCache, List<RelevanceTask> tasks) {
+        var recommendationTasks = new ArrayList<Callable<RelevanceResultMulti>>();
+        for (var task : tasks) {
+            recommendationTasks.add(() -> {
+                try {
+                    return new RelevanceResultMulti(
+                            task,
+                            relevanceScoreMulti(
+                                    llm,
+                                    diskCache,
+                                    task.filterDescription(),
+                                    task.candidateText(),
+                                    task.expectedScoreCount()));
+                } catch (InterruptedException e) {
+                    logger.error("Interrupted while determining scores for {}. Defaulting to all 1.0.", task, e);
+                    return new RelevanceResultMulti(task, Collections.nCopies(task.expectedScoreCount(), 1d));
+                }
+            });
+        }
+        return recommendationTasks;
+    }
+
+    static List<Double> extractScores(String response, int expectedCount) {
+        if (response.isEmpty()) return List.of();
+
+        // Try to find and parse a JSON array like [0.8, 0.3, 0.1]
+        int start = response.indexOf('[');
+        int end = response.lastIndexOf(']');
+        if (start != -1 && end != -1 && end > start) {
+            try {
+                String json = response.substring(start, end + 1);
+                List<Double> parsed = objectMapper.readValue(json, new TypeReference<>() {});
+                if (parsed != null && parsed.size() == expectedCount) {
+                    return parsed.stream().map(RelevanceClassifier::clamp01).toList();
+                }
+            } catch (JacksonException | RuntimeException e) {
+                logger.trace("Failed to parse array-style scores via Jackson", e);
+            }
+        }
+
+        // Fallback: try single score and replicate
+        double single = extractScore(response);
+        if (!Double.isNaN(single)) {
+            return Collections.nCopies(expectedCount, single);
+        }
+
+        return List.of();
+    }
+
     private static double extractScore(String response) {
         if (response.isEmpty()) return Double.NaN;
 
@@ -238,8 +402,8 @@ public final class RelevanceClassifier {
                 double v = Double.parseDouble(m.group(1));
                 return clamp01(v);
             }
-        } catch (Throwable t) {
-            logger.trace("Failed to parse JSON-style score", t);
+        } catch (RuntimeException e) {
+            logger.trace("Failed to parse JSON-style score", e);
         }
 
         // Try first number present
@@ -250,8 +414,8 @@ public final class RelevanceClassifier {
                 double v = Double.parseDouble(m.group(1));
                 return clamp01(v);
             }
-        } catch (Throwable t) {
-            logger.trace("Failed to extract numeric score", t);
+        } catch (RuntimeException e) {
+            logger.trace("Failed to extract numeric score", e);
         }
 
         return Double.NaN;
@@ -265,7 +429,11 @@ public final class RelevanceClassifier {
     }
 
     private static String relevanceScoreCacheKey(Llm llm, String systemPrompt, String userPrompt) {
-        var payload = llm + "\n" + systemPrompt + "\n---\n" + userPrompt;
+        return relevanceScoreCacheKey(llm, systemPrompt, userPrompt, 1);
+    }
+
+    private static String relevanceScoreCacheKey(Llm llm, String systemPrompt, String userPrompt, int expectedCount) {
+        var payload = llm + "\n" + systemPrompt + "\n---\n" + userPrompt + "\ncount=" + expectedCount;
         return "relevance_" + StringDiskCache.sha1Hex(payload);
     }
 }
