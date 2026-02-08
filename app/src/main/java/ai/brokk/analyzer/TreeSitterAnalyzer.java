@@ -608,14 +608,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Primary source: transient analyzer cache populated during file analysis.
         List<String> cached = cache.signatures().get(codeUnit);
         if (cached != null) {
-            // Ensure we return an immutable copy to callers.
             return List.copyOf(cached);
         }
 
         // No signatures found in the transient cache. Historically CodeUnitProperties.signatures()
         // returned an empty list (signatures were removed from persistent AnalyzerState). To preserve
         // legacy behavior, return an explicit empty list here and allow callers to still render children.
-        log.trace("No cached signatures for CU {}; returning empty signatures list", codeUnit.fqName());
         return Collections.emptyList();
     }
 

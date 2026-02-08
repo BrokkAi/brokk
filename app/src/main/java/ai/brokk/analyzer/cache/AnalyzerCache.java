@@ -2,6 +2,7 @@ package ai.brokk.analyzer.cache;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -69,7 +70,7 @@ public final class AnalyzerCache {
             if (!changedFiles.contains(cu.source())) {
                 // Ensure we create a defensive copy even if the source list is already unmodifiable.
                 // List.copyOf may return the same instance for already-unmodifiable lists, so wrap first.
-                List<String> copied = List.copyOf(new java.util.ArrayList<>(sigs));
+                List<String> copied = List.copyOf(new ArrayList<>(sigs));
                 this.signatures.put(cu, copied);
             }
         });
