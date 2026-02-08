@@ -1995,6 +1995,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
         long __parseEnd = System.nanoTime();
+
+        if (tree != null) {
+            cache.trees().put(file, tree);
+        }
+
         if (timing != null) {
             timing.parseStageNanos().addAndGet(__parseEnd - __parseStart);
             timing.parseStageFirstStartNanos().accumulateAndGet(__parseStart, Math::min);
@@ -3783,22 +3788,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         try {
                                             var parser = getTSParser();
                                             byte[] bytes = readFileBytes(file, null);
-
-                                            // Parse and update transient tree cache so other lazy operations (e.g.,
-                                            // raw supertype extraction) see the new parse tree immediately.
-                                            try {
-                                                String src = new String(bytes, StandardCharsets.UTF_8);
-                                                TSTree parsedTree = parser.parseString(null, src);
-                                                if (parsedTree != null) {
-                                                    cache.trees().put(file, parsedTree);
-                                                }
-                                            } catch (Exception e) {
-                                                // Non-fatal: log and continue to attempt analysis using the parser
-                                                log.debug(
-                                                        "Failed to parse and cache tree for {} during update: {}",
-                                                        file,
-                                                        e.getMessage());
-                                            }
 
                                             var analysisResult = analyzeFileContent(file, bytes, parser, null);
                                             mergeAnalysisResultIntoMaps(
