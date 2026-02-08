@@ -230,16 +230,15 @@ public final class TreeSitterStateIO {
 
     /**
      * DTO for AnalyzerState with only serializable components.
+     *
+     * NOTE: import/type-hierarchy graphs are no longer part of the persisted AnalyzerState.
+     * They are represented transiently in a serializable cache snapshot when desired.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record AnalyzerStateDto(
             Map<String, List<CodeUnitDto>> symbolIndex,
             List<CodeUnitEntryDto> codeUnitState,
             List<FileStateEntryDto> fileState,
-            List<ImportEntryDto> imports,
-            List<ReverseImportEntryDto> reverseImports,
-            @Nullable List<SupertypeEntryDto> supertypes,
-            @Nullable List<SubtypeEntryDto> subtypes,
             List<String> symbolKeys,
             long snapshotEpochNanos) {}
 
@@ -281,30 +280,6 @@ public final class TreeSitterStateIO {
             this.containsTests = containsTests;
         }
     }
-
-    /**
-     * DTO entry for ProjectFile -> Set<CodeUnit> (imports).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
-
-    /**
-     * DTO entry for ProjectFile -> Set<ProjectFile> (reverse imports).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ReverseImportEntryDto(ProjectFileDto key, List<ProjectFileDto> value) {}
-
-    /**
-     * DTO entry for CodeUnit -> List<CodeUnit> (supertypes).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SupertypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
-
-    /**
-     * DTO entry for CodeUnit -> Set<CodeUnit> (subtypes).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SubtypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
     /**
      * Save an AnalyzerState together with an optional serializable cache snapshot into a versioned top-level
@@ -383,11 +358,9 @@ public final class TreeSitterStateIO {
      * we return empty to trigger a rebuild rather than attempting complex migration.
      */
     /**
-     * Loads an AnalyzerState from disk (legacy/simple API). This keeps the original behavior:
-     * - returns Optional.empty() if file is missing or corrupt
-     * - ignores any serialized cache snapshot (it is still read, but not returned)
+     * Loads an AnalyzerState from the provided file (legacy/simple API). Returns Optional.empty() if file missing or corrupt.
      *
-     * Prefer {@link #loadWithCache(Path)} when the caller wants the cached transient data restored.
+     * Prefer {@link #loadWithCache(Path)} when the caller wants the transient cache snapshot restored.
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
@@ -604,66 +577,13 @@ public final class TreeSitterStateIO {
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
         }
 
-        // imports -> entries list from ImportGraph
-        var forwardImports = state.importGraph().imports();
-        List<ImportEntryDto> importEntries = new ArrayList<>(forwardImports.size());
-        for (var e : forwardImports.entrySet()) {
-            importEntries.add(new ImportEntryDto(
-                    toDto(e.getKey()),
-                    e.getValue().stream()
-                            .map(TreeSitterStateIO::toDto)
-                            .sorted(Comparator.comparing(CodeUnitDto::packageName)
-                                    .thenComparing(CodeUnitDto::shortName))
-                            .toList()));
-        }
-
-        // reverseImports -> entries list from ImportGraph
-        var reverseImports = state.importGraph().reverseImports();
-        List<ReverseImportEntryDto> reverseImportEntries = new ArrayList<>(reverseImports.size());
-        for (var e : reverseImports.entrySet()) {
-            reverseImportEntries.add(new ReverseImportEntryDto(
-                    toDto(e.getKey()),
-                    e.getValue().stream()
-                            .map(TreeSitterStateIO::toDto)
-                            .sorted(Comparator.comparing(ProjectFileDto::relPath))
-                            .toList()));
-        }
-
-        // typeHierarchy -> DTO from TypeHierarchyGraph
-        List<SupertypeEntryDto> supertypeEntries =
-                new ArrayList<>(state.typeHierarchyGraph().supertypes().size());
-        for (var e : state.typeHierarchyGraph().supertypes().entrySet()) {
-            supertypeEntries.add(new SupertypeEntryDto(
-                    toDto(e.getKey()),
-                    e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
-        }
-        List<SubtypeEntryDto> subtypeEntries =
-                new ArrayList<>(state.typeHierarchyGraph().subtypes().size());
-        for (var e : state.typeHierarchyGraph().subtypes().entrySet()) {
-            subtypeEntries.add(new SubtypeEntryDto(
-                    toDto(e.getKey()),
-                    e.getValue().stream()
-                            .map(TreeSitterStateIO::toDto)
-                            .sorted(Comparator.comparing(CodeUnitDto::packageName)
-                                    .thenComparing(CodeUnitDto::shortName))
-                            .toList()));
-        }
         // Symbol keys for the index
         List<String> symbolKeys = new ArrayList<>();
         for (String key : state.symbolKeyIndex().all()) {
             symbolKeys.add(key);
         }
 
-        return new AnalyzerStateDto(
-                symbolIndexCopy,
-                cuEntries,
-                fileEntries,
-                importEntries,
-                reverseImportEntries,
-                supertypeEntries,
-                subtypeEntries,
-                symbolKeys,
-                state.snapshotEpochNanos());
+        return new AnalyzerStateDto(symbolIndexCopy, cuEntries, fileEntries, symbolKeys, state.snapshotEpochNanos());
     }
 
     /**
@@ -748,55 +668,15 @@ public final class TreeSitterStateIO {
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
 
-        // Rebuild forward imports Map for ImportGraph
-        Map<ProjectFile, Set<CodeUnit>> importsMap = new HashMap<>();
-        for (var entry : dto.imports()) {
-            importsMap.put(
-                    fromDto(entry.key()),
-                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-        }
-
-        // Rebuild reverse imports Map for ImportGraph
-        Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
-        for (var entry : dto.reverseImports()) {
-            reverseImportsMap.put(
-                    fromDto(entry.key()),
-                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-        }
-
-        // Rebuild TypeHierarchyGraph
-        Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
-        Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
-
-        var supertypeEntries = dto.supertypes() != null ? dto.supertypes() : List.<SupertypeEntryDto>of();
-        for (var entry : supertypeEntries) {
-            supertypesMap.put(
-                    fromDto(entry.key()),
-                    entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
-        }
-
-        var subtypeEntries = dto.subtypes() != null ? dto.subtypes() : List.<SubtypeEntryDto>of();
-        for (var entry : subtypeEntries) {
-            subtypesMap.put(
-                    fromDto(entry.key()),
-                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-        }
-
         // Rebuild SymbolKeyIndex
         var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         keySet.addAll(dto.symbolKeys());
         var unmodifiableKeys = Collections.unmodifiableNavigableSet(keySet);
         var symbolKeyIndex = new TreeSitterAnalyzer.SymbolKeyIndex(unmodifiableKeys);
 
-        // Construct new immutable AnalyzerState
+        // Construct new immutable AnalyzerState (no import/type graphs)
         return new TreeSitterAnalyzer.AnalyzerState(
-                symbolIndex,
-                codeUnitState,
-                fileState,
-                ImportGraph.from(importsMap, reverseImportsMap),
-                TypeHierarchyGraph.from(supertypesMap, subtypesMap),
-                symbolKeyIndex,
-                dto.snapshotEpochNanos());
+                symbolIndex, codeUnitState, fileState, symbolKeyIndex, dto.snapshotEpochNanos());
     }
 
     /* ================= Helpers ================= */
