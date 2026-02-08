@@ -222,6 +222,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
+            Map<CodeUnit, List<String>> signatures,
             Map<String, Set<CodeUnit>> codeUnitsBySymbol,
             List<ImportInfo> importStatements,
             boolean containsTests) {}
@@ -1968,7 +1969,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
         if (fileBytes.length == 0) {
             log.trace("Skipping binary/empty file: {}", file);
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), List.of(), false);
         }
 
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
@@ -2004,7 +2005,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), List.of(), false);
         }
         String rootNodeType = rootNode.getType();
         log.trace("Root node type for {}: {}", file, rootNodeType);
@@ -2584,6 +2585,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return new FileAnalysisResult(
                 localTopLevelCUs.stream().distinct().toList(),
                 Collections.unmodifiableMap(localStates),
+                Collections.unmodifiableMap(localSignatures),
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportInfos),
                 containsTests);
@@ -3754,7 +3756,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         long cleanupNanos = System.nanoTime() - cleanupStart;
 
-        // 3. Re-analyze changed files in parallel
+        // 3. Prepare the new cache by transferring valid entries from the previous one.
+        // The AnalyzerCache transfer constructor filters out entries sourced from changedFiles.
+        var filteredCache = new AnalyzerCache(this.cache, relevantFiles);
+
+        // 4. Re-analyze changed files in parallel
         int total = relevantFiles.size();
         var reanalyzedCount = new AtomicInteger(0);
         var deletedCount = new AtomicInteger(0);
@@ -3783,6 +3789,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                                     newCodeUnitState,
                                                     newFileState,
                                                     moduleKeyCache);
+
+                                            // Populate the new cache with signatures from re-analysis immediately.
+                                            // This avoids an O(N*M) scan of the entire state later.
+                                            analysisResult.signatures().forEach((cu, sigs) -> {
+                                                filteredCache.signatures().put(cu, List.copyOf(sigs));
+                                            });
+
                                             reanalyzedCount.incrementAndGet();
                                         } catch (UncheckedIOException e) {
                                             log.warn("IO error re-analysing {}: {}", file, e.getMessage());
@@ -3841,31 +3854,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // Re-run combined post-processing (imports + type analysis) after ingesting updates
         var typedState = runPostProcessing(nextState);
-
-        // Transfer cache from the previous snapshot, excluding entries for changed files.
-        // The AnalyzerCache transfer constructor filters out entries sourced from changedFiles.
-        // We pass relevantFiles (all modified/added/deleted files) so their stale cache entries
-        // (rawSupertypes, typeHierarchy, etc.) are not transferred. Fresh entries for re-analyzed
-        // files were already populated into this.cache during the re-analysis loop above.
-        var filteredCache = new AnalyzerCache(this.cache, relevantFiles);
-
-        // Copy freshly-analyzed signatures from this.cache into the filtered cache.
-        // The transfer constructor excluded relevantFiles, but we just re-analyzed them and
-        // populated this.cache with their new signatures. Transfer those new entries now.
-        for (ProjectFile file : relevantFiles) {
-            if (Files.exists(file.absPath())) {
-                // Find all CodeUnits sourced from this file and transfer their signatures
-                for (var entry : newCodeUnitState.entrySet()) {
-                    CodeUnit cu = entry.getKey();
-                    if (cu.source().equals(file)) {
-                        List<String> sigs = this.cache.signatures().get(cu);
-                        if (sigs != null) {
-                            filteredCache.signatures().put(cu, sigs);
-                        }
-                    }
-                }
-            }
-        }
 
         return newSnapshot(typedState, getProgressListener(), filteredCache);
     }
