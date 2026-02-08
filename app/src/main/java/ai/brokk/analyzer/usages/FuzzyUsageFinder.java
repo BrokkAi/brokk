@@ -33,6 +33,38 @@ import org.jetbrains.annotations.Nullable;
 /**
  * A lightweight, standalone usage finder that relies on analyzer metadata (when available) and can later fall back to
  * text search and LLM-based disambiguation for ambiguous short names.
+ *
+ * Design note (experiment): We will experiment with a very small, best-effort heuristic that uses parameter counts
+ * to disambiguate overloads without invoking the LLM. This heuristic is intentionally minimal:
+ *
+ * - Scope: Java only for the initial experiment. The TreeSitter-based JavaAnalyzer renders signatures as human-
+ *   readable strings (CodeUnit.signature()) that include parameter lists; therefore parsing parameter counts from
+ *   signature strings is feasible. Other languages may be added later if their signature format is similarly parseable.
+ *
+ * - Heuristic: When available, compare the declaration-side parameter count (parsed from CodeUnit.signature()) with
+ *   the call-site argument count (best-effort parsed from the usage snippet collected in UsageHit). If the counts
+ *   disagree, mark the hit as unlikely for that particular overload.
+ *
+ * - Constraints and safety:
+ *   * This is a best-effort, parameter-count-only heuristic and is NOT authoritative. It is only applied when BOTH
+ *     sides (declaration signature and call-site argument list) can be determined reliably. If either side is
+ *     unknown or ambiguous, the heuristic is skipped and we fall back to existing behavior.
+ *   * We do NOT change the public behavioral contract of FuzzyUsageFinder in this commit. The heuristic is implemented
+ *     as private helpers and documented placement points; it is not yet wired into the disambiguation pipeline so all
+ *     existing tests retain their behavior. Future changes will apply the heuristic after raw hits are collected and
+ *     before LLM disambiguation.
+ *   * The heuristic only considers simple, comma-separated arguments on the matched line(s). It will not attempt to
+ *     resolve nested parentheses across multiple lines or perform AST-level parsing (that would require Analyzer API
+ *     additions). This keeps the heuristic low-risk and easy to reason about.
+ *
+ * - Where to apply: After extractUsageHits produces raw UsageHit instances (which include a small snippet and the
+ *   enclosing CodeUnit), but before invoking the LLM-based RelevanceClassifier. The pipeline will:
+ *     1) Collect raw hits (existing extractUsageHits).
+ *     2) (Optional, future) Apply parameter-count filtering to prefer/score hits that match the target signature.
+ *     3) If ambiguous and LLM is available, fall back to LLM prompts (existing code).
+ *
+ * This file currently contains the helper parsing functions and inline comments describing the intended insertion
+ * point for the heuristic. No functional behavior is changed in this commit.
  */
 public final class FuzzyUsageFinder {
 
@@ -143,6 +175,24 @@ public final class FuzzyUsageFinder {
                 hits.size(),
                 target.fqName(),
                 candidateFiles.size());
+
+        // Intended insertion point for the parameter-count heuristic (future wiring):
+        //
+        // At this point we have:
+        //   - matchingCodeUnits: set of candidate CodeUnit definitions (overloads included)
+        //   - hits: raw UsageHit set with snippet/context + enclosing CodeUnit (from analyzer)
+        //
+        // The minimal experiment will:
+        //   1) For Java only (Language == JAVA), attempt to parse declaration-side parameter count from
+        //      each CodeUnit.signature() when present.
+        //   2) For each UsageHit, attempt to parse a call-site argument count from the usage snippet.
+        //   3) If both counts are available for a hit and a particular candidate definition, use the counts to
+        //      prefer matches where counts are equal and deprioritize/mark as unlikely those where counts differ.
+        //
+        // Important: This commit DOES NOT APPLY the heuristic yet. The helper methods below implement the parsing
+        // logic and the comment documents the exact location where matching would occur. Applying the heuristic
+        // will be done in a follow-up change so that we can measure behavior and adjust without affecting current
+        // tests.
 
         if (isUnique) {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
@@ -364,5 +414,139 @@ public final class FuzzyUsageFinder {
         }
         var files = project.getAllFiles();
         return files.isEmpty();
+    }
+
+    //
+    // Helpers for the parameter-count heuristic (implementation only; NOT wired into the pipeline yet).
+    //
+    // These helpers implement the minimal, best-effort parsing described in the class-level comment above.
+    // They are intentionally conservative and return -1 for "unknown".
+    //
+
+    /**
+     * Parse a Java-style parameter count from a CodeUnit signature string, if present.
+     *
+     * Expected input examples (produced by JavaAnalyzer.renderFunctionDeclaration/assembleFunctionSignature):
+     *  - "void foo()" -> 0
+     *  - "int bar(String s, int x)" -> 2
+     *  - "List<T> baz(Map<String, List<Integer>> m)" -> 1
+     *
+     * Returns -1 if the signature is null or parsing fails.
+     */
+    private static int parseParameterCountFromSignature(@Nullable String signature) {
+        if (signature == null || signature.isBlank()) {
+            return -1;
+        }
+        // Conservative approach: find the first balanced parentheses pair after the first identifier-like token.
+        int firstParen = signature.indexOf('(');
+        int lastParen = signature.indexOf(')', firstParen + 1);
+        if (firstParen < 0 || lastParen < 0) {
+            return -1;
+        }
+        if (lastParen == firstParen + 1) {
+            return 0; // explicit empty parameter list "()"
+        }
+        String inside = signature.substring(firstParen + 1, lastParen).trim();
+        if (inside.isEmpty()) {
+            return 0;
+        }
+
+        // Split on commas but ignore commas inside angle brackets or parentheses (very simple balancing)
+        int count = 0;
+        int depthAngle = 0;
+        int depthParen = 0;
+        StringBuilder token = new StringBuilder();
+        for (int i = 0; i < inside.length(); i++) {
+            char c = inside.charAt(i);
+            if (c == '<') depthAngle++;
+            else if (c == '>') depthAngle = Math.max(0, depthAngle - 1);
+            else if (c == '(') depthParen++;
+            else if (c == ')') depthParen = Math.max(0, depthParen - 1);
+
+            if (c == ',' && depthAngle == 0 && depthParen == 0) {
+                if (token.toString().trim().length() > 0) {
+                    count++;
+                }
+                token.setLength(0);
+            } else {
+                token.append(c);
+            }
+        }
+        if (token.toString().trim().length() > 0) {
+            count++;
+        }
+        return count;
+    }
+
+    /**
+     * Heuristically count the number of arguments at a call-site using a UsageHit.snippet().
+     *
+     * This is intentionally simple:
+     *  - It tries to locate the occurrence of an identifier followed by '(' on the matched line.
+     *  - It then counts top-level commas within that parentheses pair on that line.
+     *  - If multiple candidate parentheses exist on the snippet line, picks the one nearest the match offset.
+     *
+     * Returns -1 when unable to determine.
+     */
+    private static int parseArgumentCountFromSnippet(UsageHit hit) {
+        String snippet = hit.snippet();
+        if (snippet == null || snippet.isBlank()) {
+            return -1;
+        }
+
+        // For simplicity use only the central matched line (the snippet produced by extractUsageHits includes +/- 3
+        // lines).
+        // We'll extract the line corresponding to hit.line (1-based within the file) relative to snippet.
+        var lines = snippet.split("\\R", -1);
+
+        // Try to locate a line that contains both '(' and ')' and use it.
+        int candidateLine = -1;
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].contains("(") && lines[i].contains(")")) {
+                candidateLine = i;
+                break;
+            }
+        }
+        if (candidateLine == -1) {
+            // fallback: search for any parentheses pair anywhere in the snippet
+            int lp = snippet.indexOf('(');
+            int rp = snippet.indexOf(')', lp + 1);
+            if (lp >= 0 && rp > lp) {
+                String inside = snippet.substring(lp + 1, rp);
+                return simpleCommaCount(inside);
+            }
+            return -1;
+        }
+
+        String line = lines[candidateLine];
+        // Find the first '(' and its matching ')' on that line
+        int lp = line.indexOf('(');
+        int rp = line.indexOf(')', lp + 1);
+        if (lp < 0 || rp < 0) {
+            return -1;
+        }
+        String inside = line.substring(lp + 1, rp);
+        return simpleCommaCount(inside);
+    }
+
+    /**
+     * Count commas at top level in a short expression (no nested parentheses/angles considered).
+     * Returns 0 for empty/blank; otherwise returns number-of-commas+1.
+     */
+    private static int simpleCommaCount(String inside) {
+        if (inside == null) return -1;
+        String s = inside.trim();
+        if (s.isEmpty()) return 0;
+        // very small heuristic: count commas that are not inside quotes (ignore complexity)
+        int count = 1;
+        boolean inSingle = false;
+        boolean inDouble = false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\'' && !inDouble) inSingle = !inSingle;
+            else if (c == '"' && !inSingle) inDouble = !inDouble;
+            else if (c == ',' && !inSingle && !inDouble) count++;
+        }
+        return count;
     }
 }
