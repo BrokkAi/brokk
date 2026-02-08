@@ -1373,14 +1373,17 @@ public class ContextFragments {
      * using "file" + "enclosing" keys when requesting expansions.
      */
     public static class LocationUsageFragment extends AbstractUsageFragment {
+        // Optional path-prefix filters applied at render time (relative unix-style paths).
+        private final List<String> pathPrefixes;
+
         public LocationUsageFragment(
                 IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, null);
+            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, null, List.of());
         }
 
         public LocationUsageFragment(
                 String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-            this(id, contextManager, targetIdentifier, includeTestFiles, null);
+            this(id, contextManager, targetIdentifier, includeTestFiles, null, List.of());
         }
 
         public LocationUsageFragment(
@@ -1389,12 +1392,28 @@ public class ContextFragments {
                 String targetIdentifier,
                 boolean includeTestFiles,
                 @Nullable String snapshotText) {
+            this(id, contextManager, targetIdentifier, includeTestFiles, snapshotText, List.of());
+        }
+
+        public LocationUsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText,
+                List<String> pathPrefixes) {
             super(id, contextManager, targetIdentifier, includeTestFiles, snapshotText, () -> {
                 // snapshot is provided by parent computeTask in other variants; overview does not compute independently
                 // but AbstractUsageFragment requires a computeTask when snapshotText==null. We reuse
                 // SimpleUsageFragment logic.
                 return SimpleUsageFragment.computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager);
             });
+            this.pathPrefixes = List.copyOf(pathPrefixes);
+        }
+
+        /** Public accessor so callers (tools) can compare path-prefix filters without breaking encapsulation. */
+        public List<String> getPathPrefixes() {
+            return pathPrefixes;
         }
 
         @Override
@@ -1416,14 +1435,27 @@ public class ContextFragments {
         public ComputedValue<String> text() {
             return derived("overviewText", snap -> {
                 Map<String, List<String>> byFile = new LinkedHashMap<>();
-                for (CodeUnit cu : snap.sources()) {
+                // Apply optional path-prefix filtering if provided
+                var sources = snap.sources().stream()
+                        .filter(cu -> {
+                            if (pathPrefixes == null || pathPrefixes.isEmpty()) return true;
+                            String rel = cu.source().getRelPath().toString().replace('\\', '/');
+                            return pathPrefixes.stream().anyMatch(rel::startsWith);
+                        })
+                        .toList();
+                for (CodeUnit cu : sources) {
                     String file = cu.source().toString();
                     byFile.computeIfAbsent(file, k -> new ArrayList<>()).add(cu.fqName());
                 }
                 // If sources empty, try to extract from files()
                 if (byFile.isEmpty()) {
                     for (ProjectFile pf : snap.files()) {
-                        byFile.putIfAbsent(pf.toString(), List.of());
+                        String rel = pf.getRelPath().toString().replace('\\', '/');
+                        if (pathPrefixes == null
+                                || pathPrefixes.isEmpty()
+                                || pathPrefixes.stream().anyMatch(rel::startsWith)) {
+                            byFile.putIfAbsent(pf.toString(), List.of());
+                        }
                     }
                 }
 
@@ -1455,7 +1487,8 @@ public class ContextFragments {
             if (this == other) return true;
             if (!(other instanceof LocationUsageFragment that)) return false;
             return this.targetIdentifier.equals(that.targetIdentifier)
-                    && this.includeTestFiles == that.includeTestFiles;
+                    && this.includeTestFiles == that.includeTestFiles
+                    && Objects.equals(this.pathPrefixes, that.pathPrefixes);
         }
     }
 
@@ -1468,6 +1501,8 @@ public class ContextFragments {
     public static class LocalUsageFragment extends AbstractUsageFragment {
         private final Set<String> selectedEnclosingFqns;
 
+        private final List<String> pathPrefixes;
+
         public LocalUsageFragment(
                 IContextManager contextManager,
                 String targetIdentifier,
@@ -1479,7 +1514,8 @@ public class ContextFragments {
                     targetIdentifier,
                     includeTestFiles,
                     null,
-                    selectedEnclosingFqns);
+                    selectedEnclosingFqns,
+                    List.of());
         }
 
         public LocalUsageFragment(
@@ -1489,10 +1525,29 @@ public class ContextFragments {
                 boolean includeTestFiles,
                 @Nullable String snapshotText,
                 Set<String> selectedEnclosingFqns) {
+            this(
+                    id,
+                    contextManager,
+                    targetIdentifier,
+                    includeTestFiles,
+                    snapshotText,
+                    selectedEnclosingFqns,
+                    List.of());
+        }
+
+        public LocalUsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText,
+                Set<String> selectedEnclosingFqns,
+                List<String> pathPrefixes) {
             super(id, contextManager, targetIdentifier, includeTestFiles, snapshotText, () -> {
                 return SimpleUsageFragment.computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager);
             });
             this.selectedEnclosingFqns = Set.copyOf(selectedEnclosingFqns);
+            this.pathPrefixes = List.copyOf(pathPrefixes);
         }
 
         @Override
@@ -1509,16 +1564,21 @@ public class ContextFragments {
         @Override
         public ComputedValue<String> text() {
             return derived("localText", snap -> {
-                // Filter CodeUnit sources by selection
-                List<CodeUnit> toRender;
-                if (selectedEnclosingFqns == null || selectedEnclosingFqns.isEmpty()) {
-                    toRender = snap.sources().stream().sorted().toList();
-                } else {
-                    toRender = snap.sources().stream()
-                            .filter(cu -> selectedEnclosingFqns.contains(cu.fqName()))
-                            .sorted()
-                            .toList();
-                }
+                // Filter CodeUnit sources by selection and by optional path-prefix filters
+                List<CodeUnit> toRender = snap.sources().stream()
+                        .filter(cu -> {
+                            if (selectedEnclosingFqns == null || selectedEnclosingFqns.isEmpty()) {
+                                return true;
+                            }
+                            return selectedEnclosingFqns.contains(cu.fqName());
+                        })
+                        .filter(cu -> {
+                            if (pathPrefixes == null || pathPrefixes.isEmpty()) return true;
+                            String rel = cu.source().getRelPath().toString().replace('\\', '/');
+                            return pathPrefixes.stream().anyMatch(rel::startsWith);
+                        })
+                        .sorted()
+                        .toList();
 
                 if (toRender.isEmpty()) {
                     return "No matching locations selected for expansion.";

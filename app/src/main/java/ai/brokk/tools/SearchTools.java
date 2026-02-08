@@ -278,10 +278,28 @@ public class SearchTools {
         for (String symbol : symbols) {
             if (symbol.isBlank()) continue;
 
-            var fragment = new ContextFragments.UsageFragment(contextManager, symbol, includeTests);
-            String text = fragment.text().join();
-            if (!text.isEmpty()) {
-                results.add(text);
+            // Instead of eagerly returning full snippets (which may be huge), return a compact locations overview.
+            var overview = new ContextFragments.LocationUsageFragment(contextManager, symbol, includeTests);
+            String text = overview.text().join();
+
+            // If the overview indicates few resolved enclosing units (heuristic: contains "no resolved" or only one
+            // file),
+            // also compute full snippets to be helpful for small result sets.
+            boolean small = text.lines().count() <= 3; // heuristic threshold
+            if (small) {
+                var full = new ContextFragments.UsageFragment(contextManager, symbol, includeTests);
+                String fullText = full.text().join();
+                if (!fullText.isBlank()) {
+                    results.add("Full usages for " + symbol + ":\n\n" + fullText);
+                    continue;
+                }
+            }
+
+            // Otherwise return locations-only overview and guidance for expansion
+            if (!text.isBlank()) {
+                results.add(
+                        "Locations overview for " + symbol + ":\n\n" + text
+                                + "\n\nTo expand specific locations into full snippets, call WorkspaceTools.expandUsageLocationsToWorkspace(symbol, enclosingFqns, includeTests, pathPrefixes).");
             }
         }
 
@@ -289,7 +307,7 @@ public class SearchTools {
             return "No usages found for: " + String.join(", ", symbols);
         }
 
-        return "Usages of " + String.join(", ", symbols) + ":\n\n" + String.join("\n\n", results);
+        return String.join("\n\n", results);
     }
 
     @Tool(

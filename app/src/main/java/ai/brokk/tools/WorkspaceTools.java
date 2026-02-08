@@ -295,15 +295,83 @@ public class WorkspaceTools {
             @P(
                             "Fully qualified symbol name (e.g., 'com.example.MyClass', 'com.example.MyClass.myMethod', 'com.example.MyClass.myField') to find usages for.")
                     String symbol) {
+        // Backwards-compatible default: prefer locations overview for potentially large result sets.
+        return addSymbolUsageLocationsToWorkspace(symbol, false, List.of());
+    }
+
+    @Tool(
+            "Add a compact locations-only overview of usages for the specified symbol to the Workspace. Use this first, then call expandUsageLocationsToWorkspace to materialize snippets for selected locations.")
+    public String addSymbolUsageLocationsToWorkspace(
+            @P("Fully qualified symbol name to find usages for") String symbol,
+            @P("Include test files in results? Default: false") boolean includeTestFiles,
+            @P(
+                            "Optional list of file path prefixes (relative paths) to filter usage locations (e.g., ['src/main/java/com/example'])")
+                    List<String> pathPrefixes) {
         assert !getAnalyzer().isEmpty() : "Cannot add usages: Code Intelligence is not available.";
-        if (symbol.isBlank()) {
-            return "Cannot add usages: symbol cannot be empty";
+        if (symbol.isBlank()) return "Cannot add usages: symbol cannot be empty";
+
+        // Try to reuse existing snapshot for same symbol + filters
+        Optional<ContextFragments.LocationUsageFragment> existing = context.allFragments()
+                .filter(f -> f instanceof ContextFragments.LocationUsageFragment)
+                .map(ContextFragments.LocationUsageFragment.class::cast)
+                .filter(f -> f.targetIdentifier().equals(symbol)
+                        && f.includeTestFiles() == includeTestFiles
+                        && Objects.equals(f.getPathPrefixes(), List.copyOf(pathPrefixes)))
+                .findFirst();
+
+        ContextFragments.LocationUsageFragment fragment;
+        if (existing.isPresent()) {
+            // Reuse by adding the existing fragment (no recompute)
+            fragment = existing.get();
+        } else {
+            fragment = new ContextFragments.LocationUsageFragment(
+                    UUID.randomUUID().toString(),
+                    context.getContextManager(),
+                    symbol,
+                    includeTestFiles,
+                    null,
+                    List.copyOf(pathPrefixes));
         }
 
-        var fragment = new ContextFragments.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
-        context = context.addFragments(List.of(fragment));
+        context = context.addFragments(fragment);
+        return "Added usage locations overview for '%s'. Call expandUsageLocationsToWorkspace(...) to expand selected locations."
+                .formatted(symbol);
+    }
 
-        return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
+    @Tool(
+            "Expand selected usage locations for a previously-obtained locations overview. Provide the enclosing FQNs (as shown in the overview) you want snippets for.")
+    public String expandUsageLocationsToWorkspace(
+            @P("Fully qualified symbol name corresponding to the locations overview") String symbol,
+            @P("List of enclosing CodeUnit fully-qualified names to expand (e.g., ['com.example.Foo.methodA'])")
+                    List<String> enclosingFqns,
+            @P("Include test files? Default: false") boolean includeTestFiles,
+            @P("Optional list of file path prefixes (relative paths) to filter usage locations (applied to snapshot).")
+                    List<String> pathPrefixes) {
+        if (symbol.isBlank()) return "Cannot expand usages: symbol cannot be empty";
+        if (enclosingFqns == null || enclosingFqns.isEmpty()) {
+            return "No locations selected for expansion.";
+        }
+
+        // Attempt to reuse existing LocationUsageFragment snapshot if present
+        Optional<ContextFragments.LocationUsageFragment> overviewOpt = context.allFragments()
+                .filter(f -> f instanceof ContextFragments.LocationUsageFragment)
+                .map(ContextFragments.LocationUsageFragment.class::cast)
+                .filter(f -> f.targetIdentifier().equals(symbol)
+                        && f.includeTestFiles() == includeTestFiles
+                        && Objects.equals(f.getPathPrefixes(), List.copyOf(pathPrefixes)))
+                .findFirst();
+
+        String snapshotText = null;
+        if (overviewOpt.isPresent()) {
+            snapshotText = overviewOpt.get().text().tryGet().orElse(null);
+        }
+
+        // Create LocalUsageFragment with selected enclosing FQNs and optional snapshot reuse
+        var localFrag = new ContextFragments.LocalUsageFragment(
+                context.getContextManager(), symbol, includeTestFiles, Set.copyOf(enclosingFqns));
+        context = context.addFragments(localFrag);
+
+        return "Expanded %d locations for '%s' into the Workspace.".formatted(enclosingFqns.size(), symbol);
     }
 
     @Tool(
