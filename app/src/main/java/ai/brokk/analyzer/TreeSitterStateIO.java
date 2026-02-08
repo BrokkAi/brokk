@@ -50,21 +50,7 @@ public final class TreeSitterStateIO {
     private static final ObjectMapper SMILE_MAPPER =
             new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    /**
-     * Backwards-compatibility guard for {@link IAnalyzer.Range}.
-     *
-     * <p>Range is a record with an {@code isEmpty()} method. Depending on the environment,
-     * Jackson may serialize this as a property named "empty". We apply this mix-in to
-     * ensure that such derived or legacy fields do not trigger deserialization failures
-     * while keeping the rest of the DTO graph strict.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private abstract static class RangeMixIn {}
-
     static {
-        // Apply the permissive mix-in to Range to prevent failures on derived 'empty' fields.
-        SMILE_MAPPER.addMixIn(IAnalyzer.Range.class, RangeMixIn.class);
-
         // Ensure nested CodeUnit/ProjectFile anywhere in the object graph (e.g., inside CodeUnitProperties)
         // are serialized/deserialized via our relative-path-safe format.
         SimpleModule module = new SimpleModule("TreeSitterStateIOModule");
