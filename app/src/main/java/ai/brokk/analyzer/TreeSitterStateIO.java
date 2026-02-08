@@ -382,8 +382,41 @@ public final class TreeSitterStateIO {
      * When we detect such a snapshot (null schemaVersion and null analyzerState in the parsed SnapshotDto),
      * we return empty to trigger a rebuild rather than attempting complex migration.
      */
+    /**
+     * Loads an AnalyzerState from disk (legacy/simple API). This keeps the original behavior:
+     * - returns Optional.empty() if file is missing or corrupt
+     * - ignores any serialized cache snapshot (it is still read, but not returned)
+     *
+     * Prefer {@link #loadWithCache(Path)} when the caller wants the cached transient data restored.
+     */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
+        var loaded = loadWithCache(file);
+        return loaded.map(swc -> swc.state());
+    }
+
+    /**
+     * Result container for a loaded snapshot that includes both the immutable AnalyzerState and a
+     * reconstructed AnalyzerCache instance populated with forward mappings from the serialized snapshot.
+     *
+     * The reconstructed AnalyzerCache is suitable for passing to the TreeSitterAnalyzer snapshot-based
+     * constructor. Reverse mappings for bidirectional caches are deliberately left to be populated
+     * lazily by the analyzer (matching the runtime behavior of AnalyzerCache transfer constructor).
+     */
+    public record SnapshotWithCache(
+            TreeSitterAnalyzer.AnalyzerState state, ai.brokk.analyzer.cache.AnalyzerCache cache) {}
+
+    /**
+     * Load an AnalyzerState and, when present in the snapshot, a serialized view of the AnalyzerCache.
+     * Returns Optional.empty() if file is missing or deserialization fails.
+     *
+     * This method rehydrates an AnalyzerCache instance and populates forward mappings (signatures,
+     * rawSupertypes, imports forward, typeHierarchy forward). Reverse mappings are not restored and
+     * will be repopulated lazily by analyzer operations, preserving existing semantics for lazy
+     * population and transfer semantics during incremental updates.
+     */
+    @Blocking
+    public static Optional<SnapshotWithCache> loadWithCache(Path file) {
         if (!Files.exists(file)) {
             log.debug("Analyzer state file does not exist: {}", file);
             return Optional.empty();
@@ -394,7 +427,6 @@ public final class TreeSitterStateIO {
                 var top = SMILE_MAPPER.readValue(in, SnapshotDto.class);
 
                 // Handle legacy snapshots that were stored as raw AnalyzerStateDto (not wrapped in SnapshotDto).
-                // When Jackson deserializes such data into SnapshotDto, all fields will be null or default.
                 if (top.analyzerState() == null) {
                     log.debug(
                             "Snapshot at {} appears to be legacy format (no analyzerState field). Will rebuild.", file);
@@ -407,14 +439,24 @@ public final class TreeSitterStateIO {
                             SCHEMA_VERSION,
                             top.schemaVersion());
                 }
+
                 var state = fromDto(top.analyzerState());
+
+                // Reconstruct AnalyzerCache from DTO if present
+                ai.brokk.analyzer.cache.AnalyzerCache cache = new ai.brokk.analyzer.cache.AnalyzerCache();
+                if (top.cacheSnapshot() != null) {
+                    restoreCacheFromDto(cache, top.cacheSnapshot());
+                } else {
+                    log.debug("No cacheSnapshot found in snapshot at {}; continuing with empty AnalyzerCache", file);
+                }
+
                 long durMs = System.currentTimeMillis() - startMs;
                 log.debug(
-                        "Loaded TreeSitter AnalyzerState from {} (schema={}) in {} ms",
+                        "Loaded TreeSitter AnalyzerState (+cache view) from {} (schema={}) in {} ms",
                         file,
                         top.schemaVersion(),
                         durMs);
-                return Optional.of(state);
+                return Optional.of(new SnapshotWithCache(state, cache));
             }
         } catch (ZipException | EOFException e) {
             log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
@@ -425,6 +467,59 @@ public final class TreeSitterStateIO {
         } catch (IOException e) {
             log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    /**
+     * Populate the provided AnalyzerCache instance using the serialized CacheSnapshotDto.
+     *
+     * Only forward mappings are restored here. Reverse mappings (for BidirectionalCache) are intentionally
+     * left to be populated lazily by runtime operations (e.g., performImportedCodeUnitsOf,
+     * performGetDirectAncestors) to preserve the same lazy-population semantics used during transfer updates.
+     */
+    private static void restoreCacheFromDto(ai.brokk.analyzer.cache.AnalyzerCache target, CacheSnapshotDto dto) {
+        // Restore signatures
+        if (dto.signatures() != null) {
+            for (var entry : dto.signatures()) {
+                if (entry == null || entry.key() == null) continue;
+                CodeUnit key = fromDto(entry.key());
+                List<String> value = entry.value() != null ? List.copyOf(entry.value()) : List.of();
+                target.signatures().put(key, value);
+            }
+        }
+
+        // Restore raw supertypes
+        if (dto.rawSupertypes() != null) {
+            for (var entry : dto.rawSupertypes()) {
+                if (entry == null || entry.key() == null) continue;
+                CodeUnit key = fromDto(entry.key());
+                List<String> value = entry.value() != null ? List.copyOf(entry.value()) : List.of();
+                target.rawSupertypes().put(key, value);
+            }
+        }
+
+        // Restore imports forward
+        if (dto.importsForward() != null) {
+            for (var entry : dto.importsForward()) {
+                if (entry == null || entry.key() == null) continue;
+                ProjectFile pf = fromDto(entry.key());
+                Set<CodeUnit> units = (entry.value() == null)
+                        ? Set.of()
+                        : entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet());
+                target.imports().putForward(pf, units);
+            }
+        }
+
+        // Restore typeHierarchy forward (supertypes)
+        if (dto.typeHierarchyForward() != null) {
+            for (var entry : dto.typeHierarchyForward()) {
+                if (entry == null || entry.key() == null) continue;
+                CodeUnit key = fromDto(entry.key());
+                List<CodeUnit> value = (entry.value() == null)
+                        ? List.of()
+                        : entry.value().stream().map(TreeSitterStateIO::fromDto).toList();
+                target.typeHierarchy().putForward(key, value);
+            }
         }
     }
 
