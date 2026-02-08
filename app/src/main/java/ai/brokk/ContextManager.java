@@ -1156,9 +1156,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** usage for identifier with control over including test files */
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
-        var fragment = new ContextFragments.UsageFragment(this, identifier, includeTestFiles);
+        usageForIdentifier(identifier, includeTestFiles, ContextFragments.UsageMode.FULL);
+    }
+
+    /** usage for identifier with control over including test files and mode */
+    public void usageForIdentifier(String identifier, boolean includeTestFiles, ContextFragments.UsageMode mode) {
+        var fragment = new ContextFragments.UsageFragment(this, identifier, includeTestFiles, mode);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
-        String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "");
+        String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "")
+                + (mode == ContextFragments.UsageMode.SAMPLE ? " (sampled)" : "");
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 

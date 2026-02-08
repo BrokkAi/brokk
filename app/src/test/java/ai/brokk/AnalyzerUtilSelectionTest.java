@@ -165,6 +165,17 @@ public class AnalyzerUtilSelectionTest {
         ContextFragments.UsageFragment uf = (ContextFragments.UsageFragment) frag.get();
         assertEquals("com.acme.Foo.bar", uf.targetIdentifier(), "Target identifier should match input");
         assertTrue(uf.includeTestFiles(), "includeTestFiles should be true");
+        assertEquals(ContextFragments.UsageMode.FULL, uf.mode(), "Default mode should be FULL");
+    }
+
+    @Test
+    void usages_sampleMode() {
+        Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(
+                analyzer, cm, "com.acme.Foo.bar", false, ContextFragments.UsageMode.SAMPLE);
+        assertTrue(frag.isPresent(), "Expected a fragment for usage selection with SAMPLE mode");
+        ContextFragments.UsageFragment uf = (ContextFragments.UsageFragment) frag.get();
+        assertEquals(ContextFragments.UsageMode.SAMPLE, uf.mode(), "Mode should be SAMPLE");
+        assertFalse(uf.includeTestFiles(), "includeTestFiles should be false");
     }
 
     @Test

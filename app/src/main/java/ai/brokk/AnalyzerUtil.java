@@ -427,6 +427,29 @@ public class AnalyzerUtil {
      */
     public static Optional<ContextFragment> selectUsageFragment(
             IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles) {
+        return selectUsageFragment(analyzer, cm, input, includeTestFiles, ContextFragments.UsageMode.FULL);
+    }
+
+    /**
+     * Builds a fragment for a usage selection with specified mode.
+     *
+     * <p>Returns a {@link ContextFragments.UsageFragment}. If no symbol can be resolved, a
+     * {@link ContextFragments.UsageFragment} is still created using the raw input.
+     *
+     * @param analyzer the analyzer used to resolve the target symbol; if null, returns empty
+     * @param cm the context manager used to construct fragments
+     * @param input a symbol identifier (short or fully qualified); blank yields empty
+     * @param includeTestFiles whether to include tests when building the {@link ContextFragments.UsageFragment}
+     * @param mode the usage mode (FULL or SAMPLE)
+     * @return an Optional containing {@link ContextFragments.UsageFragment}; empty if analyzer is null or input is
+     * blank
+     */
+    public static Optional<ContextFragment> selectUsageFragment(
+            IAnalyzer analyzer,
+            IContextManager cm,
+            String input,
+            boolean includeTestFiles,
+            ContextFragments.UsageMode mode) {
         if (input.trim().isEmpty()) return Optional.empty();
 
         Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
@@ -439,7 +462,7 @@ public class AnalyzerUtil {
                         .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
 
         var target = any.map(CodeUnit::fqName).orElse(input);
-        return Optional.of(new ContextFragments.UsageFragment(cm, target, includeTestFiles));
+        return Optional.of(new ContextFragments.UsageFragment(cm, target, includeTestFiles, mode));
     }
 
     public record CodeWithSource(String code, CodeUnit source) {
