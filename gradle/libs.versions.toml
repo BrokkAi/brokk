@@ -21,6 +21,7 @@ pnpm = "9.15.4"
 jediterm = "3.54"
 jediterm-pty = "2.69"
 pty4j = "0.13.11"
+fory = "0.14.1"
 
 [libraries]
 # Logging
@@ -132,6 +133,9 @@ maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-reso
 # NEW: DiskLruCache library
 disklrucache = "com.jakewharton:disklrucache:2.0.2"
 caffeine = "com.github.ben-manes.caffeine:caffeine:3.2.3"
+
+# Apache Fory
+fory-core = { module = "org.apache.fory:fory-core", version.ref = "fory" }
 
 [bundles]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]
