@@ -1,20 +1,5 @@
 package ai.brokk.analyzer;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.exc.MismatchedInputException;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
@@ -27,6 +12,9 @@ import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipException;
+import org.apache.fory.Fory;
+import org.apache.fory.exception.ForyException;
+import org.apache.fory.io.ForyInputStream;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
@@ -35,218 +23,29 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Jackson Smile.
+ * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Apache Fory for compact binary
+ * serialization.
  *
- * <p>Design notes for migration to a Fory-based, versioned format:
- *
- * <p>Versioning strategy
- * - A simple string constant FORMAT_VERSION is declared (currently "1"). This represents the
- *   schema version for the analyzer state payload. On load, future code should compare the
- *   persisted version value with the supported FORMAT_VERSION to determine compatibility.
- * - Interpretation on load (policy):
- *   - If the persisted version equals FORMAT_VERSION, proceed with deserialization of the
- *     payload as documented below.
- *   - If the persisted version is missing or differs, treat as incompatible and fall back to
- *     rebuilding the analyzer (i.e., return Optional.empty()). Tests in this module already
- *     expect selective compatibility behavior for legacy shapes; keep that logic in load().
- *
- * <p>Root serialized structure (logical)
- * - The root object persisted to disk SHOULD be a small versioned wrapper that contains:
- *   {
- *     "version": "<FORMAT_VERSION>",   // string, required for strict equality checks
- *     "payload": { ... }               // the existing AnalyzerStateDto structure
- *   }
- *
- * - The "payload" field contains the same DTO structure currently represented by AnalyzerStateDto
- *   (symbolIndex, codeUnitState, fileState, imports, reverseImports, supertypes, subtypes,
- *   symbolKeys, snapshotEpochNanos). These DTOs already encode nested types (ProjectFileDto,
- *   CodeUnitDto, CodeUnitPropertiesDto, FilePropertiesDto, ImportInfoDto, etc.) and are suitable
- *   for inclusion as the payload.
- *
- * - Rationale: keeping the payload DTOs unchanged preserves all data necessary to reconstruct
- *   TreeSitterAnalyzer.AnalyzerState (symbol index, per-code-unit properties, file properties,
- *   import graph and type hierarchy). Wrapping them with a version string enables straightforward
- *   schema evolution without changing the existing DTO layout immediately.
- *
- * <p>Migration implications
- * - Existing files (current behavior): today the code writes the AnalyzerStateDto directly in Smile
- *   format compressed with GZIP. To migrate to the versioned wrapper, the writer must wrap the
- *   AnalyzerStateDto under the "payload" key and include the "version" key, preserving Smile + GZIP.
- * - Compatibility on read: the loader should first attempt to read the versioned wrapper. If that
- *   fails due to structure differences (for example older snapshots that contain AnalyzerStateDto
- *   directly), the loader should continue to attempt to read the legacy (unwrapped) AnalyzerStateDto
- *   for backwards compatibility. This file's current tests exercise several legacy behaviors; any
- *   migration should preserve those tests until they are explicitly updated.
- *
- * <p>Notes about current implementation in this class
- * - The existing implementation serializes AnalyzerStateDto directly using Jackson Smile and GZIP.
- * - The following change is a documentation and design addition only: a VERSION constant is added
- *   below and the intended root wrapper format is described. No read or write behavior is changed
- *   in this pass so tests continue to pass. Actual on-disk format migration (wrapping/unwrapping)
- *   will be implemented in a follow-up change that updates both save() and load() to produce and
- *   consume the versioned wrapper while preserving legacy read behavior.
+ * <p>Design notes:
+ * - We persist a small versioned root wrapper:
+ *   AnalyzerStateRoot { String version; AnalyzerStateDto payload; }
+ * - The payload is the same DTO layout used previously; migration and backwards-compatibility logic
+ *   is implemented in load(): files with missing/incorrect version are treated as incompatible.
+ * - Payload serialization is done with Fory.serializeJavaObject(...) into a GZIPOutputStream.
  */
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     /**
      * Analyzer state on-disk schema version.
-     *
-     * Semantics:
-     * - Current value "1" denotes the first explicit versioned format. On load, callers should
-     *   prefer exact equality checks (i.e., only accept persisted states whose "version" field
-     *   equals FORMAT_VERSION). If the version field is missing (legacy files) or different,
-     *   the loader should fall back to legacy parsing behavior or treat the state as incompatible.
      */
     public static final String FORMAT_VERSION = "1";
 
-    // Dedicated Smile ObjectMapper
-    private static final ObjectMapper SMILE_MAPPER =
-            new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-    static {
-        // Ensure nested CodeUnit/ProjectFile anywhere in the object graph (e.g., inside CodeUnitProperties)
-        // are serialized/deserialized via our relative-path-safe format.
-        SimpleModule module = new SimpleModule("TreeSitterStateIOModule");
-        module.addSerializer(CodeUnit.class, new CodeUnitJsonSerializer());
-        module.addDeserializer(CodeUnit.class, new CodeUnitJsonDeserializer());
-        module.addSerializer(ProjectFile.class, new ProjectFileJsonSerializer());
-        module.addDeserializer(ProjectFile.class, new ProjectFileJsonDeserializer());
-        SMILE_MAPPER.registerModule(module);
-    }
-
     private TreeSitterStateIO() {}
 
-    /* ================= Jackson adapters for nested types ================= */
+    /* ================= Versioned root ================= */
 
-    /**
-     * Serialize ProjectFile as a minimal DTO with a guaranteed relative relPath.
-     */
-    static final class ProjectFileJsonSerializer extends JsonSerializer<ProjectFile> {
-        @Override
-        public void serialize(ProjectFile value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
-            Path root = value.getRoot().toAbsolutePath().normalize();
-            Path rel = value.getRelPath();
-
-            String relStr;
-            if (rel.isAbsolute()) {
-                Path nr = root.toAbsolutePath().normalize();
-                Path rl = rel.toAbsolutePath().normalize();
-                if (rl.startsWith(nr)) {
-                    relStr = nr.relativize(rl).toString();
-                } else {
-                    // best-effort fallback; use just the file name to keep it relative
-                    relStr = rl.getFileName().toString();
-                    log.debug(
-                            "ProjectFile relPath was absolute and outside root; falling back to fileName only: root={}, abs={}",
-                            nr,
-                            rl);
-                }
-            } else {
-                relStr = rel.toString();
-            }
-
-            gen.writeStartObject();
-            gen.writeStringField("root", root.toString()); // absolute, normalized
-            gen.writeStringField("relPath", relStr); // guaranteed relative
-            gen.writeEndObject();
-        }
-    }
-
-    /**
-     * Deserialize ProjectFile from minimal DTO, sanitizing absolute relPaths.
-     */
-    static final class ProjectFileJsonDeserializer extends JsonDeserializer<ProjectFile> {
-        @Override
-        public @Nullable ProjectFile deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-            JsonNode node = p.getCodec().readTree(p);
-            JsonNode rootNode = node.get("root");
-            JsonNode relNode = node.get("relPath");
-
-            if (rootNode == null || relNode == null) {
-                ctxt.reportInputMismatch(ProjectFile.class, "Missing required fields for ProjectFile (root, relPath)");
-                return null; // Unreachable, reportInputMismatch always throws
-            }
-
-            Path root = parseRootPath(rootNode.asText());
-            Path rel = Path.of(relNode.asText());
-
-            if (rel.isAbsolute()) {
-                Path nr = root.toAbsolutePath().normalize();
-                Path rl = rel.toAbsolutePath().normalize();
-                if (rl.startsWith(nr)) {
-                    rel = nr.relativize(rl);
-                } else {
-                    log.debug(
-                            "Loaded ProjectFile relPath was absolute and outside root; using fileName only: root={}, abs={}",
-                            nr,
-                            rl);
-                    Path fileName = rl.getFileName();
-                    rel = (fileName != null) ? fileName : Path.of("");
-                }
-            }
-
-            return new ProjectFile(root, rel);
-        }
-    }
-
-    /**
-     * Serialize CodeUnit to a minimal DTO, delegating ProjectFile to its serializer.
-     */
-    static final class CodeUnitJsonSerializer extends JsonSerializer<CodeUnit> {
-        @Override
-        public void serialize(CodeUnit value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
-            gen.writeStartObject();
-            gen.writeFieldName("source");
-            serializers.defaultSerializeValue(value.source(), gen); // uses ProjectFileJsonSerializer
-            gen.writeStringField("kind", value.kind().name());
-            gen.writeStringField("packageName", value.packageName());
-            gen.writeStringField("shortName", value.shortName());
-            if (value.signature() != null) {
-                gen.writeStringField("signature", value.signature());
-            }
-            gen.writeEndObject();
-        }
-    }
-
-    /**
-     * Deserialize CodeUnit from the minimal DTO shape.
-     */
-    static final class CodeUnitJsonDeserializer extends JsonDeserializer<CodeUnit> {
-        @Override
-        public @Nullable CodeUnit deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-            JsonNode node = p.getCodec().readTree(p);
-
-            // Source ProjectFile
-            JsonNode sourceNode = node.get("source");
-            if (sourceNode == null) {
-                ctxt.reportInputMismatch(CodeUnit.class, "Missing CodeUnit.source");
-                return null; // Unreachable, reportInputMismatch always throws
-            }
-            ProjectFile source = p.getCodec().treeToValue(sourceNode, ProjectFile.class);
-
-            // Required fields
-            JsonNode kindNode = node.get("kind");
-            JsonNode pkgNode = node.get("packageName");
-            JsonNode shortNode = node.get("shortName");
-
-            if (kindNode == null || pkgNode == null || shortNode == null) {
-                ctxt.reportInputMismatch(
-                        CodeUnit.class, "Missing required fields for CodeUnit (kind, packageName, shortName)");
-                return null; // Unreachable, reportInputMismatch always throws
-            }
-
-            CodeUnitType kind = CodeUnitType.valueOf(kindNode.asText());
-            String pkg = pkgNode.asText();
-            String shortName = shortNode.asText();
-
-            // Optional signature
-            JsonNode sigNode = node.get("signature");
-            String signature = sigNode != null && !sigNode.isNull() ? sigNode.asText() : null;
-
-            return new CodeUnit(source, kind, pkg, shortName, signature);
-        }
-    }
+    public record AnalyzerStateRoot(String version, AnalyzerStateDto payload) {}
 
     /* ================= DTOs ================= */
 
@@ -254,13 +53,11 @@ public final class TreeSitterStateIO {
      * A minimal, serialization-safe representation of ProjectFile that
      * enforces that relPath is stored as a relative string.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ProjectFileDto(String root, String relPath) {}
 
     /**
      * A serialization-safe representation of CodeUnit using ProjectFileDto.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitDto(
             ProjectFileDto source,
             CodeUnitType kind,
@@ -271,14 +68,12 @@ public final class TreeSitterStateIO {
     /**
      * DTO for structured import information.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ImportInfoDto(
             String rawSnippet, boolean isWildcard, @Nullable String identifier, @Nullable String alias) {}
 
     /**
      * DTO for AnalyzerState with only serializable components.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record AnalyzerStateDto(
             Map<String, List<CodeUnitDto>> symbolIndex,
             List<CodeUnitEntryDto> codeUnitState,
@@ -293,62 +88,44 @@ public final class TreeSitterStateIO {
     /**
      * DTO for CodeUnitProperties that can be easily serialized.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitPropertiesDto(
             List<CodeUnitDto> children, List<String> signatures, List<IAnalyzer.Range> ranges, boolean hasBody) {}
 
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitEntryDto(CodeUnitDto key, CodeUnitPropertiesDto value) {}
 
     /**
      * DTO entry for ProjectFile -> FileProperties maps.
      * FilePropertiesDto omits the parsed tree.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record FileStateEntryDto(ProjectFileDto key, FilePropertiesDto value) {}
 
     /**
      * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
-            List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
-        @JsonCreator
-        public FilePropertiesDto(
-                @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
-                @JsonProperty("importStatements") List<ImportInfoDto> importStatements,
-                @JsonProperty(value = "containsTests", required = true) boolean containsTests) {
-            this.topLevelCodeUnits = topLevelCodeUnits;
-            this.importStatements = importStatements;
-            this.containsTests = containsTests;
-        }
-    }
+            List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {}
 
     /**
      * DTO entry for ProjectFile -> Set<CodeUnit> (imports).
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
 
     /**
      * DTO entry for ProjectFile -> Set<ProjectFile> (reverse imports).
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReverseImportEntryDto(ProjectFileDto key, List<ProjectFileDto> value) {}
 
     /**
      * DTO entry for CodeUnit -> List<CodeUnit> (supertypes).
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SupertypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
     /**
      * DTO entry for CodeUnit -> Set<CodeUnit> (subtypes).
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SubtypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
     @Blocking
@@ -366,9 +143,11 @@ public final class TreeSitterStateIO {
             String suffix = ".tmp";
             temp = Files.createTempFile(parent, prefix, suffix);
 
-            var dto = toDto(state);
+            AnalyzerStateDto dto = toDto(state);
+            AnalyzerStateRoot root = new AnalyzerStateRoot(FORMAT_VERSION, dto);
             try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(temp))) {
-                SMILE_MAPPER.writeValue(out, dto);
+                Fory fory = Fory.builder().requireClassRegistration(false).build();
+                fory.serializeJavaObject(out, root);
             }
 
             try {
@@ -393,17 +172,8 @@ public final class TreeSitterStateIO {
     }
 
     /**
-     * Load an AnalyzerState from the provided file in Smile format.
+     * Load an AnalyzerState from the provided file.
      * Returns Optional.empty() if file is missing or deserialization fails.
-     *
-     * Note: When migrating to the versioned wrapper format described above, the loader should:
-     * 1) Attempt to read a wrapper object containing { "version": "...", "payload": AnalyzerStateDto }.
-     * 2) If the wrapper is present and the version matches FORMAT_VERSION, deserialize payload -> AnalyzerState.
-     * 3) If the wrapper is present but version mismatches, treat as incompatible (Optional.empty()).
-     * 4) If wrapper parsing fails (legacy files), fall back to current legacy behavior of reading AnalyzerStateDto
-     *    directly to preserve backward compatibility until migrations are rolled out.
-     *
-     * This implementation currently reads the legacy direct AnalyzerStateDto shape to keep tests stable.
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
@@ -414,8 +184,22 @@ public final class TreeSitterStateIO {
         long startMs = System.currentTimeMillis();
         try {
             try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
-                var dto = SMILE_MAPPER.readValue(in, AnalyzerStateDto.class);
-                var state = fromDto(dto);
+                Fory fory = Fory.builder().requireClassRegistration(false).build();
+                // Wrap the InputStream in ForyInputStream so we can use Fory.deserializeJavaObject(ForyInputStream,
+                // Class)
+                ForyInputStream fin = new ForyInputStream(in);
+                AnalyzerStateRoot root = fory.deserializeJavaObject(fin, AnalyzerStateRoot.class);
+
+                if (root == null || root.version() == null || !FORMAT_VERSION.equals(root.version())) {
+                    log.debug(
+                            "Analyzer state at {} has incompatible or missing version '{}'; expected '{}'. Will rebuild analyzer.",
+                            file,
+                            (root == null ? "null" : root.version()),
+                            FORMAT_VERSION);
+                    return Optional.empty();
+                }
+
+                TreeSitterAnalyzer.AnalyzerState state = fromDto(root.payload());
                 long durMs = System.currentTimeMillis() - startMs;
                 log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms", file, durMs);
                 return Optional.of(state);
@@ -423,8 +207,11 @@ public final class TreeSitterStateIO {
         } catch (ZipException | EOFException e) {
             log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
             return Optional.empty();
-        } catch (MismatchedInputException mie) {
-            log.debug("Analyzer state at {} appears incompatible ({}). Will rebuild analyzer.", file, mie.getMessage());
+        } catch (ForyException fe) {
+            log.debug(
+                    "Analyzer state at {} appears incompatible or corrupt ({}). Will rebuild analyzer.",
+                    file,
+                    fe.getMessage());
             return Optional.empty();
         } catch (IOException e) {
             log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());

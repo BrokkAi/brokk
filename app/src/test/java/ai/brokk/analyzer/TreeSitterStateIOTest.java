@@ -690,21 +690,14 @@ public class TreeSitterStateIOTest {
         }
 
         // Load using TreeSitterStateIO
+        // NOTE: New design: legacy Jackson/Smile-encoded snapshots are not compatible with the
+        // Fory-based, versioned format and must be treated as stale/incompatible. We still write
+        // the legacy Smile payload above to ensure the loader safely rejects it without throwing.
         var loadedOpt = TreeSitterStateIO.load(file);
-        assertTrue(loadedOpt.isPresent(), "Should load legacy state successfully");
-        var loadedState = loadedOpt.get();
-
-        // Verify loaded content
-        assertEquals(1, loadedState.codeUnitState().size());
-        var loadedCu = loadedState.codeUnitState().keySet().iterator().next();
-        var loadedProps = loadedState.codeUnitState().get(loadedCu);
-
-        assertEquals("Test", loadedCu.shortName());
-        assertEquals(1, loadedProps.ranges().size());
-
-        // Verify TypeHierarchyGraph data is still present
-        var hierarchy = loadedState.typeHierarchyGraph();
-        assertTrue(hierarchy.supertypes().containsKey(loadedCu), "Hierarchy data should be loaded");
+        assertTrue(
+                loadedOpt.isEmpty(),
+                "Legacy Jackson/Smile state is now treated as incompatible and should be ignored (Optional.empty())");
+        // If future migrations provide compatibility layers, this test can be updated to assert presence.
     }
 
     @Test
@@ -740,8 +733,13 @@ public class TreeSitterStateIOTest {
             mapper.writeValue(os, stateDtoMap);
         }
 
+        // This test writes a legacy Smile payload that uses per-code-unit 'supertypes' fields.
+        // Under the new Fory-based format those legacy snapshots are incompatible; verify they
+        // are safely ignored (loader returns Optional.empty()) rather than being accepted.
         var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent(), "Should successfully load state ignoring legacy supertype fields");
+        assertTrue(
+                loadedOpt.isEmpty(),
+                "Legacy Jackson/Smile state is now treated as incompatible and should be ignored (Optional.empty())");
     }
 
     @Test
@@ -778,7 +776,13 @@ public class TreeSitterStateIOTest {
             mapper.writeValue(os, stateDtoMap);
         }
 
+        // The legacy 'rawSupertypes' field used to be present in older snapshots.
+        // With the versioned Fory format, such legacy Smile content is incompatible and must
+        // be ignored. Keep the Smile-writing logic as a regression check that the loader
+        // returns Optional.empty() without throwing on unknown/legacy fields.
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isPresent(), "Should successfully load state even with unknown 'rawSupertypes' field");
+        assertTrue(
+                loaded.isEmpty(),
+                "Legacy Jackson/Smile state is now treated as incompatible and should be ignored (Optional.empty())");
     }
 }
