@@ -55,12 +55,11 @@ import org.treesitter.*;
  * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query,
  * and how to map a capture to a {@link CodeUnit}.
  *
- * <p>Important persistence note: heavy, variable-sized presentation data such as rendered signatures are intentionally
+ * <p>Important persistence note: heavy, variable-sized presentation data such as rendered signatures are
  * NOT stored inside the immutable {@link AnalyzerState} snapshot. Such data is transient and cache-backed
- * (see {@link ai.brokk.analyzer.cache.AnalyzerCache}), and is populated on-demand during analysis. The persisted
+ * (see {@link ai.brokk.analyzer.cache.AnalyzerCache}), and is populated on-demand during analysis. The
  * AnalyzerState contains the structural, compact information required to reconstruct indices, ranges, imports, and
- * type-hierarchy graphs, while signatures and other large presentation artifacts remain in the in-memory cache and
- * are not serialized to disk.
+ * type-hierarchy graphs, while signatures and other large presentation artifacts remain in the in-memory cache.
  */
 public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider {
 
@@ -645,12 +644,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      *
      * <p>Intended for use by Language.saveAnalyzer and other persistence hooks.
      *
-     * <p>Important: This snapshot explicitly excludes transient, cache-resident payloads such as rendered signatures.
+     * <p>Important: This snapshot excludes transient, cache-resident payloads such as rendered signatures.
      * Signatures are maintained in {@link AnalyzerCache} (the {@code cache} field) and are not persisted into the
      * AnalyzerState DTO. When snapshotting, any lazily-populated derived graphs that live in the transient cache
      * (e.g., import/type-hierarchy forward/reverse mappings) are merged into the returned AnalyzerState so that
-     * subsequent loads have the necessary structural data; however, presentation-heavy lists of signature strings remain
-     * transient and must be recomputed or repopulated into a new AnalyzerCache after loading.
+     * subsequent loads have the necessary structural data; however, presentation-heavy lists of signature strings
+     * remain transient and are repopulated into a new AnalyzerCache during analysis or update.
      */
     public AnalyzerState snapshotState() {
         if (cache.isEmpty()) {

@@ -237,11 +237,11 @@ public final class TreeSitterStateIO {
             long snapshotEpochNanos) {}
 
     /**
-     * DTO for CodeUnitProperties that can be easily serialized.
+     * DTO for CodeUnitProperties.
      *
-     * <p>Note: signatures were removed from the persisted CodeUnitProperties shape. Permissive
-     * unknown-property handling is used here so that older snapshots containing removed fields
-     * (like signatures) can still be deserialized.
+     * <p>Note: signatures were removed from the persisted CodeUnitProperties shape. This layer
+     * ignores unknown properties (like legacy signatures) to maintain compatibility with
+     * older snapshots.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitPropertiesDto(List<CodeUnitDto> children, List<IAnalyzer.Range> ranges, boolean hasBody) {}
