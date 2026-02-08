@@ -1155,16 +1155,27 @@ public class ContextFragments {
         }
     }
 
+    public enum UsageMode {
+        FULL, // Show all usages with full method sources
+        SAMPLE // Show shortest calling method per overload, capped at 50
+    }
+
     public static class UsageFragment extends AbstractComputedFragment {
         private final String targetIdentifier;
         private final boolean includeTestFiles;
+        private final UsageMode mode;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
-            this(contextManager, targetIdentifier, true, null);
+            this(contextManager, targetIdentifier, true, null, UsageMode.FULL);
         }
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-            this(contextManager, targetIdentifier, includeTestFiles, null);
+            this(contextManager, targetIdentifier, includeTestFiles, null, UsageMode.FULL);
+        }
+
+        public UsageFragment(
+                IContextManager contextManager, String targetIdentifier, boolean includeTestFiles, UsageMode mode) {
+            this(contextManager, targetIdentifier, includeTestFiles, null, mode);
         }
 
         public UsageFragment(
@@ -1172,16 +1183,31 @@ public class ContextFragments {
                 String targetIdentifier,
                 boolean includeTestFiles,
                 @Nullable String snapshotText) {
-            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, snapshotText);
+            this(
+                    UUID.randomUUID().toString(),
+                    contextManager,
+                    targetIdentifier,
+                    includeTestFiles,
+                    snapshotText,
+                    UsageMode.FULL);
+        }
+
+        public UsageFragment(
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText,
+                UsageMode mode) {
+            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, snapshotText, mode);
         }
 
         public UsageFragment(String id, IContextManager contextManager, String targetIdentifier) {
-            this(id, contextManager, targetIdentifier, true, null);
+            this(id, contextManager, targetIdentifier, true, null, UsageMode.FULL);
         }
 
         public UsageFragment(
                 String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-            this(id, contextManager, targetIdentifier, includeTestFiles, null);
+            this(id, contextManager, targetIdentifier, includeTestFiles, null, UsageMode.FULL);
         }
 
         public UsageFragment(
@@ -1190,20 +1216,31 @@ public class ContextFragments {
                 String targetIdentifier,
                 boolean includeTestFiles,
                 @Nullable String snapshotText) {
+            this(id, contextManager, targetIdentifier, includeTestFiles, snapshotText, UsageMode.FULL);
+        }
+
+        public UsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText,
+                UsageMode mode) {
             super(
                     id,
                     contextManager,
                     "Uses of " + targetIdentifier,
                     "Uses of " + targetIdentifier,
-                    SyntaxConstants.SYNTAX_STYLE_NONE, // Will be updated if we find files/units
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
                     snapshotText == null
                             ? null
                             : decodeFrozen(contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null
-                            ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager)
+                            ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, mode, contextManager)
                             : null);
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
+            this.mode = mode;
         }
 
         private static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
@@ -1290,7 +1327,11 @@ public class ContextFragments {
 
         @Override
         public String repr() {
-            return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
+            if (mode == UsageMode.FULL) {
+                return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
+            }
+            return "SymbolUsages('%s', includeTestFiles=%s, mode=%s)"
+                    .formatted(targetIdentifier, includeTestFiles, mode);
         }
 
         public String targetIdentifier() {
@@ -1301,14 +1342,28 @@ public class ContextFragments {
             return includeTestFiles;
         }
 
+        public UsageMode mode() {
+            return mode;
+        }
+
         private static ContentSnapshot computeSnapshotFor(
-                String targetIdentifier, boolean includeTestFiles, IContextManager contextManager)
+                String targetIdentifier, boolean includeTestFiles, UsageMode mode, IContextManager contextManager)
                 throws InterruptedException {
             var analyzer = contextManager.getAnalyzer();
             Predicate<ProjectFile> fileFilter =
                     includeTestFiles ? null : file -> !ContextManager.isTestFile(file, analyzer);
             FuzzyResult usageResult =
                     FuzzyUsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
+
+            if (mode == UsageMode.SAMPLE) {
+                return computeSampleSnapshot(targetIdentifier, usageResult, analyzer);
+            }
+
+            return computeFullSnapshot(targetIdentifier, usageResult, analyzer);
+        }
+
+        private static ContentSnapshot computeFullSnapshot(
+                String targetIdentifier, FuzzyResult usageResult, IAnalyzer analyzer) {
             var either = usageResult.toEither();
 
             String text;
@@ -1329,15 +1384,109 @@ public class ContextFragments {
             }
 
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-
-            // Validity based on whether definitions exist
             boolean valid = !analyzer.getDefinitions(targetIdentifier).isEmpty();
             return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
         }
 
+        private static ContentSnapshot computeSampleSnapshot(
+                String targetIdentifier, FuzzyResult usageResult, IAnalyzer analyzer) {
+            Map<CodeUnit, Set<UsageHit>> hitsByOverload =
+                    switch (usageResult) {
+                        case FuzzyResult.Success s -> s.hitsByOverload();
+                        case FuzzyResult.Ambiguous a -> a.hitsByOverload();
+                        default -> Map.of();
+                    };
+
+            if (hitsByOverload.isEmpty()) {
+                boolean valid = !analyzer.getDefinitions(targetIdentifier).isEmpty();
+                return new ContentSnapshot(
+                        "No relevant usages found for symbol: " + targetIdentifier,
+                        Set.of(),
+                        Set.of(),
+                        (List<Byte>) null,
+                        valid);
+            }
+
+            // Find defining class to filter self-references
+            String definingClass = analyzer.getDefinitions(targetIdentifier).stream()
+                    .findFirst()
+                    .map(cu -> {
+                        String fqn = cu.fqName();
+                        int lastDot = fqn.lastIndexOf('.');
+                        if (cu.isFunction() && lastDot > 0) {
+                            return fqn.substring(0, lastDot);
+                        }
+                        return fqn;
+                    })
+                    .orElse("");
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("# Usages of ").append(targetIdentifier).append("\n\n");
+
+            Set<CodeUnit> allSources = new LinkedHashSet<>();
+            int capPerOverload = 50;
+
+            for (var entry : hitsByOverload.entrySet()) {
+                CodeUnit overload = entry.getKey();
+                Set<UsageHit> hits = entry.getValue();
+
+                // Filter out self-references
+                List<UsageHit> filtered = hits.stream()
+                        .filter(hit -> !hit.enclosing().fqName().startsWith(definingClass + ".")
+                                && !hit.enclosing().fqName().equals(definingClass))
+                        .toList();
+
+                if (filtered.isEmpty()) {
+                    continue;
+                }
+
+                // Sort by enclosing source length (shortest first)
+                List<UsageHit> sorted = filtered.stream()
+                        .sorted(Comparator.comparingInt(hit -> analyzer.getSource(hit.enclosing(), false)
+                                .map(String::length)
+                                .orElse(Integer.MAX_VALUE)))
+                        .toList();
+
+                int totalCount = sorted.size();
+                List<UsageHit> capped = sorted.size() > capPerOverload ? sorted.subList(0, capPerOverload) : sorted;
+
+                String sig = overload.hasSignature() ? overload.signature() : overload.fqName();
+                sb.append("## Overload: ").append(sig).append("\n");
+                if (capped.size() < totalCount) {
+                    sb.append("(showing ")
+                            .append(capped.size())
+                            .append(" of ")
+                            .append(totalCount)
+                            .append(")\n");
+                }
+                sb.append("\nCalled from:\n");
+
+                for (UsageHit hit : capped) {
+                    sb.append("- `")
+                            .append(hit.enclosing().fqName())
+                            .append("` (")
+                            .append(hit.file().getFileName())
+                            .append(":")
+                            .append(hit.line())
+                            .append(")\n");
+                    allSources.add(hit.enclosing());
+                }
+                sb.append("\n");
+            }
+
+            String text = sb.toString().trim();
+            if (text.equals("# Usages of " + targetIdentifier)) {
+                text = "No relevant usages found for symbol: " + targetIdentifier;
+            }
+
+            Set<ProjectFile> files = allSources.stream().map(CodeUnit::source).collect(Collectors.toSet());
+            boolean valid = !analyzer.getDefinitions(targetIdentifier).isEmpty();
+            return new ContentSnapshot(text, allSources, files, (List<Byte>) null, valid);
+        }
+
         @Override
         public ContextFragment refreshCopy() {
-            return new UsageFragment(id, contextManager, targetIdentifier, includeTestFiles, null);
+            return new UsageFragment(id, contextManager, targetIdentifier, includeTestFiles, null, mode);
         }
     }
 
