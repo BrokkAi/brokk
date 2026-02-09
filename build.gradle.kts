@@ -133,21 +133,21 @@ val pythonLint by tasks.registering(Exec::class) {
     description = "Run ruff linting on Python code"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine("uv", "run", "ruff", "check", ".")
+    commandLine("uv", "run", "--group", "dev", "ruff", "check", ".")
 }
 
 val pythonFormatCheck by tasks.registering(Exec::class) {
     description = "Check Python code formatting with ruff"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine("uv", "run", "ruff", "format", "--check", ".")
+    commandLine("uv", "run", "--group", "dev", "ruff", "format", "--check", ".")
 }
 
 val pythonTest by tasks.registering(Exec::class) {
     description = "Run Python tests with pytest"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine("uv", "run", "pytest")
+    commandLine("uv", "run", "--group", "dev", "pytest")
 }
 
 val pythonCheck by tasks.registering {
@@ -160,7 +160,7 @@ val pythonFormat by tasks.registering(Exec::class) {
     description = "Format Python code with ruff"
     group = "formatting"
     workingDir = file("brokk-code")
-    commandLine("uv", "run", "ruff", "format", ".")
+    commandLine("uv", "run", "--group", "dev", "ruff", "format", ".")
 }
 
 tasks.named("check") {
