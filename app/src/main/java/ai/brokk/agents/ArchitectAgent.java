@@ -569,7 +569,7 @@ public class ArchitectAgent {
             return codeAgentSuccessResult();
         }
 
-        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal, TaskResult.Type.ARCHITECT).withEcho());
+        var llm = cm.getLlm(new Llm.Options(planningModel, goal, TaskResult.Type.ARCHITECT).withEcho());
         var modelsService = cm.getService();
 
         while (true) {

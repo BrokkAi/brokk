@@ -1394,8 +1394,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                 } catch (IOException ioe) {
-                    logger.debug(
-                            "Remote session sync failed due to I/O error", ioe);
+                    logger.debug("Remote session sync failed due to I/O error", ioe);
                 }
                 return null;
             });
@@ -1720,8 +1719,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return LoggingFuture.supplyCallableVirtual(() -> {
             var msgs = SummarizerPrompts.instance.collectMessages(input, words);
             // Use quickModel for summarization
-            Llm.StreamingResult result = getLlm(
-                            getService().quickestModel(), "Summarize: " + input, TaskResult.Type.SUMMARIZE)
+            Llm.StreamingResult result = getLlm(getService().quickestModel(), input, TaskResult.Type.SUMMARIZE)
                     .sendRequest(msgs);
 
             if (result.error() != null) {

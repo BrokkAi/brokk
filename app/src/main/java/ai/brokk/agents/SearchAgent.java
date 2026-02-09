@@ -179,12 +179,12 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
-        var llmOptions = new Llm.Options(model, "Search: " + goal, TaskResult.Type.SEARCH).withEcho();
+        var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
 
         var summarizeModel = cm.getService().getModel(ModelType.SCAN);
-        this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal, TaskResult.Type.SUMMARIZE);
+        this.summarizer = cm.getLlm(summarizeModel, goal, TaskResult.Type.SUMMARIZE);
 
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
