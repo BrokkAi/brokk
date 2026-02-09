@@ -1843,7 +1843,7 @@ public final class JobRunner {
         List<ChatMessage> messages;
         messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
         // Create an LLM instance for the planner model and route output to the ContextManager IO
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question, TaskResult.Type.ASK).withEcho());
+        var llm = cm.getLlm(new Llm.Options(model, question, TaskResult.Type.ASK).withEcho());
         llm.setOutput(cm.getIo());
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
@@ -1864,7 +1864,7 @@ public final class JobRunner {
         Objects.requireNonNull(stop);
         return new TaskResult(
                 cm,
-                "Ask: " + question,
+                question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
                 ctx, // Ask never changes files; use current live context
                 stop,

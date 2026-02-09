@@ -1052,7 +1052,7 @@ public final class BrokkCli implements Callable<Integer> {
 
                 var searchTools = new SearchTools(cm);
                 var cleaned = targets.stream().filter(s -> !s.isBlank()).toList();
-                System.out.println(searchTools.getUsages(cleaned, goal, includeTestsMixin.includeTests));
+                System.out.println(searchTools.scanUsages(cleaned, goal, includeTestsMixin.includeTests));
                 return 0;
             }
         }

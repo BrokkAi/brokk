@@ -344,7 +344,7 @@ public class SearchPrompts {
                           Definitions / declarations only?
                           -> searchSymbols
                           How is something used, accessed, obtained, injected, or called?
-                          -> addSymbolUsagesToWorkspace
+                          -> scanUsages
                           Strings, configs, markdown, comments, reflection, or unknown names?
                           -> searchSubstrings
                      - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
@@ -358,8 +358,8 @@ public class SearchPrompts {
                      Do not write code, and do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
-                     and let the Code Agent write the code. (But when refactoring, it is usually sufficient to call `addSymbolUsagesToWorkspace`
-                     and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
+                     and let the Code Agent write the code. (For more localized changes, you can use `addMethodsToWorkspace`
+                     or `addClassesToWorkspace`, instead of adding entire files.)
                      Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
                   6) When you have enough information to take a final action, do so.
                      There are no bonus points for grooming the perfect Workspace.
@@ -430,7 +430,7 @@ public class SearchPrompts {
                 Then:
                   - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
                   - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
-                  - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
+                  - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks); do not attempt to write code yet.
                 {{~/if}}
                 </search-objective>
 
@@ -478,14 +478,9 @@ public class SearchPrompts {
                 - Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.
                 {{/if}}
                 {{#if terminalTasks}}
-                - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
+                - Use createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
                   Guidance:
                     - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
-                    - Each task is a single Markdown-formatted string that MUST contain these labeled sections:
-                      **Task**: Describe what to do. Be specific and self-contained.
-                      **Acceptance**: State how to verify success. You MAY omit Acceptance only for purely mechanical refactors with no behavior change.
-                      **Touch points**: List concrete file paths (required when known, in `inline code`) and symbols (optional but helpful, in `inline code`).
-                    - Wherever possible, include automated tests in Acceptance; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
                     - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
                       temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
                 {{/if}}
