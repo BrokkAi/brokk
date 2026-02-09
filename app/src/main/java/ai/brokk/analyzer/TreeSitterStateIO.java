@@ -60,9 +60,6 @@ public final class TreeSitterStateIO {
         FORY.register(SupertypeEntryDto.class);
         FORY.register(CodeUnitType.class);
         FORY.register(IAnalyzer.Range.class);
-        FORY.register(ArrayList.class);
-        FORY.register(HashMap.class);
-        FORY.register(HashSet.class);
     }
 
     /**
@@ -433,10 +430,10 @@ public final class TreeSitterStateIO {
         List<CodeUnitEntryDto> cuEntries = new ArrayList<>(state.codeUnitState().size());
         for (var e : state.codeUnitState().entrySet()) {
             var props = e.getValue();
-            var childrenDtos =
-                    props.children().stream().map(TreeSitterStateIO::toDto).toList();
+            var childrenDtos = new ArrayList<>(
+                    props.children().stream().map(TreeSitterStateIO::toDto).toList());
 
-            var propsDto = new CodeUnitPropertiesDto(childrenDtos, props.ranges(), props.hasBody());
+            var propsDto = new CodeUnitPropertiesDto(childrenDtos, new ArrayList<>(props.ranges()), props.hasBody());
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
@@ -450,16 +447,16 @@ public final class TreeSitterStateIO {
                     new ArrayList<CodeUnitDto>(fileProps.topLevelCodeUnits().size());
             for (var cu : fileProps.topLevelCodeUnits()) topLevelDtos.add(toDto(cu));
 
-            var importDtos = fileProps.importStatements().stream()
+            var importDtos = new ArrayList<>(fileProps.importStatements().stream()
                     .map(TreeSitterStateIO::toDto)
-                    .toList();
+                    .toList());
 
             var fpDto = new FilePropertiesDto(topLevelDtos, importDtos, fileProps.containsTests());
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
         }
 
         // Symbol keys for the index
-        List<String> symbolKeys = new ArrayList<>();
+        ArrayList<String> symbolKeys = new ArrayList<>();
         for (String key : state.symbolKeyIndex().all()) {
             symbolKeys.add(key);
         }
@@ -474,23 +471,27 @@ public final class TreeSitterStateIO {
         // Convert signatures map into a list of SignatureEntryDto to avoid complex map keys.
         List<SignatureEntryDto> signatures = new ArrayList<>();
         snapshot.signatures()
-                .forEach((cu, sigs) -> signatures.add(new SignatureEntryDto(toDto(cu), List.copyOf(sigs))));
+                .forEach((cu, sigs) -> signatures.add(new SignatureEntryDto(toDto(cu), new ArrayList<>(sigs))));
 
         // Convert raw supertypes map into a list of RawSupertypesEntryDto.
         List<RawSupertypesEntryDto> rawSupertypes = new ArrayList<>();
         snapshot.rawSupertypes()
-                .forEach((cu, supers) -> rawSupertypes.add(new RawSupertypesEntryDto(toDto(cu), List.copyOf(supers))));
+                .forEach((cu, supers) ->
+                        rawSupertypes.add(new RawSupertypesEntryDto(toDto(cu), new ArrayList<>(supers))));
 
         List<ImportEntryDto> importsForward = new ArrayList<>();
         snapshot.imports()
                 .forEachForward((file, units) -> importsForward.add(new ImportEntryDto(
                         toDto(file),
-                        units.stream().map(TreeSitterStateIO::toDto).toList())));
+                        new ArrayList<>(
+                                units.stream().map(TreeSitterStateIO::toDto).toList()))));
 
         List<SupertypeEntryDto> typeForward = new ArrayList<>();
         snapshot.typeHierarchy()
                 .forEachForward((cu, supers) -> typeForward.add(new SupertypeEntryDto(
-                        toDto(cu), supers.stream().map(TreeSitterStateIO::toDto).toList())));
+                        toDto(cu),
+                        new ArrayList<>(
+                                supers.stream().map(TreeSitterStateIO::toDto).toList()))));
 
         return new CacheSnapshotDto(signatures, rawSupertypes, importsForward, typeForward);
     }
