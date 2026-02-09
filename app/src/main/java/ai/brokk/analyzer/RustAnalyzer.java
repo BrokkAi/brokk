@@ -301,6 +301,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
      * Recursively extracts the core type name from a type node, unwrapping generic types,
      * reference types, pointer types, array/slice types, and scoped type identifiers
      * to get the simple type identifier.
+     *
+     * @implNote Blanket impls over different wrapper types (e.g. {@code impl<T> Deref for *const T}
+     * and {@code impl<T> Deref for *mut T}) will both extract the generic type parameter {@code T},
+     * producing CodeUnits with identical names. This is inherent to how generic type parameters work
+     * and is acceptable.
      */
     private Optional<String> extractCoreTypeName(@Nullable TSNode typeNode, SourceContent sourceContent) {
         if (typeNode == null || typeNode.isNull()) {
@@ -314,10 +319,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
             case SCOPED_TYPE_IDENTIFIER -> {
                 TSNode nameNode = typeNode.getChildByFieldName("name");
-                if (nameNode != null && !nameNode.isNull() && TYPE_IDENTIFIER.equals(nameNode.getType())) {
-                    yield Optional.of(sourceContent.substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte()));
-                }
-                yield Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+                yield extractCoreTypeName(nameNode, sourceContent)
+                        .or(() -> Optional.of(
+                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
             }
 
             case GENERIC_TYPE, REFERENCE_TYPE, POINTER_TYPE -> {
