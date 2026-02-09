@@ -1,29 +1,21 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.concurrent.AtomicWrites;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.exc.MismatchedInputException;
-import com.fasterxml.jackson.databind.module.SimpleModule;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipException;
+import org.apache.fory.ThreadLocalFory;
+import org.apache.fory.config.ForyBuilder;
+import org.apache.fory.config.Language;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
@@ -43,6 +35,34 @@ import org.slf4j.LoggerFactory;
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
+    private static final ThreadLocalFory FORY = new ForyBuilder()
+            .withLanguage(Language.JAVA)
+            .withRefTracking(true) // Required for DTO graph with shared CodeUnits/ProjectFiles
+            .buildThreadLocalFory();
+
+    static {
+        // Register DTO classes for efficient serialization
+        FORY.register(SnapshotDto.class);
+        FORY.register(AnalyzerStateDto.class);
+        FORY.register(CacheSnapshotDto.class);
+        FORY.register(CodeUnitDto.class);
+        FORY.register(ProjectFileDto.class);
+        FORY.register(CodeUnitEntryDto.class);
+        FORY.register(FileStateEntryDto.class);
+        FORY.register(FilePropertiesDto.class);
+        FORY.register(CodeUnitPropertiesDto.class);
+        FORY.register(ImportInfoDto.class);
+        FORY.register(SignatureEntryDto.class);
+        FORY.register(RawSupertypesEntryDto.class);
+        FORY.register(ImportEntryDto.class);
+        FORY.register(SupertypeEntryDto.class);
+        FORY.register(CodeUnitType.class);
+        FORY.register(IAnalyzer.Range.class);
+        FORY.register(ArrayList.class);
+        FORY.register(HashMap.class);
+        FORY.register(HashSet.class);
+    }
+
     /**
      * Snapshot schema version in SemVer form: {@code MAJOR.MINOR.PATCH}.
      *
@@ -58,156 +78,7 @@ public final class TreeSitterStateIO {
      */
     public static final String SCHEMA_VERSION = "1.0.0";
 
-    // Dedicated ObjectMapper (previously Smile-backed). We persist snapshots using a binary
-    // format produced by Jackson; removing Smile dependency means we use the default ObjectMapper here.
-    private static final ObjectMapper SMILE_MAPPER =
-            new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-    static {
-        // Ensure nested CodeUnit/ProjectFile anywhere in the object graph (e.g., inside CodeUnitProperties)
-        // are serialized/deserialized via our relative-path-safe format.
-        SimpleModule module = new SimpleModule("TreeSitterStateIOModule");
-        module.addSerializer(CodeUnit.class, new CodeUnitJsonSerializer());
-        module.addDeserializer(CodeUnit.class, new CodeUnitJsonDeserializer());
-        module.addSerializer(ProjectFile.class, new ProjectFileJsonSerializer());
-        module.addDeserializer(ProjectFile.class, new ProjectFileJsonDeserializer());
-        SMILE_MAPPER.registerModule(module);
-    }
-
     private TreeSitterStateIO() {}
-
-    /* ================= Jackson adapters for nested types ================= */
-
-    /**
-     * Serialize ProjectFile as a minimal DTO with a guaranteed relative relPath.
-     */
-    static final class ProjectFileJsonSerializer extends JsonSerializer<ProjectFile> {
-        @Override
-        public void serialize(ProjectFile value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
-            Path root = value.getRoot().toAbsolutePath().normalize();
-            Path rel = value.getRelPath();
-
-            String relStr;
-            if (rel.isAbsolute()) {
-                Path nr = root.toAbsolutePath().normalize();
-                Path rl = rel.toAbsolutePath().normalize();
-                if (rl.startsWith(nr)) {
-                    relStr = nr.relativize(rl).toString();
-                } else {
-                    // best-effort fallback; use just the file name to keep it relative
-                    relStr = rl.getFileName().toString();
-                    log.debug(
-                            "ProjectFile relPath was absolute and outside root; falling back to fileName only: root={}, abs={}",
-                            nr,
-                            rl);
-                }
-            } else {
-                relStr = rel.toString();
-            }
-
-            gen.writeStartObject();
-            gen.writeStringField("root", root.toString()); // absolute, normalized
-            gen.writeStringField("relPath", relStr); // guaranteed relative
-            gen.writeEndObject();
-        }
-    }
-
-    /**
-     * Deserialize ProjectFile from minimal DTO, sanitizing absolute relPaths.
-     */
-    static final class ProjectFileJsonDeserializer extends JsonDeserializer<ProjectFile> {
-        @Override
-        public @Nullable ProjectFile deserialize(
-                JsonParser p, com.fasterxml.jackson.databind.DeserializationContext ctxt) throws IOException {
-            JsonNode node = p.getCodec().readTree(p);
-            JsonNode rootNode = node.get("root");
-            JsonNode relNode = node.get("relPath");
-
-            if (rootNode == null || relNode == null) {
-                ctxt.reportInputMismatch(ProjectFile.class, "Missing required fields for ProjectFile (root, relPath)");
-                return null; // Unreachable, reportInputMismatch always throws
-            }
-
-            Path root = parseRootPath(rootNode.asText());
-            Path rel = Path.of(relNode.asText());
-
-            if (rel.isAbsolute()) {
-                Path nr = root.toAbsolutePath().normalize();
-                Path rl = rel.toAbsolutePath().normalize();
-                if (rl.startsWith(nr)) {
-                    rel = nr.relativize(rl);
-                } else {
-                    log.debug(
-                            "Loaded ProjectFile relPath was absolute and outside root; using fileName only: root={}, abs={}",
-                            nr,
-                            rl);
-                    Path fileName = rl.getFileName();
-                    rel = (fileName != null) ? fileName : Path.of("");
-                }
-            }
-
-            return new ProjectFile(root, rel);
-        }
-    }
-
-    /**
-     * Serialize CodeUnit to a minimal DTO, delegating ProjectFile to its serializer.
-     */
-    static final class CodeUnitJsonSerializer extends JsonSerializer<CodeUnit> {
-        @Override
-        public void serialize(CodeUnit value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
-            gen.writeStartObject();
-            gen.writeFieldName("source");
-            serializers.defaultSerializeValue(value.source(), gen); // uses ProjectFileJsonSerializer
-            gen.writeStringField("kind", value.kind().name());
-            gen.writeStringField("packageName", value.packageName());
-            gen.writeStringField("shortName", value.shortName());
-            if (value.signature() != null) {
-                gen.writeStringField("signature", value.signature());
-            }
-            gen.writeEndObject();
-        }
-    }
-
-    /**
-     * Deserialize CodeUnit from the minimal DTO shape.
-     */
-    static final class CodeUnitJsonDeserializer extends JsonDeserializer<CodeUnit> {
-        @Override
-        public @Nullable CodeUnit deserialize(JsonParser p, com.fasterxml.jackson.databind.DeserializationContext ctxt)
-                throws IOException {
-            JsonNode node = p.getCodec().readTree(p);
-
-            // Source ProjectFile
-            JsonNode sourceNode = node.get("source");
-            if (sourceNode == null) {
-                ctxt.reportInputMismatch(CodeUnit.class, "Missing CodeUnit.source");
-                return null; // Unreachable, reportInputMismatch always throws
-            }
-            ProjectFile source = p.getCodec().treeToValue(sourceNode, ProjectFile.class);
-
-            // Required fields
-            JsonNode kindNode = node.get("kind");
-            JsonNode pkgNode = node.get("packageName");
-            JsonNode shortNode = node.get("shortName");
-
-            if (kindNode == null || pkgNode == null || shortNode == null) {
-                ctxt.reportInputMismatch(
-                        CodeUnit.class, "Missing required fields for CodeUnit (kind, packageName, shortName)");
-                return null; // Unreachable, reportInputMismatch always throws
-            }
-
-            CodeUnitType kind = CodeUnitType.valueOf(kindNode.asText());
-            String pkg = pkgNode.asText();
-            String shortName = shortNode.asText();
-
-            // Optional signature
-            JsonNode sigNode = node.get("signature");
-            String signature = sigNode != null && !sigNode.isNull() ? sigNode.asText() : null;
-
-            return new CodeUnit(source, kind, pkg, shortName, signature);
-        }
-    }
 
     /* ================= DTOs ================= */
 
@@ -300,41 +171,20 @@ public final class TreeSitterStateIO {
             ai.brokk.analyzer.cache.AnalyzerCache.CacheSnapshot cacheSnapshot,
             Path file) {
         long startMs = System.currentTimeMillis();
-        Path temp = null;
-        Path parent = (file.getParent() != null ? file.getParent() : Path.of("."))
-                .toAbsolutePath()
-                .normalize();
         try {
-            Files.createDirectories(parent);
-
-            String baseName = file.getFileName().toString();
-            String prefix = "." + baseName + ".";
-            String suffix = ".tmp";
-            temp = Files.createTempFile(parent, prefix, suffix);
-
             var dto = toTopLevelDto(state, cacheSnapshot);
-            try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(temp))) {
-                SMILE_MAPPER.writeValue(out, dto);
-            }
+            byte[] foryBytes = FORY.serialize(dto);
 
-            try {
-                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException amnse) {
-                log.debug("Atomic move not supported for {}; falling back to non-atomic replace with retries", file);
-                moveWithRetriesOrCopyFallback(temp, file);
-            }
+            AtomicWrites.save(file, out -> {
+                try (GZIPOutputStream gzipOut = new GZIPOutputStream(out)) {
+                    gzipOut.write(foryBytes);
+                }
+            });
 
             long durMs = System.currentTimeMillis() - startMs;
             log.debug("Saved TreeSitter Snapshot (state + cache view) to {} in {} ms", file, durMs);
         } catch (IOException e) {
             log.warn("Failed to save TreeSitter Snapshot to {}: {}", file, e.getMessage(), e);
-            if (temp != null) {
-                try {
-                    Files.deleteIfExists(temp);
-                } catch (IOException ex) {
-                    log.debug("Failed to delete temp file {} after save failure: {}", temp, ex.getMessage());
-                }
-            }
         }
     }
 
@@ -401,56 +251,43 @@ public final class TreeSitterStateIO {
         }
         long startMs = System.currentTimeMillis();
         try {
+            byte[] gunzipped;
             try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
-                var top = SMILE_MAPPER.readValue(in, SnapshotDto.class);
-
-                // Handle legacy snapshots that were stored as raw AnalyzerStateDto (not wrapped in SnapshotDto).
-                if (top.analyzerState() == null) {
-                    log.debug(
-                            "Snapshot at {} appears to be legacy format (no analyzerState field). Will rebuild.", file);
-                    return Optional.empty();
-                }
-
-                if (!isSchemaVersionLoadable(top.schemaVersion())) {
-                    log.debug(
-                            "Snapshot schemaVersion not loadable: expectedMajor={}, found={}. Will rebuild.",
-                            majorOf(SCHEMA_VERSION),
-                            top.schemaVersion());
-                    return Optional.empty();
-                }
-
-                if (!SCHEMA_VERSION.equals(top.schemaVersion())) {
-                    log.debug(
-                            "Snapshot schemaVersion differs: expected={}, found={}. Proceeding with best-effort load.",
-                            SCHEMA_VERSION,
-                            top.schemaVersion());
-                }
-
-                var state = fromDto(top.analyzerState());
-
-                // Reconstruct AnalyzerCache from DTO if present
-                ai.brokk.analyzer.cache.AnalyzerCache cache = new ai.brokk.analyzer.cache.AnalyzerCache();
-                if (top.cacheSnapshot() != null) {
-                    restoreCacheFromDto(cache, top.cacheSnapshot());
-                } else {
-                    log.debug("No cacheSnapshot found in snapshot at {}; continuing with empty AnalyzerCache", file);
-                }
-
-                long durMs = System.currentTimeMillis() - startMs;
-                log.debug(
-                        "Loaded TreeSitter AnalyzerState (+cache view) from {} (schema={}) in {} ms",
-                        file,
-                        top.schemaVersion(),
-                        durMs);
-                return Optional.of(new SnapshotWithCache(state, cache));
+                gunzipped = in.readAllBytes();
             }
+
+            SnapshotDto top = FORY.deserialize(gunzipped, SnapshotDto.class);
+
+            if (top == null || top.analyzerState() == null) {
+                log.debug("Snapshot at {} is invalid or legacy. Will rebuild.", file);
+                return Optional.empty();
+            }
+
+            if (!isSchemaVersionLoadable(top.schemaVersion())) {
+                log.debug(
+                        "Snapshot schemaVersion not loadable: expectedMajor={}, found={}. Will rebuild.",
+                        majorOf(SCHEMA_VERSION),
+                        top.schemaVersion());
+                return Optional.empty();
+            }
+
+            var state = fromDto(top.analyzerState());
+            ai.brokk.analyzer.cache.AnalyzerCache cache = new ai.brokk.analyzer.cache.AnalyzerCache();
+            if (top.cacheSnapshot() != null) {
+                restoreCacheFromDto(cache, top.cacheSnapshot());
+            }
+
+            long durMs = System.currentTimeMillis() - startMs;
+            log.debug(
+                    "Loaded TreeSitter AnalyzerState (+cache view) from {} (schema={}) in {} ms",
+                    file,
+                    top.schemaVersion(),
+                    durMs);
+            return Optional.of(new SnapshotWithCache(state, cache));
         } catch (ZipException | EOFException e) {
             log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
             return Optional.empty();
-        } catch (MismatchedInputException mie) {
-            log.debug("Analyzer state at {} appears incompatible ({}). Will rebuild analyzer.", file, mie.getMessage());
-            return Optional.empty();
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
             return Optional.empty();
         }
@@ -498,8 +335,7 @@ public final class TreeSitterStateIO {
                 for (CodeUnit cu : units) {
                     ProjectFile cuSource = cu.source();
                     target.imports().updateReverse(cuSource, existing -> {
-                        Set<ProjectFile> set = ConcurrentHashMap.newKeySet();
-                        if (existing != null) set.addAll(existing);
+                        Set<ProjectFile> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
                         set.add(pf);
                         return set;
                     });
@@ -520,8 +356,7 @@ public final class TreeSitterStateIO {
                 // Populate reverse mapping: for each supertype, record 'key' as its subtype
                 for (CodeUnit superCu : value) {
                     target.typeHierarchy().updateReverse(superCu, existing -> {
-                        Set<CodeUnit> set = ConcurrentHashMap.newKeySet();
-                        if (existing != null) set.addAll(existing);
+                        Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
                         set.add(key);
                         return set;
                     });
@@ -833,40 +668,5 @@ public final class TreeSitterStateIO {
         }
 
         return new ProjectFile(root, rel);
-    }
-
-    private static void moveWithRetriesOrCopyFallback(Path temp, Path file) throws IOException {
-        boolean moved = false;
-        IOException lastMoveEx = null;
-        for (int attempt = 1; attempt <= 3 && !moved; attempt++) {
-            try {
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-                moved = true;
-            } catch (IOException ioe) {
-                lastMoveEx = ioe;
-                log.debug("Non-atomic move attempt {}/3 failed for {}: {}", attempt, file, ioe.getMessage());
-                try {
-                    Thread.sleep(75L);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-        }
-        if (!moved) {
-            log.debug("Falling back to copy(REPLACE_EXISTING) for {} after move failures", file);
-            try {
-                Files.copy(temp, file, StandardCopyOption.REPLACE_EXISTING);
-            } catch (IOException copyEx) {
-                copyEx.addSuppressed(lastMoveEx);
-                throw copyEx;
-            } finally {
-                try {
-                    Files.deleteIfExists(temp);
-                } catch (IOException ex) {
-                    log.debug("Failed to delete temp file {} after copy fallback: {}", temp, ex.getMessage());
-                }
-            }
-        }
     }
 }

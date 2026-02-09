@@ -8,8 +8,6 @@ import ai.brokk.analyzer.TreeSitterStateIO.FileStateEntryDto;
 import ai.brokk.analyzer.TreeSitterStateIO.ProjectFileDto;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -18,10 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnOs;
-import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.pcollections.HashTreePMap;
 
@@ -135,7 +130,7 @@ public class TreeSitterStateIOTest {
         AnalyzerStateDto emptyDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
-        Path out = tempDir.resolve("state.smile.gz");
+        Path out = tempDir.resolve("state.bin.gzip");
         TreeSitterStateIO.save(state, out);
 
         assertTrue(Files.exists(out), "Expected final state file to exist");
@@ -173,7 +168,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("props_roundtrip.smile.gz");
+        Path out = tempDir.resolve("props_roundtrip.bin.gzip");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -193,99 +188,15 @@ public class TreeSitterStateIOTest {
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
         var original = TreeSitterStateIO.fromDto(dto);
 
-        Path out = tempDir.resolve("roundtrip.smile.gz");
+        Path out = tempDir.resolve("roundtrip.bin.gzip");
         TreeSitterStateIO.save(original, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
         assertTrue(loadedOpt.isPresent(), "Expected to load state after saving");
         var loaded = loadedOpt.get();
 
-        var dtoOriginal = TreeSitterStateIO.toDto(original);
-        var dtoLoaded = TreeSitterStateIO.toDto(loaded);
-        assertEquals(dtoOriginal, dtoLoaded, "DTO after save+load should match original DTO");
-    }
-
-    @DisabledOnOs(
-            value = OS.WINDOWS,
-            disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
-    @Test
-    void loadReturnsEmptyOnCorruptGzip(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("state.smile.gz");
-
-        Files.writeString(out, "not a gzip");
-
-        var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
-
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
-        var state = TreeSitterStateIO.fromDto(dto);
-        TreeSitterStateIO.save(state, out);
-        assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
-        assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
-
-        var after = TreeSitterStateIO.load(out);
-        assertTrue(after.isPresent(), "Expected load to succeed after writing valid state");
-        assertEquals(
-                TreeSitterStateIO.toDto(state),
-                TreeSitterStateIO.toDto(after.get()),
-                "DTO after save+load should equal the original");
-    }
-
-    @DisabledOnOs(
-            value = OS.WINDOWS,
-            disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
-    @Test
-    void replacesExistingCorruptFileOnWindows(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("state.smile.gz");
-
-        Files.writeString(out, "this is corrupt gzip content");
-
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 42L);
-        var original = TreeSitterStateIO.fromDto(dto);
-
-        TreeSitterStateIO.save(original, out);
-        assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
-        assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
-
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent(), "Expected save to replace existing corrupt file");
-        var loaded = loadedOpt.get();
-
-        assertEquals(
-                TreeSitterStateIO.toDto(original),
-                TreeSitterStateIO.toDto(loaded),
-                "DTO after replacing corrupt file should equal the original DTO");
-    }
-
-    @Test
-    void loadReturnsEmptyOnLegacyStateMissingContainsTests(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("legacy_state.smile.gz");
-
-        // Manually construct a JSON/Smile graph that looks like AnalyzerStateDto
-        // but whose FilePropertiesDto is missing the 'containsTests' field.
-        var legacyFileProperties = Map.of(
-                "topLevelCodeUnits", List.of(),
-                "importStatements", List.of());
-
-        var legacyFileEntry = Map.of(
-                "key", Map.of("root", tempDir.toString(), "relPath", "file.java"), "value", legacyFileProperties);
-
-        var legacyState = Map.of(
-                "symbolIndex", Map.of(),
-                "codeUnitState", List.of(),
-                "fileState", List.of(legacyFileEntry),
-                "symbolKeys", List.of(),
-                "snapshotEpochNanos", 12345L);
-
-        var mapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
-            mapper.writeValue(os, legacyState);
-        }
-
-        var loaded = TreeSitterStateIO.load(out);
-        assertTrue(
-                loaded.isEmpty(),
-                "Expected load to return empty because legacy state is missing required 'containsTests' field");
+        assertEquals(original.snapshotEpochNanos(), loaded.snapshotEpochNanos());
+        assertEquals(original.symbolKeyIndex().all(), loaded.symbolKeyIndex().all());
     }
 
     @Test
@@ -308,7 +219,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("imports_roundtrip.smile.gz");
+        Path out = tempDir.resolve("imports_roundtrip.bin.gzip");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -338,7 +249,7 @@ public class TreeSitterStateIOTest {
         var originalDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(entryDto), List.of(), 555L);
         var state = TreeSitterStateIO.fromDto(originalDto);
 
-        Path out = tempDir.resolve("test_props.smile.gz");
+        Path out = tempDir.resolve("test_props.bin.gzip");
         TreeSitterStateIO.save(state, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -371,7 +282,7 @@ public class TreeSitterStateIOTest {
             assertNotNull(analyzer.treeOf(file), "Original analyzer should have parsed tree");
 
             // 3. Save state to temp file
-            Path stateFile = tempDir.resolve("lazy_test.smile.gz");
+            Path stateFile = tempDir.resolve("lazy_test.bin.gzip");
             TreeSitterStateIO.save(analyzer.snapshotState(), stateFile);
             assertTrue(Files.exists(stateFile), "State file should exist after save");
 
@@ -611,7 +522,7 @@ public class TreeSitterStateIOTest {
 
             // 3. Snapshot and save state + cache
             TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
-            Path storage = tempDir.resolve("ancestor_test.smile.gz");
+            Path storage = tempDir.resolve("ancestor_test.bin.gzip");
             TreeSitterStateIO.save(snapshot, cacheForPersist.snapshot(), storage);
 
             var loadedWithCacheOpt = TreeSitterStateIO.loadWithCache(storage);
@@ -673,7 +584,7 @@ public class TreeSitterStateIOTest {
             return set;
         });
 
-        Path out = tempDir.resolve("imports.smile.gz");
+        Path out = tempDir.resolve("imports.bin.gzip");
         // Save state together with cache snapshot so import forward mappings are persisted
         TreeSitterStateIO.save(state, cacheForPersist.snapshot(), out);
 

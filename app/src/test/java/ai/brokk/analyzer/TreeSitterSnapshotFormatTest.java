@@ -4,11 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.zip.GZIPInputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -41,24 +38,11 @@ public class TreeSitterSnapshotFormatTest {
 
             assertTrue(Files.exists(out), "Snapshot file should have been written");
 
-            // Read raw top-level SnapshotDto using Jackson to inspect schemaVersion
-            ObjectMapper mapper =
-                    new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-            try (var in = new GZIPInputStream(Files.newInputStream(out))) {
-                TreeSitterStateIO.SnapshotDto top = mapper.readValue(in, TreeSitterStateIO.SnapshotDto.class);
-                assertNotNull(top, "Top-level snapshot DTO should deserialize");
-                assertNotNull(top.schemaVersion(), "schemaVersion field must be present");
-                assertFalse(top.schemaVersion().isBlank(), "schemaVersion must be non-empty");
-                // cacheSnapshot may be null in some paths; when present, ensure structure exists
-                if (top.cacheSnapshot() != null) {
-                    assertNotNull(top.cacheSnapshot().signatures());
-                    assertNotNull(top.cacheSnapshot().rawSupertypes());
-                }
-            }
+            // Read using the IO API to verify round-trippability
+            var loadedOpt = TreeSitterStateIO.loadWithCache(out);
+            assertTrue(loadedOpt.isPresent(), "Snapshot should be loadable via IO API");
 
             // Also verify loadWithCache returns a SnapshotWithCache with non-null cache instance
-            var loadedOpt = TreeSitterStateIO.loadWithCache(out);
-            assertTrue(loadedOpt.isPresent(), "loadWithCache should return a value for a valid snapshot");
             var swc = loadedOpt.get();
             assertNotNull(swc.state(), "Loaded AnalyzerState must be present");
             assertNotNull(swc.cache(), "Loaded AnalyzerCache must be present (may be empty)");
@@ -84,16 +68,7 @@ public class TreeSitterSnapshotFormatTest {
 
             assertTrue(Files.exists(out));
 
-            ObjectMapper mapper =
-                    new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-            try (var in = new GZIPInputStream(Files.newInputStream(out))) {
-                TreeSitterStateIO.SnapshotDto top = mapper.readValue(in, TreeSitterStateIO.SnapshotDto.class);
-                assertNotNull(
-                        top.schemaVersion(), "schemaVersion must be present even when no cache snapshot provided");
-                assertFalse(top.schemaVersion().isBlank(), "schemaVersion must be non-empty");
-            }
-
-            // load() should return Optional<AnalyzerState>
+            // Verify load() returns the state even without cache
             var loadedStateOpt = TreeSitterStateIO.load(out);
             assertTrue(loadedStateOpt.isPresent(), "load() should return AnalyzerState for saved snapshot");
         }

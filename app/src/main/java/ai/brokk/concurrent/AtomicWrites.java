@@ -103,8 +103,14 @@ public class AtomicWrites {
      */
     @Blocking
     public static void save(Path targetPath, WriterAction writerAction) throws IOException {
+        // Ensure the parent directory exists before creating a temp file.
+        Path parent = targetPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+
         // Create a temporary file in the same directory as the target file.
-        Path tempFile = Files.createTempFile(targetPath.getParent(), "temp-", ".tmp");
+        Path tempFile = Files.createTempFile(parent, "temp-", ".tmp");
 
         try {
             // Write the content to the temporary file.
