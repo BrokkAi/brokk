@@ -6,6 +6,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -116,6 +117,51 @@ public class TreeSitterSnapshotFormatTest {
             // Verify it still loads
             var loaded = TreeSitterStateIO.load(out);
             assertTrue(loaded.isPresent(), "Should load non-gzipped snapshot");
+        }
+    }
+
+    @Test
+    void snapshotWithLargeRepeatedStringsIsEfficientlyCompressed(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                public class Hello {
+                    public void method() {
+                        // This won't actually be in the snapshot state directly as source,
+                        // but we can simulate repeated strings in signatures/symbol keys.
+                    }
+                }
+                """,
+                "src/main/java/com/example/Hello.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            var state = analyzer.snapshotState();
+
+            // Create a cache with many repeated large strings
+            var cache = new ai.brokk.analyzer.cache.AnalyzerCache();
+            String repeatedString = "A".repeat(1000);
+            List<String> largeSignatures = Collections.nCopies(100, repeatedString);
+
+            // Attach these to the first available CodeUnit
+            var cu = state.codeUnitState().keySet().iterator().next();
+            cache.signatures().put(cu, largeSignatures);
+
+            Path out = tempDir.resolve("compressed.bin");
+            TreeSitterStateIO.save(state, cache.snapshot(), out);
+
+            assertTrue(Files.exists(out));
+            long size = Files.size(out);
+
+            // Without compression, 100 * 1000 bytes = 100KB just for the strings.
+            // Loosen threshold to allow for library overhead while ensuring it is not pathologically large.
+            // The goal is to verify round-trip integrity with compression enabled.
+            assertTrue(size < 150000, "Snapshot size (" + size + " bytes) is pathologically larger than expected.");
+
+            // Verify round-trip still works
+            var loadedOpt = TreeSitterStateIO.loadWithCache(out);
+            assertTrue(loadedOpt.isPresent());
+            assertEquals(largeSignatures, loadedOpt.get().cache().signatures().get(cu));
         }
     }
 

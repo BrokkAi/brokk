@@ -38,7 +38,8 @@ public final class TreeSitterStateIO {
 
     private static final ThreadLocalFory FORY = new ForyBuilder()
             .withLanguage(Language.JAVA)
-            .withRefTracking(true) // Required for DTO graph with shared CodeUnits/ProjectFiles
+            .withStringCompressed(true)
+            .withRefTracking(true)
             .buildThreadLocalFory();
 
     static {
