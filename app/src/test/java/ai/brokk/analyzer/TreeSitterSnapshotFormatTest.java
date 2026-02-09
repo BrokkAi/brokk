@@ -111,11 +111,11 @@ public class TreeSitterSnapshotFormatTest {
 
             // Verify it has LZ4 Frame magic: 0x04 0x22 0x4D 0x18
             byte[] bytes = Files.readAllBytes(out);
-            assertTrue(bytes.length > 4);
-            assertEquals((byte) 0x04, bytes[0]);
-            assertEquals((byte) 0x22, bytes[1]);
-            assertEquals((byte) 0x4D, bytes[2]);
-            assertEquals((byte) 0x18, bytes[3]);
+            assertTrue(bytes.length >= 4, "File too small for LZ4 magic");
+            assertEquals((byte) 0x04, bytes[0], "LZ4 magic byte 0 mismatch");
+            assertEquals((byte) 0x22, bytes[1], "LZ4 magic byte 1 mismatch");
+            assertEquals((byte) 0x4D, bytes[2], "LZ4 magic byte 2 mismatch");
+            assertEquals((byte) 0x18, bytes[3], "LZ4 magic byte 3 mismatch");
 
             // Verify it loads
             var loaded = TreeSitterStateIO.load(out);

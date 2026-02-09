@@ -60,18 +60,26 @@ public class MultiLanguageStateIOTest {
                 assertFalse(fqnSet.isEmpty(), "Expected non-empty declarations for " + lang.name());
             }
 
-            // Persist each delegate using the language's own save hook (writes .brokk/{internalName}.bin.gzip)
+            // Persist each delegate using the language's own save hook (writes .brokk/{internalName}.bin.lz4)
             for (var e : delegates.entrySet()) {
                 var lang = e.getKey();
                 var del = e.getValue();
                 lang.saveAnalyzer(del, project);
             }
 
-            // Verify the per-language storage files exist
+            // Verify the per-language storage files exist and use LZ4 magic
             Path javaBin = Languages.JAVA.getStoragePath(project);
             Path pyBin = Languages.PYTHON.getStoragePath(project);
             assertTrue(Files.exists(javaBin), "Expected Java analyzer state file to exist: " + javaBin);
             assertTrue(Files.exists(pyBin), "Expected Python analyzer state file to exist: " + pyBin);
+
+            for (Path p : List.of(javaBin, pyBin)) {
+                byte[] magic = new byte[4];
+                try (var is = Files.newInputStream(p)) {
+                    assertEquals(4, is.read(magic), "Could not read magic from " + p);
+                }
+                assertArrayEquals(new byte[] {0x04, 0x22, 0x4D, 0x18}, magic, "Expected LZ4 magic in " + p);
+            }
 
             // Verify there is no wrapper-level single .bin.lz4 for MultiLanguage/MultiAnalyzer:
             // list *.bin.lz4 files in .brokk and ensure only java.bin.lz4 and python.bin.lz4 are present

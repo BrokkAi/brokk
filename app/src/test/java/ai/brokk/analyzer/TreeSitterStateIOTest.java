@@ -20,6 +20,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void roundTripJavaAnalyzerState() throws Exception {
+        // Build an ephemeral project with a single Java file
         // Build an ephemeral project with a single Java file; project cleans itself up when closed
         var builder = InlineTestProjectCreator.code(
                 """
@@ -42,10 +43,18 @@ public class TreeSitterStateIOTest {
                     decls.stream().anyMatch(cu -> cu.fqName().equals(expectedFq)),
                     "Expected fqName " + expectedFq + " in declarations");
 
-            // Save analyzer state to the standard per-language storage location
+            // Save analyzer state to the standard per-language storage location (.bin.lz4)
             Path storage = Languages.JAVA.getStoragePath(project);
             TreeSitterStateIO.save(analyzer.snapshotState(), storage);
             assertTrue(Files.exists(storage), "Expected analyzer state file to exist: " + storage);
+            assertTrue(storage.toString().endsWith(".bin.lz4"), "Storage path should end in .bin.lz4");
+
+            // Verify LZ4 Magic
+            byte[] magic = new byte[4];
+            try (var is = Files.newInputStream(storage)) {
+                assertEquals(4, is.read(magic));
+            }
+            assertArrayEquals(new byte[] {0x04, 0x22, 0x4D, 0x18}, magic, "Expected LZ4 magic");
 
             // Reload analyzer from disk and validate equivalence of declarations
             IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
