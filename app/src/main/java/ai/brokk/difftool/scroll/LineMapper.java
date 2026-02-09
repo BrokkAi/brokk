@@ -41,7 +41,7 @@ public final class LineMapper {
         try {
             List<AbstractDelta<String>> deltas;
             synchronized (deltaCache) {
-                deltas = deltaCache.computeIfAbsent(patch, Patch::getDeltas);
+                deltas = deltaCache.computeIfAbsent(patch, p -> List.copyOf(p.getDeltas()));
             }
 
             if (deltas.isEmpty()) {
