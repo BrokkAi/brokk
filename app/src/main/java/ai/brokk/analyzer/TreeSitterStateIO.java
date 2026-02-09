@@ -190,10 +190,27 @@ public final class TreeSitterStateIO {
 
     /**
      * Backwards-compatible overload for callers that only provide AnalyzerState (no cache snapshot).
+     * This produces a SnapshotDto where cacheSnapshot is null.
      */
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
-        save(state, new ai.brokk.analyzer.cache.AnalyzerCache().snapshot(), file);
+        long startMs = System.currentTimeMillis();
+        try {
+            var asd = toDto(state);
+            var dto = new SnapshotDto(SCHEMA_VERSION, asd, null);
+            byte[] foryBytes = FORY.serialize(dto);
+
+            AtomicWrites.save(file, out -> {
+                try (GZIPOutputStream gzipOut = new GZIPOutputStream(out)) {
+                    gzipOut.write(foryBytes);
+                }
+            });
+
+            long durMs = System.currentTimeMillis() - startMs;
+            log.debug("Saved TreeSitter Snapshot (state only) to {} in {} ms", file, durMs);
+        } catch (IOException e) {
+            log.warn("Failed to save TreeSitter Snapshot to {}: {}", file, e.getMessage(), e);
+        }
     }
 
     /**
@@ -212,6 +229,18 @@ public final class TreeSitterStateIO {
      * When we detect such a snapshot (null schemaVersion and null analyzerState in the parsed SnapshotDto),
      * we return empty to trigger a rebuild rather than attempting complex migration.
      */
+    /**
+     * Low-level helper for tests to inspect the raw SnapshotDto without rehydrating full objects.
+     */
+    @Blocking
+    static Optional<SnapshotDto> loadRaw(Path file) throws IOException {
+        if (!Files.exists(file)) return Optional.empty();
+        try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
+            byte[] bytes = in.readAllBytes();
+            return Optional.ofNullable(FORY.deserialize(bytes, SnapshotDto.class));
+        }
+    }
+
     /**
      * Loads an AnalyzerState from the provided file (legacy/simple API). Returns Optional.empty() if file missing or corrupt.
      *
@@ -501,10 +530,12 @@ public final class TreeSitterStateIO {
      * Produce the top-level SnapshotDto combining the AnalyzerState DTO and an optional
      * serializable cache snapshot. Centralizes the schemaVersion assignment so future
      * migrations can gate behavior based on this single constant.
+     *
+     * If cacheSnapshot is provided, it is always included in the DTO even if empty.
      */
     public static SnapshotDto toTopLevelDto(
             TreeSitterAnalyzer.AnalyzerState state, ai.brokk.analyzer.cache.AnalyzerCache.CacheSnapshot cacheSnapshot) {
-        CacheSnapshotDto csd = cacheSnapshot != null ? cacheSnapshotToDto(cacheSnapshot) : null;
+        CacheSnapshotDto csd = cacheSnapshotToDto(cacheSnapshot);
         AnalyzerStateDto asd = toDto(state);
         return new SnapshotDto(SCHEMA_VERSION, asd, csd);
     }

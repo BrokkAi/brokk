@@ -6,6 +6,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -28,24 +29,39 @@ public class TreeSitterSnapshotFormatTest {
         try (IProject project = builder.build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
 
-            // Produce a small cache snapshot by ensuring signatures are computed via a forced update
             var state = analyzer.snapshotState();
-            var cacheSnapshot = new ai.brokk.analyzer.cache.AnalyzerCache().snapshot();
+            var cache = new ai.brokk.analyzer.cache.AnalyzerCache();
+            // Populate something so we aren't just testing empty state persistence
+            cache.signatures()
+                    .put(
+                            state.symbolIndex()
+                                    .values()
+                                    .iterator()
+                                    .next()
+                                    .iterator()
+                                    .next(),
+                            List.of("test-sig"));
+            var cacheSnapshot = cache.snapshot();
 
-            Path out = tempDir.resolve("snapshot_with_cache.smile.gz");
-            // Save using the TreeSitterStateIO.save overload that accepts a cache snapshot
+            Path out = tempDir.resolve("snapshot_with_cache.bin.gz");
             TreeSitterStateIO.save(state, cacheSnapshot, out);
 
             assertTrue(Files.exists(out), "Snapshot file should have been written");
 
-            // Read using the IO API to verify round-trippability
+            // Verify raw snapshot DTO structure via Fory helper
+            var rawOpt = TreeSitterStateIO.loadRaw(out);
+            assertTrue(rawOpt.isPresent(), "Raw snapshot should be loadable");
+            var raw = rawOpt.get();
+            assertFalse(raw.schemaVersion().isBlank(), "schemaVersion should not be blank");
+            assertEquals(TreeSitterStateIO.SCHEMA_VERSION, raw.schemaVersion());
+            assertNotNull(raw.cacheSnapshot(), "cacheSnapshot should be present when saved with one");
+
+            // Verify full rehydration
             var loadedOpt = TreeSitterStateIO.loadWithCache(out);
             assertTrue(loadedOpt.isPresent(), "Snapshot should be loadable via IO API");
-
-            // Also verify loadWithCache returns a SnapshotWithCache with non-null cache instance
             var swc = loadedOpt.get();
-            assertNotNull(swc.state(), "Loaded AnalyzerState must be present");
-            assertNotNull(swc.cache(), "Loaded AnalyzerCache must be present (may be empty)");
+            assertNotNull(swc.state());
+            assertNotNull(swc.cache());
         }
     }
 
@@ -60,13 +76,20 @@ public class TreeSitterSnapshotFormatTest {
 
         try (IProject project = builder.build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
-
             var state = analyzer.snapshotState();
 
-            Path out = tempDir.resolve("snapshot_no_cache.smile.gz");
+            Path out = tempDir.resolve("snapshot_no_cache.bin.gz");
             TreeSitterStateIO.save(state, out); // uses overload without cache
 
             assertTrue(Files.exists(out));
+
+            // Verify raw snapshot DTO structure
+            var rawOpt = TreeSitterStateIO.loadRaw(out);
+            assertTrue(rawOpt.isPresent());
+            var raw = rawOpt.get();
+            assertFalse(raw.schemaVersion().isBlank());
+            assertNotNull(raw.analyzerState());
+            assertNull(raw.cacheSnapshot(), "cacheSnapshot should be null when saved without one");
 
             // Verify load() returns the state even without cache
             var loadedStateOpt = TreeSitterStateIO.load(out);
