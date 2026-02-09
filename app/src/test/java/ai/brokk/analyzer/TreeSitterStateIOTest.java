@@ -637,6 +637,65 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void roundTripInterfaceSkeletonPreserved() throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+
+                public interface MyIface {
+                    void foo();
+                }
+                """,
+                "src/main/java/com/example/MyIface.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            ProjectFile file = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/MyIface.java"));
+
+            var skeletons = analyzer.getSkeletons(file);
+            assertFalse(skeletons.isEmpty(), "Expected skeletons before save for interface");
+
+            String originalSkeleton = skeletons.entrySet().stream()
+                    .filter(e -> e.getKey().isClass())
+                    .map(java.util.Map.Entry::getValue)
+                    .findFirst()
+                    .orElseThrow();
+
+            Path storage = Languages.JAVA.getStoragePath(project);
+            TreeSitterStateIO.save(analyzer.snapshotState(), storage);
+            assertTrue(Files.exists(storage), "Saved analyzer state should exist");
+
+            var loadedStateOpt = TreeSitterStateIO.load(storage);
+            assertTrue(loadedStateOpt.isPresent(), "Expected state to load");
+            var loadedState = loadedStateOpt.get();
+
+            JavaAnalyzer analyzerFromState =
+                    JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+
+            // After loading from persisted AnalyzerState signatures are not present in cache.
+            // Trigger a re-analysis of the file so transient signature cache is repopulated.
+            var updatedAnalyzer = analyzerFromState.update(Set.of(file));
+            assertNotNull(updatedAnalyzer, "update should return a new analyzer instance");
+            JavaAnalyzer reanalyzed = (JavaAnalyzer) updatedAnalyzer;
+
+            var skeletonsAfter = reanalyzed.getSkeletons(file);
+            assertFalse(skeletonsAfter.isEmpty(), "Expected skeletons after reload and re-analysis for interface");
+
+            String reloadedSkeleton = skeletonsAfter.entrySet().stream()
+                    .filter(e -> e.getKey().isClass())
+                    .map(java.util.Map.Entry::getValue)
+                    .findFirst()
+                    .orElseThrow();
+
+            assertEquals(
+                    originalSkeleton,
+                    reloadedSkeleton,
+                    "Interface skeleton should remain consistent across save/load when signatures are recomputed");
+        }
+    }
+
+    @Test
     void roundTripImportsAndReverseImports(@TempDir Path tempDir) throws Exception {
         var root = tempDir.resolve("root");
         Files.createDirectories(root);
