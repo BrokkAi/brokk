@@ -299,7 +299,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     /**
      * Recursively extracts the core type name from a type node, unwrapping generic types,
-     * reference types, and scoped type identifiers to get the simple type identifier.
+     * reference types, pointer types, array/slice types, and scoped type identifiers
+     * to get the simple type identifier.
      */
     private Optional<String> extractCoreTypeName(@Nullable TSNode typeNode, SourceContent sourceContent) {
         if (typeNode == null || typeNode.isNull()) {
@@ -319,9 +320,17 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                 yield Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
             }
 
-            case GENERIC_TYPE, REFERENCE_TYPE -> {
+            case GENERIC_TYPE, REFERENCE_TYPE, POINTER_TYPE -> {
                 TSNode innerType = typeNode.getChildByFieldName("type");
                 yield extractCoreTypeName(innerType, sourceContent)
+                        .or(() -> Optional.of(
+                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
+            }
+
+            case ARRAY_TYPE -> {
+                // Array/slice types like [T] or [T; N] have "element" field for the inner type
+                TSNode elementType = typeNode.getChildByFieldName("element");
+                yield extractCoreTypeName(elementType, sourceContent)
                         .or(() -> Optional.of(
                                 sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
             }

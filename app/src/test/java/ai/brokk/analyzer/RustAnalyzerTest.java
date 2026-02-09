@@ -138,6 +138,79 @@ public class RustAnalyzerTest {
     }
 
     @Test
+    void testImplForDeeplyNestedType() throws Exception {
+        String rustCode =
+                """
+            pub struct Inner;
+            pub trait MyTrait { fn method(&self); }
+            impl<T> MyTrait for &Vec<Box<T>> {
+                fn method(&self) {}
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // The impl block for &Vec<Box<T>> extracts "Vec" as the type name
+            // &Vec<Box<T>> -> Vec<Box<T>> (GENERIC_TYPE) -> Vec (TYPE_IDENTIFIER)
+            // We extract the outermost named type, not the innermost generic parameter
+            assertCodeUnitType(analyzer, "Vec.method", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
+    void testImplForRawPointerType() throws Exception {
+        String rustCode =
+                """
+            pub trait Deref {
+                fn deref(&self);
+            }
+
+            impl<T> Deref for *const T {
+                fn deref(&self) {}
+            }
+
+            impl<T> Deref for *mut T {
+                fn deref(&self) {}
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // Raw pointer types *const T and *mut T should extract "T"
+            assertCodeUnitType(analyzer, "T.deref", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
+    void testImplForSliceType() throws Exception {
+        String rustCode =
+                """
+            pub trait SliceTrait {
+                fn len(&self) -> usize;
+            }
+
+            impl<T> SliceTrait for [T] {
+                fn len(&self) -> usize { 0 }
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // Slice type [T] should extract "T"
+            assertCodeUnitType(analyzer, "T.len", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
     void testNestedModulesWithTestFunction() throws Exception {
         String rustCode =
                 """
