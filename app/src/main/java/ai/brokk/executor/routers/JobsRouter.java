@@ -150,7 +150,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (githubToken != null && !githubToken.isBlank()) tags.put("github_token", githubToken);
 
         var overrides = validateModelOverrides(exchange, request);
-        if (overrides == null && (request.reasoningLevel() != null || request.temperature() != null)) return;
+        if (overrides == null) return;
 
         var validJobContextTexts = validateContextTexts(exchange, request);
         if (validJobContextTexts == null && (request.contextText() != null || request.context() != null)) return;
@@ -169,10 +169,10 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 Map.copyOf(tags),
                 null,
                 null,
-                overrides != null ? overrides.reasoningLevel() : null,
-                overrides != null ? overrides.reasoningLevelCode() : null,
-                overrides != null ? overrides.temperature() : null,
-                overrides != null ? overrides.temperatureCode() : null,
+                overrides.reasoningLevel(),
+                overrides.reasoningLevelCode(),
+                overrides.temperature(),
+                overrides.temperatureCode(),
                 skipVerificationFlag,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
