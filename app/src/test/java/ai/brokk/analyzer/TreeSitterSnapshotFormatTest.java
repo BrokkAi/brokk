@@ -96,4 +96,48 @@ public class TreeSitterSnapshotFormatTest {
             assertTrue(loadedStateOpt.isPresent(), "load() should return AnalyzerState for saved snapshot");
         }
     }
+
+    @Test
+    void snapshotWithMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                public class VersionTest { }
+                """,
+                "src/main/java/com/example/VersionTest.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            var state = analyzer.snapshotState();
+            var cache = new ai.brokk.analyzer.cache.AnalyzerCache();
+            // Add a signature to make the cache non-empty
+            cache.signatures()
+                    .put(
+                            state.symbolIndex()
+                                    .values()
+                                    .iterator()
+                                    .next()
+                                    .iterator()
+                                    .next(),
+                            List.of("v1-sig"));
+
+            Path originalPath = tempDir.resolve("original_v1.bin.gz");
+            TreeSitterStateIO.save(state, cache.snapshot(), originalPath);
+
+            // Load the raw DTO to mutate it
+            var rawOpt = TreeSitterStateIO.loadRaw(originalPath);
+            assertTrue(rawOpt.isPresent());
+            var raw = rawOpt.get();
+
+            // Create a mutated version with a major version bump (1.0.0 -> 2.0.0)
+            var mutated = new TreeSitterStateIO.SnapshotDto("2.0.0", raw.analyzerState(), raw.cacheSnapshot());
+
+            Path mutatedPath = tempDir.resolve("mutated_v2.bin.gz");
+            TreeSitterStateIO.saveRawSnapshotForTest(mutated, mutatedPath);
+
+            // Verify that loadWithCache returns empty due to major version mismatch
+            var loadedOpt = TreeSitterStateIO.loadWithCache(mutatedPath);
+            assertFalse(loadedOpt.isPresent(), "Snapshot with major version mismatch should not be loadable");
+        }
+    }
 }

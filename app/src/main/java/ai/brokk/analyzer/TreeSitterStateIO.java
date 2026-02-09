@@ -215,6 +215,19 @@ public final class TreeSitterStateIO {
     /**
      * Low-level helper for tests to inspect the raw SnapshotDto without rehydrating full objects.
      */
+    /**
+     * Test-only helper to write a raw SnapshotDto to disk using the production pipeline.
+     */
+    @Blocking
+    static void saveRawSnapshotForTest(SnapshotDto dto, Path file) throws IOException {
+        byte[] foryBytes = FORY.serialize(dto);
+        AtomicWrites.save(file, out -> {
+            try (GZIPOutputStream gzipOut = new GZIPOutputStream(out)) {
+                gzipOut.write(foryBytes);
+            }
+        });
+    }
+
     @Blocking
     static Optional<SnapshotDto> loadRaw(Path file) throws IOException {
         if (!Files.exists(file)) return Optional.empty();
