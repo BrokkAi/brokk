@@ -251,8 +251,11 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         }
 
         if (validProjectFiles.isEmpty()) {
-            RouterUtil.sendValidationError(
-                    exchange, "No valid relative paths provided; invalid: " + String.join(", ", invalidPaths));
+            var msg = "No valid relative paths provided";
+            if (!invalidPaths.isEmpty()) {
+                msg += "; invalid: " + String.join(", ", invalidPaths);
+            }
+            RouterUtil.sendValidationError(exchange, msg);
             return;
         }
 
