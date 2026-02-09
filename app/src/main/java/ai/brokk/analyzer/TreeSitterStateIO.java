@@ -2,7 +2,6 @@ package ai.brokk.analyzer;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.concurrent.AtomicWrites;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
@@ -25,13 +24,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Jackson Smile.
+ * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Apache Fory and gzip compression.
  *
- * Serializes AnalyzerState into DTOs:
- * - PMap fields are represented as standard Maps or entry lists
- * - SymbolKeyIndex becomes List<String> (keys)
- * - FileProperties omits the parsed TSTree
- * - ProjectFile is serialized via a DTO that guarantees a relative relPath
+ * <p>Serializes AnalyzerState into DTOs:
+ * <ul>
+ *   <li>PMap fields are represented as standard Maps or entry lists</li>
+ *   <li>SymbolKeyIndex becomes List&lt;String&gt; (keys)</li>
+ *   <li>FileProperties omits the parsed TSTree</li>
+ *   <li>ProjectFile is serialized via a DTO that guarantees a relative relPath</li>
+ * </ul>
  */
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
@@ -87,13 +88,11 @@ public final class TreeSitterStateIO {
      * A minimal, serialization-safe representation of ProjectFile that
      * enforces that relPath is stored as a relative string.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ProjectFileDto(String root, String relPath) {}
 
     /**
      * A serialization-safe representation of CodeUnit using ProjectFileDto.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitDto(
             ProjectFileDto source,
             CodeUnitType kind,
@@ -104,7 +103,6 @@ public final class TreeSitterStateIO {
     /**
      * DTO for structured import information.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ImportInfoDto(
             String rawSnippet, boolean isWildcard, @Nullable String identifier, @Nullable String alias) {}
 
@@ -114,7 +112,6 @@ public final class TreeSitterStateIO {
      * NOTE: import/type-hierarchy graphs are no longer part of the persisted AnalyzerState.
      * They are represented transiently in a serializable cache snapshot when desired.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record AnalyzerStateDto(
             Map<String, List<CodeUnitDto>> symbolIndex,
             List<CodeUnitEntryDto> codeUnitState,
@@ -124,30 +121,22 @@ public final class TreeSitterStateIO {
 
     /**
      * DTO for CodeUnitProperties.
-     *
-     * <p>Note: signatures were removed from the persisted CodeUnitProperties shape. This layer
-     * ignores unknown properties (like legacy signatures) to maintain compatibility with
-     * older snapshots.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitPropertiesDto(List<CodeUnitDto> children, List<IAnalyzer.Range> ranges, boolean hasBody) {}
 
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitEntryDto(CodeUnitDto key, CodeUnitPropertiesDto value) {}
 
     /**
      * DTO entry for ProjectFile -> FileProperties maps.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record FileStateEntryDto(ProjectFileDto key, FilePropertiesDto value) {}
 
     /**
      * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
             List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {}
 
@@ -208,7 +197,7 @@ public final class TreeSitterStateIO {
     }
 
     /**
-     * Load an AnalyzerState from the provided file in Smile format.
+     * Load an AnalyzerState from the provided file.
      * Returns Optional.empty() if file is missing or deserialization fails.
      *
      * Note: The on-disk format is a versioned top-level SnapshotDto that contains:
@@ -376,7 +365,6 @@ public final class TreeSitterStateIO {
      * Top-level Snapshot DTO that will be written to disk. Includes a schemaVersion so future migrations can alter
      * behavior based on that version.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SnapshotDto(
             String schemaVersion, AnalyzerStateDto analyzerState, @Nullable CacheSnapshotDto cacheSnapshot) {}
 
@@ -386,11 +374,9 @@ public final class TreeSitterStateIO {
      * The goal is to allow transfer of presentation-heavy but safe data such as signatures and raw supertypes,
      * and forward mappings for imports/typeHierarchy.
      *
-     * Note: Jackson does not support complex POJOs as map keys by default when deserializing. To avoid requiring
-     * a Map Key deserializer for CodeUnitDto, we represent signature/rawSupertypes maps as explicit entry lists
-     * (pairs) instead of Map<CodeUnitDto, ...>.
+     * <p>We store maps as explicit entry lists (pairs) to keep the DTO schema simple and avoid complex map keys,
+     * which helps keep the Fory schema stable.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record CacheSnapshotDto(
             List<SignatureEntryDto> signatures,
             List<RawSupertypesEntryDto> rawSupertypes,
@@ -401,27 +387,23 @@ public final class TreeSitterStateIO {
      * Entry DTO for signatures: (CodeUnitDto key) -> List<String> value.
      * Used to avoid using complex objects as Map keys.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SignatureEntryDto(CodeUnitDto key, List<String> value) {}
 
     /**
      * Entry DTO for raw supertypes map: (CodeUnitDto key) -> List<String> value.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record RawSupertypesEntryDto(CodeUnitDto key, List<String> value) {}
 
     /**
      * Entry DTO for imports forward mapping: (ProjectFileDto key) -> List<CodeUnitDto> value.
      * This mirrors how importsForward is serialized as a list of entries rather than a map with complex keys.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
 
     /**
      * Entry DTO for type hierarchy forward mapping: (CodeUnitDto key) -> List<CodeUnitDto> value.
      * Used to persist the forward supertypes mapping from the AnalyzerCache view.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SupertypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
     /**

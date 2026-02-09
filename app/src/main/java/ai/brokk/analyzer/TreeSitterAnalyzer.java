@@ -3580,6 +3580,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         });
 
+        // Populate the snapshot-local signatures cache during constructor-run analysis only.
+        //
+        // IMPORTANT: During incremental update(), we must not mutate the existing snapshot's cache while computing
+        // the next snapshot. update() calls mergeAnalysisResultIntoMaps with timing == null, and signatures are
+        // instead written into the new AnalyzerCache instance (filteredCache).
+        if (timing != null) {
+            analysisResult.signatures().forEach((cu, sigs) -> {
+                if (sigs == null || sigs.isEmpty()) {
+                    this.cache.signatures().put(cu, List.of());
+                } else {
+                    this.cache.signatures().put(cu, List.copyOf(sigs));
+                }
+            });
+        }
+
         // Update file state
         targetFileState.put(
                 pf,
