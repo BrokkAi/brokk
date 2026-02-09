@@ -717,24 +717,11 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
-    /**
-     * Returns the size of the given {@link ProjectFile} in bytes. Any {@link IOException} is logged and a size of
-     * {@code 0} is returned so that a single problematic file does not break language detection.
-     */
-    private static long getFileSize(ProjectFile pf) {
-        try {
-            return Files.size(pf.absPath());
-        } catch (IOException e) {
-            logger.warn("Unable to determine size of file {}: {}", pf, e.getMessage());
-            return 0L;
-        }
-    }
-
     @Override
     public Set<Language> getAnalyzerLanguages() {
         String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
         if (langsProp != null && !langsProp.isBlank()) {
-            return Arrays.stream(langsProp.split(","))
+            Set<Language> parsed = Arrays.stream(langsProp.split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
                     .map(langName -> {
@@ -747,43 +734,27 @@ public final class MainProject extends AbstractProject {
                     })
                     .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
+
+            if (parsed.isEmpty()) {
+                return Set.of(Languages.NONE);
+            }
+            return parsed;
         }
 
-        Map<Language, Long> languageSizes = repo.getTrackedFiles().stream() // repo from AbstractProject
-                .filter(pf -> Languages.fromExtension(pf.extension()) != Languages.NONE)
-                .collect(Collectors.groupingBy(
-                        pf -> Languages.fromExtension(pf.extension()),
-                        Collectors.summingLong(MainProject::getFileSize)));
+        Set<Language> detectedLanguages = new HashSet<>();
+        for (ProjectFile pf : repo.getTrackedFiles()) {
+            Language lang = Languages.fromExtension(pf.extension());
+            if (lang != Languages.NONE) {
+                detectedLanguages.add(lang);
+            }
+        }
 
-        if (languageSizes.isEmpty()) {
+        if (detectedLanguages.isEmpty()) {
             logger.debug(
                     "No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
             return Set.of(Languages.NONE);
         }
 
-        long totalRecognizedBytes =
-                languageSizes.values().stream().mapToLong(Long::longValue).sum();
-        Set<Language> detectedLanguages = new HashSet<>();
-
-        languageSizes.entrySet().stream()
-                .filter(entry -> (double) entry.getValue() / totalRecognizedBytes >= 0.10)
-                .forEach(entry -> detectedLanguages.add(entry.getKey()));
-
-        if (detectedLanguages.isEmpty()) {
-            var mostCommonEntry = languageSizes.entrySet().stream()
-                    .max(Map.Entry.comparingByValue())
-                    .orElseThrow();
-            detectedLanguages.add(mostCommonEntry.getKey());
-            logger.debug(
-                    "No language met 10% threshold for {}. Adding most common: {}",
-                    root, mostCommonEntry.getKey().name());
-        }
-
-        if (languageSizes.containsKey(Languages.SQL)) {
-            if (detectedLanguages.add(Languages.SQL)) {
-                logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
-            }
-        }
         logger.debug(
                 "Auto-detected languages for {}: {}",
                 root,
