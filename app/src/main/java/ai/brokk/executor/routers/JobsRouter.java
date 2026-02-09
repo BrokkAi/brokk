@@ -30,8 +30,8 @@ import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Router for /v1/jobs endpoints.
@@ -436,7 +436,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         });
     }
 
-    private @Nullable JobSpec.ModelOverrides validateModelOverrides(HttpExchange exchange, JobSpecRequest request)
+    private JobSpec.@Nullable ModelOverrides validateModelOverrides(HttpExchange exchange, JobSpecRequest request)
             throws IOException {
         String rl = null;
         if (request.reasoningLevel() != null && !request.reasoningLevel().isBlank()) {
