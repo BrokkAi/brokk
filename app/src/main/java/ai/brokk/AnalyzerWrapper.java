@@ -269,7 +269,19 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         boolean needsRebuild = externalRebuildRequested; // explicit user request wins
         for (Language lang : project.getAnalyzerLanguages()) {
             Path storagePath = lang.getStoragePath(project);
-            // todo: This will not exist for most analyzers right now
+
+            // Cleanup legacy .bin.gzip files if they exist to keep the directory clean
+            Path legacyPath =
+                    storagePath.resolveSibling(storagePath.getFileName().toString() + ".gzip");
+            if (Files.exists(legacyPath)) {
+                try {
+                    Files.delete(legacyPath);
+                    logger.info("Deleted legacy gzipped analyzer state: {}", legacyPath);
+                } catch (IOException e) {
+                    logger.warn("Failed to delete legacy gzipped analyzer state: {}", legacyPath, e);
+                }
+            }
+
             if (!Files.exists(storagePath)) { // no cache → rebuild
                 needsRebuild = true;
                 continue;

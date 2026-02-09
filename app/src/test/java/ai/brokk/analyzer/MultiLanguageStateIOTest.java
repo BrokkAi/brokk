@@ -79,10 +79,10 @@ public class MultiLanguageStateIOTest {
             assertNotNull(brokkDir, "Expected .brokk directory parent to be non-null");
             List<Path> binFiles;
             try (var list = Files.list(brokkDir)) {
-                binFiles = list.filter(p -> p.getFileName()
-                                .toString()
-                                .toLowerCase(Locale.ROOT)
-                                .endsWith(".bin"))
+                binFiles = list.filter(p -> {
+                            String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                            return name.endsWith(".bin") || name.endsWith(".bin.gzip");
+                        })
                         .toList();
             }
             Set<String> binNames = new HashSet<>();

@@ -54,7 +54,8 @@ public interface Language {
      * @return The path to the database file.
      */
     default Path getStoragePath(IProject project) {
-        // Use oldName for storage path to ensure stable and filesystem-safe names
+        // Use internalName for storage path to ensure stable and filesystem-safe names.
+        // Snapshots are no longer gzipped, so we use the .bin extension.
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
                 .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
