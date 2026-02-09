@@ -344,6 +344,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                                         .orElse(""));
                         yield Optional.of(fullScopedTypeNodeText);
                     }
+                    case REFERENCE_TYPE -> {
+                        // Unwrap reference_type (e.g. &T, &mut T) to get the inner type name
+                        TSNode innerType = typeNode.getChildByFieldName("type");
+                        if (!innerType.isNull()) {
+                            yield Optional.of(sourceContent.substringFromBytes(
+                                    innerType.getStartByte(), innerType.getEndByte()));
+                        }
+                        yield Optional.of(sourceContent.substringFromBytes(
+                                typeNode.getStartByte(), typeNode.getEndByte()));
+                    }
                     default -> {
                         String fullTypeNodeText =
                                 sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
