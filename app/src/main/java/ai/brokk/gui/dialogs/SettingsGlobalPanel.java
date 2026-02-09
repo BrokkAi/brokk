@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
@@ -378,7 +379,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         connectionsLabel.setToolTipText(
                 "Connect your own LLM subscriptions to use their credits instead of Brokk credits.");
         servicePanel.add(connectionsLabel, gbc);
-        gbc.anchor = GridBagConstraints.WEST;
 
         // Paid-only panel containing OpenAI connection and provider keys
         connectionsPaidPanel = new JPanel(new GridBagLayout());
@@ -2369,18 +2369,32 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 }
             }
 
-            String codexModelName = "gpt-5.1-codex-max-oauth";
+            String codeModelName = "gpt-5.2-codex-oauth";
+            String architectModelName = "gpt-5.2-oauth";
+            var codeModelConfig = new Service.ModelConfig(codeModelName, AbstractService.ReasoningLevel.LOW);
+            var architectModelConfig =
+                    new Service.ModelConfig(architectModelName, AbstractService.ReasoningLevel.DISABLE);
+
+            // Add favorites for both models if not already present
             var favorites = new ArrayList<>(MainProject.loadFavoriteModels());
             boolean hasCodexFavorite =
-                    favorites.stream().anyMatch(fm -> fm.config().name().equals(codexModelName));
+                    favorites.stream().anyMatch(fm -> fm.config().name().equals(codeModelName));
+            boolean hasArchitectFavorite =
+                    favorites.stream().anyMatch(fm -> fm.config().name().equals(architectModelName));
+
             if (!hasCodexFavorite) {
-                favorites.add(new Service.FavoriteModel("Codex Max", new Service.ModelConfig(codexModelName)));
+                favorites.add(new Service.FavoriteModel("Codex", codeModelConfig));
+            }
+            if (!hasArchitectFavorite) {
+                favorites.add(new Service.FavoriteModel("GPT-5.2", architectModelConfig));
+            }
+            if (!hasCodexFavorite || !hasArchitectFavorite) {
                 MainProject.saveFavoriteModels(favorites);
-                logger.info("Added Codex model to favorites list");
+                logger.info("Added Codex models to favorites list");
             }
 
-            mainProject.setModelConfig(ModelProperties.ModelType.CODE, new Service.ModelConfig(codexModelName));
-            mainProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, new Service.ModelConfig(codexModelName));
+            mainProject.setModelConfig(ModelProperties.ModelType.CODE, codeModelConfig);
+            mainProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, architectModelConfig);
 
             chrome.getContextManager().reloadService();
 
@@ -2389,7 +2403,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 String message =
                         """
                         "OpenAI - Codex" vendor has been configured automatically.
-                        Architect and Coder models were set.
+                        GPT-5.2 (Architect) and Codex (Coder) models were set.
                         This can be changed at any time in Settings.
                         """
                                 .stripIndent();
