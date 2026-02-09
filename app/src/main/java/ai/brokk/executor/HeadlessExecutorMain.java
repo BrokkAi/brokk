@@ -199,9 +199,8 @@ public final class HeadlessExecutorMain {
                 () -> {
                     try {
                         this.contextManager.createHeadless(BuildAgent.BuildDetails.EMPTY, false);
-                        sessionLoaded = true;
                         headlessInit.complete(null);
-                        logger.info("ContextManager headless initialization complete, session loaded");
+                        logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {
                         headlessInit.completeExceptionally(e);
                         logger.warn("ContextManager headless initialization failed", e);
