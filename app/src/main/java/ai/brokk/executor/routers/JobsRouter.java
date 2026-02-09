@@ -369,9 +369,15 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     }
 
     private void handleCancelJob(HttpExchange exchange, String jobId) throws IOException {
-        jobRunner.cancel(jobId);
-        exchange.sendResponseHeaders(202, 0);
-        exchange.close();
+        try {
+            jobRunner.cancel(jobId);
+            exchange.sendResponseHeaders(202, 0);
+            exchange.close();
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/jobs/{}/cancel", jobId, e);
+            var error = ErrorPayload.internalError("Failed to cancel job", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
     }
 
     private void handleGetJobDiff(HttpExchange exchange, String jobId) throws IOException {
