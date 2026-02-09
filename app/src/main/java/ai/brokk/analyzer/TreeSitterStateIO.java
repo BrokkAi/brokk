@@ -39,7 +39,7 @@ public final class TreeSitterStateIO {
     private static final ThreadLocalFory FORY = new ForyBuilder()
             .withLanguage(Language.JAVA)
             .withStringCompressed(true)
-            .withRefTracking(true)
+            .withRefTracking(false)
             .buildThreadLocalFory();
 
     static {
