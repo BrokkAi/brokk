@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.util.SemVer;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
@@ -282,8 +283,8 @@ public final class TreeSitterStateIO {
 
             if (!isSchemaVersionLoadable(top.schemaVersion())) {
                 log.debug(
-                        "Snapshot schemaVersion not loadable: expectedMajor={}, found={}. Will rebuild.",
-                        majorOf(SCHEMA_VERSION),
+                        "Snapshot schemaVersion not loadable: expected={}, found={}. Will rebuild.",
+                        SCHEMA_VERSION,
                         top.schemaVersion());
                 return Optional.empty();
             }
@@ -565,21 +566,25 @@ public final class TreeSitterStateIO {
 
     /* ================= Helpers ================= */
 
-    private static boolean isSchemaVersionLoadable(@Nullable String found) {
-        Integer expectedMajor = majorOf(SCHEMA_VERSION);
-        Integer foundMajor = majorOf(found);
-        return expectedMajor != null && expectedMajor.equals(foundMajor);
-    }
+    private static boolean isSchemaVersionLoadable(@Nullable String foundStr) {
+        SemVer expected = SemVer.parse(SCHEMA_VERSION);
+        SemVer found = SemVer.parse(foundStr);
 
-    private static @Nullable Integer majorOf(@Nullable String v) {
-        if (v == null) return null;
-        String[] parts = v.split("\\.", -1);
-        if (parts.length != 3) return null;
-        try {
-            return Integer.parseInt(parts[0]);
-        } catch (NumberFormatException e) {
-            return null;
+        if (expected == null || found == null) {
+            log.debug("Invalid schema version: expected={}, found={}. Will rebuild.", SCHEMA_VERSION, foundStr);
+            return false;
         }
+
+        if (expected.major() != found.major()) {
+            log.debug("Major version mismatch: expected={}, found={}. Will rebuild.", expected, found);
+            return false;
+        }
+
+        if (expected.minor() != found.minor() || expected.patch() != found.patch()) {
+            log.info("Loading snapshot with version difference: expected={}, found={}", expected, found);
+        }
+
+        return true;
     }
 
     /**
