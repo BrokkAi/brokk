@@ -2,6 +2,7 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -1980,7 +1981,7 @@ class ProjectFilteringGitRepoTest {
         try {
             // Create global gitignore file in home directory
             var parent = globalIgnoreFile.getParent();
-            assert parent != null;
+            assertNotNull(parent);
             Files.createDirectories(parent);
             Files.writeString(globalIgnoreFile, "*.secret\n");
 
