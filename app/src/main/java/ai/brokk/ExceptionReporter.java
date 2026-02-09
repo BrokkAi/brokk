@@ -67,8 +67,9 @@ public class ExceptionReporter {
      */
     @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
-        // Enrich with always-on OS/JRE telemetry
-        Map<String, String> enrichedFields = enrichFields(optionalFields);
+        // Enrich with standard telemetry (preserve caller values if provided)
+        var enriched = new HashMap<>(optionalFields);
+        enriched.putIfAbsent("watchService", Environment.getActiveWatchServiceImpl());
 
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
@@ -90,7 +91,7 @@ public class ExceptionReporter {
         reportedExceptions.put(signature, currentTime);
 
         // Also write to local log file for debugging
-        writeLocalErrorReport(throwable, enrichedFields);
+        writeLocalErrorReport(throwable, enriched);
 
         // Clean up old entries from the deduplication map (keep it bounded)
         if (reportedExceptions.size() > 1000) {
@@ -103,7 +104,7 @@ public class ExceptionReporter {
         try {
             String clientVersion = BuildInfo.version;
             ReportingService service = serviceSupplier.get();
-            service.reportClientException(stacktrace, clientVersion, enrichedFields);
+            service.reportClientException(stacktrace, clientVersion, enriched);
             logger.debug(
                     "Successfully reported exception: {} - {}",
                     throwable.getClass().getSimpleName(),
@@ -137,24 +138,6 @@ public class ExceptionReporter {
         }
 
         return fullStacktrace;
-    }
-
-    /**
-     * Enriches the optional fields with always-on OS/JRE telemetry.
-     * Uses putIfAbsent to preserve caller-provided keys.
-     *
-     * @param originalFields The original optional fields (may be empty)
-     * @return Enriched fields with telemetry added
-     */
-    private static Map<String, String> enrichFields(Map<String, String> originalFields) {
-        var enriched = new HashMap<>(originalFields);
-
-        // Always add OS/JRE telemetry (but don't overwrite caller-provided values)
-        enriched.putIfAbsent("osDescription", Environment.getOsDescription());
-        enriched.putIfAbsent("jreDescription", Environment.getJreDescription());
-        enriched.putIfAbsent("activeWatchServiceImpl", Environment.getActiveWatchServiceImpl());
-
-        return enriched;
     }
 
     /**

@@ -3,6 +3,7 @@ package ai.brokk;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -457,6 +458,11 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         jvmNode.put("availableProcessors", runtime.availableProcessors());
         jvmNode.put("maxMemory", runtime.maxMemory());
         jvmNode.put("freeMemory", runtime.freeMemory());
+        jvmNode.put("version", System.getProperty("java.version", "unknown"));
+        jvmNode.put("fullVersion", String.format("%s %s (%s)",
+                System.getProperty("java.runtime.name", "unknown"),
+                System.getProperty("java.runtime.version", System.getProperty("java.version", "unknown")),
+                System.getProperty("java.vendor", "unknown")));
         fieldsNode.set("jvm", jvmNode);
 
         jsonBody.set("context", fieldsNode);

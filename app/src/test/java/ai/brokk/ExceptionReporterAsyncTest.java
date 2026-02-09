@@ -184,10 +184,8 @@ class ExceptionReporterAsyncTest {
         // Verify caller-provided fields are preserved
         assertEquals("user123", call.optionalFields.get("userId"), "Caller field userId should be preserved");
         assertEquals("test-operation", call.optionalFields.get("context"), "Caller field context should be preserved");
-        // Verify OS/JRE/watchService telemetry is also present
-        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
-        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-        assertTrue(call.optionalFields.containsKey("activeWatchServiceImpl"), "Should include activeWatchServiceImpl");
+        // Verify watchService telemetry is also present
+        assertTrue(call.optionalFields.containsKey("watchService"), "Should include watchService");
         assertTrue(call.stacktrace.contains("RuntimeException"));
     }
 
@@ -205,10 +203,9 @@ class ExceptionReporterAsyncTest {
         assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
 
         ServiceCall call = serviceSpy.getCalls().get(0);
-        // Even with empty caller fields, telemetry should be present
-        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
-        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-        assertTrue(call.optionalFields.containsKey("activeWatchServiceImpl"), "Should include activeWatchServiceImpl");
+        // Even with empty caller fields, watchService telemetry should be present
+        assertEquals(1, call.optionalFields.size(), "Should have 1 telemetry field");
+        assertTrue(call.optionalFields.containsKey("watchService"), "Should include watchService");
     }
 
     @Test
@@ -229,15 +226,13 @@ class ExceptionReporterAsyncTest {
         assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
 
         ServiceCall call = serviceSpy.getCalls().get(0);
-        // 4 caller fields + 3 telemetry fields (osDescription, jreDescription, activeWatchServiceImpl)
-        assertEquals(7, call.optionalFields.size(), "Should have 7 optional fields (4 caller + 3 telemetry)");
+        // 4 caller fields + 1 telemetry field (watchService)
+        assertEquals(5, call.optionalFields.size(), "Should have 5 optional fields (4 caller + 1 telemetry)");
         assertEquals("user123", call.optionalFields.get("userId"));
         assertEquals("sess456", call.optionalFields.get("sessionId"));
         assertEquals("codeAnalysis", call.optionalFields.get("operationType"));
         assertEquals("TestProject", call.optionalFields.get("projectName"));
-        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
-        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-        assertTrue(call.optionalFields.containsKey("activeWatchServiceImpl"), "Should include activeWatchServiceImpl");
+        assertTrue(call.optionalFields.containsKey("watchService"), "Should include watchService");
     }
 
     @Test
@@ -260,8 +255,8 @@ class ExceptionReporterAsyncTest {
     }
 
     @Test
-    @DisplayName("Should enrich all exceptions with Environment telemetry")
-    void shouldEnrichAllExceptionsWithEnvironmentTelemetry() throws Exception {
+    @DisplayName("Should enrich all exceptions with watchService telemetry")
+    void shouldEnrichAllExceptionsWithWatchServiceTelemetry() throws Exception {
         Exception testException = new RuntimeException("Regular exception");
 
         exceptionReporter.reportException(testException);
@@ -271,32 +266,19 @@ class ExceptionReporterAsyncTest {
 
         ServiceCall call = serviceSpy.getCalls().get(0);
 
-        // Verify all Environment telemetry fields are present and match
-        assertTrue(call.optionalFields.containsKey("osDescription"), "Should include osDescription");
-        assertTrue(call.optionalFields.containsKey("jreDescription"), "Should include jreDescription");
-        assertTrue(call.optionalFields.containsKey("activeWatchServiceImpl"), "Should include activeWatchServiceImpl");
-        assertEquals(
-                Environment.getOsDescription(),
-                call.optionalFields.get("osDescription"),
-                "osDescription should match Environment.getOsDescription()");
-        assertEquals(
-                Environment.getJreDescription(),
-                call.optionalFields.get("jreDescription"),
-                "jreDescription should match Environment.getJreDescription()");
+        // Verify watchService telemetry field is present and matches
+        assertTrue(call.optionalFields.containsKey("watchService"), "Should include watchService");
         assertEquals(
                 Environment.getActiveWatchServiceImpl(),
-                call.optionalFields.get("activeWatchServiceImpl"),
-                "activeWatchServiceImpl should match Environment.getActiveWatchServiceImpl()");
+                call.optionalFields.get("watchService"),
+                "watchService should match Environment.getActiveWatchServiceImpl()");
     }
 
     @Test
-    @DisplayName("Should not overwrite caller-provided telemetry keys")
-    void shouldNotOverwriteCallerProvidedTelemetryKeys() throws Exception {
+    @DisplayName("Should not overwrite caller-provided watchService field")
+    void shouldNotOverwriteCallerProvidedWatchServiceField() throws Exception {
         Exception testException = new RuntimeException("Test exception");
-        Map<String, String> callerFields = Map.of(
-                "osDescription", "caller-provided-os",
-                "jreDescription", "caller-provided-jre",
-                "activeWatchServiceImpl", "caller-provided-impl");
+        Map<String, String> callerFields = Map.of("watchService", "caller-provided-impl");
 
         exceptionReporter.reportException(testException, callerFields);
         Thread.sleep(500);
@@ -305,19 +287,11 @@ class ExceptionReporterAsyncTest {
 
         ServiceCall call = serviceSpy.getCalls().get(0);
 
-        // Verify caller-provided telemetry keys are preserved (not overwritten)
-        assertEquals(
-                "caller-provided-os",
-                call.optionalFields.get("osDescription"),
-                "Caller-provided osDescription should be preserved");
-        assertEquals(
-                "caller-provided-jre",
-                call.optionalFields.get("jreDescription"),
-                "Caller-provided jreDescription should be preserved");
+        // Verify caller-provided watchService field is preserved (not overwritten)
         assertEquals(
                 "caller-provided-impl",
-                call.optionalFields.get("activeWatchServiceImpl"),
-                "Caller-provided activeWatchServiceImpl should be preserved");
+                call.optionalFields.get("watchService"),
+                "Caller-provided watchService should be preserved");
     }
 
     // Helper methods

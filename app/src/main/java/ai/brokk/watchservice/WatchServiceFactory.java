@@ -138,7 +138,7 @@ public class WatchServiceFactory {
             logger.debug("Using native watch service (default)");
             watcher = createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         }
-        Environment.setActiveWatchServiceImpl(watcher.getClass().getSimpleName());
+        Environment.setActiveWatchServiceImpl(watcher instanceof NativeProjectWatchService ? "native" : "java");
         return watcher;
     }
 
