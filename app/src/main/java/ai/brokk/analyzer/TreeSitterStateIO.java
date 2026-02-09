@@ -252,9 +252,8 @@ public final class TreeSitterStateIO {
      * Returns Optional.empty() if file is missing or deserialization fails.
      *
      * This method rehydrates an AnalyzerCache instance and populates forward mappings (signatures,
-     * rawSupertypes, imports forward, typeHierarchy forward). Reverse mappings are not restored and
-     * will be repopulated lazily by analyzer operations, preserving existing semantics for lazy
-     * population and transfer semantics during incremental updates.
+     * rawSupertypes, imports forward, typeHierarchy forward). Reverse mappings are reconstructed
+     * from the forward mappings during load to provide a warm start for analyzer operations.
      */
     @Blocking
     public static Optional<SnapshotWithCache> loadWithCache(Path file) {
@@ -304,9 +303,8 @@ public final class TreeSitterStateIO {
     /**
      * Populate the provided AnalyzerCache instance using the serialized CacheSnapshotDto.
      *
-     * Only forward mappings are restored here. Reverse mappings (for BidirectionalCache) are intentionally
-     * left to be populated lazily by runtime operations (e.g., performImportedCodeUnitsOf,
-     * performGetDirectAncestors) to preserve the same lazy-population semantics used during transfer updates.
+     * Forward mappings are restored from the DTO, and reverse mappings (for BidirectionalCache)
+     * are reconstructed from those forward mappings to ensure the cache is fully warm upon return.
      */
     private static void restoreCacheFromDto(AnalyzerCache target, CacheSnapshotDto dto) {
         // Restore signatures
