@@ -344,7 +344,7 @@ public class SearchPrompts {
                           Definitions / declarations only?
                           -> searchSymbols
                           How is something used, accessed, obtained, injected, or called?
-                          -> addSymbolUsagesToWorkspace
+                          -> scanUsages
                           Strings, configs, markdown, comments, reflection, or unknown names?
                           -> searchSubstrings
                      - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
@@ -358,8 +358,8 @@ public class SearchPrompts {
                      Do not write code, and do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
-                     and let the Code Agent write the code. (But when refactoring, it is usually sufficient to call `addSymbolUsagesToWorkspace`
-                     and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
+                     and let the Code Agent write the code. (For more localized changes, you can use `addMethodsToWorkspace`
+                     or `addClassesToWorkspace`, instead of adding entire files.)
                      Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
                   6) When you have enough information to take a final action, do so.
                      There are no bonus points for grooming the perfect Workspace.

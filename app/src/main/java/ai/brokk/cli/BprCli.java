@@ -88,12 +88,6 @@ public final class BprCli implements Callable<Integer> {
     private List<String> addUrls = new ArrayList<>();
 
     @CommandLine.Option(
-            names = "--add-usage",
-            description =
-                    "Add the full source of all methods calling then given FQ symbol to the workspace for editing. Can be repeated.")
-    private List<String> addUsages = new ArrayList<>();
-
-    @CommandLine.Option(
             names = "--add-summary-class",
             description = "Add a summary of the given class to the workspace. Can be repeated.")
     private List<String> addSummaryClasses = new ArrayList<>();
@@ -503,9 +497,6 @@ public final class BprCli implements Callable<Integer> {
         if (!addMethodSources.isEmpty()) tools.addMethodsToWorkspace(addMethodSources);
         for (var url : addUrls) {
             tools.addUrlContentsToWorkspace(url);
-        }
-        for (var symbol : addUsages) {
-            tools.addSymbolUsagesToWorkspace(symbol);
         }
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();

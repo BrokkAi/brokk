@@ -363,14 +363,42 @@ public class FuzzyUsageFinderJavaTest {
         UsageHit hitExcluded = new UsageHit(file, 1, 10, 11, enclosingExcluded, 0.099, "");
         UsageHit hitHigh = new UsageHit(file, 2, 20, 21, enclosingHigh, 1.0, "");
 
-        var allHits = new HashSet<UsageHit>();
-        allHits.add(hitIncluded);
-        allHits.add(hitExcluded);
-        allHits.add(hitHigh);
+        var allHitsByOverload = new HashMap<CodeUnit, Set<UsageHit>>();
+        allHitsByOverload.put(enclosingIncluded, new HashSet<>(Set.of(hitIncluded, hitExcluded)));
+        allHitsByOverload.put(enclosingHigh, new HashSet<>(Set.of(hitHigh)));
 
-        var filtered = FuzzyUsageFinder.filterByConfidence(allHits);
+        var filtered = FuzzyUsageFinder.filterByConfidence(allHitsByOverload);
 
-        assertEquals(Set.of(hitIncluded, hitHigh), filtered);
+        assertEquals(2, filtered.size());
+        assertEquals(Set.of(hitIncluded), filtered.get(enclosingIncluded));
+        assertEquals(Set.of(hitHigh), filtered.get(enclosingHigh));
+    }
+
+    @Test
+    public void filterByConfidenceExcludesEntriesWithAllLowConfidenceHits() {
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var file = new ProjectFile(root, Path.of("A.java"));
+
+        var enclosingLow = new CodeUnit(file, CodeUnitType.CLASS, "", "LowConf", null);
+        var enclosingHigh = new CodeUnit(file, CodeUnitType.CLASS, "", "HighConf", null);
+
+        // All hits for this overload are below 0.1
+        UsageHit hitLow1 = new UsageHit(file, 1, 0, 1, enclosingLow, 0.09, "");
+        UsageHit hitLow2 = new UsageHit(file, 2, 10, 11, enclosingLow, 0.05, "");
+
+        // This overload has at least one good hit
+        UsageHit hitHigh = new UsageHit(file, 3, 20, 21, enclosingHigh, 0.5, "");
+
+        var allHitsByOverload = new HashMap<CodeUnit, Set<UsageHit>>();
+        allHitsByOverload.put(enclosingLow, new HashSet<>(Set.of(hitLow1, hitLow2)));
+        allHitsByOverload.put(enclosingHigh, new HashSet<>(Set.of(hitHigh)));
+
+        var filtered = FuzzyUsageFinder.filterByConfidence(allHitsByOverload);
+
+        // LowConf should be absent because all its hits were filtered out
+        assertEquals(1, filtered.size());
+        assertFalse(filtered.containsKey(enclosingLow), "Overload with only low confidence hits should be removed");
+        assertTrue(filtered.containsKey(enclosingHigh));
     }
 
     @Test

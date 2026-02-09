@@ -222,11 +222,11 @@ public class SearchAgent {
 
         // Search-specific analyzer tools
         tools.add("searchSymbols");
+        tools.add("scanUsages");
         tools.add("getSymbolLocations");
         tools.add("skimDirectory");
 
         // Workspace analyzer tools
-        tools.add("addSymbolUsagesToWorkspace");
         tools.add("addClassesToWorkspace");
         tools.add("addClassSummariesToWorkspace");
         tools.add("addMethodsToWorkspace");
@@ -483,10 +483,9 @@ public class SearchAgent {
             case "addFilesToWorkspace" -> 4;
             case "addClassesToWorkspace", "addFileSummariesToWorkspace" -> 5;
             case "addMethodsToWorkspace", "addClassSummariesToWorkspace" -> 6;
-            case "addSymbolUsagesToWorkspace" -> 15;
             case "searchSymbols",
                     "getSymbolLocations",
-                    "getUsages",
+                    "scanUsages",
                     "searchSubstrings",
                     "searchFilenames",
                     "searchGitCommitMessages" -> 20;
@@ -1329,7 +1328,7 @@ public class SearchAgent {
         return Set.of(
                         "getSymbolLocations",
                         "searchSymbols",
-                        "getUsages",
+                        "scanUsages",
                         "searchSubstrings",
                         "searchFilenames",
                         "searchGitCommitMessages")
