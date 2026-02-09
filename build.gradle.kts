@@ -147,7 +147,7 @@ val pythonTest by tasks.registering(Exec::class) {
     description = "Run Python tests with pytest"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine("uv", "run", "--group", "dev", "pytest")
+    commandLine("uv", "run", "--group", "dev", "python", "-m", "pytest")
 }
 
 val pythonCheck by tasks.registering {
