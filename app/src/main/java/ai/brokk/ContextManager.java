@@ -2758,6 +2758,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
         if (Boolean.getBoolean("brokk.test.mode")) {
+            logger.debug("Skipping balance check: brokk.test.mode is enabled");
             return;
         }
         if (MainProject.getBrokkKey().isBlank()) {
