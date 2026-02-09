@@ -59,8 +59,7 @@ public class TestService extends AbstractService {
     }
 
     @Override
-    public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
-            throws IOException {
+    public JsonNode reportClientException(JsonNode exceptionReport) throws IOException {
         return objectMapper.createObjectNode();
     }
 
