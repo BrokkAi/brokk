@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.concurrent.AtomicWrites;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.io.EOFException;
@@ -148,14 +149,7 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
-            List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
-        public FilePropertiesDto(
-                List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {
-            this.topLevelCodeUnits = topLevelCodeUnits;
-            this.importStatements = importStatements;
-            this.containsTests = containsTests;
-        }
-    }
+            List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {}
 
     /**
      * Save an AnalyzerState together with an optional serializable cache snapshot into a versioned top-level
@@ -237,6 +231,7 @@ public final class TreeSitterStateIO {
         if (!Files.exists(file)) return Optional.empty();
         try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
             byte[] bytes = in.readAllBytes();
+            // NB: This is nullable
             return Optional.ofNullable(FORY.deserialize(bytes, SnapshotDto.class));
         }
     }
@@ -287,11 +282,6 @@ public final class TreeSitterStateIO {
 
             SnapshotDto top = FORY.deserialize(gunzipped, SnapshotDto.class);
 
-            if (top == null || top.analyzerState() == null) {
-                log.debug("Snapshot at {} is invalid or legacy. Will rebuild.", file);
-                return Optional.empty();
-            }
-
             if (!isSchemaVersionLoadable(top.schemaVersion())) {
                 log.debug(
                         "Snapshot schemaVersion not loadable: expectedMajor={}, found={}. Will rebuild.",
@@ -329,67 +319,53 @@ public final class TreeSitterStateIO {
      * left to be populated lazily by runtime operations (e.g., performImportedCodeUnitsOf,
      * performGetDirectAncestors) to preserve the same lazy-population semantics used during transfer updates.
      */
-    private static void restoreCacheFromDto(ai.brokk.analyzer.cache.AnalyzerCache target, CacheSnapshotDto dto) {
+    private static void restoreCacheFromDto(AnalyzerCache target, CacheSnapshotDto dto) {
         // Restore signatures
-        if (dto.signatures() != null) {
-            for (var entry : dto.signatures()) {
-                if (entry == null || entry.key() == null) continue;
-                CodeUnit key = fromDto(entry.key());
-                List<String> value = entry.value() != null ? List.copyOf(entry.value()) : List.of();
-                target.signatures().put(key, value);
-            }
+        for (var entry : dto.signatures()) {
+            CodeUnit key = fromDto(entry.key());
+            List<String> value = List.copyOf(entry.value());
+            target.signatures().put(key, value);
         }
 
         // Restore raw supertypes
-        if (dto.rawSupertypes() != null) {
-            for (var entry : dto.rawSupertypes()) {
-                if (entry == null || entry.key() == null) continue;
-                CodeUnit key = fromDto(entry.key());
-                List<String> value = entry.value() != null ? List.copyOf(entry.value()) : List.of();
-                target.rawSupertypes().put(key, value);
-            }
+        for (var entry : dto.rawSupertypes()) {
+            CodeUnit key = fromDto(entry.key());
+            List<String> value = List.copyOf(entry.value());
+            target.rawSupertypes().put(key, value);
         }
 
         // Restore imports forward and populate reverse mappings so consumers can query reverse quickly.
-        if (dto.importsForward() != null) {
-            for (var entry : dto.importsForward()) {
-                if (entry == null || entry.key() == null) continue;
-                ProjectFile pf = fromDto(entry.key());
-                Set<CodeUnit> units = (entry.value() == null)
-                        ? Set.of()
-                        : entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet());
-                target.imports().putForward(pf, units);
+        for (var entry : dto.importsForward()) {
+            ProjectFile pf = fromDto(entry.key());
+            Set<CodeUnit> units =
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet());
+            target.imports().putForward(pf, units);
 
-                // Populate reverse mapping for each CodeUnit's source ProjectFile.
-                for (CodeUnit cu : units) {
-                    ProjectFile cuSource = cu.source();
-                    target.imports().updateReverse(cuSource, existing -> {
-                        Set<ProjectFile> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
-                        set.add(pf);
-                        return set;
-                    });
-                }
+            // Populate reverse mapping for each CodeUnit's source ProjectFile.
+            for (CodeUnit cu : units) {
+                ProjectFile cuSource = cu.source();
+                target.imports().updateReverse(cuSource, existing -> {
+                    Set<ProjectFile> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(pf);
+                    return set;
+                });
             }
         }
 
         // Restore typeHierarchy forward (supertypes) and populate reverse mappings (subtypes)
-        if (dto.typeHierarchyForward() != null) {
-            for (var entry : dto.typeHierarchyForward()) {
-                if (entry == null || entry.key() == null) continue;
-                CodeUnit key = fromDto(entry.key());
-                List<CodeUnit> value = (entry.value() == null)
-                        ? List.of()
-                        : entry.value().stream().map(TreeSitterStateIO::fromDto).toList();
-                target.typeHierarchy().putForward(key, value);
+        for (var entry : dto.typeHierarchyForward()) {
+            CodeUnit key = fromDto(entry.key());
+            List<CodeUnit> value =
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).toList();
+            target.typeHierarchy().putForward(key, value);
 
-                // Populate reverse mapping: for each supertype, record 'key' as its subtype
-                for (CodeUnit superCu : value) {
-                    target.typeHierarchy().updateReverse(superCu, existing -> {
-                        Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
-                        set.add(key);
-                        return set;
-                    });
-                }
+            // Populate reverse mapping: for each supertype, record 'key' as its subtype
+            for (CodeUnit superCu : value) {
+                target.typeHierarchy().updateReverse(superCu, existing -> {
+                    Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(key);
+                    return set;
+                });
             }
         }
     }
@@ -501,7 +477,7 @@ public final class TreeSitterStateIO {
     /**
      * Convert a cache snapshot into a serializable DTO.
      */
-    public static CacheSnapshotDto cacheSnapshotToDto(ai.brokk.analyzer.cache.AnalyzerCache.CacheSnapshot snapshot) {
+    public static CacheSnapshotDto cacheSnapshotToDto(AnalyzerCache.CacheSnapshot snapshot) {
         // Convert signatures map into a list of SignatureEntryDto to avoid complex map keys.
         List<SignatureEntryDto> signatures = new ArrayList<>();
         snapshot.signatures()
@@ -534,7 +510,7 @@ public final class TreeSitterStateIO {
      * If cacheSnapshot is provided, it is always included in the DTO even if empty.
      */
     public static SnapshotDto toTopLevelDto(
-            TreeSitterAnalyzer.AnalyzerState state, ai.brokk.analyzer.cache.AnalyzerCache.CacheSnapshot cacheSnapshot) {
+            TreeSitterAnalyzer.AnalyzerState state, AnalyzerCache.CacheSnapshot cacheSnapshot) {
         CacheSnapshotDto csd = cacheSnapshotToDto(cacheSnapshot);
         AnalyzerStateDto asd = toDto(state);
         return new SnapshotDto(SCHEMA_VERSION, asd, csd);
