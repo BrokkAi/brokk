@@ -104,13 +104,7 @@ class ServiceCodexGatingTest {
         public void sendFeedback(String category, String feedbackText, boolean includeDebugLog, File screenshotFile) {}
 
         @Override
-        public JsonNode reportClientException(
-                String stacktrace, String clientVersion, Map<String, String> optionalFields) {
-            return null;
-        }
-
-        @Override
-        public JsonNode reportClientException(String stacktrace, String clientVersion) {
+        public JsonNode reportClientException(JsonNode exceptionReport) {
             return null;
         }
     }
