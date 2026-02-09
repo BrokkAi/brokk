@@ -6,17 +6,18 @@ import ai.brokk.SessionManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.executor.routers.ContextRouter;
+import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.project.MainProject;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -31,20 +32,10 @@ import org.jetbrains.annotations.Nullable;
 
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     // Valid argument keys that the application accepts
     private static final Set<String> VALID_ARGS =
             Set.of("exec-id", "listen-addr", "auth-token", "workspace-dir", "brokk-api-key", "proxy-setting", "help");
-
-    private static final ai.brokk.AbstractService.ReasoningLevel[] REASONING_LEVEL_VALUES =
-            ai.brokk.AbstractService.ReasoningLevel.values();
-
-    private static final Set<String> ALLOWED_REASONING_LEVELS =
-            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.toUnmodifiableSet());
-
-    private static final String ALLOWED_REASONING_LEVELS_LIST =
-            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.joining(", "));
 
     private final UUID execId;
     private final SimpleHttpServer server;
@@ -227,36 +218,29 @@ public final class HeadlessExecutorMain {
         this.server.registerUnauthenticatedContext("/health/live", this::handleHealthLive);
         this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
         this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
-        // Sessions router handles:
-        // - POST /v1/sessions                 (create a new session by name)
-        // - PUT  /v1/sessions                 (import/load an existing session from a zip)
-        // - GET  /v1/sessions/{sessionId}     (download a session zip)
+
         var sessionsRouter =
                 new SessionsRouter(this.contextManager, this.sessionManager, val -> this.sessionLoaded = val);
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
-        var jobsRouter = new ai.brokk.executor.routers.JobsRouter(
+        var jobsRouter = new JobsRouter(
                 this.contextManager,
                 this.jobStore,
-                new ai.brokk.executor.jobs.JobRunner(this.contextManager, this.jobStore),
+                new JobRunner(this.contextManager, this.jobStore),
                 this.jobReservation,
                 this.headlessInit);
         this.server.registerAuthenticatedContext("/v1/jobs", jobsRouter);
 
-        var contextRouter = new ai.brokk.executor.routers.ContextRouter(this.contextManager);
+        var contextRouter = new ContextRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/context", contextRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
 
     private void handleHealthLive(HttpExchange exchange) throws IOException {
-        if (!RouterUtil.ensureMethod(exchange, "GET")) {
-            return;
+        if (RouterUtil.ensureMethod(exchange, "GET")) {
+            handleExecutor(exchange);
         }
-
-        var response = Map.of("execId", this.execId.toString(), "version", BuildInfo.version, "protocolVersion", 1);
-
-        SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
     private void handleHealthReady(HttpExchange exchange) throws IOException {
@@ -272,19 +256,15 @@ public final class HeadlessExecutorMain {
         }
 
         var sessionId = contextManager.getCurrentSessionId();
-
-        var response = Map.of("status", "ready", "sessionId", sessionId.toString());
+        var response = Map.of("status", "ready", "sessionId", String.valueOf(sessionId));
         SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
     private void handleExecutor(HttpExchange exchange) throws IOException {
-        if (!RouterUtil.ensureMethod(exchange, "GET")) {
-            return;
+        if (RouterUtil.ensureMethod(exchange, "GET")) {
+            var response = Map.of("execId", this.execId.toString(), "version", BuildInfo.version, "protocolVersion", 1);
+            SimpleHttpServer.sendJsonResponse(exchange, response);
         }
-
-        var response = Map.of("execId", this.execId.toString(), "version", BuildInfo.version, "protocolVersion", 1);
-
-        SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
     public void start() {

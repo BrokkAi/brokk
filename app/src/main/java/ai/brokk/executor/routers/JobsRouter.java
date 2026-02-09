@@ -375,6 +375,9 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     }
 
     private void handleGetJobDiff(HttpExchange exchange, String jobId) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
+            return;
+        }
         if (jobStore.loadStatus(jobId) == null) {
             SimpleHttpServer.sendJsonResponse(exchange, 404, ErrorPayload.jobNotFound(jobId));
             return;
@@ -389,6 +392,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
             exchange.close();
         } catch (Exception e) {
+            // Broadened catch to handle GitAPIException or UnsupportedOperationException
+            logger.warn("Failed to get diff for job {}: {}", jobId, e.toString());
             SimpleHttpServer.sendJsonResponse(
                     exchange, 409, ErrorPayload.of("NO_GIT", "Git is not available in this workspace"));
         }

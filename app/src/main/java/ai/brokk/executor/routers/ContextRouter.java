@@ -73,6 +73,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     }
 
     private void handleGetContext(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
+            return;
+        }
         try {
             var live = contextManager.liveContext();
             var fragments = live.getAllFragmentsInDisplayOrder();
@@ -113,6 +116,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     }
 
     private void handlePostContextDrop(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         var request = RouterUtil.parseJsonOr400(exchange, DropFragmentsRequest.class, "/v1/context/drop");
         if (request == null) return;
 
@@ -135,6 +139,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     }
 
     private void handlePostContextPin(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         var request = RouterUtil.parseJsonOr400(exchange, PinFragmentRequest.class, "/v1/context/pin");
         if (request == null) return;
 
@@ -160,6 +165,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     }
 
     private void handlePostContextReadonly(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         var request = RouterUtil.parseJsonOr400(exchange, ReadonlyFragmentRequest.class, "/v1/context/readonly");
         if (request == null) return;
 
@@ -190,21 +196,25 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     }
 
     private void handlePostCompressHistory(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         contextManager.compressHistoryAsync();
         SimpleHttpServer.sendJsonResponse(exchange, 202, Map.of("status", "compressing"));
     }
 
     private void handlePostClearHistory(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         contextManager.clearHistory();
         SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "cleared"));
     }
 
     private void handlePostDropAll(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         contextManager.dropAll();
         SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "dropped"));
     }
 
     private void handlePostContextFiles(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         var request = RouterUtil.parseJsonOr400(exchange, AddContextFilesRequest.class, "/v1/context/files");
         if (request == null) return;
 
@@ -268,6 +278,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     }
 
     private void handlePostContextClasses(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         var request = RouterUtil.parseJsonOr400(exchange, AddContextClassesRequest.class, "/v1/context/classes");
         if (request == null) return;
         if (request.classNames().isEmpty()) {
@@ -312,6 +323,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     }
 
     private void handlePostContextMethods(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         var request = RouterUtil.parseJsonOr400(exchange, AddContextMethodsRequest.class, "/v1/context/methods");
         if (request == null) return;
         if (request.methodNames().isEmpty()) {
@@ -345,6 +357,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     }
 
     private void handlePostContextText(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         var request = RouterUtil.parseJsonOr400(exchange, AddContextTextRequest.class, "/v1/context/text");
         if (request == null) return;
 
