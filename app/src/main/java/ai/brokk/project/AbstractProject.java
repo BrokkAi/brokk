@@ -68,7 +68,21 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             FileFilteringService.createPatternMatcher(Set.of());
 
     public AbstractProject(Path root) {
-        this(root, computeMasterRootForConfig(root));
+        this.root = root.toAbsolutePath().normalize();
+        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+
+        if (this.repo instanceof GitRepo gitRepo && gitRepo.isWorktree()) {
+            this.masterRootPathForConfig =
+                    gitRepo.getGitTopLevel().toAbsolutePath().normalize();
+        } else {
+            this.masterRootPathForConfig = this.root;
+        }
+
+        this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
+        this.workspaceProps = new Properties();
+        this.fileFilteringService = new FileFilteringService(this.root, this.repo);
+
+        initializeProject();
     }
 
     /**
@@ -79,18 +93,32 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * @param masterRootPathForConfig the path to use for shared config (.brokk directory)
      */
     protected AbstractProject(Path root, Path masterRootPathForConfig) {
-        assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
         this.masterRootPathForConfig = masterRootPathForConfig.toAbsolutePath().normalize();
         this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
-
-        logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
-
-        // Initialize FileFilteringService (encapsulates gitignore and baseline filtering)
         this.fileFilteringService = new FileFilteringService(this.root, this.repo);
+
+        initializeProject();
+    }
+
+    protected AbstractProject(Path root, Path masterRootPathForConfig, IGitRepo repo) {
+        assert root.isAbsolute() : root;
+        this.root = root.toAbsolutePath().normalize();
+        this.masterRootPathForConfig = masterRootPathForConfig.toAbsolutePath().normalize();
+        this.repo = repo;
+
+        this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
+        this.workspaceProps = new Properties();
+        this.fileFilteringService = new FileFilteringService(this.root, this.repo);
+
+        initializeProject();
+    }
+
+    private void initializeProject() {
+        logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
 
         if (Files.exists(workspacePropertiesFile)) {
             try (var reader = Files.newBufferedReader(workspacePropertiesFile)) {
@@ -100,27 +128,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 workspaceProps.clear();
             }
         }
-    }
-
-    /**
-     * Computes the master root path for configuration based on whether the project is in a Git worktree.
-     */
-    private static Path computeMasterRootForConfig(Path root) {
-        Path normalizedRoot = root.toAbsolutePath().normalize();
-        if (GitRepoFactory.hasGitRepo(normalizedRoot)) {
-            // Need to check if it's a worktree
-            try (var tempRepo = new GitRepo(normalizedRoot)) {
-                if (tempRepo.isWorktree()) {
-                    return tempRepo.getGitTopLevel().toAbsolutePath().normalize();
-                }
-            } catch (RuntimeException e) {
-                // If we can't determine worktree status due to a runtime exception (e.g. git config issues),
-                // fall back to root. Serious Errors like OOM will still propagate.
-                LogManager.getLogger(AbstractProject.class)
-                        .debug("Could not determine worktree status for {}: {}", normalizedRoot, e.getMessage());
-            }
-        }
-        return normalizedRoot;
     }
 
     public static AbstractProject createProject(Path projectPath, @Nullable MainProject parent) {
