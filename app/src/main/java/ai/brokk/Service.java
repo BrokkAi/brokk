@@ -229,7 +229,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         boolean isBrokk = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST;
         boolean isFreeTierOnly = false;
 
-        String userId = "";
+        String url = baseUrl + "/model/info";
         if (isBrokk) {
             String brokkKey = MainProject.getBrokkKey();
             if (brokkKey.isEmpty()) {
@@ -238,10 +238,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 return;
             }
             var kp = parseKey(brokkKey);
-            userId = kp.userId().toString();
-        }
-        String url = baseUrl + "/model/info";
-        if (userId != null) {
+            var userId = kp.userId().toString();
             url += "?user_id=" + URLEncoder.encode(userId, StandardCharsets.UTF_8);
         }
         Request request = BrokkHttp.proxyRequest().url(url).get().build();
