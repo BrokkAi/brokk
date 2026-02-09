@@ -17,6 +17,7 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,8 +25,6 @@ import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -271,9 +270,7 @@ public final class HeadlessExecutorMain {
     }
 
     private void handleHealthLive(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("GET")) {
-            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
-            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
             return;
         }
 
@@ -283,9 +280,7 @@ public final class HeadlessExecutorMain {
     }
 
     private void handleHealthReady(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("GET")) {
-            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
-            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
             return;
         }
 
@@ -303,9 +298,7 @@ public final class HeadlessExecutorMain {
     }
 
     private void handleExecutor(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("GET")) {
-            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
-            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
             return;
         }
 
@@ -324,27 +317,27 @@ public final class HeadlessExecutorMain {
     private boolean awaitHeadlessInitOrRespond(HttpExchange exchange, String jobId) throws IOException {
         try {
             headlessInit.get(30, TimeUnit.SECONDS);
-            return true;
+            return false;
         } catch (TimeoutException e) {
             logger.warn("Headless initialization timed out; rejecting job {}", jobId);
             jobReservation.releaseIfOwner(jobId);
             var error = ErrorPayload.of("NOT_READY", "Executor is still initializing");
             SimpleHttpServer.sendJsonResponse(exchange, 503, error);
-            return false;
+            return true;
         } catch (ExecutionException e) {
             logger.warn("Headless initialization failed; rejecting job {}", jobId, e.getCause());
             jobReservation.releaseIfOwner(jobId);
             var error = ErrorPayload.internalError(
                     "Executor initialization failed", Objects.requireNonNullElse(e.getCause(), e));
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-            return false;
+            return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logger.warn("Interrupted while awaiting headless initialization; rejecting job {}", jobId);
             jobReservation.releaseIfOwner(jobId);
             var error = ErrorPayload.of("NOT_READY", "Executor is still initializing");
             SimpleHttpServer.sendJsonResponse(exchange, 503, error);
-            return false;
+            return true;
         }
     }
 
@@ -458,111 +451,6 @@ public final class HeadlessExecutorMain {
     // ============================================================================
 
     /**
-     * Extract jobId from path like /v1/jobs/abc123 or /v1/jobs/abc123/events.
-     * Returns null if the path is invalid or if the extracted jobId is blank.
-     */
-    static @Nullable String extractJobIdFromPath(String path) {
-        var parts = Splitter.on('/').splitToList(path);
-        if (parts.size() >= 4 && "jobs".equals(parts.get(2))) {
-            var jobId = parts.get(3);
-            if (jobId == null || jobId.isBlank()) {
-                return null;
-            }
-            return jobId;
-        }
-        return null;
-    }
-
-    enum SessionPathStatus {
-        VALID,
-        INVALID_SESSION_ID,
-        NOT_FOUND
-    }
-
-    record SessionPathParseResult(SessionPathStatus status, @Nullable UUID sessionId) {}
-
-    static SessionPathParseResult parseSessionPath(String path) {
-        var normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
-        var basePath = "/v1/sessions/";
-        if (!normalizedPath.startsWith(basePath)) {
-            return new SessionPathParseResult(SessionPathStatus.NOT_FOUND, null);
-        }
-        if (normalizedPath.equals("/v1/sessions")) {
-            return new SessionPathParseResult(SessionPathStatus.NOT_FOUND, null);
-        }
-        var suffix = normalizedPath.substring(basePath.length());
-        if (suffix.isBlank() || suffix.contains("/")) {
-            return new SessionPathParseResult(SessionPathStatus.NOT_FOUND, null);
-        }
-        try {
-            var sessionId = UUID.fromString(suffix);
-            return new SessionPathParseResult(SessionPathStatus.VALID, sessionId);
-        } catch (IllegalArgumentException e) {
-            return new SessionPathParseResult(SessionPathStatus.INVALID_SESSION_ID, null);
-        }
-    }
-
-    /**
-     * Parse query string into a map.
-     */
-    static Map<String, String> parseQueryParams(@Nullable String query) {
-        var params = new HashMap<String, String>();
-        if (query == null || query.isBlank()) {
-            return params;
-        }
-
-        for (var pair : Splitter.on('&').split(query)) {
-            var keyValue = pair.split("=", 2);
-            var rawKey = keyValue[0];
-            var rawValue = keyValue.length > 1 ? keyValue[1] : "";
-
-            String key;
-            String value;
-            try {
-                key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8);
-            } catch (IllegalArgumentException e) {
-                key = rawKey;
-            }
-            try {
-                value = URLDecoder.decode(rawValue, StandardCharsets.UTF_8);
-            } catch (IllegalArgumentException e) {
-                value = rawValue;
-            }
-
-            params.put(key, value);
-        }
-        return params;
-    }
-
-    private static void sendMethodNotAllowed(HttpExchange exchange) throws IOException {
-        var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
-        SimpleHttpServer.sendJsonResponse(exchange, 405, error);
-    }
-
-    private static boolean ensureMethod(HttpExchange exchange, String expected) throws IOException {
-        if (!exchange.getRequestMethod().equals(expected)) {
-            sendMethodNotAllowed(exchange);
-            return false;
-        }
-        return true;
-    }
-
-    private static void sendValidationError(HttpExchange exchange, String message) throws IOException {
-        SimpleHttpServer.sendJsonResponse(exchange, 400, ErrorPayload.validationError(message));
-    }
-
-    private static <T> @Nullable T parseJsonOr400(HttpExchange exchange, Class<T> valueType, String route)
-            throws IOException {
-        try {
-            return SimpleHttpServer.parseJsonRequest(exchange, valueType);
-        } catch (Exception parseEx) {
-            logger.warn("Invalid JSON in {}: {}", route, parseEx.toString());
-            sendValidationError(exchange, "Invalid JSON request body");
-            return null;
-        }
-    }
-
-    /**
      * Try to reserve the exclusive job slot for the given jobId.
      * Uses CAS to ensure only one concurrent job is executing.
      *
@@ -597,21 +485,20 @@ public final class HeadlessExecutorMain {
             return;
         }
         if (method.equals("GET")) {
-            var parseResult = parseSessionPath(normalizedPath);
-            if (parseResult.status() == SessionPathStatus.VALID) {
+            var parseResult = RouterUtil.parseSessionPath(normalizedPath);
+            if (parseResult.status() == RouterUtil.SessionPathStatus.VALID) {
                 handleGetSessionZip(exchange, Objects.requireNonNull(parseResult.sessionId()));
                 return;
             }
-            if (parseResult.status() == SessionPathStatus.INVALID_SESSION_ID) {
-                sendValidationError(exchange, "Invalid session ID in path");
+            if (parseResult.status() == RouterUtil.SessionPathStatus.INVALID_SESSION_ID) {
+                RouterUtil.sendValidationError(exchange, "Invalid session ID in path");
                 return;
             }
             var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
             SimpleHttpServer.sendJsonResponse(exchange, 404, error);
             return;
         }
-        var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
-        SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+        RouterUtil.sendMethodNotAllowed(exchange);
     }
 
     // ============================================================================
@@ -644,7 +531,7 @@ public final class HeadlessExecutorMain {
         }
 
         // Extract jobId from path for other operations
-        var jobId = extractJobIdFromPath(path);
+        var jobId = RouterUtil.extractJobIdFromPath(path);
         if (jobId == null || jobId.isBlank()) {
             var error = ErrorPayload.of(ErrorPayload.Code.BAD_REQUEST, "Invalid job path");
             SimpleHttpServer.sendJsonResponse(exchange, 400, error);
@@ -718,39 +605,24 @@ public final class HeadlessExecutorMain {
      * </ul>
      */
     void handleCreateSession(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("POST")) {
-            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
-            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
-        CreateSessionRequest request;
-        try {
-            request = SimpleHttpServer.parseJsonRequest(exchange, CreateSessionRequest.class);
-        } catch (Exception parseEx) {
-            logger.warn("Invalid JSON in POST /v1/sessions", parseEx);
-            var error = ErrorPayload.validationError("Invalid JSON request body");
-            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
-            return;
-        }
-
+        CreateSessionRequest request = RouterUtil.parseJsonOr400(exchange, CreateSessionRequest.class, "/v1/sessions");
         if (request == null) {
-            var error = ErrorPayload.validationError("Request body is required");
-            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
             return;
         }
 
         if (request.name().isBlank()) {
-            var error = ErrorPayload.validationError("Session name is required and must not be blank");
-            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            RouterUtil.sendValidationError(exchange, "Session name is required and must not be blank");
             return;
         }
 
         var sessionName = request.name().strip();
 
         if (sessionName.length() > 200) {
-            var error = ErrorPayload.validationError("Session name must not exceed 200 characters");
-            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            RouterUtil.sendValidationError(exchange, "Session name must not exceed 200 characters");
             return;
         }
 
@@ -804,9 +676,7 @@ public final class HeadlessExecutorMain {
      * </ul>
      */
     void handlePutSession(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("PUT")) {
-            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
-            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+        if (!RouterUtil.ensureMethod(exchange, "PUT")) {
             return;
         }
 
@@ -830,8 +700,7 @@ public final class HeadlessExecutorMain {
             SimpleHttpServer.sendJsonResponse(exchange, 201, response);
         } catch (IllegalArgumentException e) {
             logger.warn("Invalid session ID in header", e);
-            var error = ErrorPayload.validationError("Invalid X-Session-Id header: " + e.getMessage());
-            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            RouterUtil.sendValidationError(exchange, "Invalid X-Session-Id header: " + e.getMessage());
         } catch (Exception e) {
             logger.error("Error handling PUT /v1/sessions", e);
             var error = ErrorPayload.internalError("Failed to process session upload", e);
@@ -843,8 +712,7 @@ public final class HeadlessExecutorMain {
      * GET /v1/sessions/{sessionId} - Download a session zip.
      */
     void handleGetSessionZip(HttpExchange exchange, UUID sessionId) throws IOException {
-        if (!exchange.getRequestMethod().equals("GET")) {
-            sendMethodNotAllowed(exchange);
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
             return;
         }
 
@@ -916,15 +784,13 @@ public final class HeadlessExecutorMain {
      * POST /v1/jobs - Create job with idempotency key.
      */
     void handlePostJobs(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("POST")) {
-            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
-            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
         try {
             var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
-                sendValidationError(exchange, "Idempotency-Key header is required");
+                RouterUtil.sendValidationError(exchange, "Idempotency-Key header is required");
                 return;
             }
             var sessionIdStr = exchange.getRequestHeaders().getFirst("X-Session-Id");
@@ -933,23 +799,22 @@ public final class HeadlessExecutorMain {
                 try {
                     sessionId = UUID.fromString(sessionIdStr);
                 } catch (IllegalArgumentException e) {
-                    sendValidationError(exchange, "Invalid Session-Id format: must be a valid UUID");
+                    RouterUtil.sendValidationError(exchange, "Invalid Session-Id format: must be a valid UUID");
                     return;
                 }
             }
             var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
 
             // Parse JobSpec payload from request body
-            var jobSpecRequest = SimpleHttpServer.parseJsonRequest(exchange, JobSpecRequest.class);
+            var jobSpecRequest = RouterUtil.parseJsonOr400(exchange, JobSpecRequest.class, "/v1/jobs");
             if (jobSpecRequest == null) {
-                sendValidationError(exchange, "Invalid JobSpec in request body");
                 return;
             }
 
             var plannerModel = Objects.requireNonNullElse(jobSpecRequest.plannerModel(), "")
                     .strip();
             if (plannerModel.isBlank()) {
-                sendValidationError(exchange, "plannerModel is required");
+                RouterUtil.sendValidationError(exchange, "plannerModel is required");
                 return;
             }
 
@@ -972,7 +837,8 @@ public final class HeadlessExecutorMain {
                 var normalized = reasoningLevelRaw.strip().toUpperCase(Locale.ROOT);
 
                 if (!ALLOWED_REASONING_LEVELS.contains(normalized)) {
-                    sendValidationError(exchange, "reasoningLevel must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
+                    RouterUtil.sendValidationError(
+                            exchange, "reasoningLevel must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
                     return;
                 }
 
@@ -985,7 +851,7 @@ public final class HeadlessExecutorMain {
                 var normalized = reasoningLevelCodeRaw.strip().toUpperCase(Locale.ROOT);
 
                 if (!ALLOWED_REASONING_LEVELS.contains(normalized)) {
-                    sendValidationError(
+                    RouterUtil.sendValidationError(
                             exchange, "reasoningLevelCode must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
                     return;
                 }
@@ -997,7 +863,7 @@ public final class HeadlessExecutorMain {
             var tempRaw = jobSpecRequest.temperature();
             if (tempRaw != null) {
                 if (tempRaw.isNaN() || tempRaw < 0.0 || tempRaw > 2.0) {
-                    sendValidationError(exchange, "temperature must be between 0.0 and 2.0");
+                    RouterUtil.sendValidationError(exchange, "temperature must be between 0.0 and 2.0");
                     return;
                 }
                 temperature = tempRaw;
@@ -1007,7 +873,7 @@ public final class HeadlessExecutorMain {
             var tempCodeRaw = jobSpecRequest.temperatureCode();
             if (tempCodeRaw != null) {
                 if (tempCodeRaw.isNaN() || tempCodeRaw < 0.0 || tempCodeRaw > 2.0) {
-                    sendValidationError(exchange, "temperatureCode must be between 0.0 and 2.0");
+                    RouterUtil.sendValidationError(exchange, "temperatureCode must be between 0.0 and 2.0");
                     return;
                 }
                 temperatureCode = tempCodeRaw;
@@ -1062,7 +928,7 @@ public final class HeadlessExecutorMain {
                     if (!invalidContextEntries.isEmpty()) {
                         msg += "; invalid: " + String.join(", ", invalidContextEntries);
                     }
-                    sendValidationError(exchange, msg);
+                    RouterUtil.sendValidationError(exchange, msg);
                     return;
                 }
             }
@@ -1136,7 +1002,7 @@ public final class HeadlessExecutorMain {
                         idempotencyKey,
                         contextManager.getCurrentSessionId());
 
-                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
+                if (awaitHeadlessInitOrRespond(exchange, jobId)) {
                     return;
                 }
 
@@ -1224,7 +1090,8 @@ public final class HeadlessExecutorMain {
         try {
 
             // Parse query parameters
-            var queryParams = parseQueryParams(exchange.getRequestURI().getQuery());
+            var queryParams =
+                    RouterUtil.parseQueryParams(exchange.getRequestURI().getQuery());
             long afterSeq = -1;
             int limit = 100;
 
@@ -1232,8 +1099,7 @@ public final class HeadlessExecutorMain {
                 try {
                     afterSeq = Long.parseLong(queryParams.get("after"));
                 } catch (NumberFormatException e) {
-                    var error = ErrorPayload.validationError("Invalid 'after' parameter");
-                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                    RouterUtil.sendValidationError(exchange, "Invalid 'after' parameter");
                     return;
                 }
             }
@@ -1242,8 +1108,7 @@ public final class HeadlessExecutorMain {
                 try {
                     limit = Math.min(1000, Integer.parseInt(queryParams.get("limit")));
                 } catch (NumberFormatException e) {
-                    var error = ErrorPayload.validationError("Invalid 'limit' parameter");
-                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                    RouterUtil.sendValidationError(exchange, "Invalid 'limit' parameter");
                     return;
                 }
             }
@@ -1312,41 +1177,41 @@ public final class HeadlessExecutorMain {
      * </pre>
      */
     void handlePostPrReviewJob(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
         try {
             var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
-                sendValidationError(exchange, "Idempotency-Key header is required");
+                RouterUtil.sendValidationError(exchange, "Idempotency-Key header is required");
                 return;
             }
 
-            var request = parseJsonOr400(exchange, PrReviewJobRequest.class, "/v1/jobs/pr-review");
+            var request = RouterUtil.parseJsonOr400(exchange, PrReviewJobRequest.class, "/v1/jobs/pr-review");
             if (request == null) {
                 return;
             }
 
             // Validate required fields
             if (request.owner() == null || request.owner().isBlank()) {
-                sendValidationError(exchange, "owner is required");
+                RouterUtil.sendValidationError(exchange, "owner is required");
                 return;
             }
             if (request.repo() == null || request.repo().isBlank()) {
-                sendValidationError(exchange, "repo is required");
+                RouterUtil.sendValidationError(exchange, "repo is required");
                 return;
             }
             if (request.prNumber() <= 0) {
-                sendValidationError(exchange, "prNumber must be a positive integer");
+                RouterUtil.sendValidationError(exchange, "prNumber must be a positive integer");
                 return;
             }
             if (request.githubToken() == null || request.githubToken().isBlank()) {
-                sendValidationError(exchange, "githubToken is required");
+                RouterUtil.sendValidationError(exchange, "githubToken is required");
                 return;
             }
             if (request.plannerModel() == null || request.plannerModel().isBlank()) {
-                sendValidationError(exchange, "plannerModel is required");
+                RouterUtil.sendValidationError(exchange, "plannerModel is required");
                 return;
             }
 
@@ -1384,7 +1249,7 @@ public final class HeadlessExecutorMain {
                     return;
                 }
 
-                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
+                if (awaitHeadlessInitOrRespond(exchange, jobId)) {
                     return;
                 }
 
@@ -1495,7 +1360,7 @@ public final class HeadlessExecutorMain {
      * with their chip classification, token counts, and pin/readonly status.
      */
     void handleGetContext(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "GET")) {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
             return;
         }
 
@@ -1547,18 +1412,18 @@ public final class HeadlessExecutorMain {
      * POST /v1/context/drop - Drop fragments by ID.
      */
     void handlePostContextDrop(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
         try {
-            var request = parseJsonOr400(exchange, DropFragmentsRequest.class, "/v1/context/drop");
+            var request = RouterUtil.parseJsonOr400(exchange, DropFragmentsRequest.class, "/v1/context/drop");
             if (request == null) {
                 return;
             }
 
             if (request.fragmentIds() == null || request.fragmentIds().isEmpty()) {
-                sendValidationError(exchange, "fragmentIds must not be empty");
+                RouterUtil.sendValidationError(exchange, "fragmentIds must not be empty");
                 return;
             }
 
@@ -1567,7 +1432,7 @@ public final class HeadlessExecutorMain {
             var toDrop = live.allFragments().filter(f -> idSet.contains(f.id())).collect(Collectors.toList());
 
             if (toDrop.isEmpty()) {
-                sendValidationError(exchange, "No matching fragments found for the given IDs");
+                RouterUtil.sendValidationError(exchange, "No matching fragments found for the given IDs");
                 return;
             }
 
@@ -1589,18 +1454,18 @@ public final class HeadlessExecutorMain {
      * POST /v1/context/pin - Toggle pin status of a fragment.
      */
     void handlePostContextPin(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
         try {
-            var request = parseJsonOr400(exchange, PinFragmentRequest.class, "/v1/context/pin");
+            var request = RouterUtil.parseJsonOr400(exchange, PinFragmentRequest.class, "/v1/context/pin");
             if (request == null) {
                 return;
             }
 
             if (request.fragmentId() == null || request.fragmentId().isBlank()) {
-                sendValidationError(exchange, "fragmentId is required");
+                RouterUtil.sendValidationError(exchange, "fragmentId is required");
                 return;
             }
 
@@ -1611,7 +1476,7 @@ public final class HeadlessExecutorMain {
                     .orElse(null);
 
             if (fragment == null) {
-                sendValidationError(exchange, "Fragment not found: " + request.fragmentId());
+                RouterUtil.sendValidationError(exchange, "Fragment not found: " + request.fragmentId());
                 return;
             }
 
@@ -1637,18 +1502,18 @@ public final class HeadlessExecutorMain {
      * POST /v1/context/readonly - Toggle readonly status of a fragment.
      */
     void handlePostContextReadonly(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
         try {
-            var request = parseJsonOr400(exchange, ReadonlyFragmentRequest.class, "/v1/context/readonly");
+            var request = RouterUtil.parseJsonOr400(exchange, ReadonlyFragmentRequest.class, "/v1/context/readonly");
             if (request == null) {
                 return;
             }
 
             if (request.fragmentId() == null || request.fragmentId().isBlank()) {
-                sendValidationError(exchange, "fragmentId is required");
+                RouterUtil.sendValidationError(exchange, "fragmentId is required");
                 return;
             }
 
@@ -1659,12 +1524,12 @@ public final class HeadlessExecutorMain {
                     .orElse(null);
 
             if (fragment == null) {
-                sendValidationError(exchange, "Fragment not found: " + request.fragmentId());
+                RouterUtil.sendValidationError(exchange, "Fragment not found: " + request.fragmentId());
                 return;
             }
 
             if (!fragment.getType().isEditable()) {
-                sendValidationError(exchange, "Fragment is not editable and cannot be marked readonly");
+                RouterUtil.sendValidationError(exchange, "Fragment is not editable and cannot be marked readonly");
                 return;
             }
 
@@ -1688,7 +1553,7 @@ public final class HeadlessExecutorMain {
      * POST /v1/context/compress-history - Compress conversation history.
      */
     void handlePostCompressHistory(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
@@ -1709,7 +1574,7 @@ public final class HeadlessExecutorMain {
      * POST /v1/context/clear-history - Clear conversation history.
      */
     void handlePostClearHistory(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
@@ -1730,7 +1595,7 @@ public final class HeadlessExecutorMain {
      * POST /v1/context/drop-all - Drop all context fragments.
      */
     void handlePostDropAll(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
@@ -1785,18 +1650,18 @@ public final class HeadlessExecutorMain {
      * </ul>
      */
     void handlePostContextFiles(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
         try {
-            var request = parseJsonOr400(exchange, AddContextFilesRequest.class, "/v1/context/files");
+            var request = RouterUtil.parseJsonOr400(exchange, AddContextFilesRequest.class, "/v1/context/files");
             if (request == null) {
                 return;
             }
 
             if (request.relativePaths().isEmpty()) {
-                sendValidationError(exchange, "relativePaths must not be empty");
+                RouterUtil.sendValidationError(exchange, "relativePaths must not be empty");
                 return;
             }
 
@@ -1845,7 +1710,7 @@ public final class HeadlessExecutorMain {
                 if (!invalidPaths.isEmpty()) {
                     msg += "; invalid: " + String.join(", ", invalidPaths);
                 }
-                sendValidationError(exchange, msg);
+                RouterUtil.sendValidationError(exchange, msg);
                 return;
             }
 
@@ -1965,41 +1830,41 @@ public final class HeadlessExecutorMain {
      * POST /v1/jobs/issue - Convenience endpoint for starting an ISSUE mode job.
      */
     void handlePostIssueJob(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
         try {
             var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
-                sendValidationError(exchange, "Idempotency-Key header is required");
+                RouterUtil.sendValidationError(exchange, "Idempotency-Key header is required");
                 return;
             }
 
-            var request = parseJsonOr400(exchange, IssueJobRequest.class, "/v1/jobs/issue");
+            var request = RouterUtil.parseJsonOr400(exchange, IssueJobRequest.class, "/v1/jobs/issue");
             if (request == null) {
                 return;
             }
 
             // Validation
             if (request.owner() == null || request.owner().isBlank()) {
-                sendValidationError(exchange, "owner is required");
+                RouterUtil.sendValidationError(exchange, "owner is required");
                 return;
             }
             if (request.repo() == null || request.repo().isBlank()) {
-                sendValidationError(exchange, "repo is required");
+                RouterUtil.sendValidationError(exchange, "repo is required");
                 return;
             }
             if (request.issueNumber() <= 0) {
-                sendValidationError(exchange, "valid issueNumber is required");
+                RouterUtil.sendValidationError(exchange, "valid issueNumber is required");
                 return;
             }
             if (request.githubToken() == null || request.githubToken().isBlank()) {
-                sendValidationError(exchange, "githubToken is required");
+                RouterUtil.sendValidationError(exchange, "githubToken is required");
                 return;
             }
             if (request.plannerModel() == null || request.plannerModel().isBlank()) {
-                sendValidationError(exchange, "plannerModel is required");
+                RouterUtil.sendValidationError(exchange, "plannerModel is required");
                 return;
             }
 
@@ -2009,7 +1874,7 @@ public final class HeadlessExecutorMain {
             } else {
                 maxAttempts = request.maxIssueFixAttempts();
                 if (maxAttempts <= 0) {
-                    sendValidationError(exchange, "maxIssueFixAttempts must be a positive integer");
+                    RouterUtil.sendValidationError(exchange, "maxIssueFixAttempts must be a positive integer");
                     return;
                 }
             }
@@ -2051,7 +1916,7 @@ public final class HeadlessExecutorMain {
                     return;
                 }
 
-                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
+                if (awaitHeadlessInitOrRespond(exchange, jobId)) {
                     return;
                 }
 
@@ -2112,18 +1977,18 @@ public final class HeadlessExecutorMain {
      * </ul>
      */
     void handlePostContextClasses(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
         try {
-            var request = parseJsonOr400(exchange, AddContextClassesRequest.class, "/v1/context/classes");
+            var request = RouterUtil.parseJsonOr400(exchange, AddContextClassesRequest.class, "/v1/context/classes");
             if (request == null) {
                 return;
             }
 
             if (request.classNames().isEmpty()) {
-                sendValidationError(exchange, "classNames must not be empty");
+                RouterUtil.sendValidationError(exchange, "classNames must not be empty");
                 return;
             }
 
@@ -2159,7 +2024,7 @@ public final class HeadlessExecutorMain {
                 if (!invalidNames.isEmpty()) {
                     msg += "; invalid: " + String.join(", ", invalidNames);
                 }
-                sendValidationError(exchange, msg);
+                RouterUtil.sendValidationError(exchange, msg);
                 return;
             }
 
@@ -2238,18 +2103,18 @@ public final class HeadlessExecutorMain {
      * </ul>
      */
     void handlePostContextMethods(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
         try {
-            var request = parseJsonOr400(exchange, AddContextMethodsRequest.class, "/v1/context/methods");
+            var request = RouterUtil.parseJsonOr400(exchange, AddContextMethodsRequest.class, "/v1/context/methods");
             if (request == null) {
                 return;
             }
 
             if (request.methodNames().isEmpty()) {
-                sendValidationError(exchange, "methodNames must not be empty");
+                RouterUtil.sendValidationError(exchange, "methodNames must not be empty");
                 return;
             }
 
@@ -2285,7 +2150,7 @@ public final class HeadlessExecutorMain {
                 if (!invalidNames.isEmpty()) {
                     msg += "; invalid: " + String.join(", ", invalidNames);
                 }
-                sendValidationError(exchange, msg);
+                RouterUtil.sendValidationError(exchange, msg);
                 return;
             }
 
@@ -2313,12 +2178,12 @@ public final class HeadlessExecutorMain {
     }
 
     void handlePostContextText(HttpExchange exchange) throws IOException {
-        if (!ensureMethod(exchange, "POST")) {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
 
         try {
-            var request = parseJsonOr400(exchange, AddContextTextRequest.class, "/v1/context/text");
+            var request = RouterUtil.parseJsonOr400(exchange, AddContextTextRequest.class, "/v1/context/text");
             if (request == null) {
                 return;
             }
@@ -2326,7 +2191,7 @@ public final class HeadlessExecutorMain {
             var text = request.text();
             if (text.isBlank()) {
                 logger.info("Rejected pasted text: blank");
-                sendValidationError(exchange, "text must not be blank");
+                RouterUtil.sendValidationError(exchange, "text must not be blank");
                 return;
             }
 
@@ -2334,7 +2199,7 @@ public final class HeadlessExecutorMain {
             int byteLen = text.getBytes(UTF_8).length;
             if (byteLen > MAX_BYTES) {
                 logger.info("Rejected pasted text: bytes={} exceeds limit", byteLen);
-                sendValidationError(exchange, "text exceeds maximum size of " + MAX_BYTES + " bytes");
+                RouterUtil.sendValidationError(exchange, "text exceeds maximum size of " + MAX_BYTES + " bytes");
                 return;
             }
 
