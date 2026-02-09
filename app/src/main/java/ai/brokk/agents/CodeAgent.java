@@ -760,10 +760,15 @@ public class CodeAgent {
                         new JavaPreLintFalsePositiveException(message), Map.of("sourcefile", pf.getFileName()));
             }
             logger.debug("Build verification succeeded");
+            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
+            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
+        } else {
+            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
+            if (metrics != null) {
+                metrics.buildFailures++;
+            }
 
-            var lastAiText = cs.taskMessages().isEmpty()
-                    ? ""
-                    : Messages.getText(cs.taskMessages().getLast());
+            var lastAiText = Messages.getText(cs.taskMessages().getLast());
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
             var filesInContext = context.allFragments()
                     .filter(f -> f.getType().isPath())
@@ -788,20 +793,11 @@ public class CodeAgent {
                 if (isAskingForFiles) {
                     var fileNames =
                             notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
-                    reportComplete(
-                            TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + fileNames);
+                    reportComplete(TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files");
                     return new Step.Fatal(new TaskResult.StopDetails(
                             TaskResult.StopReason.LLM_ABORTED,
                             "Agent requested additional files not in context: " + fileNames));
                 }
-            }
-
-            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
-            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
-        } else {
-            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
-            if (metrics != null) {
-                metrics.buildFailures++;
             }
 
             int newBuildFailures = es.consecutiveBuildFailures() + 1;
