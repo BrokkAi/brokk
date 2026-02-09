@@ -267,8 +267,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.anchor = GridBagConstraints.WEST;
         int row = 0;
 
+        // Row: Brokk Key
         gbc.gridx = 0;
         gbc.gridy = row;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
         servicePanel.add(new JLabel("Brokk Key:"), gbc);
 
         brokkKeyField = new JTextField(20);
@@ -277,8 +280,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         servicePanel.add(brokkKeyField, gbc);
 
+        // Row: Balance
         gbc.gridx = 0;
         gbc.gridy = ++row;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
         servicePanel.add(new JLabel("Balance:"), gbc);
 
         this.balanceField = new JTextField("Loading...");
@@ -291,22 +297,27 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         balanceDisplayPanel.add(topUpLabel);
 
         gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         servicePanel.add(balanceDisplayPanel, gbc);
 
+        // Row: Signup label
         var signupUrl = "https://brokk.ai";
         this.signupLabel = new BrowserLabel(signupUrl, "Sign up or get your key at " + signupUrl);
         this.signupLabel.setFont(this.signupLabel.getFont().deriveFont(Font.ITALIC));
         gbc.gridx = 1;
         gbc.gridy = ++row;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(2, 5, 8, 5);
         servicePanel.add(this.signupLabel, gbc);
         gbc.insets = new Insets(2, 5, 2, 5);
 
+        // Row: LLM Proxy
         gbc.gridx = 0;
         gbc.gridy = ++row;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
         servicePanel.add(new JLabel("LLM Proxy:"), gbc);
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.STAGING) {
@@ -314,6 +325,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     "Proxy has been set to STAGING in ~/.brokk/brokk.properties. Changing it back must be done in the same place.");
             proxyInfoLabel.setFont(proxyInfoLabel.getFont().deriveFont(Font.ITALIC));
             gbc.gridx = 1;
+            gbc.weightx = 1.0;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             servicePanel.add(proxyInfoLabel, gbc);
         } else {
@@ -324,6 +336,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             proxyGroup.add(localhostProxyRadio);
 
             gbc.gridx = 1;
+            gbc.weightx = 1.0;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             servicePanel.add(brokkProxyRadio, gbc);
 
@@ -399,8 +412,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         connectionsPaidPanel.add(providerKeysLabel, paidGbc);
 
         gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(15, 5, 2, 5);
         servicePanel.add(connectionsPaidPanel, gbc);
 
@@ -412,7 +425,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.insets = new Insets(2, 5, 2, 5);
         servicePanel.add(upgradeLabel, gbc);
 
+        // Vertical filler to push content up
+        gbc.gridx = 0;
         gbc.gridy = ++row;
+        gbc.weightx = 0;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
         servicePanel.add(Box.createVerticalGlue(), gbc);
