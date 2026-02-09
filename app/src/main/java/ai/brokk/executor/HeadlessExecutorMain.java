@@ -8,7 +8,6 @@ import ai.brokk.SessionManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
@@ -18,13 +17,13 @@ import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.routers.RouterUtil;
+import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -252,7 +251,9 @@ public final class HeadlessExecutorMain {
         // - POST /v1/sessions                 (create a new session by name)
         // - PUT  /v1/sessions                 (import/load an existing session from a zip)
         // - GET  /v1/sessions/{sessionId}     (download a session zip)
-        this.server.registerAuthenticatedContext("/v1/sessions", this::handleSessionsRouter);
+        var sessionsRouter =
+                new SessionsRouter(this.contextManager, this.sessionManager, val -> this.sessionLoaded = val);
+        this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
         this.server.registerAuthenticatedContext("/v1/context", this::handleGetContext);
         this.server.registerAuthenticatedContext("/v1/context/drop", this::handlePostContextDrop);
@@ -463,45 +464,6 @@ public final class HeadlessExecutorMain {
     }
 
     // ============================================================================
-    // Router for /v1/sessions endpoints
-    // ============================================================================
-
-    /**
-     * Route requests to /v1/sessions based on HTTP method.
-     * - POST: create a new session by name
-     * - PUT: import/load an existing session zip
-     * - GET: download a session zip by session ID
-     */
-    void handleSessionsRouter(HttpExchange exchange) throws IOException {
-        var method = exchange.getRequestMethod();
-        var path = exchange.getRequestURI().getPath();
-        var normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
-        if (method.equals("POST") && normalizedPath.equals("/v1/sessions")) {
-            handleCreateSession(exchange);
-            return;
-        }
-        if (method.equals("PUT") && normalizedPath.equals("/v1/sessions")) {
-            handlePutSession(exchange);
-            return;
-        }
-        if (method.equals("GET")) {
-            var parseResult = RouterUtil.parseSessionPath(normalizedPath);
-            if (parseResult.status() == RouterUtil.SessionPathStatus.VALID) {
-                handleGetSessionZip(exchange, Objects.requireNonNull(parseResult.sessionId()));
-                return;
-            }
-            if (parseResult.status() == RouterUtil.SessionPathStatus.INVALID_SESSION_ID) {
-                RouterUtil.sendValidationError(exchange, "Invalid session ID in path");
-                return;
-            }
-            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
-            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
-            return;
-        }
-        RouterUtil.sendMethodNotAllowed(exchange);
-    }
-
-    // ============================================================================
     // Router for /v1/jobs endpoints
     // ============================================================================
 
@@ -570,215 +532,6 @@ public final class HeadlessExecutorMain {
     // ============================================================================
     // Session and Job Handlers
     // ============================================================================
-
-    /**
-     * POST /v1/sessions - Create a new session programmatically.
-     * <p>
-     * <b>Authentication:</b> Required (via Authorization header)
-     * <p>
-     * <b>Request Body (JSON):</b>
-     * <pre>
-     * {
-     *   "name": "Session Name"
-     * }
-     * </pre>
-     * <p>
-     * <b>Response (201 Created):</b>
-     * <pre>
-     * {
-     *   "sessionId": "uuid",
-     *   "name": "Session Name"
-     * }
-     * </pre>
-     * <p>
-     * <b>Validation:</b>
-     * <ul>
-     *   <li>Session name is required and must not be blank</li>
-     *   <li>Session name must not exceed 200 characters (after trimming)</li>
-     * </ul>
-     * <p>
-     * <b>Side Effects:</b>
-     * <ul>
-     *   <li>Creates a new session in the SessionManager</li>
-     *   <li>Switches ContextManager to the newly created session</li>
-     *   <li>Sets sessionLoaded flag to true, enabling /health/ready</li>
-     * </ul>
-     */
-    void handleCreateSession(HttpExchange exchange) throws IOException {
-        if (!RouterUtil.ensureMethod(exchange, "POST")) {
-            return;
-        }
-
-        CreateSessionRequest request = RouterUtil.parseJsonOr400(exchange, CreateSessionRequest.class, "/v1/sessions");
-        if (request == null) {
-            return;
-        }
-
-        if (request.name().isBlank()) {
-            RouterUtil.sendValidationError(exchange, "Session name is required and must not be blank");
-            return;
-        }
-
-        var sessionName = request.name().strip();
-
-        if (sessionName.length() > 200) {
-            RouterUtil.sendValidationError(exchange, "Session name must not exceed 200 characters");
-            return;
-        }
-
-        try {
-            try {
-                contextManager.createSessionAsync(sessionName).get(3, TimeUnit.SECONDS);
-            } catch (TimeoutException e) {
-                logger.warn("Timed out creating session {}; continuing asynchronously", sessionName);
-            }
-
-            var sessionId = contextManager.getCurrentSessionId();
-            logger.info("Created new session: {} ({})", sessionName, sessionId);
-
-            System.out.println("Session created: " + sessionId + " (" + sessionName + ")");
-            System.out.println("Executor ready to accept requests.");
-
-            sessionLoaded = true;
-
-            var response = Map.of("sessionId", sessionId.toString(), "name", sessionName);
-            SimpleHttpServer.sendJsonResponse(exchange, 201, response);
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/sessions", e);
-            var error = ErrorPayload.internalError("Failed to create session", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-        }
-    }
-
-    /**
-     * PUT /v1/sessions - Upload and import a session from a zip file.
-     * <p>
-     * <b>Authentication:</b> Required (via Authorization header)
-     * <p>
-     * <b>Request Headers:</b>
-     * <ul>
-     *   <li>X-Session-Id (optional): UUID for the session; generated if not provided</li>
-     *   <li>Content-Type: application/zip (binary zip data in request body)</li>
-     * </ul>
-     * <p>
-     * <b>Response (201 Created):</b>
-     * <pre>
-     * {
-     *   "sessionId": "uuid"
-     * }
-     * </pre>
-     * <p>
-     * <b>Side Effects:</b>
-     * <ul>
-     *   <li>Writes the zip file to sessionsDir/{sessionId}.zip</li>
-     *   <li>Switches ContextManager to the imported session</li>
-     *   <li>Sets sessionLoaded flag to true, enabling /health/ready</li>
-     * </ul>
-     */
-    void handlePutSession(HttpExchange exchange) throws IOException {
-        if (!RouterUtil.ensureMethod(exchange, "PUT")) {
-            return;
-        }
-
-        try {
-            // Get sessionId from header or generate new one
-            var sessionIdHeader = exchange.getRequestHeaders().getFirst("X-Session-Id");
-            var sessionId = sessionIdHeader != null && !sessionIdHeader.isBlank()
-                    ? UUID.fromString(sessionIdHeader)
-                    : UUID.randomUUID();
-
-            // Read zip data from request body
-            byte[] zipData;
-            try (InputStream requestBody = exchange.getRequestBody()) {
-                zipData = requestBody.readAllBytes();
-            }
-
-            // Import session and get the imported session ID
-            importSessionZip(zipData, sessionId);
-
-            var response = Map.of("sessionId", sessionId.toString());
-            SimpleHttpServer.sendJsonResponse(exchange, 201, response);
-        } catch (IllegalArgumentException e) {
-            logger.warn("Invalid session ID in header", e);
-            RouterUtil.sendValidationError(exchange, "Invalid X-Session-Id header: " + e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error handling PUT /v1/sessions", e);
-            var error = ErrorPayload.internalError("Failed to process session upload", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-        }
-    }
-
-    /**
-     * GET /v1/sessions/{sessionId} - Download a session zip.
-     */
-    void handleGetSessionZip(HttpExchange exchange, UUID sessionId) throws IOException {
-        if (!RouterUtil.ensureMethod(exchange, "GET")) {
-            return;
-        }
-
-        var sessionZipPath = sessionManager.getSessionsDir().resolve(sessionId + ".zip");
-        if (!Files.exists(sessionZipPath)) {
-            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Session zip not found for session " + sessionId);
-            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
-            return;
-        }
-
-        boolean headersSent = false;
-        try {
-            var headers = exchange.getResponseHeaders();
-            headers.set("Content-Type", "application/zip");
-            headers.set("Content-Disposition", "attachment; filename=\"" + sessionId + ".zip\"");
-            exchange.sendResponseHeaders(200, 0);
-            headersSent = true;
-            try (var responseBody = exchange.getResponseBody()) {
-                Files.copy(sessionZipPath, responseBody);
-            }
-        } catch (IOException e) {
-            logger.error("Failed to stream session zip {}", sessionId, e);
-            if (headersSent) {
-                exchange.close();
-                return;
-            }
-            var error = ErrorPayload.internalError("Failed to stream session zip", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-        }
-    }
-
-    /**
-     * Import a session zip file by writing it to sessionsDir and switching ContextManager to it.
-     * This helper encapsulates the core session import logic for reusability.
-     *
-     * @param zipData the zip file contents
-     * @param sessionId the UUID for this session
-     * @throws IOException if writing the zip file fails
-     * @throws Exception if switching the session fails
-     */
-    void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
-        // Write zip file to the sessions directory as reported by the project's SessionManager.
-        // This ensures we store the uploaded session in the exact location expected by SessionManager
-        // and avoids mismatches that can lead to missing session zip files during loading.
-        var cmSessionsDir = contextManager.getProject().getSessionManager().getSessionsDir();
-        Files.createDirectories(cmSessionsDir);
-        var sessionZipPath = cmSessionsDir.resolve(sessionId.toString() + ".zip");
-        AtomicWrites.save(sessionZipPath, zipData);
-
-        logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
-
-        // Switch ContextManager to this session with timeout to avoid indefinite blocking
-        try {
-            contextManager.switchSessionAsync(sessionId).get(30, TimeUnit.SECONDS);
-            logger.info(
-                    "Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
-        } catch (TimeoutException e) {
-            throw new IOException("Timed out switching to session " + sessionId + " after 30 seconds", e);
-        }
-
-        System.out.println("Session imported: " + sessionId);
-        System.out.println("Executor ready to accept requests.");
-
-        // Mark executor as ready to serve requests that require a session.
-        sessionLoaded = true;
-    }
 
     /**
      * POST /v1/jobs - Create job with idempotency key.
@@ -1763,8 +1516,6 @@ public final class HeadlessExecutorMain {
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }
-
-    private record CreateSessionRequest(String name) {}
 
     private record PrReviewJobRequest(
             @Nullable String owner,
