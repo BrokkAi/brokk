@@ -72,6 +72,72 @@ public class RustAnalyzerTest {
     }
 
     @Test
+    void testImplForReferenceType() throws Exception {
+        String rustCode =
+                """
+            pub struct MyStruct;
+
+            pub trait MyTrait {
+                fn do_something(&self);
+            }
+
+            impl MyTrait for MyStruct {
+                fn do_something(&self) {}
+            }
+
+            impl<T> MyTrait for &T {
+                fn do_something(&self) {}
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // The impl block for MyStruct should work normally
+            assertCodeUnitType(analyzer, "MyStruct", CodeUnitType.CLASS);
+            assertCodeUnitType(analyzer, "MyStruct.do_something", CodeUnitType.FUNCTION);
+
+            // The impl block for &T extracts "T" as the type name - verify the method exists
+            // Note: T is a generic parameter, so it creates a CodeUnit for the impl's methods
+            assertCodeUnitType(analyzer, "T.do_something", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
+    void testImplForScopedGenericType() throws Exception {
+        String rustCode =
+                """
+            mod ast {
+                pub struct StringLike<'a> {
+                    value: &'a str,
+                }
+            }
+
+            pub trait StringLikeExtensions {
+                fn is_empty(&self) -> bool;
+            }
+
+            impl<'a> StringLikeExtensions for ast::StringLike<'a> {
+                fn is_empty(&self) -> bool {
+                    false
+                }
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // The impl block for ast::StringLike<'a> should extract "StringLike" as the name
+            assertCodeUnitType(analyzer, "StringLike", CodeUnitType.CLASS);
+            assertCodeUnitType(analyzer, "StringLike.is_empty", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
     void testNestedModulesWithTestFunction() throws Exception {
         String rustCode =
                 """

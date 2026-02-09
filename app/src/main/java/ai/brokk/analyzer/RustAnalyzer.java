@@ -297,78 +297,51 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         return Set.of();
     }
 
+    /**
+     * Recursively extracts the core type name from a type node, unwrapping generic types,
+     * reference types, and scoped type identifiers to get the simple type identifier.
+     */
+    private Optional<String> extractCoreTypeName(TSNode typeNode, SourceContent sourceContent) {
+        if (typeNode == null || typeNode.isNull()) {
+            return Optional.empty();
+        }
+
+        String nodeType = typeNode.getType();
+        return switch (nodeType) {
+            case TYPE_IDENTIFIER ->
+                Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+
+            case SCOPED_TYPE_IDENTIFIER -> {
+                TSNode nameNode = typeNode.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull() && TYPE_IDENTIFIER.equals(nameNode.getType())) {
+                    yield Optional.of(sourceContent.substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte()));
+                }
+                yield Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+            }
+
+            case GENERIC_TYPE -> {
+                TSNode innerType = typeNode.getChildByFieldName("type");
+                yield extractCoreTypeName(innerType, sourceContent);
+            }
+
+            case REFERENCE_TYPE -> {
+                TSNode innerType = typeNode.getChildByFieldName("type");
+                yield extractCoreTypeName(innerType, sourceContent);
+            }
+
+            default -> Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+        };
+    }
+
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         if (IMPL_ITEM.equals(decl.getType())) {
             TSNode typeNode = decl.getChildByFieldName("type");
-            // In `impl Trait for Type`, typeNode is `Type`.
-            // In `impl Type`, typeNode is `Type`.
             if (typeNode != null && !typeNode.isNull()) {
-                String typeNodeType = typeNode.getType();
-                return switch (typeNodeType) {
-                    case TYPE_IDENTIFIER ->
-                        Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
-                    case GENERIC_TYPE -> {
-                        TSNode genericTypeNameNode = typeNode.getChildByFieldName("type");
-                        if (!genericTypeNameNode.isNull() && TYPE_IDENTIFIER.equals(genericTypeNameNode.getType())) {
-                            yield Optional.of(sourceContent.substringFromBytes(
-                                    genericTypeNameNode.getStartByte(), genericTypeNameNode.getEndByte()));
-                        }
-                        String fullGenericTypeNodeText =
-                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
-                        log.warn(
-                                "RustAnalyzer.extractSimpleName for impl_item (generic_type): Could not extract specific name. Using full text '{}'. Node: {}",
-                                fullGenericTypeNodeText,
-                                sourceContent
-                                        .substringFromBytes(decl.getStartByte(), decl.getEndByte())
-                                        .lines()
-                                        .findFirst()
-                                        .orElse(""));
-                        yield Optional.of(fullGenericTypeNodeText);
-                    }
-                    case SCOPED_TYPE_IDENTIFIER -> {
-                        TSNode scopedNameNode = typeNode.getChildByFieldName("name");
-                        if (!scopedNameNode.isNull() && TYPE_IDENTIFIER.equals(scopedNameNode.getType())) {
-                            yield Optional.of(sourceContent.substringFromBytes(
-                                    scopedNameNode.getStartByte(), scopedNameNode.getEndByte()));
-                        }
-                        String fullScopedTypeNodeText =
-                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
-                        log.warn(
-                                "RustAnalyzer.extractSimpleName for impl_item (scoped_type_identifier): Could not extract specific name. Using full text '{}'. Node: {}",
-                                fullScopedTypeNodeText,
-                                sourceContent
-                                        .substringFromBytes(decl.getStartByte(), decl.getEndByte())
-                                        .lines()
-                                        .findFirst()
-                                        .orElse(""));
-                        yield Optional.of(fullScopedTypeNodeText);
-                    }
-                    case REFERENCE_TYPE -> {
-                        // Unwrap reference_type (e.g. &T, &mut T) to get the inner type name
-                        TSNode innerType = typeNode.getChildByFieldName("type");
-                        if (!innerType.isNull()) {
-                            yield Optional.of(sourceContent.substringFromBytes(
-                                    innerType.getStartByte(), innerType.getEndByte()));
-                        }
-                        yield Optional.of(sourceContent.substringFromBytes(
-                                typeNode.getStartByte(), typeNode.getEndByte()));
-                    }
-                    default -> {
-                        String fullTypeNodeText =
-                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
-                        log.warn(
-                                "RustAnalyzer.extractSimpleName for impl_item: Unhandled type node structure '{}'. Using full text '{}'. Node: {}",
-                                typeNodeType,
-                                fullTypeNodeText,
-                                sourceContent
-                                        .substringFromBytes(decl.getStartByte(), decl.getEndByte())
-                                        .lines()
-                                        .findFirst()
-                                        .orElse(""));
-                        yield Optional.of(fullTypeNodeText);
-                    }
-                };
+                Optional<String> name = extractCoreTypeName(typeNode, sourceContent);
+                if (name.isPresent()) {
+                    return name;
+                }
             }
             String errorContext = String.format(
                     "Node type %s (text: '%s')",
