@@ -60,7 +60,7 @@ public class MultiLanguageStateIOTest {
                 assertFalse(fqnSet.isEmpty(), "Expected non-empty declarations for " + lang.name());
             }
 
-            // Persist each delegate using the language's own save hook (writes .brokk/{internalName}.bin)
+            // Persist each delegate using the language's own save hook (writes .brokk/{internalName}.bin.gzip)
             for (var e : delegates.entrySet()) {
                 var lang = e.getKey();
                 var del = e.getValue();

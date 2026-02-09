@@ -473,7 +473,7 @@ public class TreeSitterStateIOTest {
 
             // 3. Snapshot and save state + cache
             TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
-            Path storage = tempDir.resolve("ancestor_test.bin");
+            Path storage = tempDir.resolve("ancestor_test.bin.gzip");
             TreeSitterStateIO.save(snapshot, cacheForPersist.snapshot(), storage);
 
             var loadedWithCacheOpt = TreeSitterStateIO.loadWithCache(storage);

@@ -270,18 +270,15 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         for (Language lang : project.getAnalyzerLanguages()) {
             Path storagePath = lang.getStoragePath(project);
 
-            // Cleanup legacy uncompressed .bin files if they exist
+            // Cleanup legacy uncompressed .bin files if they exist (storagePath is now .bin.gzip)
             String fileName = storagePath.getFileName().toString();
-            if (fileName.endsWith(".gzip")) {
-                Path legacyUncompressed =
-                        storagePath.resolveSibling(fileName.substring(0, fileName.length() - ".gzip".length()));
-                if (Files.exists(legacyUncompressed)) {
-                    try {
-                        Files.delete(legacyUncompressed);
-                        logger.info("Deleted legacy uncompressed analyzer state: {}", legacyUncompressed);
-                    } catch (IOException e) {
-                        logger.warn("Failed to delete legacy uncompressed analyzer state: {}", legacyUncompressed, e);
-                    }
+            Path legacyUncompressed = storagePath.resolveSibling(fileName.replace(".bin.gzip", ".bin"));
+            if (!legacyUncompressed.equals(storagePath) && Files.exists(legacyUncompressed)) {
+                try {
+                    Files.delete(legacyUncompressed);
+                    logger.info("Deleted legacy uncompressed analyzer state: {}", legacyUncompressed);
+                } catch (IOException e) {
+                    logger.warn("Failed to delete legacy uncompressed analyzer state: {}", legacyUncompressed, e);
                 }
             }
 
