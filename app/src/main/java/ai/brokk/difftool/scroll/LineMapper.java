@@ -3,6 +3,8 @@ package ai.brokk.difftool.scroll;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,6 +18,9 @@ import org.apache.logging.log4j.Logger;
  */
 public final class LineMapper {
     private static final Logger logger = LogManager.getLogger(LineMapper.class);
+
+    // Cache sorted deltas per patch to avoid repeated sorting in Patch.getDeltas()
+    private final Map<Patch<String>, List<AbstractDelta<String>>> deltaCache = new WeakHashMap<>();
 
     // Performance metrics
     private final AtomicLong totalMappings = new AtomicLong(0);
@@ -34,7 +39,11 @@ public final class LineMapper {
         totalMappings.incrementAndGet();
 
         try {
-            var deltas = patch.getDeltas();
+            List<AbstractDelta<String>> deltas;
+            synchronized (deltaCache) {
+                deltas = deltaCache.computeIfAbsent(patch, Patch::getDeltas);
+            }
+
             if (deltas.isEmpty()) {
                 return line;
             }
