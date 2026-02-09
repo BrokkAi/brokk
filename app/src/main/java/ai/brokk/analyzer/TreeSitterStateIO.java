@@ -255,8 +255,7 @@ public final class TreeSitterStateIO {
      * constructor. Reverse mappings for bidirectional caches are deliberately left to be populated
      * lazily by the analyzer (matching the runtime behavior of AnalyzerCache transfer constructor).
      */
-    public record SnapshotWithCache(
-            TreeSitterAnalyzer.AnalyzerState state, ai.brokk.analyzer.cache.AnalyzerCache cache) {}
+    public record SnapshotWithCache(TreeSitterAnalyzer.AnalyzerState state, AnalyzerCache cache) {}
 
     /**
      * Load an AnalyzerState and, when present in the snapshot, a serialized view of the AnalyzerCache.
@@ -290,7 +289,7 @@ public final class TreeSitterStateIO {
             }
 
             var state = fromDto(top.analyzerState());
-            ai.brokk.analyzer.cache.AnalyzerCache cache = new ai.brokk.analyzer.cache.AnalyzerCache();
+            AnalyzerCache cache = new AnalyzerCache();
             if (top.cacheSnapshot() != null) {
                 restoreCacheFromDto(cache, top.cacheSnapshot());
             }
