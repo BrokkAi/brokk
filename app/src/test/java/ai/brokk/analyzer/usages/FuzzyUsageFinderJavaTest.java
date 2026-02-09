@@ -928,4 +928,68 @@ public class FuzzyUsageFinderJavaTest {
             assertTrue(hit.snippet().contains("new Foo()"), "Snippet should contain the constructor call");
         }
     }
+
+    @Test
+    public void testRecordComponentUsageSearchExcludesSelfReference() throws Exception {
+        String recordSource =
+                """
+                package ai.brokk;
+                import org.jetbrains.annotations.Nullable;
+                public record TaskEntry(
+                        int sequence,
+                        @Nullable String log,
+                        @Nullable String summary) {
+                }
+                """;
+
+        String consumerSource =
+                """
+                package ai.brokk;
+                public class TaskConsumer {
+                    public void printLog(TaskEntry entry) {
+                        // This is a usage of the 'log' component accessor
+                        System.out.println(entry.log());
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(recordSource, "ai/brokk/TaskEntry.java")
+                .addFileContents(consumerSource, "ai/brokk/TaskConsumer.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+
+            // Search for usages of the record component 'log'
+            var symbol = "ai.brokk.TaskEntry.log";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages();
+            assertFalse(hits.isEmpty(), "Expected at least one usage hit for record component 'log'");
+
+            var files = hits.stream().map(h -> h.file().getFileName()).collect(Collectors.toSet());
+
+            // Acceptance: At least one hit comes from the consumer file
+            assertTrue(files.contains("TaskConsumer.java"), "Expected usage in TaskConsumer.java; actual: " + files);
+
+            // Acceptance: No hit comes from the record declaration file (TaskEntry.java)
+            // This is the core of the regression check for Issue #2604
+            assertFalse(
+                    files.contains("TaskEntry.java"),
+                    "Record component declaration in TaskEntry.java should NOT be detected as a usage; actual: "
+                            + files);
+
+            // Verify the snippet in consumer is actually the call
+            var consumerHit = hits.stream()
+                    .filter(h -> h.file().getFileName().equals("TaskConsumer.java"))
+                    .findFirst()
+                    .get();
+            assertTrue(
+                    consumerHit.snippet().contains("entry.log()"),
+                    "Snippet should contain the accessor call 'entry.log()'");
+        }
+    }
 }
