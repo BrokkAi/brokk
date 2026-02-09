@@ -372,11 +372,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.gridy = ++row;
         gbc.weightx = 0;
         gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
         gbc.insets = new Insets(15, 5, 2, 5);
-        var connectionsLabel = new JLabel("Connections:");
+        var connectionsLabel = new JLabel("Your Subscriptions:");
         connectionsLabel.setToolTipText(
-                "Connect with OAuth or configure API keys to use credits for other accounts instead of Brokk credits.");
+                "Connect your own LLM subscriptions to use their credits instead of Brokk credits.");
         servicePanel.add(connectionsLabel, gbc);
+        gbc.anchor = GridBagConstraints.WEST;
 
         // Paid-only panel containing OpenAI connection and provider keys
         connectionsPaidPanel = new JPanel(new GridBagLayout());
@@ -390,7 +392,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // OpenAI connection row
         openAiStatusLabel = new JLabel();
-        openAiStatusLabel.setToolTipText("Use OAuth to connect your OpenAI Pro/Plus account.");
+        openAiStatusLabel.setToolTipText("Link your ChatGPT Plus or Pro subscription to use your own credits.");
         var openAiPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         openAiPanel.add(openAiStatusLabel);
 
@@ -2287,7 +2289,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             openAiStatusLabel.setText("OpenAI: Connected");
             openAiStatusLabel.setForeground(new Color(0, 128, 0));
         } else {
-            openAiStatusLabel.setText("OpenAI: Not connected");
+            openAiStatusLabel.setText("Connect my ChatGPT subscription");
             openAiStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
         }
         openAiConnectButton.setVisible(!connected);
