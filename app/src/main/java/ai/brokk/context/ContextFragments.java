@@ -1724,21 +1724,51 @@ public class ContextFragments {
         private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
             if (skeletons.isEmpty()) return "";
 
+            // Group skeletons by package, preserving insertion order for deterministic output.
             var skeletonsByPackage = skeletons.entrySet().stream()
                     .filter(e -> !e.getKey().isAnonymous())
                     .collect(Collectors.groupingBy(
                             e -> e.getKey().packageName().isEmpty()
                                     ? "(default package)"
                                     : e.getKey().packageName(),
+                            LinkedHashMap::new,
                             Collectors.toMap(
                                     Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
 
             if (skeletonsByPackage.isEmpty()) return "";
 
+            // Helper: consider a skeleton "meaningful" if it contains more than just a closing token.
+            // Some language skeletons may emit a close-only token (e.g., "}") when the analyzer
+            // produced no header/signature for that CodeUnit. In a package with a mix of meaningful
+            // skeletons and close-only skeletons, prefer emitting the meaningful ones and drop the
+            // close-only lines to avoid producing outputs that look like truncated types.
+            final Predicate<String> isMeaningful = s -> {
+                if (s == null) return false;
+                String t = s.strip();
+                if (t.isEmpty()) return false;
+                // Common closers across languages: "}", "];", etc. For our Java/primary targets, "}" is the usual
+                // closer.
+                // A conservative check: if the skeleton consists only of non-alphanumeric punctuation (like "}" or
+                // "];"),
+                // treat it as not meaningful.
+                return t.chars().anyMatch(Character::isLetterOrDigit);
+            };
+
             return skeletonsByPackage.entrySet().stream()
                     .sorted(Map.Entry.comparingByKey())
-                    .map(pkgEntry -> "package " + pkgEntry.getKey() + ";\n\n"
-                            + String.join("\n\n", pkgEntry.getValue().values()))
+                    .map(pkgEntry -> {
+                        // Build a deterministic ordered list of skeleton strings for this package.
+                        var valuesMap = pkgEntry.getValue();
+                        List<String> allSkeletons = new ArrayList<>(valuesMap.values());
+
+                        // If there is at least one meaningful skeleton, drop any that are not meaningful.
+                        boolean anyMeaningful = allSkeletons.stream().anyMatch(isMeaningful);
+                        List<String> toEmit = anyMeaningful
+                                ? allSkeletons.stream().filter(isMeaningful).toList()
+                                : allSkeletons;
+
+                        return "package " + pkgEntry.getKey() + ";\n\n" + String.join("\n\n", toEmit);
+                    })
                     .collect(Collectors.joining("\n\n"));
         }
     }
