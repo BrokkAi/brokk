@@ -1441,8 +1441,6 @@ public class ContextFragments {
             return !hitOwner.equals(definingOwner.get());
         }
 
-        private record Example(CodeUnit enclosing, String source) {}
-
         private static ContentSnapshot computeFullSnapshot(
                 String targetIdentifier, IAnalyzer analyzer, List<UsageHit> externalHits, boolean valid) {
             if (externalHits.isEmpty()) {
