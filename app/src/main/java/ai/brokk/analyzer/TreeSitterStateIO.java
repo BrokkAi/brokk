@@ -25,7 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Apache Fory and gzip compression.
+ * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Apache Fory and LZ4 compression.
  *
  * <p>Serializes AnalyzerState into DTOs:
  * <ul>
