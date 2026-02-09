@@ -575,9 +575,7 @@ tasks.withType<Test> {
         override fun asArguments(): Iterable<String> {
             return listOf(
                 "-Dbrokk.test.mode=true",
-                "-Dbrokk.test.sandbox.root=$testSandboxRoot",
-                "-Djunit.jupiter.execution.parallel.enabled=true",
-                "-Djunit.jupiter.execution.parallel.mode.classes.default=concurrent"
+                "-Dbrokk.test.sandbox.root=$testSandboxRoot"
             )
         }
     })
