@@ -122,12 +122,9 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
                     ? UUID.fromString(sessionIdHeader)
                     : UUID.randomUUID();
 
-            byte[] zipData;
             try (InputStream requestBody = exchange.getRequestBody()) {
-                zipData = requestBody.readAllBytes();
+                importSessionZip(requestBody, sessionId);
             }
-
-            importSessionZip(zipData, sessionId);
 
             var response = Map.of("sessionId", sessionId.toString());
             SimpleHttpServer.sendJsonResponse(exchange, 201, response);
@@ -174,11 +171,18 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
         }
     }
 
-    private void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
+    private void importSessionZip(InputStream zipStream, UUID sessionId) throws Exception {
         var cmSessionsDir = contextManager.getProject().getSessionManager().getSessionsDir();
         Files.createDirectories(cmSessionsDir);
         var sessionZipPath = cmSessionsDir.resolve(sessionId.toString() + ".zip");
-        AtomicWrites.save(sessionZipPath, zipData);
+
+        AtomicWrites.save(sessionZipPath, out -> {
+            byte[] buffer = new byte[64 * 1024];
+            int bytesRead;
+            while ((bytesRead = zipStream.read(buffer)) != -1) {
+                out.write(buffer, 0, bytesRead);
+            }
+        });
 
         logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
 
