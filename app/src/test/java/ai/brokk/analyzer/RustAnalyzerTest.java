@@ -211,6 +211,50 @@ public class RustAnalyzerTest {
     }
 
     @Test
+    void testImplForSelfType() throws Exception {
+        String rustCode =
+                """
+            pub struct Counter {
+                value: i32,
+            }
+
+            impl Counter {
+                pub fn new() -> Self {
+                    Self { value: 0 }
+                }
+
+                pub fn increment(&mut self) -> &mut Self {
+                    self.value += 1;
+                    self
+                }
+            }
+
+            pub trait Builder {
+                fn build(self) -> Self;
+            }
+
+            impl Builder for Counter {
+                fn build(self) -> Self {
+                    self
+                }
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // Self in return types and method bodies doesn't affect type extraction
+            // The impl target type is "Counter" (TYPE_IDENTIFIER), not "Self"
+            assertCodeUnitType(analyzer, "Counter", CodeUnitType.CLASS);
+            assertCodeUnitType(analyzer, "Counter.new", CodeUnitType.FUNCTION);
+            assertCodeUnitType(analyzer, "Counter.increment", CodeUnitType.FUNCTION);
+            assertCodeUnitType(analyzer, "Counter.build", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
     void testNestedModulesWithTestFunction() throws Exception {
         String rustCode =
                 """
