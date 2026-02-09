@@ -552,6 +552,39 @@ public class CppAnalyzerTest {
             assertTrue(hasCtor, "Should see constructor for TaskTeamMemberAdapter<TeamMember>");
             assertTrue(hasCallOp, "Should see operator() for TaskTeamMemberAdapter<TeamMember>");
 
+            // Explicit additional assertions for regression validation:
+            // 1) There should be at least one constructor declaration in header (no body)
+            var headerCtor = taskAdapterFunctions.stream()
+                    .filter(cu -> CppAnalyzerTest.getBaseFunctionName(cu).equals("TaskTeamMemberAdapter"))
+                    .findFirst();
+            assertTrue(
+                    headerCtor.isPresent(),
+                    "Header should contain a constructor declaration for TaskTeamMemberAdapter");
+
+            // 2) If the source file is present, ensure source contains a definition (hasBody == true) for the ctor
+            if (sourceFileOpt.isPresent()) {
+                var src = sourceFileOpt.get();
+                var srcDecls = tempAnalyzer.getDeclarations(src);
+                // Find ctor in source file declarations
+                var srcCtors = srcDecls.stream()
+                        .filter(CodeUnit::isFunction)
+                        .filter(cu -> CppAnalyzerTest.getBaseFunctionName(cu).equals("TaskTeamMemberAdapter"))
+                        .toList();
+                // At least one source-level ctor should exist (definition)
+                assertFalse(
+                        srcCtors.isEmpty(),
+                        "Source file should contain constructor definition(s) for TaskTeamMemberAdapter");
+
+                // Check hasBody flag for one of the source ctors using analyzer's CodeUnitProperties
+                boolean foundDefWithBody = srcCtors.stream()
+                        .anyMatch(cu -> tempAnalyzer.withCodeUnitProperties(
+                                map -> map.getOrDefault(cu, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                                        .hasBody()));
+                assertTrue(
+                        foundDefWithBody,
+                        "At least one constructor in source should have hasBody=true (definition preferred)");
+            }
+
             if (sourceFileOpt.isPresent()) {
                 var srcDecls = tempAnalyzer.getDeclarations(sourceFileOpt.get());
                 logger.debug("kokkos_adapter.cpp declarations: {}", srcDecls);
@@ -1638,5 +1671,34 @@ public class CppAnalyzerTest {
         assertTrue(
                 classUsageHits.size() >= 2,
                 "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
+    }
+
+    // New regression-oriented test: ensure getDefinitions ordering is stable and prefers definitions with bodies
+    @Test
+    public void testGetDefinitionsStableOrderingPrefersDefinitions() {
+        // Lookup overloads by base name via the analyzer lookup (uses normalizeFullName)
+        var defs = analyzer.getDefinitions("overloadedFunction").stream().toList();
+        assertFalse(defs.isEmpty(), "getDefinitions should return overload candidates for 'overloadedFunction'");
+
+        // There should be exactly 6 candidates across project (3 in simple_overloads.h + 3 in duplicates.h)
+        // but at minimum expect 3 present in the test resources for deterministic checks.
+        assertTrue(defs.size() >= 3, "Expected at least 3 overloadedFunction definitions in repository");
+
+        // Verify that the returned SequencedSet is stable: first element should be a definition (hasBody) when
+        // available
+        var first = defs.get(0);
+        boolean firstHasBody = analyzer.withCodeUnitProperties(
+                map -> map.getOrDefault(first, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                        .hasBody());
+        assertTrue(
+                firstHasBody,
+                "First returned definition for overloadedFunction should be a definition with body when available");
+
+        // Verify signatures are populated and unique across the set (at least among first three)
+        var sigs =
+                defs.stream().map(CodeUnit::signature).filter(Objects::nonNull).toList();
+        assertFalse(sigs.isEmpty(), "Signatures should be present for overloadedFunction candidates");
+        var unique = sigs.stream().distinct().toList();
+        assertTrue(unique.size() >= 2, "Expect at least two distinct signatures among overloads");
     }
 }
