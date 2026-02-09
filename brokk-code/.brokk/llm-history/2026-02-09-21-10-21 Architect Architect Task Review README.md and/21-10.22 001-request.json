@@ -1,0 +1,223 @@
+{
+  "model" : "openai/gpt-5.2",
+  "messages" : [ {
+    "role" : "system",
+    "content" : "<instructions>\nYou are the Architect Agent. You solve problems by breaking them down into manageable pieces\nin an evolving long-range plan.\n\nPay careful attention to the scope of the user's request. Attempt to do everything required\nto fulfil the user's direct requests, but avoid surprising him with unexpected actions.\nFor example, if the user asks you a question, you should do your best to answer his question first,\nbefore immediately jumping into taking further action.\n\n# High-Level Problem Solving Strategy\n\n1. Understand the problem deeply. Carefully read the project description and think critically about what is required.\n2. Investigate the codebase. Explore relevant classes and files, search for key functions, and gather context into the Workspace.\n3. Develop a clear, step-by-step plan. Break down the fix into manageable, incremental steps.\n4. Instruct Code Agent how to implement the fix incrementally, making self-contained, testable code changes.\n   Incrementally means making multiple calls to Code Agent, it will get confused if you ask it to do everything at once.\n   (Code Agent will run the tests that you add to the Workspace.)\n5. Debug as needed. Use debugging techniques to isolate and resolve issues.\n6. Iterate until the root cause is fixed and all tests pass.\n7. Reflect and validate comprehensively. After each change, think about the original intent and how to update your plan.\n\nRefer to the detailed sections below for more information on each step.\n\n## 1. Deeply Understand the Problem\nCarefully read the goal and think hard about a plan to solve it before asking Code Agent to make changes.\n\n## 2. Codebase Investigation and the Workspace\n- If you know the files or classes or methods you need, you should add them or related information (summaries,\n  usages, call graphs, etc.) to the Workspace to examine them yourself and to expose them to Code Agent.\n- If you do not know where the information you need lives, use Search Agent to search for\n  key functions, classes, or variables related to the goal.\n- Identify the root cause of the problem.\n- Update the Workspace context continuously, including dropping irrelevant fragments, as you improve your understanding.\n- When the goal involves using an external library, FIRST search for its key classes/modules in Code Intelligence.\n  If not found, use `importDependency` to import the library, then examine its API to understand how to use it.\n  Supported: Java (Maven coordinates), Python (pip packages), Rust (crates), Node.js (npm packages).\n\nUse Search Agent whenever you are not sure where to find relevant code or how the user's goal relates to the project.\nOnce Search Agent gives you the code location, you can add it (or derivatives like usages or call graphs)\nto the Workspace where you can examine it yourself. However! if you already know where to\nfind the necessary information yourself, prefer adding it directly to searching redundantly.\n\nIt's fine to add things to the Workspace just to see if they are relevant, and drop them later if it turns out that they are not.\nConversely, if you want to add something back that you dropped earlier, you can look at the result of the\ndropWorkspaceFragments tool call to remind yourself what they were. But! only code fragments can\nbe recovered this way; in particular, string fragments or paste fragments cannot.\n\nIf you are not COMPLETELY SURE what part of the goal refers to, you MUST\ndetermine what it means before attempting any code changes!  If the request is still ambiguous or\nunclear after thorough exploration of the codebase, stop and ask for clarification from the user.\n\nThe Workspace is the collection of files and code fragments visible to you and to the other Agents.\nIrrelevant information or too much detail will confuse the the other agents, so you always use\nclass summaries or function excerpts instead of full-text files where possible, and should remove irrelevant\nfiles entirely.\n\n## 3. Develop a Detailed Plan\n- Outline a specific, simple, and verifiable sequence of steps to fix the problem.\n- Break down the fix into small, incremental changes whenever possible.\n\n## 4. Making Code Changes\n- Make code changes only if you have high confidence they can solve the problem.\n- For each change, add ALL files that need editing to the Workspace, as well as any other relevant fragments,\n  summaries, and information that Code Agent needs to make the change correctly.\n- Since Code Agent will try to build and run tests for each change, do not ask Code Agent to make a change\n  that will leave the project un-buildable or un-testable.\n\nCode Agent IS NOT ABLE to manipulate the workspace! It's up to you to configure the workspace with\nthe appropriate editable files as well as any other summaries, usages, or read-only files\nnecessary to use the relevant APIs correctly before invoking Code Agent. This means not just adding\nthe relevant content needed for your requested changes, but also removing the irrelevant to avoid confusion!\n\n## 5. Debugging\n- When debugging, try to determine the root cause rather than addressing symptoms.\n- Debug for as long as needed to identify the root cause and identify a fix.\n- Use print statements or temporary code to inspect program state, including descriptive statements or error messages to understand what's happening.\n- To test hypotheses, you can also add test statements or functions.\n- If Code Agent stops with tests failing, analyze failures and revise your instructions to Code Agent.\n- Have Code Agent write additional tests if needed to capture important behaviors or edge cases.\n- Ensure all tests pass before completing your work.\n- Revisit your assumptions if unexpected behavior occurs.\n\n## 6. Final Verification\n- Confirm that the original goal has been addressed.\n- Review your solution for logic correctness and robustness.\n- Iterate until you are extremely confident the fix is complete and all tests pass.\n\n## 7. Final Reflection and Additional Testing\n- Reflect carefully on the original intent of the user and the problem statement.\n- Think about potential edge cases or scenarios that may not be covered by existing tests.\n- Have Code Agent write additional tests that would need to pass to fully validate the correctness of your solution.\n\n# Working with other agents\n\nThe Workspace of files and code fragments is visible to all agents as well as you, but\nother agents ARE NOT ABLE to see our conversation, including the results of other agent calls!\nYour instructions must therefore be self-contained and complete;\nbesides the Workspace itself that is the only information they will have.\n\nDO NOT assume that the workspace is correctly configured to start solving the goal! You MUST\nevaluate the workspace contents INDEPENDENTLY at each step and drop irrelevant fragments for\nthe next step in your plan!\n\n</instructions>\n<goal>\n**Task**: Review `README.md` and ensure the “What this project is for” section succinctly states: (1) it’s a Python Textual TUI client, (2) it manages a local Java executor subprocess, (3) it authenticates with an HTTP bearer token, and (4) it streams events/tokens to power chat/context/tasks panels. If any of these points are missing or unclear, adjust wording (no behavioral changes).\n\n**Acceptance**: `README.md` contains a clear 2–4 sentence project-purpose description covering the four points above.\n\n**Touch points**: `README.md`\n\n**Key Locations:**\n`README.md` (top section: “What this project is for”)\n\n**Key Discoveries:**\n`README.md` already includes the project’s purpose and high-level architecture (Textual TUI + Java executor subprocess + bearer token auth + streaming updates).\n</goal>"
+  }, {
+    "role" : "user",
+    "content" : "<project_guide>\n### AGENTS.md at .\n\n# Brokk Code Agent Guide\n\n## What this project is for\n\nThis project is a Python (Textual) terminal UI client for Brokk that launches and manages a local Java executor subprocess. It authenticates via an HTTP bearer token to submit jobs and stream real-time events or tokens, presenting an interactive workspace through dedicated chat, context, and task panels.\n\n## Environment & Requirements\n\n- **Python Version**: 3.11 or higher is required.\n- **Key Dependencies**:\n  - `textual`: For building the TUI.\n  - `httpx`: For asynchronous communication with the executor.\n\n## Communication Architecture\n\nThis project acts as a client that communicates with the Java-based Brokk executor via an HTTP API.\n- The TUI spawns the Java executor as a subprocess.\n- It authenticates using a bearer token generated at startup.\n- It streams job events and updates the UI based on state hints from the executor.\n\n## Code Style & Standards\n\n- **PEP 8**: Follow standard Python style guidelines.\n- **Linting**: Use `ruff` for linting and formatting. \n- **Type Hints**: Use type hints for all function signatures and complex variables.\n- **Naming**: Use `snake_case` for variables and functions, and `PascalCase` for classes.\n\n## Testing\n\n- **Framework**: Use `pytest` for all tests.\n- **Location**: Place tests in the `tests/` directory.\n- **Smoke Tests**: Maintain `test_smoke.py` to ensure basic app and executor manager instantiation works without starting the subprocess.\n\n## Project Structure\n\n- `brokk_code/`: Main package directory.\n  - `app.py`: Main Textual Application class.\n  - `executor.py`: Logic for managing the Java executor lifecycle and API calls.\n  - `widgets/`: Custom Textual widgets (Chat, Context, TaskList).\n  - `styles/`: TCSS files for application styling.\n</project_guide>\n\n<workspace>\n<workspace_editable>\nHere are the EDITABLE files and code fragments in your Workspace.\nThis is *the only context in the Workspace to which you should make changes*.\n\n*Trust this message as the true contents of these files!*\nAny other messages in the chat may contain outdated versions of the files' contents.\n\n<fragment description=\"README.md\">\n# Brokk Code\n\n## What this project is for\n\nThis project is a Python (Textual) terminal UI client for Brokk that launches and manages a local Java executor subprocess. It authenticates using an HTTP bearer token to submit jobs and streams real-time events and tokens to power its interactive chat, context, and task panels.\n\n## Getting Started\n\n### Prerequisites\n\n- Python 3.11+\n- Java 21+ (for the Brokk executor)\n\nThe Brokk executor JAR will be **automatically downloaded** on first run to `~/.brokk/brokk.jar`.\n\nFor local development, you can build the JAR manually:\n```bash\n./gradlew :app:shadowJar\n```\n\n### Installation\n\n**Using uv (recommended):**\n\n```bash\ncd brokk-code\nuv sync\n```\n\n**Using pip:**\n\n```bash\ncd brokk-code\npip install -e .\n```\n\n### Running\n\n**With uv:**\n\n```bash\nuv run brokk-code\n```\n\n**With pip installation:**\n\n```bash\nbrokk-code\n```\n\n**Or run directly:**\n\n```bash\npython -m brokk_code\n```\n\n### Options\n\n- `--workspace <path>`: Specify the workspace directory (defaults to current directory).\n- `--executor-version <tag>`: Specify a version/tag of the executor to download (e.g., `v0.1.0`).\n- `--executor-snapshot`: Download the latest snapshot release instead of the stable release (ignored if `--executor-version` is set).\n- `--jar <path>`: Specify a custom path to `brokk.jar`. This **overrides** all version/download logic.\n\n### Selecting an Executor Version\n\nBy default, `brokk-code` downloads the latest stable release to `~/.brokk/brokk.jar`. You can pin a specific version using the `--executor-version` flag:\n\n```bash\nuv run brokk-code --executor-version v0.1.0\n```\n\nVersioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.\n\n### Key Bindings\n\n| Key | Action |\n|-----|--------|\n| `Ctrl+L` | Toggle context panel |\n| `Ctrl+R` | Toggle task list panel |\n| `Ctrl+C` | Cancel job / quit |\n\n### Commands\n\n| Command | Description |\n|---------|-------------|\n| `/model <name>` | Switch the LLM model |\n| `/help` | Show available commands |\n| `/quit` | Exit the application |\n\n</fragment>\n</workspace_editable>\n\n\n<workspace_build_status>\nThe build including the above workspace contents is currently failing.\n</workspace_build_status>\n\n\n<workspace_special>\nHere are the special system and metadata fragments in your Workspace.\nThese are read-only and provide additional context about the environment or task.\n\n<fragment description=\"Discarded Context\">\n{\n  \"AGENTS.md\" : \"Key facts: AGENTS.md: Project is a Python 3.11+ Textual TUI client that spawns/manages a local Java executor subprocess, authenticates via HTTP bearer token, streams job events/tokens; key deps textual/httpx; tests use pytest under tests/ with smoke test; main package brokk_code/ with app.py, executor.py, widgets/, styles/.. Reason: README.md already describes the project's purpose; AGENTS.md is redundant for answering what the project is for.\"\n}\n</fragment>\n\n\n<fragment description=\"Task List\">\n{\n  \"bigPicture\" : \"## What this project is for\\n\\nFrom `README.md`, **Brokk Code** is a **Python (Textual) terminal UI client** for Brokk. It **downloads (if needed), launches, and manages** a **local Java executor subprocess** (`brokk.jar`), **authenticates via an HTTP bearer token**, and submits jobs / streams real-time events or tokens to present an interactive workspace (chat, context, tasks) in the TUI.\\n\\nBecause the user request is informational and the README already contains this description, no code changes are required. The task below is a documentation-quality check to ensure this purpose remains clear and accurate.\",\n  \"tasks\" : [ {\n    \"id\" : \"dcb152a9-ede5-4e62-b9e9-6ad7aef95c0d\",\n    \"title\" : \"Confirm/clarify project purpose in README\",\n    \"text\" : \"**Task**: Review `README.md` and ensure the “What this project is for” section succinctly states: (1) it’s a Python Textual TUI client, (2) it manages a local Java executor subprocess, (3) it authenticates with an HTTP bearer token, and (4) it streams events/tokens to power chat/context/tasks panels. If any of these points are missing or unclear, adjust wording (no behavioral changes).\\n\\n**Acceptance**: `README.md` contains a clear 2–4 sentence project-purpose description covering the four points above.\\n\\n**Touch points**: `README.md`\\n\\n**Key Locations:**\\n`README.md` (top section: “What this project is for”)\\n\\n**Key Discoveries:**\\n`README.md` already includes the project’s purpose and high-level architecture (Textual TUI + Java executor subprocess + bearer token auth + streaming updates).\",\n    \"done\" : false\n  } ]\n}\n</fragment>\n\n\n<fragment description=\"Latest Build Results\">\nprocess 'uv run ruff check .' signaled error code 1\n\nI001 [*] Import block is un-sorted or un-formatted\n   --> tests/test_smoke.py:553:5\n    |\n551 |   def test_chat_panel_notification_safety():\n552 |       \"\"\"Verify notification panel handles markup safely.\"\"\"\n553 | /     from unittest.mock import MagicMock\n554 | |     from rich.text import Text\n555 | |     from brokk_code.widgets.chat_panel import ChatPanel\n556 | |     from textual.widgets import RichLog\n    | |_______________________________________^\n557 |\n558 |       panel = ChatPanel()\n    |\nhelp: Organize imports\n\nFound 1 error.\n[*] 1 fixable with the `--fix` option.\n</fragment>\n</workspace_special>\n</workspace>"
+  }, {
+    "role" : "assistant",
+    "content" : "Thank you for providing these Workspace contents."
+  }, {
+    "role" : "assistant",
+    "content" : "\n**Brokk Context Engine** analyzing repository context…\n`Adding context to workspace`\n````yaml\nfragmentCount: 2\nfragments:\n  - AGENTS.md\n  - README.md\n\n````\n\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n"
+  }, {
+    "role" : "assistant",
+    "content" : "\n\n**Considering task creation process**\n\nI need to make a tool call since the user asked about the project. The objective says to deliver a task list using the createOrReplaceTaskList tool. I think creating tasks could involve updating documents, but the initial question isn’t about code changes. I’ll create a single task: adding a brief \"Project purpose\" blurb in the README or AGENTS. \n\nTo keep focused, I might need to prune irrelevant fragments before I proceed. I think I can drop one if there's redundancy. Since AGENTS has guidance, I wonder if it’s necessary. I'll decide to keep only the README. The next step would be to use dropWorkspaceFragments, and then call createOrReplaceTaskList. Should I drop first?\n\n**Planning task list delivery**\n\nI need to finalize the task list now. Since I can't do that in parallel with the terminal, I'll drop the unnecessary fragments first and then create the task list in the next turn. However, I need to call a tool right away according to the system's guidance. \n\nI can drop the workspace fragments now and then proceed with createOrReplaceTaskList next. Even though I must answer the user, the objective is to have the task list ready, so I’ll prioritize dropping first!\n\n`Removing from workspace`\n````yaml\nfragments:\n  - FragmentRemoval[fragmentId=23feac37-6867-4a45-b2a2-0f03aff00d7c, keyFacts=AGENTS.md: Project is a Python 3.11+ Textual TUI client that spawns/manages a local Java executor subprocess, authenticates via HTTP bearer token, streams job events/tokens; key deps textual/httpx; tests use pytest under tests/ with smoke test; main package brokk_code/ with app.py, executor.py, widgets/, styles/., dropReason=README.md already describes the project's purpose; AGENTS.md is redundant for answering what the project is for.]\n\n````\n"
+  }, {
+    "role" : "assistant",
+    "content" : "# Explanation\n\n## What this project is for\n\nFrom `README.md`, **Brokk Code** is a **Python (Textual) terminal UI client** for Brokk. It **downloads (if needed), launches, and manages** a **local Java executor subprocess** (`brokk.jar`), **authenticates via an HTTP bearer token**, and submits jobs / streams real-time events or tokens to present an interactive workspace (chat, context, tasks) in the TUI.\n\nBecause the user request is informational and the README already contains this description, no code changes are required. The task below is a documentation-quality check to ensure this purpose remains clear and accurate."
+  }, {
+    "role" : "assistant",
+    "content" : "**Task list created** with 1 item. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
+  }, {
+    "role" : "assistant",
+    "content" : "\n**Brokk Context Engine** analyzing repository context…\n\n\nNo additional context insights found\n"
+  }, {
+    "role" : "user",
+    "content" : "**Task**: Review `README.md` and ensure the “What this project is for” section succinctly states: (1) it’s a Python Textual TUI client, (2) it manages a local Java executor subprocess, (3) it authenticates with an HTTP bearer token, and (4) it streams events/tokens to power chat/context/tasks panels. If any of these points are missing or unclear, adjust wording (no behavioral changes).\n\n**Acceptance**: `README.md` contains a clear 2–4 sentence project-purpose description covering the four points above.\n\n**Touch points**: `README.md`\n\n**Key Locations:**\n`README.md` (top section: “What this project is for”)\n\n**Key Discoveries:**\n`README.md` already includes the project’s purpose and high-level architecture (Textual TUI + Java executor subprocess + bearer token auth + streaming updates)."
+  }, {
+    "role" : "assistant",
+    "content" : "[HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.\n You made changes to README.md. These changes are reflected in the Workspace contents above.\n Review the current contents carefully before proposing additional changes to fix the build.]\n\nThe `README.md` already contains a high-quality description that covers all four required points. I will make a minor adjustment to the wording to ensure \"streaming\" is explicitly linked to powering the specific panels (chat, context, tasks) as requested.\n\n\n\nThe build failure is caused by unsorted imports in `tests/test_smoke.py`, which is being flagged by `ruff`. However, `tests/test_smoke.py` is not currently in the editable workspace.\n\nRegarding the original goal, the description in `README.md` already covers the four required points. I will refine the wording slightly to more explicitly link the streaming events to the specific panels as requested.\n\n\nTo fix the build error in `tests/test_smoke.py`, please add that file to the context so I can organize the imports according to the project's standards.\n"
+  }, {
+    "role" : "user",
+    "content" : "The build failed.\nPlease analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.\nYou should use the conversation history to understand your earlier thinking; since your changes\nhave been incorporated into the Workspace, look at the current state of those files before\ngenerate SEARCH/REPLACE blocks. You have already made changes, but you made mistakes;\nthat is why the build is failing!\n\nIMPORTANT: If solving the build or failure requires editing files or using APIs you do not have\nin your Workspace, do your best to explain the problem but DO NOT provide any edits.\nOtherwise, provide the edits as usual.\n\n<build_output>\nprocess 'uv run ruff check .' signaled error code 1\n\nI001 [*] Import block is un-sorted or un-formatted\n   --> tests/test_smoke.py:553:5\n    |\n551 |   def test_chat_panel_notification_safety():\n552 |       \"\"\"Verify notification panel handles markup safely.\"\"\"\n553 | /     from unittest.mock import MagicMock\n554 | |     from rich.text import Text\n555 | |     from brokk_code.widgets.chat_panel import ChatPanel\n556 | |     from textual.widgets import RichLog\n    | |_______________________________________^\n557 |\n558 |       panel = ChatPanel()\n    |\nhelp: Organize imports\n\nFound 1 error.\n[*] 1 fixable with the `--fix` option.\n</build_output>\n\nRemember to pay close attention to the SEARCH/REPLACE block format instructions and examples!"
+  }, {
+    "role" : "assistant",
+    "content" : "I will refine the description in `README.md` to ensure all four points are explicitly and succinctly stated as requested.\n\nRegarding the build failure in `tests/test_smoke.py`, I do not have that file in my editable workspace. Please add `tests/test_smoke.py` to the context so I can fix the import sorting error identified by `ruff`.\n\n[elided SEARCH/REPLACE block]"
+  }, {
+    "role" : "assistant",
+    "content" : "Initial CodeAgent attempt:\n**Build Error: Failed to Compile/Test**\n\nBuild/test verification failed after multiple attempts:\nBuild failed 3 consecutive times:\nprocess 'uv run ruff check .' signaled error code 1\n\nI001 [*] Import block is un-sorted or un-formatted\n   --> tests/test_smoke.py:553:5\n    |\n551 |   def test_chat_panel_notification_safety():\n552 |       \"\"\"Verify notification panel handles markup safely.\"\"\"\n553 | /     from unittest.mock import MagicMock\n554 | |     from rich.text import Text\n555 | |     from brokk_code.widgets.chat_panel import ChatPanel\n556 | |     from textual.widgets import RichLog\n    | |_______________________________________^\n557 |\n558 |       panel = ChatPanel()\n    |\nhelp: Organize imports\n\nFound 1 error.\n[*] 1 fixable with the `--fix` option.\n\nDetails are in the Workspace. The Code Agent applied changes but couldn't verify them.\nIf this is a multi-step change that will temporarily break the build, retry callCodeAgent with deferBuild=true and complete the follow-up fixes next.\nYou can also retry with different instructions, or undo with 'undoLastChanges'.\n"
+  }, {
+    "role" : "user",
+    "content" : "<goal>\n**Task**: Review `README.md` and ensure the “What this project is for” section succinctly states: (1) it’s a Python Textual TUI client, (2) it manages a local Java executor subprocess, (3) it authenticates with an HTTP bearer token, and (4) it streams events/tokens to power chat/context/tasks panels. If any of these points are missing or unclear, adjust wording (no behavioral changes).\n\n**Acceptance**: `README.md` contains a clear 2–4 sentence project-purpose description covering the four points above.\n\n**Touch points**: `README.md`\n\n**Key Locations:**\n`README.md` (top section: “What this project is for”)\n\n**Key Discoveries:**\n`README.md` already includes the project’s purpose and high-level architecture (Textual TUI + Java executor subprocess + bearer token auth + streaming updates).\n</goal>\n\nPlease decide the next tool action(s) to make progress towards resolving the goal.\n\nYou MUST think carefully before each function call, and reflect extensively on the outcomes of the previous function calls.\nDO NOT do this entire process by making function calls only, as this can impair your ability to solve the problem and think insightfully.\n\nYou are encouraged to call multiple tools simultaneously, especially\n- when searching for relevant code: you can invoke callSearchAgent multiple times at once\n- when manipulating Workspace context: make all desired manipulations at once\n\nConversely, it does not make sense to call multiple tools with\n- callCodeAgent, since you want to see what changes get made before proceeding\n- projectFinished or abortProject, since they terminate execution\n\nWhen you are done, call projectFinished or abortProject.\n\nHere is a summary of the current Workspace. Its full contents were sent earlier in the chat.\n<workspace_toc>\nHere is a list of the full contents of the Workspace that you can refer to above.\nI have pinned some of them; these may not be dropped. If it has a fragmentid instead of a pin marker, you may drop it.\n<workspace_readonly>\nThe following fragments MAY NOT BE EDITED:\n<fragment-toc description=\"Discarded Context\" pinned=\"true\" />\n<fragment-toc description=\"Task List\" pinned=\"true\" />\n</workspace_readonly>\n<workspace_editable>\nThe following fragments MAY BE EDITED:\n<fragment-toc description=\"README.md\" fragmentid=\"01fdf62a-4db4-450d-bcb0-e6bd0733c60e\" />\n</workspace_editable>\n  <workspace_build_status>(failing)</workspace_build_status>\n</workspace_toc>\n\n\n\n<empty-project-notice>\nThis project appears to be empty (a new project with no existing source files).\nPrefer starting by creating the minimal project structure needed to satisfy the goal, and ensure the Workspace contains the key new files you create.\n</empty-project-notice>\n"
+  } ],
+  "stream" : true,
+  "stream_options" : {
+    "include_usage" : true
+  },
+  "max_completion_tokens" : 50000,
+  "user" : "4feb749c-cdc6-487f-9ae6-4b0d19f16150",
+  "tools" : [ {
+    "type" : "function",
+    "function" : {
+      "name" : "addFilesToWorkspace",
+      "description" : "Edit project files to the Workspace. Use this when Code Agent will need to make changes to these files, or if you need to read the full source. Only call when you have identified specific filenames. DO NOT call this to create new files -- Code Agent can do that without extra steps.",
+      "parameters" : {
+        "type" : "object",
+        "properties" : {
+          "relativePaths" : {
+            "type" : "array",
+            "description" : "List of file paths relative to the project root (e.g., 'src/main/java/com/example/MyClass.java'). Must not be empty.",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        },
+        "required" : [ "relativePaths" ]
+      }
+    }
+  }, {
+    "type" : "function",
+    "function" : {
+      "name" : "addUrlContentsToWorkspace",
+      "description" : "Fetch content from a URL (e.g., documentation, issue tracker) and add it to the Workspace as a read-only text fragment. HTML content will be converted to Markdown.",
+      "parameters" : {
+        "type" : "object",
+        "properties" : {
+          "urlString" : {
+            "type" : "string",
+            "description" : "The full URL to fetch content from (e.g., 'https://example.com/docs/page')."
+          }
+        },
+        "required" : [ "urlString" ]
+      }
+    }
+  }, {
+    "type" : "function",
+    "function" : {
+      "name" : "dropWorkspaceFragments",
+      "description" : "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record structured breadcrumbs (keyFacts + dropReason) in DISCARDED_CONTEXT. Do not drop file fragments that you still need to read or edit.",
+      "parameters" : {
+        "type" : "object",
+        "properties" : {
+          "fragments" : {
+            "type" : "array",
+            "description" : "List of fragments to remove from the Workspace. Must not be empty. Pinned fragments are ineligible.",
+            "items" : {
+              "type" : "object",
+              "properties" : {
+                "fragmentId" : {
+                  "type" : "string",
+                  "description" : "The alphanumeric ID exactly as listed in <workspace_toc>"
+                },
+                "keyFacts" : {
+                  "type" : "string",
+                  "description" : "Key facts to retain: file paths, class/method names, constraints, notable behavior. Use 'No relevant facts' if nothing worth preserving. Describe what IS, not what SHOULD BE. No action items for the Code Agent."
+                },
+                "dropReason" : {
+                  "type" : "string",
+                  "description" : "One short sentence: why is it safe to drop this fragment?"
+                }
+              },
+              "required" : [ "fragmentId", "keyFacts", "dropReason" ]
+            }
+          }
+        },
+        "required" : [ "fragments" ]
+      }
+    }
+  }, {
+    "type" : "function",
+    "function" : {
+      "name" : "explainCommit",
+      "description" : "Explain a single commit by summarizing its diff vs its parent. Use this to understand intent behind changes.",
+      "parameters" : {
+        "type" : "object",
+        "properties" : {
+          "revision" : {
+            "type" : "string",
+            "description" : "Commit id (or revision)"
+          },
+          "reasoning" : {
+            "type" : "string",
+            "description" : "Why you need this explanation (optional)."
+          }
+        },
+        "required" : [ "revision", "reasoning" ]
+      }
+    }
+  }, {
+    "type" : "function",
+    "function" : {
+      "name" : "callCodeAgent",
+      "description" : "Invoke the Code Agent to solve or implement the current task. Provide complete instructions. Only the Workspace and your instructions are visible to the Code Agent, NOT the entire chat history; you must therefore provide appropriate context for your instructions. If you expect your changes to temporarily break the build and plan to fix them in later steps, set 'deferBuild' to true to defer build/verification.",
+      "parameters" : {
+        "type" : "object",
+        "properties" : {
+          "instructions" : {
+            "type" : "string",
+            "description" : "Detailed instructions for the CodeAgent referencing the current project. Code Agent can figure out how to change the code at the syntax level but needs clear instructions of what exactly you want changed"
+          },
+          "deferBuild" : {
+            "type" : "boolean",
+            "description" : "Defer build/verification for this CodeAgent call. Set to true when your changes are an intermediate step that will temporarily break the build"
+          }
+        },
+        "required" : [ "instructions", "deferBuild" ]
+      }
+    }
+  }, {
+    "type" : "function",
+    "function" : {
+      "name" : "undoLastChanges",
+      "description" : "Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.",
+      "parameters" : {
+        "type" : "object",
+        "properties" : { },
+        "required" : [ ]
+      }
+    }
+  }, {
+    "type" : "function",
+    "function" : {
+      "name" : "callSearchAgent",
+      "description" : "Invoke the Search Agent to find information relevant to the given query. The Search Agent explores the codebase to find relevant identifiers and files. Searching is slower than adding known files directly, but useful when you don't know exact names or locations. ",
+      "parameters" : {
+        "type" : "object",
+        "properties" : {
+          "query" : {
+            "type" : "string",
+            "description" : "The search query or question for the SearchAgent. Query in English (not just keywords)"
+          }
+        },
+        "required" : [ "query" ]
+      }
+    }
+  }, {
+    "type" : "function",
+    "function" : {
+      "name" : "projectFinished",
+      "description" : "Provide a final answer to the multi-step project. Use this when you're done or have everything you need. Do not combine with other tools.",
+      "parameters" : {
+        "type" : "object",
+        "properties" : {
+          "finalExplanation" : {
+            "type" : "string",
+            "description" : "A final explanation or summary addressing all tasks. Format it in Markdown if desired."
+          }
+        },
+        "required" : [ "finalExplanation" ]
+      }
+    }
+  }, {
+    "type" : "function",
+    "function" : {
+      "name" : "abortProject",
+      "description" : "Abort the entire project. Use this if the tasks are impossible or out of scope. Do not combine with other tools.",
+      "parameters" : {
+        "type" : "object",
+        "properties" : {
+          "reason" : {
+            "type" : "string",
+            "description" : "Explain why the project must be aborted."
+          }
+        },
+        "required" : [ "reason" ]
+      }
+    }
+  } ],
+  "tool_choice" : "required",
+  "reasoning_effort" : "low"
+}

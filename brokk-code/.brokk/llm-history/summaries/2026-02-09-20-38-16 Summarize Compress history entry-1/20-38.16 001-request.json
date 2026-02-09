@@ -1,0 +1,17 @@
+{
+  "model" : "openai/gpt-5-mini",
+  "messages" : [ {
+    "role" : "system",
+    "content" : "You are an expert software engineer that generates concise summaries of code-related text.\n\nReply only with the summary, without any additional text, explanations, or line breaks.\n"
+  }, {
+    "role" : "user",
+    "content" : "Give a detailed but concise summary of this task.\nA third party should be able to understand what happened without reference to the original.\nFocus on information that would be useful for someone doing further work on the project described in the task.\n\nHere is the task to summarize. Do not include XML tags or other markup.\n<task sequence=2>\n  <message type=ai>\n    \n    \n    **Creating task list**\n    \n    I need to make a tool call to create a task list, but the user is only asking for an explanation. Still, it seems like I need to use the task list tool. I’m thinking of adding a task like “Document project purpose in README.” \n    \n    I’m wondering if I should drop any fragments, but they seem relevant. I could replace them with file summaries, but tools support TypeScript, not Markdown. \n    \n    So, rather than eliminating any tasks, I'll keep everything and hope that works for the user.\n    \n    **Calling task list tool**\n    \n    I’m planning to call the tool to create or replace a task list with a single task. The task will be to add a brief “What is this project?” section to the README or AGENTS documentation. I also want to include acceptance criteria to clarify expectations. \n    \n    It sounds straightforward, but I want to ensure I’m focusing on what’s necessary for the user. So, let’s go ahead and do this!\n  </message>\n  \n  <message type=ai>\n    # Explanation\n    \n    The user asked what the project is for. Based on the existing documentation (README.md and AGENTS.md), this repository is a Python Textual TUI client that manages/spawns a local Brokk Java executor, authenticates to it, submits jobs, and streams events/tokens to update the UI. To make this purpose immediately obvious in-repo, add a concise purpose/overview section to the README (and/or align AGENTS.md wording) so new users understand the intent without reading the whole file.\n  </message>\n  \n  <message type=ai>\n    **Task list created** with 1 item. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below.\n  </message>\n</task>\n\n"
+  } ],
+  "stream" : true,
+  "stream_options" : {
+    "include_usage" : true
+  },
+  "max_completion_tokens" : 50000,
+  "user" : "4feb749c-cdc6-487f-9ae6-4b0d19f16150",
+  "reasoning_effort" : "low"
+}

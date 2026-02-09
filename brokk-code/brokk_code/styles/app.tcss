@@ -1,0 +1,87 @@
+Screen {
+    background: $surface;
+}
+
+#side-context {
+    width: 40;
+    dock: left;
+    background: $panel;
+    border-right: solid $primary;
+    display: none;
+}
+
+#context-header {
+    padding: 1 2;
+    background: $primary-darken-1;
+    color: $text;
+    text-style: bold;
+    width: 100%;
+    opacity: 0.6;
+}
+
+#context-list {
+    background: transparent;
+}
+
+ContextFragmentItem {
+    padding: 0 1;
+}
+
+ContextFragmentItem Label {
+    width: 100%;
+}
+
+#side-tasklist {
+    width: 30;
+    dock: right;
+    background: $panel;
+    border-left: solid $primary;
+    display: none;
+}
+
+#tasklist-header {
+    padding: 1 2;
+    background: $primary-darken-1;
+    color: $text;
+    text-style: bold;
+    width: 100%;
+}
+
+#tasklist-container {
+    padding: 1 2;
+}
+
+#tasklist-content {
+    width: 100%;
+}
+
+ChatPanel {
+    height: 1fr;
+    width: 1fr;
+}
+
+#chat-log {
+    height: 1fr;
+    border: none;
+    background: $surface;
+}
+
+#chat-input {
+    margin: 1 2;
+    border: tall $primary;
+}
+
+#notification-panel {
+    height: 4;
+    margin: 0 2;
+    background: $panel;
+    border: ascii $primary-darken-2;
+}
+
+#notification-panel.hidden {
+    display: none;
+}
+
+#chat-input:focus {
+    border: tall $accent;
+}
