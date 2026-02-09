@@ -46,7 +46,7 @@ import org.slf4j.LoggerFactory;
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
-    // Dedicated Smile ObjectMapper
+    // Dedicated Smile ObjectMapper.
     private static final ObjectMapper SMILE_MAPPER =
             new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
@@ -237,11 +237,14 @@ public final class TreeSitterStateIO {
             long snapshotEpochNanos) {}
 
     /**
-     * DTO for CodeUnitProperties that can be easily serialized.
+     * DTO for CodeUnitProperties.
+     *
+     * <p>Note: signatures were removed from the persisted CodeUnitProperties shape. This layer
+     * ignores unknown properties (like legacy signatures) to maintain compatibility with
+     * older snapshots.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record CodeUnitPropertiesDto(
-            List<CodeUnitDto> children, List<String> signatures, List<IAnalyzer.Range> ranges, boolean hasBody) {}
+    public record CodeUnitPropertiesDto(List<CodeUnitDto> children, List<IAnalyzer.Range> ranges, boolean hasBody) {}
 
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
@@ -390,7 +393,7 @@ public final class TreeSitterStateIO {
             var childrenDtos =
                     props.children().stream().map(TreeSitterStateIO::toDto).toList();
 
-            var propsDto = new CodeUnitPropertiesDto(childrenDtos, props.signatures(), props.ranges(), props.hasBody());
+            var propsDto = new CodeUnitPropertiesDto(childrenDtos, props.ranges(), props.hasBody());
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
@@ -493,10 +496,7 @@ public final class TreeSitterStateIO {
             var v = entry.value();
 
             var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                    v.children().stream().map(TreeSitterStateIO::fromDto).toList(),
-                    v.signatures(),
-                    v.ranges(),
-                    v.hasBody());
+                    v.children().stream().map(TreeSitterStateIO::fromDto).toList(), v.ranges(), v.hasBody());
 
             cuState.put(fromDto(entry.key()), props);
         }

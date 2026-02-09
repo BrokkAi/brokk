@@ -237,15 +237,6 @@ public final class ContextExplorer extends JFrame {
                     logger.debug("Error getting type for fragment {} in context {}", f.id(), ctx.id(), e);
                 }
             });
-            // Parsed output if available
-            var parsed = ctx.getParsedOutput();
-            if (parsed != null) {
-                try {
-                    typeNames.add(parsed.getType().name());
-                } catch (Exception e) {
-                    logger.debug("Error getting type for parsed output in context {}", ctx.id(), e);
-                }
-            }
         }
         var types = typeNames.stream().collect(Collectors.joining(", "));
         return new SessionStats(info.id(), taskCount, types);
@@ -325,13 +316,6 @@ public final class ContextExplorer extends JFrame {
                         boolean isText = safeIsText(fragment);
                         int lines = isText ? safeLineCount(fragment) : 0;
                         rows.add(new FragmentRow(ctx.id(), fragment, lines));
-                    }
-
-                    var parsed = ctx.getParsedOutput();
-                    if (parsed != null) {
-                        boolean isText = safeIsText(parsed);
-                        int lines = isText ? safeLineCount(parsed) : 0;
-                        rows.add(new FragmentRow(ctx.id(), parsed, lines));
                     }
 
                     previous = ctx;
@@ -505,6 +489,7 @@ public final class ContextExplorer extends JFrame {
                                 h.action(),
                                 h.historyEntries(),
                                 h.historyLines(),
+                                null,
                                 new ArrayList<>());
                     } else if (row instanceof FragmentRow fr && current != null) {
                         var f = fr.fragment();
@@ -577,6 +562,7 @@ public final class ContextExplorer extends JFrame {
             String action,
             int historyEntries,
             int historyLines,
+            @Nullable FragmentExport parsedOutput,
             List<FragmentExport> fragments) {}
 
     private record FragmentExport(String id, String type, String shortDescription, int lineCount, String syntaxStyle) {}
@@ -691,9 +677,9 @@ public final class ContextExplorer extends JFrame {
                     case 1 -> shortContext(fr.contextId());
                     case 2 -> f.id();
                     case 3 -> f.getType().name();
-                    case 4 -> f.shortDescription();
+                    case 4 -> f.shortDescription().join();
                     case 5 -> fr.lineCount();
-                    case 6 -> f.syntaxStyle();
+                    case 6 -> f.syntaxStyle().join();
                     default -> "";
                 };
             }

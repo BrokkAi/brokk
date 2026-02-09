@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -441,8 +440,8 @@ public class SessionManagerTest {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
             var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
             Context context = new Context(mockContextManager);
-            CompletableFuture.completedFuture("action" + i);
-            var ctx = context.addHistoryEntry(new TaskEntry(i + 1, tf, null), tf);
+            var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, new AbstractService.ModelConfig("test-model"));
+            var ctx = context.addHistoryEntry(new TaskEntry(i + 1, tf, null, meta));
             history.pushContext(ctx);
         }
 

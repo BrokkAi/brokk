@@ -12,6 +12,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
@@ -59,6 +60,7 @@ import picocli.CommandLine;
 @SuppressWarnings("NullAway.Init") // NullAway is upset that some fields are initialized in picocli's call()
 @CommandLine.Command(
         name = "brokk-cli",
+        version = "Brokk " + ai.brokk.BuildInfo.version,
         mixinStandardHelpOptions = true,
         description = "One-shot Brokk workspace and task runner.")
 public final class BprCli implements Callable<Integer> {
@@ -84,12 +86,6 @@ public final class BprCli implements Callable<Integer> {
             names = "--add-url",
             description = "Add content from a URL as a read-only fragment. Can be repeated.")
     private List<String> addUrls = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-usage",
-            description =
-                    "Add the full source of all methods calling then given FQ symbol to the workspace for editing. Can be repeated.")
-    private List<String> addUsages = new ArrayList<>();
 
     @CommandLine.Option(
             names = "--add-summary-class",
@@ -162,6 +158,13 @@ public final class BprCli implements Callable<Integer> {
     private String brokkApiKey;
 
     @CommandLine.Option(
+            names = "--proxy",
+            description =
+                    "LLM proxy setting override: BROKK, LOCALHOST, or STAGING (uses BROKK_PROXY env var if not specified).")
+    @Nullable
+    private String proxySetting;
+
+    @CommandLine.Option(
             names = "--deepscan",
             arity = "0..1",
             fallbackValue = "true",
@@ -196,9 +199,7 @@ public final class BprCli implements Callable<Integer> {
     private AbstractProject project;
 
     public static void main(String[] args) {
-        logger.info("Starting Brokk CLI...");
         System.setProperty("java.awt.headless", "true");
-
         int exitCode = new CommandLine(new BprCli()).execute(args);
         System.exit(exitCode);
     }
@@ -215,6 +216,8 @@ public final class BprCli implements Callable<Integer> {
             return 0;
         }
 
+        logger.info("Starting Brokk CLI...");
+
         // Validate --project is provided when not using --build-commit or --list-models
         if (projectPath == null) {
             System.err.println("Error: --project is required.");
@@ -229,6 +232,23 @@ public final class BprCli implements Callable<Integer> {
         if (effectiveBrokkKey != null && !effectiveBrokkKey.isBlank()) {
             MainProject.setHeadlessBrokkApiKeyOverride(effectiveBrokkKey);
             logger.info("Using CLI-specified Brokk API key (length={})", effectiveBrokkKey.length());
+        }
+
+        // Process proxy setting override (CLI flag > env var)
+        String effectiveProxy = proxySetting;
+        if (effectiveProxy == null || effectiveProxy.isBlank()) {
+            effectiveProxy = System.getenv("BROKK_PROXY");
+        }
+        if (effectiveProxy != null && !effectiveProxy.isBlank()) {
+            try {
+                var setting = MainProject.LlmProxySetting.valueOf(effectiveProxy.toUpperCase(Locale.ROOT));
+                MainProject.setHeadlessProxySettingOverride(setting);
+                logger.info("Using CLI-specified proxy setting: {}", setting);
+            } catch (IllegalArgumentException e) {
+                System.err.println(
+                        "Unknown proxy setting: " + effectiveProxy + ". Valid values: BROKK, LOCALHOST, STAGING");
+                return 1;
+            }
         }
 
         // --- Action Validation ---
@@ -478,11 +498,24 @@ public final class BprCli implements Callable<Integer> {
         for (var url : addUrls) {
             tools.addUrlContentsToWorkspace(url);
         }
-        for (var symbol : addUsages) {
-            tools.addSymbolUsagesToWorkspace(symbol);
-        }
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();
+
+        // enhance prompt
+        if (lutzPrompt != null && IssueRewriterAgent.shouldEnrichIssuePrompt(lutzPrompt)) {
+            var writer = new IssueRewriterAgent(context, requireNonNull(planModel), lutzPrompt);
+            var response = writer.execute();
+            lutzPrompt = response.bodyMarkdown();
+            context = cm.pushContext(ctx -> response.context());
+            logger.info("Enriched lutz prompt: {}", lutzPrompt);
+        }
+        if (lutzLitePrompt != null && IssueRewriterAgent.shouldEnrichIssuePrompt(lutzLitePrompt)) {
+            var writer = new IssueRewriterAgent(context, requireNonNull(planModel), lutzLitePrompt);
+            var response = writer.execute();
+            lutzLitePrompt = response.bodyMarkdown();
+            context = cm.pushContext(ctx -> response.context());
+            logger.info("Enriched lutz-lite prompt: {}", lutzLitePrompt);
+        }
 
         // --- Deep Scan ------------------------------------------------------
         boolean isStandaloneDeepScan = deepScan
@@ -742,12 +775,16 @@ public final class BprCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
+                    var config = new SearchAgent.ScanConfig(true, null, true, false);
                     var agent = new SearchAgent(
-                            cm.liveContext(),
+                            context,
                             requireNonNull(lutzPrompt),
                             planModel,
                             SearchPrompts.Objective.TASKS_ONLY,
-                            scope);
+                            scope,
+                            cm.getIo(),
+                            config,
+                            null);
                     result = agent.execute();
                     context = scope.append(result);
 

@@ -263,42 +263,26 @@ public class WorkspaceTools {
                 unknownIds.size(),
                 mergedDiscarded.size());
 
-        var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
-        var baseMsg = "Dropped: %s.".formatted(droppedReprs);
+        List<String> lines = new ArrayList<>();
+
+        if (!toDrop.isEmpty()) {
+            var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
+            lines.add("Dropped: %s.".formatted(droppedReprs));
+        }
 
         if (!protectedFragments.isEmpty()) {
             var protectedDescriptions = protectedFragments.stream()
                     .map(ContextFragment::description)
                     .map(ComputedValue::join)
                     .collect(Collectors.joining(", "));
-            baseMsg += "\nPinned (not dropped): " + protectedDescriptions + ".";
+            lines.add("Pinned (not dropped): %s.".formatted(protectedDescriptions));
         }
 
         if (!unknownIds.isEmpty()) {
-            baseMsg += "\nUnknown fragment IDs (not dropped): " + String.join(", ", unknownIds);
-        }
-        return baseMsg;
-    }
-
-    @Tool(
-            """
-                  Finds usages of a specific symbol (class, method, field) and adds the full source of the calling methods to the Workspace. Only call when you have identified specific symbols.
-                  Use this for questions like “how is X used/accessed/obtained/wired”.
-                  If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
-                  """)
-    public String addSymbolUsagesToWorkspace(
-            @P(
-                            "Fully qualified symbol name (e.g., 'com.example.MyClass', 'com.example.MyClass.myMethod', 'com.example.MyClass.myField') to find usages for.")
-                    String symbol) {
-        assert !getAnalyzer().isEmpty() : "Cannot add usages: Code Intelligence is not available.";
-        if (symbol.isBlank()) {
-            return "Cannot add usages: symbol cannot be empty";
+            lines.add("Unknown fragment IDs (not dropped): %s.".formatted(String.join(", ", unknownIds)));
         }
 
-        var fragment = new ContextFragments.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
-        context = context.addFragments(List.of(fragment));
-
-        return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
+        return lines.isEmpty() ? "No changes." : String.join("\n", lines);
     }
 
     @Tool(
@@ -458,12 +442,11 @@ public class WorkspaceTools {
             "addClassesToWorkspace",
             "addClassSummariesToWorkspace",
             "addMethodsToWorkspace",
-            "addSymbolUsagesToWorkspace",
             "addFileSummariesToWorkspace",
             // Search tools
             "searchSymbols",
             "getSymbolLocations",
-            "getUsages",
+            "scanUsages",
             "skimDirectory");
 
     /**
@@ -528,13 +511,19 @@ public class WorkspaceTools {
     public record TaskListEntry(
             @P("Short display title for the task.") String title,
             @P("The full task description (Markdown encouraged).") String instructions,
+            @P(
+                            "How to verify success. Optional for purely mechanical refactors with no behavior change. Wherever possible, include automated tests in Acceptance; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.")
+                    String acceptance,
             @P("Files and fully qualified method/class names important to implement the task.") String keyLocations,
             @P(
-                            "Useful discoveries from OUTSIDE the key locations. Note: the Workspace will change as tasks are loaded and executed, so you must capture important discoveries here to preserve them for future tasks.")
+                            "Useful discoveries from OUTSIDE the key locations that the Code Agent should know to load into his Workspace.")
                     String keyDiscoveries) {
 
         public TaskList.TaskItem toTaskItem() {
             String combinedText = instructions.strip();
+            if (!acceptance.isBlank()) {
+                combinedText += "\n\n**Acceptance:**\n" + acceptance.strip();
+            }
             if (!keyLocations.isBlank()) {
                 combinedText += "\n\n**Key Locations:**\n" + keyLocations.strip();
             }

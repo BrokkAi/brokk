@@ -8,6 +8,7 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
@@ -18,7 +19,6 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.util.TextUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -44,8 +44,6 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -230,8 +228,6 @@ public final class JobRunner {
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
-
-    static final int ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD = 100;
 
     enum Mode {
         ARCHITECT,
@@ -1012,43 +1008,29 @@ public final class JobRunner {
                                             String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
                                                     .formatted(issueNumber, details.title(), details.body());
 
-                                            if (shouldEnrichIssuePrompt(details.body())) {
+                                            var context = cm.liveContext();
+                                            if (IssueRewriterAgent.shouldEnrichIssuePrompt(details.body())) {
                                                 try {
                                                     store.appendEvent(
                                                             jobId,
                                                             JobEvent.of(
                                                                     "NOTIFICATION",
                                                                     "Issue body is brief; performing prompt enrichment..."));
-                                                    try (var enrichmentScope =
-                                                            cm.beginTaskUngrouped("Prompt Enrichment")) {
-                                                        var enrichmentAgent = new SearchAgent(
-                                                                cm.liveContext(),
-                                                                issueTaskPrompt,
-                                                                issuePlannerModel,
-                                                                SearchPrompts.Objective.PROMPT_ENRICHMENT,
-                                                                enrichmentScope);
-                                                        var enrichmentResult = enrichmentAgent.execute();
-                                                        if (enrichmentResult
-                                                                        .stopDetails()
-                                                                        .reason()
-                                                                == TaskResult.StopReason.SUCCESS) {
-                                                            issueTaskPrompt += "\n\nEnriched Context:\n"
-                                                                    + enrichmentResult
-                                                                            .output()
-                                                                            .text()
-                                                                            .join();
-                                                            logger.info(
-                                                                    "ISSUE job {}: prompt enrichment successful",
-                                                                    jobId);
-                                                        } else {
-                                                            logger.warn(
-                                                                    "ISSUE job {}: prompt enrichment did not complete successfully: {}",
-                                                                    jobId,
-                                                                    enrichmentResult
-                                                                            .stopDetails()
-                                                                            .reason());
-                                                        }
-                                                    }
+
+                                                    var writerService = new IssueRewriterAgent(
+                                                            context, issuePlannerModel, issueTaskPrompt);
+                                                    var enriched = writerService.execute();
+
+                                                    issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\n%s"
+                                                            .formatted(
+                                                                    issueNumber,
+                                                                    enriched.title(),
+                                                                    enriched.bodyMarkdown());
+
+                                                    // Update context with discovery from enrichment
+                                                    context = cm.pushContext(ctx -> enriched.context());
+
+                                                    logger.info("ISSUE job {}: prompt enrichment successful", jobId);
                                                 } catch (Exception e) {
                                                     logger.warn("ISSUE job {}: prompt enrichment failed", jobId, e);
                                                 }
@@ -1057,7 +1039,6 @@ public final class JobRunner {
                                             // 4. Lutz-style execution: Planning then Task Iteration
                                             String taskDescription = "Issue #" + issueNumber + ": " + details.title();
                                             try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
-                                                var context = cm.liveContext();
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         issueTaskPrompt,
@@ -1553,96 +1534,64 @@ public final class JobRunner {
                                                     ioe);
                                         }
 
-                                        try (var scope = cm.beginTaskUngrouped("Issue Writer")) {
-                                            var context = cm.liveContext();
+                                        var model = resolveModelOrThrow(
+                                                spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
+                                        var writerService =
+                                                new IssueRewriterAgent(cm.liveContext(), model, spec.taskInput());
+                                        var parsed = writerService.execute();
+                                        cm.pushContext(ctx -> parsed.context());
 
-                                            var model = resolveModelOrThrow(
-                                                    spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
-
-                                            String goal =
-                                                    """
-                                                    Issue Writer: produce a high-quality GitHub issue by discovering and citing evidence in this repository.
-
-                                                    User request:
-                                                    %s
-                                                    """
-                                                            .formatted(spec.taskInput());
-
-                                            var agent = new SearchAgent(
-                                                    context,
-                                                    goal,
-                                                    model,
-                                                    SearchPrompts.Objective.ISSUE_DIAGNOSIS,
-                                                    scope);
-                                            var result = agent.execute();
-                                            scope.append(result);
-
-                                            String raw = result.output().text().join();
-                                            var parsed = IssueWriterService.parseIssueResponse(raw);
-                                            if (parsed == null) {
-                                                String preview = raw == null
-                                                        ? "(null)"
-                                                        : (raw.length() > 500 ? raw.substring(0, 500) + "..." : raw);
-                                                throw new IllegalStateException(
-                                                        "ISSUE_WRITER discovery output was not valid JSON with required fields. Output preview: "
-                                                                + preview);
-                                            }
-
-                                            try {
-                                                store.appendEvent(
-                                                        jobId,
-                                                        JobEvent.of(
-                                                                "NOTIFICATION",
-                                                                "ISSUE_WRITER: discovery complete (title: "
-                                                                        + parsed.title() + ")"));
-                                            } catch (IOException ioe) {
-                                                logger.warn(
-                                                        "Failed to append ISSUE_WRITER discovery-complete notification for job {}: {}",
-                                                        jobId,
-                                                        ioe.getMessage(),
-                                                        ioe);
-                                            }
-
-                                            String finalBodyMarkdown = maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
-
-                                            logger.info(
-                                                    "ISSUE_WRITER job {}: creating GitHub issue in {}/{}",
+                                        try {
+                                            store.appendEvent(
                                                     jobId,
-                                                    repoOwner,
-                                                    repoName);
-
-                                            var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
-
-                                            var issueService = new GitHubIssueService(cm.getProject(), auth);
-
-                                            IssueHeader created =
-                                                    issueService.createIssue(parsed.title(), finalBodyMarkdown);
-
-                                            logger.info(
-                                                    "ISSUE_WRITER job {} created GitHub issue in {}/{}: id={} url={}",
+                                                    JobEvent.of(
+                                                            "NOTIFICATION",
+                                                            "ISSUE_WRITER: discovery complete (title: " + parsed.title()
+                                                                    + ")"));
+                                        } catch (IOException ioe) {
+                                            logger.warn(
+                                                    "Failed to append ISSUE_WRITER discovery-complete notification for job {}: {}",
                                                     jobId,
-                                                    repoOwner,
-                                                    repoName,
-                                                    created.id(),
-                                                    created.htmlUrl());
+                                                    ioe.getMessage(),
+                                                    ioe);
+                                        }
 
-                                            String createdMsg = "ISSUE_WRITER: issue created";
-                                            if (!created.id().isBlank()) {
-                                                createdMsg += " " + created.id();
-                                            }
-                                            if (created.htmlUrl() != null) {
-                                                createdMsg += " " + created.htmlUrl();
-                                            }
+                                        logger.info(
+                                                "ISSUE_WRITER job {}: creating GitHub issue in {}/{}",
+                                                jobId,
+                                                repoOwner,
+                                                repoName);
 
-                                            try {
-                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
-                                            } catch (IOException ioe) {
-                                                logger.warn(
-                                                        "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
-                                                        jobId,
-                                                        ioe.getMessage(),
-                                                        ioe);
-                                            }
+                                        var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+                                        var githubIssueService = new GitHubIssueService(cm.getProject(), auth);
+
+                                        IssueHeader created =
+                                                githubIssueService.createIssue(parsed.title(), parsed.bodyMarkdown());
+
+                                        logger.info(
+                                                "ISSUE_WRITER job {} created GitHub issue in {}/{}: id={} url={}",
+                                                jobId,
+                                                repoOwner,
+                                                repoName,
+                                                created.id(),
+                                                created.htmlUrl());
+
+                                        String createdMsg = "ISSUE_WRITER: issue created";
+                                        if (!created.id().isBlank()) {
+                                            createdMsg += " " + created.id();
+                                        }
+                                        if (created.htmlUrl() != null) {
+                                            createdMsg += " " + created.htmlUrl();
+                                        }
+
+                                        try {
+                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
+                                        } catch (IOException ioe) {
+                                            logger.warn(
+                                                    "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
+                                                    jobId,
+                                                    ioe.getMessage(),
+                                                    ioe);
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
@@ -1894,7 +1843,7 @@ public final class JobRunner {
         List<ChatMessage> messages;
         messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
         // Create an LLM instance for the planner model and route output to the ContextManager IO
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question, TaskResult.Type.ASK).withEcho());
+        var llm = cm.getLlm(new Llm.Options(model, question, TaskResult.Type.ASK).withEcho());
         llm.setOutput(cm.getIo());
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
@@ -1915,7 +1864,7 @@ public final class JobRunner {
         Objects.requireNonNull(stop);
         return new TaskResult(
                 cm,
-                "Ask: " + question,
+                question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
                 ctx, // Ask never changes files; use current live context
                 stop,
@@ -2583,33 +2532,6 @@ public final class JobRunner {
         throw new IssueExecutionException(baseMessage);
     }
 
-    private static final Pattern DIFF_FENCE_PATTERN = Pattern.compile("```diff\\R(.*?)(?:\\R)?```", Pattern.DOTALL);
-
-    static String maybeAnnotateDiffBlocks(String bodyMarkdown) {
-        if (bodyMarkdown.isBlank() || !bodyMarkdown.contains("```diff")) {
-            return bodyMarkdown;
-        }
-
-        Matcher matcher = DIFF_FENCE_PATTERN.matcher(bodyMarkdown);
-        if (!matcher.find()) {
-            return bodyMarkdown;
-        }
-
-        matcher.reset();
-
-        var out = new StringBuilder();
-        int lastEnd = 0;
-        while (matcher.find()) {
-            out.append(bodyMarkdown, /* start= */ lastEnd, /* end= */ matcher.start());
-            String content = matcher.group(1);
-            String annotated = PrReviewService.annotateDiffWithLineNumbers(content);
-            out.append("```diff\n").append(annotated).append("\n```");
-            lastEnd = matcher.end();
-        }
-        out.append(bodyMarkdown.substring(lastEnd));
-        return out.toString();
-    }
-
     /**
      * Resolves build details for ISSUE mode: uses spec's build_settings if present and non-blank,
      * otherwise falls back to project-level build details.
@@ -2623,10 +2545,6 @@ public final class JobRunner {
         }
         // Fall back to repository-level build details
         return project.awaitBuildDetails();
-    }
-
-    static boolean shouldEnrichIssuePrompt(@Nullable String body) {
-        return TextUtil.countWords(body) < ISSUE_PROMPT_ENRICHMENT_WORD_THRESHOLD;
     }
 
     static boolean issueDeliveryEnabled(JobSpec spec) {

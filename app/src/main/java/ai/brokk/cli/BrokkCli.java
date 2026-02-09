@@ -418,8 +418,8 @@ public final class BrokkCli implements Callable<Integer> {
         cm.pushContext(ctx -> tools.getContext());
     }
 
-    private static void prepareHeadless(ContextManager cm, BuildAgent.BuildDetails bd) {
-        cm.createHeadless(bd, false);
+    private static void prepareHeadless(ContextManager cm, BuildAgent.BuildDetails bd, boolean newSession) {
+        cm.createHeadless(bd, newSession, new CliConsole());
         cm.dropWithHistorySemantics(List.of());
     }
 
@@ -707,7 +707,11 @@ public final class BrokkCli implements Callable<Integer> {
 
             checkAndPerformAutoInstall();
 
-            try (var cm = new ContextManager(new MainProject(projectPath))) {
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+                prepareHeadless(cm, bd, true);
+
                 String sessionName = (name != null && !name.isBlank()) ? name : ContextManager.DEFAULT_SESSION_NAME;
                 cm.createSessionAsync(sessionName).get();
                 System.out.printf("Created new session: %s%n", sessionName);
@@ -789,7 +793,7 @@ public final class BrokkCli implements Callable<Integer> {
 
                 var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
 
-                prepareHeadless(cm, bd);
+                prepareHeadless(cm, bd, false);
                 if (!modelsInitializedOk(cm, project)) {
                     return 1;
                 }
@@ -875,7 +879,7 @@ public final class BrokkCli implements Callable<Integer> {
 
                 resolveAndSaveModels(project, modelSelection);
 
-                prepareHeadless(cm, bd);
+                prepareHeadless(cm, bd, false);
                 if (!modelsInitializedOk(cm, project)) {
                     return 1;
                 }
@@ -913,7 +917,7 @@ public final class BrokkCli implements Callable<Integer> {
                 resolveAndSaveModels(project, modelSelection);
                 var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
 
-                prepareHeadless(cm, bd);
+                prepareHeadless(cm, bd, false);
                 if (!modelsInitializedOk(cm, project)) {
                     return 1;
                 }
@@ -964,7 +968,7 @@ public final class BrokkCli implements Callable<Integer> {
                     return 1;
                 }
 
-                prepareHeadless(cm, bd);
+                prepareHeadless(cm, bd, false);
                 if (!modelsInitializedOk(cm, project)) {
                     return 1;
                 }
@@ -1004,7 +1008,7 @@ public final class BrokkCli implements Callable<Integer> {
                     var cm = new ContextManager(project)) {
 
                 var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, bd);
+                prepareHeadless(cm, bd, false);
 
                 var searchTools = new SearchTools(cm);
                 var cleaned = patterns.stream().filter(s -> !s.isBlank()).toList();
@@ -1044,11 +1048,11 @@ public final class BrokkCli implements Callable<Integer> {
                     var cm = new ContextManager(project)) {
 
                 var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, bd);
+                prepareHeadless(cm, bd, false);
 
                 var searchTools = new SearchTools(cm);
                 var cleaned = targets.stream().filter(s -> !s.isBlank()).toList();
-                System.out.println(searchTools.getUsages(cleaned, goal, includeTestsMixin.includeTests));
+                System.out.println(searchTools.scanUsages(cleaned, goal, includeTestsMixin.includeTests));
                 return 0;
             }
         }
@@ -1084,7 +1088,7 @@ public final class BrokkCli implements Callable<Integer> {
                     var cm = new ContextManager(project)) {
 
                 var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, bd);
+                prepareHeadless(cm, bd, false);
 
                 var searchTools = new SearchTools(cm);
                 System.out.println(searchTools.skimDirectory(requireNonNull(dir), goal));
@@ -1118,7 +1122,7 @@ public final class BrokkCli implements Callable<Integer> {
                     var cm = new ContextManager(project)) {
 
                 var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, bd);
+                prepareHeadless(cm, bd, false);
 
                 var searchTools = new SearchTools(cm);
 
@@ -1178,7 +1182,7 @@ public final class BrokkCli implements Callable<Integer> {
                     var cm = new ContextManager(project)) {
 
                 var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, bd);
+                prepareHeadless(cm, bd, false);
 
                 var searchTools = new SearchTools(cm);
 

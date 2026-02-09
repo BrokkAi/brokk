@@ -7,9 +7,6 @@ import java.util.Objects;
 /**
  * Immutable metadata describing a usage occurrence.
  *
- * <p>Equality and hashing are based on the enclosing CodeUnit only. This allows sets/maps of UsageHit to deduplicate by
- * the logical usage context (the enclosing unit), regardless of specific offsets, line numbers, or snippet text.
- *
  * @param file the file containing the usage
  * @param line 1-based line number
  * @param startOffset character start offset within the file content

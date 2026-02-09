@@ -569,7 +569,7 @@ public class ArchitectAgent {
             return codeAgentSuccessResult();
         }
 
-        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal, TaskResult.Type.ARCHITECT).withEcho());
+        var llm = cm.getLlm(new Llm.Options(planningModel, goal, TaskResult.Type.ARCHITECT).withEcho());
         var modelsService = cm.getService();
 
         while (true) {
@@ -877,7 +877,6 @@ public class ArchitectAgent {
                 allowed.add("addClassesToWorkspace");
                 allowed.add("addClassSummariesToWorkspace");
                 allowed.add("addMethodsToWorkspace");
-                allowed.add("addSymbolUsagesToWorkspace");
                 allowed.add("addUrlContentsToWorkspace");
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("explainCommit");

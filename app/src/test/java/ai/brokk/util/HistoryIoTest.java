@@ -2,8 +2,10 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
@@ -45,7 +47,8 @@ public class HistoryIoTest {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
             var taskFragment = new ContextFragments.TaskFragment(contextManager, msgs, "Task " + i);
             Context context = new Context(contextManager);
-            var ctx = context.addHistoryEntry(new TaskEntry(i + 1, taskFragment, null), taskFragment);
+            var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, new AbstractService.ModelConfig("test-model"));
+            var ctx = context.addHistoryEntry(new TaskEntry(i + 1, taskFragment, null, meta));
             history.pushContext(ctx);
         }
 
@@ -78,14 +81,14 @@ public class HistoryIoTest {
         Path zipFile = tempDir.resolve("malformed_contexts.zip");
         String contextsContent =
                 """
-            {"id":"1","editable":[],"readonly":[],"virtuals":[],"tasks":[],"parsedOutputId":"task1","action":"a","groupId":null,"groupLabel":null}
+            {"id":"1","tasks":[{"sequence":1,"taskType":"ASK"}],"action":"a"}
 
-            {"id":"2","editable":[],"readonly":[],"virtuals":[],"tasks":[],"parsedOutputId":null,"action":"b","groupId":null,"groupLabel":null}
+            {"id":"2","tasks":[],"action":"b"}
             not valid json at all
-            {"id":"3","editable":[],"readonly":[],"virtuals":[],"tasks":[],"parsedOutputId":"task2","action":"c","groupId":null,"groupLabel":null}
+            {"id":"3","tasks":[{"sequence":2,"taskType":"CODE"}],"action":"c"}
                \s
             {"malformed json missing closing brace
-            {"id":"4","editable":[],"readonly":[],"virtuals":[],"tasks":[],"parsedOutputId":"task3","action":"d","groupId":null,"groupLabel":null}
+            {"id":"4","tasks":[{"sequence":3,"taskType":"ARCHITECT"}],"action":"d"}
             """;
 
         try (var zos = new ZipOutputStream(Files.newOutputStream(zipFile))) {

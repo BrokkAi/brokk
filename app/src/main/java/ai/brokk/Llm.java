@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.concurrent.AtomicWrites;
@@ -1777,7 +1778,7 @@ public class Llm {
          */
         public String getDescription() {
             if (error != null) {
-                return requireNonNull(error.getMessage(), error.toString());
+                return requireNonNullElse(error.getMessage(), error.toString());
             }
 
             var cr = castNonNull(chatResponse);
