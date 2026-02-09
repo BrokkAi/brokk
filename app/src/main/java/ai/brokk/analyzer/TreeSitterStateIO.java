@@ -19,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -480,7 +481,8 @@ public final class TreeSitterStateIO {
                 for (CodeUnit cu : units) {
                     ProjectFile cuSource = cu.source();
                     target.imports().updateReverse(cuSource, existing -> {
-                        Set<ProjectFile> set = existing != null ? new HashSet<>(existing) : new HashSet<>();
+                        Set<ProjectFile> set = ConcurrentHashMap.newKeySet();
+                        if (existing != null) set.addAll(existing);
                         set.add(pf);
                         return set;
                     });
@@ -501,7 +503,8 @@ public final class TreeSitterStateIO {
                 // Populate reverse mapping: for each supertype, record 'key' as its subtype
                 for (CodeUnit superCu : value) {
                     target.typeHierarchy().updateReverse(superCu, existing -> {
-                        Set<CodeUnit> set = existing != null ? new HashSet<>(existing) : new HashSet<>();
+                        Set<CodeUnit> set = ConcurrentHashMap.newKeySet();
+                        if (existing != null) set.addAll(existing);
                         set.add(key);
                         return set;
                     });
