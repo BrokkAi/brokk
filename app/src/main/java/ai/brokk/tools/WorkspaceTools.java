@@ -511,13 +511,19 @@ public class WorkspaceTools {
     public record TaskListEntry(
             @P("Short display title for the task.") String title,
             @P("The full task description (Markdown encouraged).") String instructions,
+            @P(
+                            "How to verify success. Optional for purely mechanical refactors with no behavior change. Wherever possible, include automated tests in Acceptance; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.")
+                    String acceptance,
             @P("Files and fully qualified method/class names important to implement the task.") String keyLocations,
             @P(
-                            "Useful discoveries from OUTSIDE the key locations. Note: the Workspace will change as tasks are loaded and executed, so you must capture important discoveries here to preserve them for future tasks.")
+                            "Useful discoveries from OUTSIDE the key locations that the Code Agent should know to load into his Workspace.")
                     String keyDiscoveries) {
 
         public TaskList.TaskItem toTaskItem() {
             String combinedText = instructions.strip();
+            if (!acceptance.isBlank()) {
+                combinedText += "\n\n**Acceptance:**\n" + acceptance.strip();
+            }
             if (!keyLocations.isBlank()) {
                 combinedText += "\n\n**Key Locations:**\n" + keyLocations.strip();
             }
