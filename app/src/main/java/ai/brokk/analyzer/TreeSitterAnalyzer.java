@@ -1716,9 +1716,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Determines whether a duplicate is an expected/benign pattern that should only log at trace level.
      * This is used to suppress warnings for language-specific patterns like TypeScript declaration merging.
+     *
+     * NOTE: This hook is about comparing two CodeUnit instances encountered during one parsing pass and deciding
+     * whether they are semantically equivalent for the language and therefore safe to collapse earlier than strict
+     * equality would allow. Default: no language-specific benign patterns.
      */
     protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
         // Default: no language-specific benign patterns
+        return false;
+    }
+
+    /**
+     * Determines whether repeated occurrences of the same top-level CodeUnit (as judged by equals/hashCode)
+     * in the final localTopLevelCUs list are considered benign for the language. The default implementation
+     * returns false so that the previous behavior (ERROR logging) is preserved for languages that do not
+     * specially classify duplicates.
+     *
+     * Subclasses (e.g., CppAnalyzer) may override this to mark certain kinds of duplicates as expected
+     * (for example: class/field/module duplicates arising from header/include patterns) so that the analyzer
+     * suppresses ERROR-level diagnostics for those cases.
+     *
+     * @param cu the CodeUnit that appears multiple times
+     * @param count how many times it was observed
+     * @return true if this duplicate is benign and should not trigger an ERROR-level diagnostic
+     */
+    protected boolean isBenignTopLevelDuplicate(CodeUnit cu, long count) {
         return false;
     }
 
