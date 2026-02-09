@@ -127,14 +127,6 @@ public final class AnalyzerCache {
     }
 
     /**
-     * Convenience accessor explicitly intended for persistence code that wants a cache snapshot view
-     * for serialization/transfer. Delegates to {@link #snapshot()} but names intent clearly.
-     */
-    public CacheSnapshot toSerializableSnapshot() {
-        return snapshot();
-    }
-
-    /**
      * Record containing the current state of all caches.
      */
     public record CacheSnapshot(

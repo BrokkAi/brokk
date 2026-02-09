@@ -436,7 +436,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var immutableSymbolIndex = new HashMap<String, Set<CodeUnit>>();
         localSymbolIndex.forEach((key, value) -> immutableSymbolIndex.put(key, Collections.unmodifiableSet(value)));
 
-        var initialState = new AnalyzerState(
+        this.state = new AnalyzerState(
                 HashTreePMap.from(immutableSymbolIndex),
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
@@ -506,14 +506,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 formatSecondsMillis(mergeWall),
                 formatSecondsMillis(totalWall));
 
-        var postProcessed = runPostProcessing(initialState);
-        this.state = postProcessed;
-
         log.debug(
                 "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
                 language.name(),
-                postProcessed.codeUnitState().size(),
-                postProcessed.fileState().size());
+                this.state.codeUnitState().size(),
+                this.state.fileState().size());
 
         // Record time of initial analysis to support mtime-based incremental updates (nanos precision)
         var initInstant = Instant.now();
@@ -3771,10 +3768,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 reanalyzeMs,
                 totalMs);
 
-        // Re-run combined post-processing (imports + type analysis) after ingesting updates
-        var typedState = runPostProcessing(nextState);
-
-        return newSnapshot(typedState, getProgressListener(), filteredCache);
+        return newSnapshot(nextState, getProgressListener(), filteredCache);
     }
 
     private void collectCodeUnitAndDescendants(
@@ -3949,15 +3943,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         return true;
-    }
-
-    /**
-     * Combined post-processing pipeline. All hierarchy computation is deferred to lazy on-demand resolution.
-     */
-    protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        // We intentionally do NOT persist import/type graphs into AnalyzerState. All such derived
-        // graphs live in AnalyzerCache and are populated lazily. Return the base state unchanged.
-        return baseState;
     }
 
     /* ---------- comment detection for source expansion ---------- */
