@@ -70,13 +70,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public AbstractProject(Path root) {
         this.root = root.toAbsolutePath().normalize();
         this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
-
-        if (this.repo instanceof GitRepo gitRepo && gitRepo.isWorktree()) {
-            this.masterRootPathForConfig =
-                    gitRepo.getGitTopLevel().toAbsolutePath().normalize();
-        } else {
-            this.masterRootPathForConfig = this.root;
-        }
+        this.masterRootPathForConfig = computeMasterRootForConfig(this.root, this.repo);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
@@ -115,6 +109,13 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         this.fileFilteringService = new FileFilteringService(this.root, this.repo);
 
         initializeProject();
+    }
+
+    private static Path computeMasterRootForConfig(Path normalizedRoot, IGitRepo repo) {
+        if (repo instanceof GitRepo gitRepo && gitRepo.isWorktree()) {
+            return gitRepo.getGitTopLevel().toAbsolutePath().normalize();
+        }
+        return normalizedRoot;
     }
 
     private void initializeProject() {
