@@ -25,14 +25,14 @@ public class MainProjectAnalyzerLanguagesDetectionTest {
         Files.writeString(tempDir.resolve("README.md"), "# Project");
 
         // Instantiate MainProject (uses LocalFileRepo because there's no .git)
-        MainProject project = MainProject.forTests(tempDir);
+        try (MainProject project = MainProject.forTests(tempDir)) {
+            Set<Language> languages = project.getAnalyzerLanguages();
 
-        Set<Language> languages = project.getAnalyzerLanguages();
-
-        // Assert: Detected Java and Python
-        assertEquals(2, languages.size(), "Should detect exactly 2 languages");
-        assertTrue(languages.contains(Languages.JAVA), "Should contain JAVA");
-        assertTrue(languages.contains(Languages.PYTHON), "Should contain PYTHON");
+            // Assert: Detected Java and Python
+            assertEquals(2, languages.size(), "Should detect exactly 2 languages");
+            assertTrue(languages.contains(Languages.JAVA), "Should contain JAVA");
+            assertTrue(languages.contains(Languages.PYTHON), "Should contain PYTHON");
+        }
     }
 
     @Test
@@ -42,11 +42,11 @@ public class MainProjectAnalyzerLanguagesDetectionTest {
         Files.writeString(tempDir.resolve("data.json"), "{}");
         Files.writeString(tempDir.resolve("script.sh"), "echo hello");
 
-        MainProject project = MainProject.forTests(tempDir);
+        try (MainProject project = MainProject.forTests(tempDir)) {
+            Set<Language> languages = project.getAnalyzerLanguages();
 
-        Set<Language> languages = project.getAnalyzerLanguages();
-
-        // Assert: Returns Languages.NONE
-        assertEquals(Set.of(Languages.NONE), languages);
+            // Assert: Returns Languages.NONE
+            assertEquals(Set.of(Languages.NONE), languages);
+        }
     }
 }
