@@ -321,9 +321,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
             case GENERIC_TYPE, REFERENCE_TYPE -> {
                 TSNode innerType = typeNode.getChildByFieldName("type");
-                var result = extractCoreTypeName(innerType, sourceContent);
-                yield result.isPresent() ? result
-                    : Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+                yield extractCoreTypeName(innerType, sourceContent)
+                        .or(() -> Optional.of(
+                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
             }
 
             default -> {
