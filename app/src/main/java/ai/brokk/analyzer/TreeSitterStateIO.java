@@ -75,6 +75,9 @@ public final class TreeSitterStateIO {
      *
      * <p>At the moment we do not attempt backward compatibility across majors. Minor/patch differences are
      * treated as best-effort load for now.
+     *
+     * <p>If we start requiring more advanced SemVer features (e.g., version ranges/constraints), consider using a
+     * library such as jsemver or semver4j instead of maintaining our own parsing/comparison.
      */
     public static final String SCHEMA_VERSION = "1.0.0";
 
