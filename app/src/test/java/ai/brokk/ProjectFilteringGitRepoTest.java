@@ -1979,6 +1979,9 @@ class ProjectFilteringGitRepoTest {
 
         try {
             // Create global gitignore file in home directory
+            var parent = globalIgnoreFile.getParent();
+            assert parent != null;
+            Files.createDirectories(parent);
             Files.writeString(globalIgnoreFile, "*.secret\n");
 
             // Configure git to use ~/test-brokk-gitignore (with tilde)
@@ -2006,9 +2009,7 @@ class ProjectFilteringGitRepoTest {
 
         } finally {
             // Clean up test global gitignore
-            if (Files.exists(globalIgnoreFile)) {
-                Files.delete(globalIgnoreFile);
-            }
+            Files.deleteIfExists(globalIgnoreFile);
         }
     }
 
