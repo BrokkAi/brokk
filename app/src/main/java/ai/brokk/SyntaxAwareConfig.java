@@ -30,7 +30,7 @@ public final class SyntaxAwareConfig {
     /**
      * Normalized, lower-case set of extensions for which syntax-aware BRK markers are enabled.
      */
-    private static Set<String> syntaxAwareExtensions = initSyntaxAwareExtensions();
+    private static volatile Set<String> syntaxAwareExtensions = initSyntaxAwareExtensions();
 
     private SyntaxAwareConfig() {
         // utility class
@@ -54,7 +54,7 @@ public final class SyntaxAwareConfig {
     private static Set<String> initSyntaxAwareExtensions() {
         String env = System.getenv(ENV_VAR);
         if (env == null) {
-            return Set.of();
+            return Set.of("java");
         }
 
         var exts = Arrays.stream(env.split(","))

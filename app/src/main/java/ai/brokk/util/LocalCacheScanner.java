@@ -169,7 +169,8 @@ public final class LocalCacheScanner {
 
     /**
      * Finds a specific artifact by coordinates in local caches.
-     * Checks Maven local repo structure first (O(1) lookup), then scans other caches by filename.
+     * Checks Maven local repo structure first (O(1) lookup) for all known Maven roots,
+     * then scans other caches by filename.
      *
      * @param groupId Maven group ID
      * @param artifactId Maven artifact ID
@@ -177,23 +178,29 @@ public final class LocalCacheScanner {
      * @return Path to the JAR if found in local cache
      */
     public static Optional<Path> findArtifact(String groupId, String artifactId, String version) {
-        // Check Maven local repo structure first (O(1) lookup)
-        var m2Path = getMavenLocalPath(groupId, artifactId, version);
-        if (Files.exists(m2Path) && Files.isRegularFile(m2Path)) {
-            logger.info("Found {} in local Maven repository", m2Path);
-            return Optional.of(m2Path);
+        var roots = getCacheRoots();
+
+        // 1. Fast path: check for Maven-style directory structure in all likely roots
+        for (var root : roots) {
+            if (root.toString().contains(".m2") || root.toString().contains("maven")) {
+                var found = findInMavenRepoStructure(root, groupId, artifactId, version);
+                if (found.isPresent()) {
+                    return found;
+                }
+            }
         }
 
-        // Scan other caches by filename match
+        // 2. Slow path: scan other caches (Gradle, Ivy, etc.) by filename match
         var expectedName = artifactId + "-" + version + ".jar";
-        for (var root : getCacheRoots()) {
+        for (var root : roots) {
             if (!Files.isDirectory(root)) {
                 continue;
             }
-            // Skip Maven repo since we already checked it directly
-            if (root.toString().contains(".m2")) {
+            // Skip roots that look like Maven repos as we already checked them
+            if (root.toString().contains(".m2") || root.toString().contains("maven")) {
                 continue;
             }
+
             logger.debug("Scanning {} for {}", root, expectedName);
             try (Stream<Path> walk = Files.walk(root, FileVisitOption.FOLLOW_LINKS)) {
                 var found = walk.filter(Files::isRegularFile)
@@ -211,6 +218,21 @@ public final class LocalCacheScanner {
         }
 
         logger.debug("Artifact {}:{}:{} not found in local caches", groupId, artifactId, version);
+        return Optional.empty();
+    }
+
+    private static Optional<Path> findInMavenRepoStructure(
+            Path root, String groupId, String artifactId, String version) {
+        if (!Files.isDirectory(root)) return Optional.empty();
+        Path p = root.resolve(groupId.replace('.', '/'))
+                .resolve(artifactId)
+                .resolve(version)
+                .resolve(artifactId + "-" + version + ".jar");
+
+        if (Files.exists(p) && Files.isRegularFile(p)) {
+            logger.info("Found artifact in Maven-style cache: {}", p);
+            return Optional.of(p);
+        }
         return Optional.empty();
     }
 

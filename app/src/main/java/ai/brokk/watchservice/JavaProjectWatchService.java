@@ -341,13 +341,23 @@ public class JavaProjectWatchService extends AbstractWatchService {
     }
 
     /**
-     * Checks if any window in the application currently has focus
+     * Checks if any window in the application currently has focus.
+     * Returns false in headless environments or if an error occurs during focus detection.
      *
      * @return true if any application window has focus, false otherwise
      */
     private boolean isApplicationFocused() {
-        var focusedWindow =
-                KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
-        return focusedWindow != null;
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            return false;
+        }
+        try {
+            var focusedWindow =
+                    KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
+            return focusedWindow != null;
+        } catch (Throwable t) {
+            // Guard against HeadlessException or other AWT state issues in CI
+            logger.debug("Failed to determine application focus: {}", t.getMessage());
+            return false;
+        }
     }
 }
