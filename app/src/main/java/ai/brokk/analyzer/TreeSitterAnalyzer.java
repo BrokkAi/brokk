@@ -373,20 +373,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                 ioExecutor)
                         .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
                         .thenAcceptAsync(
-                                analysisResult -> {
-                                    mergeAnalysisResultIntoMaps(
-                                            pf,
-                                            analysisResult,
-                                            timing,
-                                            localSymbolIndex,
-                                            localCodeUnitState,
-                                            localFileState,
-                                            moduleKeyCache);
-                                    // Populate local cache from analysis results
-                                    analysisResult.signatures().forEach((cu, sigs) -> {
-                                        this.cache.signatures().put(cu, List.copyOf(sigs));
-                                    });
-                                },
+                                analysisResult -> mergeAnalysisResultIntoMaps(
+                                        pf,
+                                        analysisResult,
+                                        timing,
+                                        localSymbolIndex,
+                                        localCodeUnitState,
+                                        localFileState,
+                                        moduleKeyCache),
                                 ingestExecutor)
                         .whenComplete((ignored, ex) -> {
                             progressReporter.increment();
