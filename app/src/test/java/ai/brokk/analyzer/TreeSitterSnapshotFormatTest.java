@@ -44,7 +44,7 @@ public class TreeSitterSnapshotFormatTest {
                             List.of("test-sig"));
             var cacheSnapshot = cache.snapshot();
 
-            Path out = tempDir.resolve("snapshot_with_cache.bin.gzip");
+            Path out = tempDir.resolve("snapshot_with_cache.bin.lz4");
             TreeSitterStateIO.save(state, cacheSnapshot, out);
 
             assertTrue(Files.exists(out), "Snapshot file should have been written");
@@ -79,7 +79,7 @@ public class TreeSitterSnapshotFormatTest {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             var state = analyzer.snapshotState();
 
-            Path out = tempDir.resolve("snapshot_no_cache.bin.gzip");
+            Path out = tempDir.resolve("snapshot_no_cache.bin.lz4");
             TreeSitterStateIO.save(state, out); // uses overload without cache
 
             assertTrue(Files.exists(out));
@@ -104,7 +104,7 @@ public class TreeSitterSnapshotFormatTest {
 
         try (IProject project = builder.build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
-            Path out = tempDir.resolve("test.bin.gzip");
+            Path out = tempDir.resolve("test.bin.lz4");
             TreeSitterStateIO.save(analyzer.snapshotState(), out);
 
             assertTrue(Files.exists(out));
@@ -150,7 +150,7 @@ public class TreeSitterSnapshotFormatTest {
             var cu = state.codeUnitState().keySet().iterator().next();
             cache.signatures().put(cu, largeSignatures);
 
-            Path out = tempDir.resolve("compressed.bin.gzip");
+            Path out = tempDir.resolve("compressed.bin.lz4");
             TreeSitterStateIO.save(state, cache.snapshot(), out);
 
             assertTrue(Files.exists(out));
@@ -192,7 +192,7 @@ public class TreeSitterSnapshotFormatTest {
                                     .next(),
                             List.of("v1-sig"));
 
-            Path originalPath = tempDir.resolve("original_v1.bin.gzip");
+            Path originalPath = tempDir.resolve("original_v1.bin.lz4");
             TreeSitterStateIO.save(state, cache.snapshot(), originalPath);
 
             // Load the raw DTO to mutate it
@@ -203,7 +203,7 @@ public class TreeSitterSnapshotFormatTest {
             // Create a mutated version with a major version bump (1.0.0 -> 2.0.0)
             var mutated = new TreeSitterStateIO.SnapshotDto("2.0.0", raw.analyzerState(), raw.cacheSnapshot());
 
-            Path mutatedPath = tempDir.resolve("mutated_v2.bin.gzip");
+            Path mutatedPath = tempDir.resolve("mutated_v2.bin.lz4");
             TreeSitterStateIO.saveRawSnapshotForTest(mutated, mutatedPath);
 
             // Verify that loadWithCache returns empty due to major version mismatch

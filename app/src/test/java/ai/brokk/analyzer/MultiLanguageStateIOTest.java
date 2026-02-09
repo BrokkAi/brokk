@@ -73,16 +73,15 @@ public class MultiLanguageStateIOTest {
             assertTrue(Files.exists(javaBin), "Expected Java analyzer state file to exist: " + javaBin);
             assertTrue(Files.exists(pyBin), "Expected Python analyzer state file to exist: " + pyBin);
 
-            // Verify there is no wrapper-level single .bin.gzip for MultiLanguage/MultiAnalyzer:
-            // list *.bin.gzip files in .brokk and ensure only java.bin.gzip and python.bin.gzip are present
+            // Verify there is no wrapper-level single .bin.lz4 for MultiLanguage/MultiAnalyzer:
+            // list *.bin.lz4 files in .brokk and ensure only java.bin.lz4 and python.bin.lz4 are present
             Path brokkDir = javaBin.getParent();
             assertNotNull(brokkDir, "Expected .brokk directory parent to be non-null");
             List<Path> binFiles;
             try (var list = Files.list(brokkDir)) {
                 binFiles = list.filter(p -> {
                             String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
-                            // Strictly expect .bin.gzip after revert
-                            return name.endsWith(".bin.gzip");
+                            return name.endsWith(".bin.lz4");
                         })
                         .toList();
             }
@@ -90,9 +89,9 @@ public class MultiLanguageStateIOTest {
             for (Path p : binFiles) {
                 binNames.add(p.getFileName().toString().toLowerCase(Locale.ROOT));
             }
-            assertTrue(binNames.contains("java.bin.gzip"), "Missing java.bin.gzip in .brokk");
-            assertTrue(binNames.contains("python.bin.gzip"), "Missing python.bin.gzip in .brokk");
-            assertEquals(2, binNames.size(), "Expected exactly two .bin.gzip files in .brokk; found: " + binNames);
+            assertTrue(binNames.contains("java.bin.lz4"), "Missing java.bin.lz4 in .brokk");
+            assertTrue(binNames.contains("python.bin.lz4"), "Missing python.bin.lz4 in .brokk");
+            assertEquals(2, binNames.size(), "Expected exactly two .bin.lz4 files in .brokk; found: " + binNames);
 
             // Reload analyzer from disk and validate delegates/equivalence
             IAnalyzer reloaded = multiLang.loadAnalyzer(project);

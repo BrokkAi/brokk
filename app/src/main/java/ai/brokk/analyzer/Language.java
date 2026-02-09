@@ -55,10 +55,11 @@ public interface Language {
      */
     default Path getStoragePath(IProject project) {
         // Use internalName for storage path to ensure stable and filesystem-safe names.
-        // Snapshots are gzipped, so we use the .bin.gzip extension.
+        // Snapshots use LZ4 compression for speed, so we use the .bin.lz4 extension.
+        // Note: .bin.gzip and .bin are legacy formats.
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
-                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin.gzip");
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin.lz4");
     }
 
     /**
