@@ -1386,8 +1386,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private CompletableFuture<Void> submitSessionSyncIfActive() {
         if (sessionsSyncActive) {
             return syncExecutor.submit(() -> {
-                new SessionSynchronizer(this).synchronize();
-                project.getMainProject().sessionsListChanged();
+                try {
+                    // Perform sync; let SessionSynchronizer surface IO/Interrupted exceptions which we handle here.
+                    new SessionSynchronizer(this).synchronize();
+                    // Only notify UI of sessions list changes when sync completed normally.
+                    project.getMainProject().sessionsListChanged();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                } catch (IOException ioe) {
+                    logger.debug(
+                            "Remote session sync failed due to I/O error", ioe);
+                }
                 return null;
             });
         } else {
