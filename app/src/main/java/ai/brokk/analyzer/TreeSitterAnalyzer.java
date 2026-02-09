@@ -1788,8 +1788,33 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
                 return;
             } else {
-                // If both have body or both lack body, check if signatures are identical; if so, treat as true
-                // duplicate.
+                // If both have body or both lack body, allow the language to classify some duplicates
+                // as benign (e.g., C++: same fqName + identical signature across translation units).
+                if (isBenignDuplicate(existingDuplicate, cu)) {
+                    // Prefer the definition if one has a body.
+                    if (existingHasBody && !candidateHasBody) {
+                        log.trace(
+                                "Ignoring benign duplicate declaration for {} in {} because definition already present",
+                                cu.fqName(),
+                                file.getFileName());
+                        return;
+                    } else if (candidateHasBody && !existingHasBody) {
+                        localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+                        localTopLevelCUs.add(cu);
+                        removeCodeUnitAndDescendants(
+                                existingDuplicate, localChildren, localSignatures, localSourceRanges);
+                        return;
+                    }
+                    // Both same hasBody state: collapse as true duplicate and ignore candidate.
+                    log.trace(
+                            "Ignoring benign duplicate function (by policy) for {} in {}",
+                            cu.fqName(),
+                            file.getFileName());
+                    return;
+                }
+
+                // If language doesn't mark it benign, fall back to exact-signature check as a conservative
+                // language-agnostic heuristic.
                 String sigExisting = existingDuplicate.signature();
                 String sigCandidate = cu.signature();
                 if (sigExisting != null && sigCandidate != null && sigExisting.equals(sigCandidate)) {
@@ -1816,8 +1841,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             log.trace("Ignoring duplicate {} in {} per language policy", cu.fqName(), file.getFileName());
         } else {
             // shouldIgnoreDuplicate returned false - verify it's truly different
-            // This handles cases where TreeSitter captures the same function twice
-            // (e.g., forward declaration + definition with identical signature)
+            // Language-specific benign-duplicate policy may collapse semantically-equal CUs before equality check.
+            if (isBenignDuplicate(existingDuplicate, cu)) {
+                // Prefer definition if present (should already have been handled earlier), otherwise ignore candidate.
+                boolean existingHasBody2 = localHasBody.getOrDefault(existingDuplicate, false);
+                boolean candidateHasBody2 = localHasBody.getOrDefault(cu, false);
+                if (existingHasBody2 && !candidateHasBody2) {
+                    log.trace(
+                            "Ignoring benign duplicate {} in {} because existing has body",
+                            cu.fqName(),
+                            file.getFileName());
+                    return;
+                } else if (candidateHasBody2 && !existingHasBody2) {
+                    localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+                    localTopLevelCUs.add(cu);
+                    removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
+                    return;
+                } else {
+                    log.trace(
+                            "Ignoring benign duplicate {} in {} per language policy", cu.fqName(), file.getFileName());
+                    return;
+                }
+            }
+
             if (existingDuplicate.equals(cu)) {
                 // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
                 log.trace("Ignoring true duplicate {} in {} (same signature)", cu.fqName(), file.getFileName());
@@ -1917,12 +1963,35 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             kids.add(cu);
         } else {
             // For languages that don't allow replacement, treat non-equal CodeUnits (e.g., overloads) as distinct,
-            // but collapse exact duplicates where both FQN and signature match.
+            // but consult language-specific benign-duplicate policy to collapse semantically-identical functions.
+            if (isBenignDuplicate(existingDuplicate, cu)) {
+                boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
+                boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
+                if (existingHasBody && !candidateHasBody) {
+                    log.trace(
+                            "Skipping benign duplicate child '{}' in parent '{}' - existing has body",
+                            cu.fqName(),
+                            parentCu.fqName());
+                    return;
+                } else if (candidateHasBody && !existingHasBody) {
+                    kids.removeIf(k -> k.fqName().equals(cu.fqName()));
+                    removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
+                    kids.add(cu);
+                    return;
+                } else {
+                    log.trace(
+                            "Skipping benign duplicate child '{}' in parent '{}' per language policy",
+                            cu.fqName(),
+                            parentCu.fqName());
+                    return;
+                }
+            }
+
             if (existingDuplicate.equals(cu)) {
                 // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
                 log.trace("Skipping true duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
             } else {
-                // If both are functions and signatures are identical, treat as duplicate and skip
+                // If both are functions and signatures are identical, treat as duplicate and skip (fallback heuristic)
                 if (cu.isFunction() && existingDuplicate.isFunction()) {
                     String sigExisting = existingDuplicate.signature();
                     String sigCandidate = cu.signature();
