@@ -2800,7 +2800,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.error("Failed to check user balance", e);
             } catch (Exception e) {
                 // Broad catch to prevent background task exceptions from escaping to global handler during tests/noise
-                logger.debug("Unexpected error during balance check", e);
+                if (Boolean.getBoolean("brokk.test.mode")) {
+                    logger.debug("Unexpected error during balance check", e);
+                } else {
+                    logger.error("Unexpected error during balance check", e);
+                }
             }
         });
     }
