@@ -308,7 +308,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
-        return "}";
+        // Only class-like (classes, interfaces, enums, records, annotations) should emit a block closer.
+        // Functions, fields, and module statements should not produce a "}" when rendering skeletons.
+        return cu.isClass() ? "}" : "";
     }
 
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");

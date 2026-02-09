@@ -1181,25 +1181,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         final var kids = allChildren.stream()
                 .filter(child -> !headerOnly || child.isField())
                 .toList();
-        // Only add children and class closer.
+        // Render children and, when applicable, a language-specific closer.
         // Functions may have children (e.g., lambdas) but should NOT emit a closer in skeletons.
+        String closerForCu = getLanguageSpecificCloser(cu);
         if (!kids.isEmpty()
-                || (cu.isClass() && !getLanguageSpecificCloser(cu).isEmpty())) { // also add closer for empty classes
+                || !closerForCu.isEmpty()) { // also add closer for types like interfaces/enums if they provide a closer
             var childIndent = indent + getLanguageSpecificIndent();
             for (var kid : kids) {
                 reconstructSkeletonRecursive(kid, childIndent, headerOnly, sb);
             }
-            if (headerOnly && cu.isClass()) {
+            if (headerOnly && !closerForCu.isEmpty()) {
                 final int nonFieldKidsSize = allChildren.size() - kids.size();
                 if (nonFieldKidsSize > 0) {
                     sb.append(childIndent).append("[...]").append("\n");
                 }
             }
-            if (cu.isClass()) {
-                var closer = getLanguageSpecificCloser(cu);
-                if (!closer.isEmpty()) {
-                    sb.append(indent).append(closer).append('\n');
-                }
+            if (!closerForCu.isEmpty()) {
+                sb.append(indent).append(closerForCu).append('\n');
             }
         }
     }
