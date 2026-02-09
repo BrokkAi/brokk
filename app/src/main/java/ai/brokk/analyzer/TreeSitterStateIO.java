@@ -305,8 +305,11 @@ public final class TreeSitterStateIO {
         } catch (ZipException | EOFException e) {
             log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
             return Optional.empty();
-        } catch (Exception e) {
-            log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
+        } catch (IOException e) {
+            log.debug("I/O error reading analyzer state at {}; will rebuild ({}).", file, e.getMessage());
+            return Optional.empty();
+        } catch (RuntimeException e) {
+            log.warn("Unexpected error loading TreeSitter AnalyzerState from {}; will rebuild.", file, e);
             return Optional.empty();
         }
     }
