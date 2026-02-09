@@ -768,7 +768,9 @@ public class CodeAgent {
                 metrics.buildFailures++;
             }
 
-            var lastAiText = Messages.getText(cs.taskMessages().getLast());
+            var lastAiText = cs.taskMessages.isEmpty()
+                    ? "" // taskMessages is never empty in prod, but our test code is lazy
+                    : Messages.getText(cs.taskMessages().getLast());
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
             var filesInContext = context.allFragments()
                     .filter(f -> f.getType().isPath())
