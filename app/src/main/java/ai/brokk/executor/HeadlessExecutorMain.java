@@ -11,12 +11,14 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
@@ -219,12 +221,15 @@ public final class HeadlessExecutorMain {
         this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
+        // Pass false to resume the last active session from workspace.properties
+        // instead of always creating a new one (which would clobber the desktop app's session)
         this.initThread = new Thread(
                 () -> {
                     try {
-                        this.contextManager.createHeadless(BuildAgent.BuildDetails.EMPTY, true);
+                        this.contextManager.createHeadless(BuildAgent.BuildDetails.EMPTY, false);
+                        sessionLoaded = true;
                         headlessInit.complete(null);
-                        logger.info("ContextManager headless initialization complete");
+                        logger.info("ContextManager headless initialization complete, session loaded");
                     } catch (Exception e) {
                         headlessInit.completeExceptionally(e);
                         logger.warn("ContextManager headless initialization failed", e);
@@ -250,6 +255,13 @@ public final class HeadlessExecutorMain {
         // - GET  /v1/sessions/{sessionId}     (download a session zip)
         this.server.registerAuthenticatedContext("/v1/sessions", this::handleSessionsRouter);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
+        this.server.registerAuthenticatedContext("/v1/context", this::handleGetContext);
+        this.server.registerAuthenticatedContext("/v1/context/drop", this::handlePostContextDrop);
+        this.server.registerAuthenticatedContext("/v1/context/pin", this::handlePostContextPin);
+        this.server.registerAuthenticatedContext("/v1/context/readonly", this::handlePostContextReadonly);
+        this.server.registerAuthenticatedContext("/v1/context/compress-history", this::handlePostCompressHistory);
+        this.server.registerAuthenticatedContext("/v1/context/clear-history", this::handlePostClearHistory);
+        this.server.registerAuthenticatedContext("/v1/context/drop-all", this::handlePostDropAll);
         this.server.registerAuthenticatedContext("/v1/context/files", this::handlePostContextFiles);
         this.server.registerAuthenticatedContext("/v1/context/classes", this::handlePostContextClasses);
         this.server.registerAuthenticatedContext("/v1/context/methods", this::handlePostContextMethods);
@@ -1431,6 +1443,310 @@ public final class HeadlessExecutorMain {
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }
+
+    // ============================================================================
+    // Context Query and Mutation Endpoints
+    // ============================================================================
+
+    /**
+     * Classify a fragment into a ChipKind string, replicating the logic from ChipColorUtils.classify().
+     */
+    private static String classifyChipKind(ContextFragment fragment) {
+        if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
+            return "SUMMARY";
+        }
+        if (!fragment.isValid()) {
+            return "INVALID";
+        }
+        if (fragment.getType().isEditable()) {
+            return "EDIT";
+        }
+        if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
+            return "HISTORY";
+        }
+        if (fragment instanceof ContextFragments.StringFragment sf
+                && SpecialTextType.TASK_LIST
+                        .description()
+                        .equals(sf.description().renderNowOrNull())) {
+            return "TASK_LIST";
+        }
+        return "OTHER";
+    }
+
+    /**
+     * Estimate the token count for a fragment using the same approach as the GUI.
+     */
+    private static int estimateFragmentTokens(ContextFragment f) {
+        try {
+            if (f.isText() || f.getType().isOutput()) {
+                var text = f.text().renderNowOr("");
+                if (!text.isBlank()) {
+                    return Messages.getApproximateTokens(text);
+                }
+            }
+        } catch (Exception e) {
+            // Silently return 0 if token estimation fails
+        }
+        return 0;
+    }
+
+    /**
+     * GET /v1/context - Returns the current context state including all fragments
+     * with their chip classification, token counts, and pin/readonly status.
+     */
+    void handleGetContext(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "GET")) {
+            return;
+        }
+
+        try {
+            var live = contextManager.liveContext();
+            var fragments = live.getAllFragmentsInDisplayOrder();
+
+            var fragmentList = new ArrayList<Map<String, Object>>();
+            int totalUsedTokens = 0;
+
+            for (var fragment : fragments) {
+                var map = new HashMap<String, Object>();
+                map.put("id", fragment.id());
+                map.put("type", fragment.getType().name());
+                map.put("shortDescription", fragment.shortDescription().renderNowOr(""));
+                map.put("chipKind", classifyChipKind(fragment));
+                map.put("pinned", live.isPinned(fragment));
+                map.put("readonly", live.isMarkedReadonly(fragment));
+                map.put("valid", fragment.isValid());
+                map.put("editable", fragment.getType().isEditable());
+
+                int tokens = estimateFragmentTokens(fragment);
+                map.put("tokens", tokens);
+                totalUsedTokens += tokens;
+
+                fragmentList.add(map);
+            }
+
+            // Use 200K as a reasonable default max; a more precise value would require
+            // knowing the selected model's context window.
+            int maxTokens = 200_000;
+
+            var response = Map.of(
+                    "fragments", fragmentList,
+                    "usedTokens", totalUsedTokens,
+                    "maxTokens", maxTokens);
+
+            SimpleHttpServer.sendJsonResponse(exchange, response);
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/context", e);
+            var error = ErrorPayload.internalError("Failed to retrieve context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    private record DropFragmentsRequest(List<String> fragmentIds) {}
+
+    /**
+     * POST /v1/context/drop - Drop fragments by ID.
+     */
+    void handlePostContextDrop(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            var request = parseJsonOr400(exchange, DropFragmentsRequest.class, "/v1/context/drop");
+            if (request == null) {
+                return;
+            }
+
+            if (request.fragmentIds() == null || request.fragmentIds().isEmpty()) {
+                sendValidationError(exchange, "fragmentIds must not be empty");
+                return;
+            }
+
+            var idSet = new HashSet<>(request.fragmentIds());
+            var live = contextManager.liveContext();
+            var toDrop = live.allFragments().filter(f -> idSet.contains(f.id())).collect(Collectors.toList());
+
+            if (toDrop.isEmpty()) {
+                sendValidationError(exchange, "No matching fragments found for the given IDs");
+                return;
+            }
+
+            contextManager.drop(toDrop);
+            logger.info("Dropped {} fragments (session={})", toDrop.size(), contextManager.getCurrentSessionId());
+
+            var response = Map.of("dropped", toDrop.size());
+            SimpleHttpServer.sendJsonResponse(exchange, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/drop", e);
+            var error = ErrorPayload.internalError("Failed to drop fragments", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    private record PinFragmentRequest(String fragmentId, boolean pinned) {}
+
+    /**
+     * POST /v1/context/pin - Toggle pin status of a fragment.
+     */
+    void handlePostContextPin(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            var request = parseJsonOr400(exchange, PinFragmentRequest.class, "/v1/context/pin");
+            if (request == null) {
+                return;
+            }
+
+            if (request.fragmentId() == null || request.fragmentId().isBlank()) {
+                sendValidationError(exchange, "fragmentId is required");
+                return;
+            }
+
+            var live = contextManager.liveContext();
+            var fragment = live.allFragments()
+                    .filter(f -> f.id().equals(request.fragmentId()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (fragment == null) {
+                sendValidationError(exchange, "Fragment not found: " + request.fragmentId());
+                return;
+            }
+
+            contextManager.pushContext(ctx -> ctx.withPinned(fragment, request.pinned()));
+            logger.info(
+                    "Set pinned={} for fragment {} (session={})",
+                    request.pinned(),
+                    request.fragmentId(),
+                    contextManager.getCurrentSessionId());
+
+            var response = Map.of("fragmentId", request.fragmentId(), "pinned", request.pinned());
+            SimpleHttpServer.sendJsonResponse(exchange, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/pin", e);
+            var error = ErrorPayload.internalError("Failed to toggle pin", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    private record ReadonlyFragmentRequest(String fragmentId, boolean readonly) {}
+
+    /**
+     * POST /v1/context/readonly - Toggle readonly status of a fragment.
+     */
+    void handlePostContextReadonly(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            var request = parseJsonOr400(exchange, ReadonlyFragmentRequest.class, "/v1/context/readonly");
+            if (request == null) {
+                return;
+            }
+
+            if (request.fragmentId() == null || request.fragmentId().isBlank()) {
+                sendValidationError(exchange, "fragmentId is required");
+                return;
+            }
+
+            var live = contextManager.liveContext();
+            var fragment = live.allFragments()
+                    .filter(f -> f.id().equals(request.fragmentId()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (fragment == null) {
+                sendValidationError(exchange, "Fragment not found: " + request.fragmentId());
+                return;
+            }
+
+            if (!fragment.getType().isEditable()) {
+                sendValidationError(exchange, "Fragment is not editable and cannot be marked readonly");
+                return;
+            }
+
+            contextManager.pushContext(ctx -> ctx.setReadonly(fragment, request.readonly()));
+            logger.info(
+                    "Set readonly={} for fragment {} (session={})",
+                    request.readonly(),
+                    request.fragmentId(),
+                    contextManager.getCurrentSessionId());
+
+            var response = Map.of("fragmentId", request.fragmentId(), "readonly", request.readonly());
+            SimpleHttpServer.sendJsonResponse(exchange, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/readonly", e);
+            var error = ErrorPayload.internalError("Failed to toggle readonly", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * POST /v1/context/compress-history - Compress conversation history.
+     */
+    void handlePostCompressHistory(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            contextManager.compressHistoryAsync();
+            logger.info("Initiated history compression (session={})", contextManager.getCurrentSessionId());
+
+            var response = Map.of("status", "compressing");
+            SimpleHttpServer.sendJsonResponse(exchange, 202, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/compress-history", e);
+            var error = ErrorPayload.internalError("Failed to compress history", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * POST /v1/context/clear-history - Clear conversation history.
+     */
+    void handlePostClearHistory(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            contextManager.clearHistory();
+            logger.info("Cleared history (session={})", contextManager.getCurrentSessionId());
+
+            var response = Map.of("status", "cleared");
+            SimpleHttpServer.sendJsonResponse(exchange, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/clear-history", e);
+            var error = ErrorPayload.internalError("Failed to clear history", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * POST /v1/context/drop-all - Drop all context fragments.
+     */
+    void handlePostDropAll(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            contextManager.dropAll();
+            logger.info("Dropped all context (session={})", contextManager.getCurrentSessionId());
+
+            var response = Map.of("status", "dropped");
+            SimpleHttpServer.sendJsonResponse(exchange, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/drop-all", e);
+            var error = ErrorPayload.internalError("Failed to drop all context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
     /**
      * POST /v1/context/files - Add files to the current session context.
      * <p>
@@ -2167,6 +2483,13 @@ public final class HeadlessExecutorMain {
             System.out.println("    GET  /v1/jobs/{jobId}/events      - stream job execution events");
             System.out.println("    POST /v1/jobs/{jobId}/cancel      - cancel job execution");
             System.out.println("    GET  /v1/jobs/{jobId}/diff        - get git diff for job");
+            System.out.println("    GET  /v1/context                  - get current context state");
+            System.out.println("    POST /v1/context/drop             - drop fragments by ID");
+            System.out.println("    POST /v1/context/pin              - toggle fragment pin status");
+            System.out.println("    POST /v1/context/readonly         - toggle fragment readonly status");
+            System.out.println("    POST /v1/context/compress-history - compress conversation history");
+            System.out.println("    POST /v1/context/clear-history    - clear conversation history");
+            System.out.println("    POST /v1/context/drop-all         - drop all context");
             System.out.println("    POST /v1/context/files            - add files to session context");
             System.out.println("    POST /v1/context/classes          - add class summaries to context");
             System.out.println("    POST /v1/context/methods          - add method sources to context");
