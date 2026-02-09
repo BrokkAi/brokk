@@ -25,6 +25,9 @@ jobs:
       with:
         node-version: '22'
 
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v4
+
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
 
@@ -51,6 +54,9 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
@@ -73,6 +79,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
