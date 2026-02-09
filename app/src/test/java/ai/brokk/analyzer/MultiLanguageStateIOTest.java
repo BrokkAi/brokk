@@ -81,6 +81,7 @@ public class MultiLanguageStateIOTest {
             try (var list = Files.list(brokkDir)) {
                 binFiles = list.filter(p -> {
                             String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                            // Strictly expect .bin.gzip after revert
                             return name.endsWith(".bin.gzip");
                         })
                         .toList();
@@ -91,10 +92,7 @@ public class MultiLanguageStateIOTest {
             }
             assertTrue(binNames.contains("java.bin.gzip"), "Missing java.bin.gzip in .brokk");
             assertTrue(binNames.contains("python.bin.gzip"), "Missing python.bin.gzip in .brokk");
-            assertEquals(
-                    2,
-                    binNames.size(),
-                    "Unexpected .bin.gzip files present (wrapper should not create a single .bin.gzip)");
+            assertEquals(2, binNames.size(), "Expected exactly two .bin.gzip files in .brokk; found: " + binNames);
 
             // Reload analyzer from disk and validate delegates/equivalence
             IAnalyzer reloaded = multiLang.loadAnalyzer(project);
