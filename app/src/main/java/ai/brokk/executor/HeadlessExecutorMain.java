@@ -237,9 +237,11 @@ public final class HeadlessExecutorMain {
     }
 
     private void handleHealthLive(HttpExchange exchange) throws IOException {
-        if (RouterUtil.ensureMethod(exchange, "GET")) {
-            handleExecutor(exchange);
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
+            return;
         }
+        var response = Map.of("execId", this.execId.toString(), "version", BuildInfo.version, "protocolVersion", 1);
+        SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
     private void handleHealthReady(HttpExchange exchange) throws IOException {
