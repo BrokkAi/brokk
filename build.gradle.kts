@@ -119,12 +119,13 @@ tasks.register("printVersion") {
 }
 
 tasks.register("tidy") {
-    description = "Formats code using Spotless (alias for spotlessApply in all projects)"
+    description = "Formats code using Spotless and ruff (alias for spotlessApply in all projects)"
     group = "formatting"
 
     dependsOn(
         subprojects.map { it.tasks.matching { t -> t.name == "spotlessApply" } }
     )
+    dependsOn("pythonFormat")
 }
 
 // Python project tasks
@@ -132,27 +133,34 @@ val pythonLint by tasks.registering(Exec::class) {
     description = "Run ruff linting on Python code"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine("ruff", "check", ".")
+    commandLine("uv", "run", "ruff", "check", ".")
 }
 
 val pythonFormatCheck by tasks.registering(Exec::class) {
     description = "Check Python code formatting with ruff"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine("ruff", "format", "--check", ".")
+    commandLine("uv", "run", "ruff", "format", "--check", ".")
 }
 
 val pythonTest by tasks.registering(Exec::class) {
     description = "Run Python tests with pytest"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine("pytest")
+    commandLine("uv", "run", "pytest")
 }
 
 val pythonCheck by tasks.registering {
     description = "Run all Python checks (lint, format, test)"
     group = "verification"
     dependsOn(pythonLint, pythonFormatCheck, pythonTest)
+}
+
+val pythonFormat by tasks.registering(Exec::class) {
+    description = "Format Python code with ruff"
+    group = "formatting"
+    workingDir = file("brokk-code")
+    commandLine("uv", "run", "ruff", "format", ".")
 }
 
 tasks.named("check") {
