@@ -73,15 +73,15 @@ public class MultiLanguageStateIOTest {
             assertTrue(Files.exists(javaBin), "Expected Java analyzer state file to exist: " + javaBin);
             assertTrue(Files.exists(pyBin), "Expected Python analyzer state file to exist: " + pyBin);
 
-            // Verify there is no wrapper-level single .bin for MultiLanguage/MultiAnalyzer:
-            // list *.bin files in .brokk and ensure only java.bin and python.bin are present
+            // Verify there is no wrapper-level single .bin.gzip for MultiLanguage/MultiAnalyzer:
+            // list *.bin.gzip files in .brokk and ensure only java.bin.gzip and python.bin.gzip are present
             Path brokkDir = javaBin.getParent();
             assertNotNull(brokkDir, "Expected .brokk directory parent to be non-null");
             List<Path> binFiles;
             try (var list = Files.list(brokkDir)) {
                 binFiles = list.filter(p -> {
                             String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
-                            return name.endsWith(".bin") || name.endsWith(".bin.gzip");
+                            return name.endsWith(".bin.gzip");
                         })
                         .toList();
             }
@@ -89,9 +89,12 @@ public class MultiLanguageStateIOTest {
             for (Path p : binFiles) {
                 binNames.add(p.getFileName().toString().toLowerCase(Locale.ROOT));
             }
-            assertTrue(binNames.contains("java.bin"), "Missing java.bin in .brokk");
-            assertTrue(binNames.contains("python.bin"), "Missing python.bin in .brokk");
-            assertEquals(2, binNames.size(), "Unexpected .bin files present (wrapper should not create a single .bin)");
+            assertTrue(binNames.contains("java.bin.gzip"), "Missing java.bin.gzip in .brokk");
+            assertTrue(binNames.contains("python.bin.gzip"), "Missing python.bin.gzip in .brokk");
+            assertEquals(
+                    2,
+                    binNames.size(),
+                    "Unexpected .bin.gzip files present (wrapper should not create a single .bin.gzip)");
 
             // Reload analyzer from disk and validate delegates/equivalence
             IAnalyzer reloaded = multiLang.loadAnalyzer(project);
