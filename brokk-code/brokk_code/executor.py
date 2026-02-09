@@ -9,9 +9,12 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
 class ExecutorError(Exception):
     """Custom error for ExecutorManager operations."""
+
     pass
+
 
 class ExecutorManager:
     def __init__(self, workspace_dir: Optional[Path] = None, jar_path: Optional[Path] = None):
@@ -20,7 +23,7 @@ class ExecutorManager:
         self.auth_token = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
-        
+
         self._process: Optional[asyncio.subprocess.Process] = None
         self._http_client: Optional[httpx.AsyncClient] = None
 
@@ -89,7 +92,9 @@ class ExecutorManager:
                         break
 
                 if not jar_asset:
-                    raise ExecutorError(f"No JAR asset found in release {target_release.get('tag_name')}")
+                    raise ExecutorError(
+                        f"No JAR asset found in release {target_release.get('tag_name')}"
+                    )
 
                 jar_url = jar_asset["browser_download_url"]
                 jar_name = jar_asset["name"]
@@ -111,24 +116,27 @@ class ExecutorManager:
         """Starts the Java HeadlessExecutorMain subprocess."""
         jar_path = self._find_jar()
         exec_id = str(uuid.uuid4())
-        
+
         cmd = [
             "java",
-            "-cp", str(jar_path),
+            "-cp",
+            str(jar_path),
             "ai.brokk.executor.HeadlessExecutorMain",
-            "--exec-id", exec_id,
-            "--listen-addr", "127.0.0.1:0",
-            "--auth-token", self.auth_token,
-            "--workspace-dir", str(self.workspace_dir)
+            "--exec-id",
+            exec_id,
+            "--listen-addr",
+            "127.0.0.1:0",
+            "--auth-token",
+            self.auth_token,
+            "--workspace-dir",
+            str(self.workspace_dir),
         ]
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
-        
+
         try:
             self._process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
             )
         except FileNotFoundError:
             raise ExecutorError(
@@ -147,7 +155,7 @@ class ExecutorManager:
                 break
             line = line_bytes.decode().strip()
             logger.debug(f"Executor: {line}")
-            
+
             if "Executor listening on http://" in line:
                 # Line format: "Executor listening on http://127.0.0.1:PORT"
                 try:
@@ -164,7 +172,7 @@ class ExecutorManager:
         self._http_client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {self.auth_token}"},
-            timeout=30.0
+            timeout=30.0,
         )
         logger.info(f"Executor started at {self.base_url}")
 
@@ -172,7 +180,7 @@ class ExecutorManager:
         """Polls /health/ready until the executor is ready."""
         if not self._http_client:
             raise ExecutorError("Executor not started")
-            
+
         start_time = asyncio.get_event_loop().time()
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             try:
@@ -204,7 +212,7 @@ class ExecutorManager:
         planner_model: str,
         code_model: Optional[str] = None,
         reasoning_level: Optional[str] = None,
-        reasoning_level_code: Optional[str] = None
+        reasoning_level_code: Optional[str] = None,
     ) -> str:
         """Submits a new job to the executor."""
         if not self._http_client:
@@ -215,7 +223,7 @@ class ExecutorManager:
             "plannerModel": planner_model,
             "autoCommit": True,
             "autoCompress": True,
-            "tags": {"mode": "LUTZ"}
+            "tags": {"mode": "LUTZ"},
         }
 
         # Add optional fields only if they are set
@@ -225,7 +233,7 @@ class ExecutorManager:
             payload["reasoningLevel"] = reasoning_level
         if reasoning_level_code:
             payload["reasoningLevelCode"] = reasoning_level_code
-        
+
         headers = {"Idempotency-Key": str(uuid.uuid4())}
         resp = await self._http_client.post("/v1/jobs", json=payload, headers=headers)
         resp.raise_for_status()
@@ -238,7 +246,7 @@ class ExecutorManager:
 
         after_seq = -1
         terminal_states = {"COMPLETED", "FAILED", "CANCELLED"}
-        
+
         while True:
             # Check job status
             status_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
@@ -251,21 +259,21 @@ class ExecutorManager:
             events_resp = await self._http_client.get(events_url)
             events_resp.raise_for_status()
             events_data = events_resp.json()
-            
+
             for event in events_data.get("events", []):
                 yield event
                 after_seq = max(after_seq, event.get("seq", -1))
 
             if state in terminal_states:
                 break
-                
+
             await asyncio.sleep(0.5)
 
     async def get_context(self) -> Dict[str, Any]:
         """Returns the current session context."""
         if not self._http_client:
             raise ExecutorError("Executor not started")
-            
+
         resp = await self._http_client.get("/v1/context", params={"tokens": "true"})
         resp.raise_for_status()
         return resp.json()
@@ -302,5 +310,5 @@ class ExecutorManager:
             except ProcessLookupError:
                 pass
             self._process = None
-        
+
         logger.info("Executor stopped")

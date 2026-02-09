@@ -16,7 +16,7 @@ wheels = [
 ]
 
 [[package]]
-name = "brokk-tui"
+name = "brokk-code"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

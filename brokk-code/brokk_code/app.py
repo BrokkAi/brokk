@@ -13,6 +13,7 @@ from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
+
 class BrokkApp(App):
     """The main Brokk TUI application."""
 
@@ -23,7 +24,9 @@ class BrokkApp(App):
         Binding("ctrl+r", "toggle_tasklist", "Tasks", show=True),
     ]
 
-    def __init__(self, workspace_dir: Optional[Path] = None, jar_path: Optional[Path] = None) -> None:
+    def __init__(
+        self, workspace_dir: Optional[Path] = None, jar_path: Optional[Path] = None
+    ) -> None:
         super().__init__()
         self.executor = ExecutorManager(workspace_dir or Path.cwd(), jar_path)
         self.current_model = "gpt-5.2"
@@ -54,7 +57,7 @@ class BrokkApp(App):
             await self.executor.start()
             chat.add_system_message("Executor process started, initializing session...")
             await self.executor.create_session()
-            
+
             if await self.executor.wait_ready():
                 chat.add_system_message(f"Ready! Using model: [bold]{self.current_model}[/]")
                 # Initial context load
@@ -107,7 +110,7 @@ class BrokkApp(App):
                 self.current_model,
                 code_model=self.code_model,
                 reasoning_level=self.reasoning_level,
-                reasoning_level_code=self.reasoning_level_code
+                reasoning_level_code=self.reasoning_level_code,
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
@@ -128,7 +131,7 @@ class BrokkApp(App):
                 message_type=data.get("messageType", "AI"),
                 is_new_message=data.get("isNewMessage", False),
                 is_reasoning=data.get("isReasoning", False),
-                is_terminal=data.get("isTerminal", False)
+                is_terminal=data.get("isTerminal", False),
             )
         elif event_type == "NOTIFICATION":
             level = data.get("level", "INFO")
@@ -158,7 +161,9 @@ class BrokkApp(App):
             chat.add_system_message(f"Reasoning level changed to: [bold]{self.reasoning_level}[/]")
         elif base == "/reasoning-code" and len(parts) > 1:
             self.reasoning_level_code = parts[1]
-            chat.add_system_message(f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]")
+            chat.add_system_message(
+                f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
+            )
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -188,12 +193,12 @@ class BrokkApp(App):
     async def action_handle_ctrl_c(self) -> None:
         """Handles Ctrl+C: Cancel job first, then double-tap to quit."""
         now = time.time()
-        
+
         if self.job_in_progress and self.current_job_id:
             self.query_one(ChatPanel).add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)
             # Reset double-tap timer so they don't accidentally quit while cancelling
-            self._last_ctrl_c_time = now 
+            self._last_ctrl_c_time = now
             return
 
         if now - self._last_ctrl_c_time < 2.0:
@@ -211,6 +216,7 @@ class BrokkApp(App):
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""
         await self.executor.stop()
+
 
 if __name__ == "__main__":
     app = BrokkApp()

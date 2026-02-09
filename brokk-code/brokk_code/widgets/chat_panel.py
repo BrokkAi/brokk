@@ -7,11 +7,13 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+
 class ChatPanel(Vertical):
     """Main chat interface with message display and input."""
-    
+
     class Submitted(Message):
         """Posted when user submits a message."""
+
         def __init__(self, text: str) -> None:
             self.text = text
             super().__init__()
@@ -32,12 +34,12 @@ class ChatPanel(Vertical):
             event.input.value = ""
 
     def append_token(
-        self, 
-        token: str, 
-        message_type: str, 
-        is_new_message: bool, 
-        is_reasoning: bool, 
-        is_terminal: bool
+        self,
+        token: str,
+        message_type: str,
+        is_new_message: bool,
+        is_reasoning: bool,
+        is_terminal: bool,
     ) -> None:
         """Appends a token to the current buffer and handles rendering transitions."""
         log = self.query_one("#chat-log", RichLog)
@@ -46,12 +48,12 @@ class ChatPanel(Vertical):
             self._flush_message()
             self._current_message_type = message_type
             self._is_reasoning = is_reasoning
-            
+
             if is_reasoning:
                 log.write(Text("Thinking...", style="italic grey50"))
 
         self._current_message_buffer += token
-        
+
         # Incremental feedback for non-terminal tokens
         if token:
             log.write(token, scroll_end=True)
@@ -66,18 +68,20 @@ class ChatPanel(Vertical):
             return
 
         log = self.query_one("#chat-log", RichLog)
-        
+
         if self._is_reasoning:
             # Render reasoning in a distinct panel
-            log.write(Panel(
-                Text(self._current_message_buffer.strip(), style="grey50"),
-                title="Thinking",
-                border_style="grey37"
-            ))
+            log.write(
+                Panel(
+                    Text(self._current_message_buffer.strip(), style="grey50"),
+                    title="Thinking",
+                    border_style="grey37",
+                )
+            )
         else:
             # Render AI response as Markdown
             log.write(Markdown(self._current_message_buffer.strip()))
-            log.write("") # Spacer
+            log.write("")  # Spacer
 
         self._current_message_buffer = ""
         self._is_reasoning = False
@@ -85,23 +89,18 @@ class ChatPanel(Vertical):
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""
         log = self.query_one("#chat-log", RichLog)
-        log.write(Panel(
-            Text(text, justify="left"),
-            title="You",
-            title_align="right",
-            border_style="blue"
-        ))
+        log.write(
+            Panel(Text(text, justify="left"), title="You", title_align="right", border_style="blue")
+        )
         log.write("")
 
     def add_system_message(self, text: str, level: str = "INFO") -> None:
         """Renders a system message styled by level."""
         log = self.query_one("#chat-log", RichLog)
-        style = {
-            "INFO": "italic grey50",
-            "WARNING": "bold yellow",
-            "ERROR": "bold red"
-        }.get(level.upper(), "italic grey50")
-        
+        style = {"INFO": "italic grey50", "WARNING": "bold yellow", "ERROR": "bold red"}.get(
+            level.upper(), "italic grey50"
+        )
+
         prefix = f"[{level}] " if level != "INFO" else ""
         log.write(Text(f"{prefix}{text}", style=style))
 

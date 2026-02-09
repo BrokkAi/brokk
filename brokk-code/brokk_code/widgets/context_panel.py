@@ -4,8 +4,10 @@ from textual.widgets import Static, ListView, ListItem, Label
 from textual.containers import Vertical
 from rich.text import Text
 
+
 class ContextFragmentItem(ListItem):
     """A single fragment entry in the list."""
+
     def __init__(self, fragment: Dict[str, Any]) -> None:
         super().__init__()
         self.fragment = fragment
@@ -15,14 +17,14 @@ class ContextFragmentItem(ListItem):
         description = self.fragment.get("shortDescription", "Unknown")
         pinned = " 📌" if self.fragment.get("pinned") else ""
         tokens = self.fragment.get("tokens", 0)
-        
+
         # Color mapping based on chipKind
         color = {
             "EDIT": "green",
             "SUMMARY": "blue",
             "HISTORY": "yellow",
             "INVALID": "red",
-            "TASK_LIST": "cyan"
+            "TASK_LIST": "cyan",
         }.get(chip_kind, "default")
 
         text = Text()
@@ -30,10 +32,11 @@ class ContextFragmentItem(ListItem):
         text.append(description)
         if pinned:
             text.append(pinned, style="bold yellow")
-        
+
         yield Label(text)
         if tokens > 0:
             yield Label(f"  {tokens:,} tokens", variant="dim")
+
 
 class ContextPanel(Vertical):
     """Displays current context fragments and token usage."""
