@@ -99,13 +99,6 @@ public final class LocalCacheScanner {
     }
 
     /**
-     * Constructs the Maven local repository path for the given coordinates.
-     */
-    private static Path getMavenLocalPath(String groupId, String artifactId, String version) {
-        return getMavenArtifactDir(groupId, artifactId).resolve(version).resolve(artifactId + "-" + version + ".jar");
-    }
-
-    /**
      * Finds the latest version of an artifact available in local caches.
      * Checks Maven local repo structure first, then scans other caches.
      *
