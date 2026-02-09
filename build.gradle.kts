@@ -127,6 +127,39 @@ tasks.register("tidy") {
     )
 }
 
+// Python project tasks
+val pythonLint by tasks.registering(Exec::class) {
+    description = "Run ruff linting on Python code"
+    group = "verification"
+    workingDir = file("brokk-code")
+    commandLine("ruff", "check", ".")
+}
+
+val pythonFormatCheck by tasks.registering(Exec::class) {
+    description = "Check Python code formatting with ruff"
+    group = "verification"
+    workingDir = file("brokk-code")
+    commandLine("ruff", "format", "--check", ".")
+}
+
+val pythonTest by tasks.registering(Exec::class) {
+    description = "Run Python tests with pytest"
+    group = "verification"
+    workingDir = file("brokk-code")
+    commandLine("pytest")
+}
+
+val pythonCheck by tasks.registering {
+    description = "Run all Python checks (lint, format, test)"
+    group = "verification"
+    dependsOn(pythonLint, pythonFormatCheck, pythonTest)
+}
+
+tasks.named("check") {
+    dependsOn(pythonCheck)
+    dependsOn(subprojects.map { it.tasks.matching { t -> t.name == "check" } })
+}
+
 
 subprojects {
     apply(plugin = "java-library")
