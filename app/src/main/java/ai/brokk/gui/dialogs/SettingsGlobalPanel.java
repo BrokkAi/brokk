@@ -2311,10 +2311,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private void disconnectOpenAi() {
         String brokkKey = MainProject.getBrokkKey();
         if (brokkKey.isBlank()) {
-            JOptionPane.showMessageDialog(
+            MaterialOptionPane.showConfirmDialog(
                     this,
                     "Brokk API key is not configured. Please set your Brokk key first.",
                     "Cannot Disconnect",
+                    JOptionPane.DEFAULT_OPTION,
                     JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -2324,16 +2325,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             SwingUtilities.invokeLater(() -> {
                 if (error == null) {
                     MainProject.setOpenAiCodexOauthConnected(false);
-                    JOptionPane.showMessageDialog(
+                    MaterialOptionPane.showConfirmDialog(
                             SettingsGlobalPanel.this,
                             "Successfully disconnected from OpenAI.",
                             "OpenAI Disconnected",
+                            JOptionPane.DEFAULT_OPTION,
                             JOptionPane.INFORMATION_MESSAGE);
                 } else {
-                    JOptionPane.showMessageDialog(
+                    MaterialOptionPane.showConfirmDialog(
                             SettingsGlobalPanel.this,
                             "Failed to disconnect from OpenAI: " + error,
                             "Disconnect Error",
+                            JOptionPane.DEFAULT_OPTION,
                             JOptionPane.ERROR_MESSAGE);
                 }
             });
