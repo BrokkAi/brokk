@@ -36,7 +36,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
-public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
+public abstract class AbstractProject implements IProject {
     protected static final Logger logger = LogManager.getLogger(AbstractProject.class);
     public static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -785,12 +785,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         var allDeps = getAllOnDiskDependencies();
         selected = allDeps.stream()
                 .filter(dep -> {
-                    // relPath is .brokk/dependencies/dep-name
-                    if (dep.getRelPath().getNameCount() < 3) {
-                        return false;
-                    }
-                    var depName = dep.getRelPath().getName(2).toString();
-                    return liveNamesSet.contains(depName);
+                    Path fileName = dep.getRelPath().getFileName();
+                    assert fileName != null : "Dependency path must have a file name: " + dep.getRelPath();
+                    return liveNamesSet.contains(fileName.toString());
                 })
                 .collect(Collectors.toSet());
 
