@@ -120,7 +120,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         var request = RouterUtil.parseJsonOr400(exchange, DropFragmentsRequest.class, "/v1/context/drop");
         if (request == null) return;
 
-        if (request.fragmentIds() == null || request.fragmentIds().isEmpty()) {
+        if (request.fragmentIds().isEmpty()) {
             RouterUtil.sendValidationError(exchange, "fragmentIds must not be empty");
             return;
         }
@@ -143,7 +143,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         var request = RouterUtil.parseJsonOr400(exchange, PinFragmentRequest.class, "/v1/context/pin");
         if (request == null) return;
 
-        if (request.fragmentId() == null || request.fragmentId().isBlank()) {
+        if (request.fragmentId().isBlank()) {
             RouterUtil.sendValidationError(exchange, "fragmentId is required");
             return;
         }
@@ -169,7 +169,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         var request = RouterUtil.parseJsonOr400(exchange, ReadonlyFragmentRequest.class, "/v1/context/readonly");
         if (request == null) return;
 
-        if (request.fragmentId() == null || request.fragmentId().isBlank()) {
+        if (request.fragmentId().isBlank()) {
             RouterUtil.sendValidationError(exchange, "fragmentId is required");
             return;
         }
@@ -407,7 +407,8 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 var text = f.text().renderNowOr("");
                 if (!text.isBlank()) return Messages.getApproximateTokens(text);
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logger.debug("Failed to estimate tokens for fragment {}: {}", f.id(), e.toString());
         }
         return 0;
     }
