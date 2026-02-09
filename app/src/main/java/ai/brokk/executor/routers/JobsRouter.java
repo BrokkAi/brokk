@@ -193,25 +193,31 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                         exchange, 409, ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing"));
                 return;
             }
-            if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
+            try {
+                if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
 
-            var contextTextFragmentIds = new ArrayList<String>();
-            if (validJobContextTexts != null && !validJobContextTexts.isEmpty()) {
-                for (var txt : validJobContextTexts) {
-                    contextManager.addPastedTextFragment(txt);
-                    var fragments = contextManager.liveContext().getAllFragmentsInDisplayOrder();
-                    for (int i = fragments.size() - 1; i >= 0; i--) {
-                        var f = fragments.get(i);
-                        if (f.getType() == ContextFragment.FragmentType.PASTE_TEXT) {
-                            if (!contextTextFragmentIds.contains(f.id())) contextTextFragmentIds.add(f.id());
-                            break;
+                var contextTextFragmentIds = new ArrayList<String>();
+                if (validJobContextTexts != null && !validJobContextTexts.isEmpty()) {
+                    for (var txt : validJobContextTexts) {
+                        contextManager.addPastedTextFragment(txt);
+                        var fragments = contextManager.liveContext().getAllFragmentsInDisplayOrder();
+                        for (int i = fragments.size() - 1; i >= 0; i--) {
+                            var f = fragments.get(i);
+                            if (f.getType() == ContextFragment.FragmentType.PASTE_TEXT) {
+                                if (!contextTextFragmentIds.contains(f.id())) contextTextFragmentIds.add(f.id());
+                                break;
+                            }
                         }
                     }
+                    response.put("contextTextFragmentIds", contextTextFragmentIds);
                 }
-                response.put("contextTextFragmentIds", contextTextFragmentIds);
+                executeJobAsync(jobId, jobSpec, contextTextFragmentIds);
+                SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            } catch (Exception e) {
+                jobReservation.releaseIfOwner(jobId);
+                logger.error("Failed to start job {}", jobId, e);
+                SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to start job", e));
             }
-            executeJobAsync(jobId, jobSpec, contextTextFragmentIds);
-            SimpleHttpServer.sendJsonResponse(exchange, 201, response);
         } else {
             SimpleHttpServer.sendJsonResponse(exchange, 200, response);
         }
@@ -276,9 +282,15 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                         exchange, 409, ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing"));
                 return;
             }
-            if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
-            executeJobAsync(jobId, jobSpec, List.of());
-            SimpleHttpServer.sendJsonResponse(exchange, 201, Map.of("jobId", jobId, "state", "queued"));
+            try {
+                if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
+                executeJobAsync(jobId, jobSpec, List.of());
+                SimpleHttpServer.sendJsonResponse(exchange, 201, Map.of("jobId", jobId, "state", "queued"));
+            } catch (Exception e) {
+                jobReservation.releaseIfOwner(jobId);
+                logger.error("Failed to start issue job {}", jobId, e);
+                SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to start job", e));
+            }
         } else {
             SimpleHttpServer.sendJsonResponse(exchange, 200, Map.of("jobId", jobId, "state", "queued"));
         }
@@ -324,9 +336,15 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                         exchange, 409, ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing"));
                 return;
             }
-            if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
-            executeJobAsync(jobId, jobSpec, List.of());
-            SimpleHttpServer.sendJsonResponse(exchange, 201, Map.of("jobId", jobId, "state", "queued"));
+            try {
+                if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
+                executeJobAsync(jobId, jobSpec, List.of());
+                SimpleHttpServer.sendJsonResponse(exchange, 201, Map.of("jobId", jobId, "state", "queued"));
+            } catch (Exception e) {
+                jobReservation.releaseIfOwner(jobId);
+                logger.error("Failed to start PR review job {}", jobId, e);
+                SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to start job", e));
+            }
         } else {
             SimpleHttpServer.sendJsonResponse(exchange, 200, Map.of("jobId", jobId, "state", "queued"));
         }
