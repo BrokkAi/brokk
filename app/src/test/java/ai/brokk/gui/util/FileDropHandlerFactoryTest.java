@@ -26,6 +26,7 @@ import javax.swing.TransferHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * Tests for FileDropHandlerFactory focusing on partitioning of dropped files into
@@ -34,6 +35,7 @@ import org.junit.jupiter.api.io.TempDir;
  * <p>Uses the package-private test seam FileDropHandlerFactory.contextSizeChecker to capture the
  * files passed to the size check and to force Decision.ALLOW so additions run synchronously.
  */
+@ResourceLock("FileDropHandlerFactory.contextSizeChecker")
 public class FileDropHandlerFactoryTest {
 
     @TempDir

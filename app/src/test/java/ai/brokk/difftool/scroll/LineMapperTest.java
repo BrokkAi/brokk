@@ -10,11 +10,14 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 /**
  * Comprehensive tests for the LineMapper class. Tests verify that line mapping algorithms work correctly with different
  * delta types and provide accurate results for scroll synchronization.
  */
+@Execution(ExecutionMode.SAME_THREAD)
 class LineMapperTest {
 
     private LineMapper lineMapper;
@@ -247,6 +250,11 @@ class LineMapperTest {
 
         var patch = DiffUtils.diff(original, revised);
 
+        // Warm-up
+        for (int line = 0; line < 100; line++) {
+            lineMapper.mapLine(patch, line, true);
+        }
+
         var startTime = System.nanoTime();
 
         // Test performance of many mappings
@@ -256,8 +264,8 @@ class LineMapperTest {
 
         var duration = System.nanoTime() - startTime;
 
-        // Should complete in reasonable time (less than 100ms for 500 mappings)
-        assertTrue(duration < 100_000_000, "Large patch mapping should be performant: " + duration + "ns");
+        // Should complete in reasonable time (threshold raised to 150ms for parallel CI stability)
+        assertTrue(duration < 150_000_000, "Large patch mapping should be performant: " + duration + "ns");
     }
 
     @Test

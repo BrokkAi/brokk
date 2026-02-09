@@ -2753,8 +2753,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * background executor so callers may invoke this from any thread without blocking.
      */
     public void checkBalanceAndNotify() {
-        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK) {
-            return; // Only relevant when using the Brokk proxy
+        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK
+                || Boolean.getBoolean("brokk.test.mode")
+                || MainProject.getBrokkKey().isBlank()) {
+            return; // Only relevant when using the Brokk proxy, not in tests, and requires a key
         }
 
         submitBackgroundTask("Balance Check", () -> {
@@ -2796,6 +2798,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             } catch (IOException e) {
                 logger.error("Failed to check user balance", e);
+            } catch (Exception e) {
+                // Broad catch to prevent background task exceptions from escaping to global handler during tests/noise
+                logger.debug("Unexpected error during balance check", e);
             }
         });
     }

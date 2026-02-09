@@ -23,6 +23,7 @@ import javax.swing.TransferHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * Tests to ensure that non-ALLOW decisions from the ContextSizeGuard (CANCELLED, BLOCKED)
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.io.TempDir;
  * These tests use the package-private seam FileDropHandlerFactory.contextSizeChecker to
  * stub size-check decisions synchronously.
  */
+@ResourceLock("FileDropHandlerFactory.contextSizeChecker")
 public class FileDropHandlerFactoryDecisionTest {
 
     @TempDir

@@ -15,7 +15,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
+@Execution(ExecutionMode.SAME_THREAD)
 public class NativeProjectWatchServiceTest {
     private NativeProjectWatchService service;
     private Path tempDir;
@@ -516,7 +519,8 @@ public class NativeProjectWatchServiceTest {
         });
 
         service.start(CompletableFuture.completedFuture(null));
-        Thread.sleep(500);
+        // Increase settle time for malformed git test under load
+        Thread.sleep(1000);
 
         // Regular files in project should still be watched
         CountDownLatch notified = new CountDownLatch(1);

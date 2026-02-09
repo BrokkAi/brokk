@@ -25,6 +25,7 @@ import javax.swing.TransferHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * Verifies that dropped external directories are ignored (not converted into ExternalFile fragments).
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.io.TempDir;
  * This guards the Files.isRegularFile filter in FileDropHandlerFactory so that directories do not
  * become ExternalPathFragment instances and produce broken fragments.
  */
+@ResourceLock("FileDropHandlerFactory.contextSizeChecker")
 public class FileDropHandlerFactoryDirIgnoreTest {
 
     @TempDir
