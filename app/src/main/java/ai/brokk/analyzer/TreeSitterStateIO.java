@@ -143,14 +143,6 @@ public final class TreeSitterStateIO {
             List<CodeUnitDto> topLevelCodeUnits, List<ImportInfoDto> importStatements, boolean containsTests) {}
 
     /**
-     * Save an AnalyzerState together with an optional serializable cache snapshot into a versioned top-level
-     * snapshot object. This new top-level model cleanly separates the immutable AnalyzerState from the
-     * transient AnalyzerCache representation (a serializable view of the currently-populated transient caches).
-     *
-     * For backward compatibility, callers that only have an AnalyzerState may call the old save(state, file)
-     * which delegates to this method with an empty cache snapshot.
-     */
-    /**
      * Save an AnalyzerState together with an optional AnalyzerCache.
      * If the cache is present and non-empty, its snapshot will be included in the saved file.
      */
@@ -163,6 +155,11 @@ public final class TreeSitterStateIO {
         }
     }
 
+    /**
+     * Save an AnalyzerState together with an optional serializable cache snapshot into a versioned top-level
+     * snapshot object. This new top-level model cleanly separates the immutable AnalyzerState from the
+     * transient AnalyzerCache representation (a serializable view of the currently-populated transient caches).
+     */
     @Blocking
     public static void save(
             TreeSitterAnalyzer.AnalyzerState state,
@@ -486,28 +483,31 @@ public final class TreeSitterStateIO {
     public static CacheSnapshotDto cacheSnapshotToDto(AnalyzerCache.CacheSnapshot snapshot) {
         // Convert signatures map into a list of SignatureEntryDto to avoid complex map keys.
         List<SignatureEntryDto> signatures = new ArrayList<>();
-        snapshot.signatures()
-                .forEach((cu, sigs) -> signatures.add(new SignatureEntryDto(toDto(cu), new ArrayList<>(sigs))));
+        snapshot.signatures().forEach((cu, sigs) -> {
+            // Defensive copy of the signature strings
+            signatures.add(new SignatureEntryDto(toDto(cu), List.copyOf(sigs)));
+        });
 
         // Convert raw supertypes map into a list of RawSupertypesEntryDto.
         List<RawSupertypesEntryDto> rawSupertypes = new ArrayList<>();
-        snapshot.rawSupertypes()
-                .forEach((cu, supers) ->
-                        rawSupertypes.add(new RawSupertypesEntryDto(toDto(cu), new ArrayList<>(supers))));
+        snapshot.rawSupertypes().forEach((cu, supers) -> {
+            // Defensive copy of the supertype strings
+            rawSupertypes.add(new RawSupertypesEntryDto(toDto(cu), List.copyOf(supers)));
+        });
 
         List<ImportEntryDto> importsForward = new ArrayList<>();
-        snapshot.imports()
-                .forEachForward((file, units) -> importsForward.add(new ImportEntryDto(
-                        toDto(file),
-                        new ArrayList<>(
-                                units.stream().map(TreeSitterStateIO::toDto).toList()))));
+        snapshot.imports().forEachForward((file, units) -> {
+            // Defensive copy of the units list
+            importsForward.add(new ImportEntryDto(
+                    toDto(file), units.stream().map(TreeSitterStateIO::toDto).toList()));
+        });
 
         List<SupertypeEntryDto> typeForward = new ArrayList<>();
-        snapshot.typeHierarchy()
-                .forEachForward((cu, supers) -> typeForward.add(new SupertypeEntryDto(
-                        toDto(cu),
-                        new ArrayList<>(
-                                supers.stream().map(TreeSitterStateIO::toDto).toList()))));
+        snapshot.typeHierarchy().forEachForward((cu, supers) -> {
+            // Defensive copy of the supers list
+            typeForward.add(new SupertypeEntryDto(
+                    toDto(cu), supers.stream().map(TreeSitterStateIO::toDto).toList()));
+        });
 
         return new CacheSnapshotDto(signatures, rawSupertypes, importsForward, typeForward);
     }
