@@ -129,8 +129,7 @@ class SearchModeSearchAgentTest {
         }
 
         @Override
-        public JsonNode reportClientException(
-                String stacktrace, String clientVersion, Map<String, String> optionalFields) {
+        public JsonNode reportClientException(JsonNode exceptionReport) {
             return objectMapper.createObjectNode();
         }
 

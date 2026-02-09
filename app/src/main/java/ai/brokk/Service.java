@@ -427,40 +427,15 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Reports a client exception to the Brokk server for monitoring and debugging purposes, with optional context
-     * fields.
+     * Reports a client exception to the Brokk server for monitoring and debugging purposes.
+     * The exception report JSON is fully constructed by ExceptionReporter; this method
+     * just handles HTTP transport.
      */
     @Override
-    public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
-            throws IOException {
+    public JsonNode reportClientException(JsonNode exceptionReport) throws IOException {
         String brokkKey = MainProject.getBrokkKey();
 
-        var jsonBody = objectMapper.createObjectNode();
-        jsonBody.put("stacktrace", stacktrace);
-        jsonBody.put("client_version", clientVersion);
-
-        // Add optional fields and environment info
-        var fieldsNode = objectMapper.createObjectNode();
-        if (!optionalFields.isEmpty()) {
-            for (var entry : optionalFields.entrySet()) {
-                fieldsNode.put(entry.getKey(), entry.getValue());
-            }
-        }
-        // OS info and JVM info also live in fieldsNode for backwards compatibility
-        var osNode = objectMapper.createObjectNode();
-        osNode.put("name", System.getProperty("os.name"));
-        osNode.put("version", System.getProperty("os.version"));
-        osNode.put("arch", System.getProperty("os.arch"));
-        fieldsNode.set("os", osNode);
-        Runtime runtime = Runtime.getRuntime();
-        var jvmNode = objectMapper.createObjectNode();
-        jvmNode.put("availableProcessors", runtime.availableProcessors());
-        jvmNode.put("maxMemory", runtime.maxMemory());
-        jvmNode.put("freeMemory", runtime.freeMemory());
-        fieldsNode.set("jvm", jvmNode);
-
-        jsonBody.set("context", fieldsNode);
-        RequestBody body = RequestBody.create(jsonBody.toString(), MediaType.parse("application/json"));
+        RequestBody body = RequestBody.create(exceptionReport.toString(), MediaType.parse("application/json"));
         Request request = new Request.Builder()
                 .url(MainProject.getServiceUrl() + "/api/client-exceptions/")
                 .header("Authorization", "Bearer " + brokkKey)
