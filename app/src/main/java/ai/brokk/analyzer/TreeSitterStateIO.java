@@ -150,6 +150,19 @@ public final class TreeSitterStateIO {
      * For backward compatibility, callers that only have an AnalyzerState may call the old save(state, file)
      * which delegates to this method with an empty cache snapshot.
      */
+    /**
+     * Save an AnalyzerState together with an optional AnalyzerCache.
+     * If the cache is present and non-empty, its snapshot will be included in the saved file.
+     */
+    @Blocking
+    public static void save(TreeSitterAnalyzer.AnalyzerState state, @Nullable AnalyzerCache cache, Path file) {
+        if (cache == null || cache.isEmpty()) {
+            save(state, file);
+        } else {
+            save(state, cache.snapshot(), file);
+        }
+    }
+
     @Blocking
     public static void save(
             TreeSitterAnalyzer.AnalyzerState state,

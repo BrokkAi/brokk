@@ -71,7 +71,7 @@ public interface Language {
         try {
             if (analyzer instanceof TreeSitterAnalyzer tsa) {
                 Path file = getStoragePath(project);
-                TreeSitterStateIO.save(tsa.snapshotState(), file);
+                TreeSitterStateIO.save(tsa.snapshotState(), tsa.cache(), file);
                 logger.debug("Saved analyzer state for {} to {}", name(), file);
             } else {
                 logger.trace("saveAnalyzer: analyzer for {} is not TreeSitter-backed; skipping", name());

@@ -635,6 +635,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * subsequent loads have the necessary structural data; however, presentation-heavy lists of signature strings
      * remain transient and are repopulated into a new AnalyzerCache during analysis or update.
      */
+    /**
+     * Exposes the internal cache for persistence purposes.
+     */
+    public AnalyzerCache cache() {
+        return this.cache;
+    }
+
     public AnalyzerState snapshotState() {
         if (cache.isEmpty()) {
             return this.state;
