@@ -2415,7 +2415,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                         JOptionPane.DEFAULT_OPTION,
                         JOptionPane.INFORMATION_MESSAGE);
 
-                parentDialog.reloadSettingsAndSelectTab("Model Roles");
+                parentDialog.reloadSettingsAndSelectTab(SettingsAdvancedPanel.MODEL_ROLES_TAB_TITLE);
             });
         }
     }
