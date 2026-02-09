@@ -4,9 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
 
-/**
- * Range serialization test. Fory handles Record components automatically.
- */
 class TreeSitterStateIORangeTest {
 
     @Test

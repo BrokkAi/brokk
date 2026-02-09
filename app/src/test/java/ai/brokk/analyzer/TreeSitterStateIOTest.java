@@ -2,10 +2,6 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateDto;
-import ai.brokk.analyzer.TreeSitterStateIO.FilePropertiesDto;
-import ai.brokk.analyzer.TreeSitterStateIO.FileStateEntryDto;
-import ai.brokk.analyzer.TreeSitterStateIO.ProjectFileDto;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.file.Files;
@@ -127,8 +123,12 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto emptyDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
-        var state = TreeSitterStateIO.fromDto(emptyDto);
+        var state = new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.empty(),
+                HashTreePMap.empty(),
+                HashTreePMap.empty(),
+                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
+                1L);
 
         Path out = tempDir.resolve("state.bin.gzip");
         TreeSitterStateIO.save(state, out);
@@ -138,16 +138,15 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isPresent(), "Expected load to succeed after save");
 
-        String baseName = out.getFileName().toString();
-        String tmpPrefix = "." + baseName + ".";
-        String tmpSuffix = ".tmp";
-        var lingering = Files.list(tempDir)
-                .filter(p -> {
-                    String name = p.getFileName().toString();
-                    return name.startsWith(tmpPrefix) && name.endsWith(tmpSuffix);
-                })
-                .toList();
-        assertTrue(lingering.isEmpty(), "No lingering temp files should remain after atomic save");
+        // Note: AtomicWrites uses Files.createTempFile(parent, "temp-", ".tmp")
+        try (var stream = Files.list(tempDir)) {
+            var lingering = stream.filter(p -> {
+                        String name = p.getFileName().toString();
+                        return name.startsWith("temp-") && name.endsWith(".tmp");
+                    })
+                    .toList();
+            assertTrue(lingering.isEmpty(), "No lingering temp files should remain after atomic save: " + lingering);
+        }
     }
 
     @Test
@@ -185,8 +184,12 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
-        var original = TreeSitterStateIO.fromDto(dto);
+        var original = new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.empty(),
+                HashTreePMap.empty(),
+                HashTreePMap.empty(),
+                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>(List.of("KeyA", "keyb"))),
+                99L);
 
         Path out = tempDir.resolve("roundtrip.bin.gzip");
         TreeSitterStateIO.save(original, out);
@@ -241,26 +244,6 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void roundTripPreservesContainsTests(@TempDir Path tempDir) {
-        var fileDto = new ProjectFileDto(tempDir.toString(), "Test.java");
-        var propsDto = new FilePropertiesDto(List.of(), List.of(), true);
-        var entryDto = new FileStateEntryDto(fileDto, propsDto);
-
-        var originalDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(entryDto), List.of(), 555L);
-        var state = TreeSitterStateIO.fromDto(originalDto);
-
-        Path out = tempDir.resolve("test_props.bin.gzip");
-        TreeSitterStateIO.save(state, out);
-
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent(), "Should load state with containsTests");
-
-        var loadedDto = TreeSitterStateIO.toDto(loadedOpt.get());
-        assertEquals(originalDto, loadedDto, "Round-trip should preserve all fields including containsTests");
-        assertTrue(loadedDto.fileState().getFirst().value().containsTests(), "containsTests=true should be preserved");
-    }
-
-    @Test
     void lazyTreeParsingAfterRoundtrip(@TempDir Path tempDir) throws Exception {
         // 1. Create test project with a Java file
         var builder = InlineTestProjectCreator.code(
@@ -304,38 +287,6 @@ public class TreeSitterStateIOTest {
 
             // 8. Assert the returned tree is not null
             assertNotNull(lazyParsedTree, "treeOf should return non-null tree after lazy parsing");
-        }
-    }
-
-    @Test
-    void analyzerStateDtoDoesNotContainSignatures() throws Exception {
-        var builder = InlineTestProjectCreator.code(
-                """
-                        package com.example;
-
-                        public class Hello {
-                            public int add(int a, int b) { return a + b; }
-                        }
-                        """,
-                "src/main/java/com/example/Hello.java");
-
-        try (IProject project = builder.build()) {
-            JavaAnalyzer analyzer = new JavaAnalyzer(project);
-
-            ProjectFile javaFile = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Hello.java"));
-            var skeletons = analyzer.getSkeletons(javaFile);
-            assertFalse(skeletons.isEmpty(), "Expected skeletons to be present (signatures computed into cache)");
-
-            var state = analyzer.snapshotState();
-            var dto = TreeSitterStateIO.toDto(state);
-
-            // Verify CodeUnitPropertiesDto has no signatures accessor (compile-time: DTO shape omits signatures)
-            for (var entry : dto.codeUnitState()) {
-                TreeSitterStateIO.CodeUnitPropertiesDto props = entry.value();
-                assertNotNull(props.children());
-                assertNotNull(props.ranges());
-                // There is no signatures() on CodeUnitPropertiesDto - this confirms signatures are not persisted.
-            }
         }
     }
 
