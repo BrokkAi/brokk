@@ -12,9 +12,8 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
-import java.util.zip.ZipException;
+import net.jpountz.lz4.LZ4FrameInputStream;
+import net.jpountz.lz4.LZ4FrameOutputStream;
 import org.apache.fory.ThreadLocalFory;
 import org.apache.fory.config.ForyBuilder;
 import org.apache.fory.config.Language;
@@ -160,8 +159,8 @@ public final class TreeSitterStateIO {
         try {
             var dto = toTopLevelDto(state, cacheSnapshot);
             AtomicWrites.save(file, out -> {
-                try (var gzipOut = new GZIPOutputStream(out)) {
-                    FORY.serialize(gzipOut, dto);
+                try (var lz4Out = new LZ4FrameOutputStream(out)) {
+                    FORY.serialize(lz4Out, dto);
                 }
             });
 
@@ -183,8 +182,8 @@ public final class TreeSitterStateIO {
             var asd = toDto(state);
             var dto = new SnapshotDto(SCHEMA_VERSION, asd, null);
             AtomicWrites.save(file, out -> {
-                try (var gzipOut = new GZIPOutputStream(out)) {
-                    FORY.serialize(gzipOut, dto);
+                try (var lz4Out = new LZ4FrameOutputStream(out)) {
+                    FORY.serialize(lz4Out, dto);
                 }
             });
 
@@ -220,8 +219,8 @@ public final class TreeSitterStateIO {
     @Blocking
     static void saveRawSnapshotForTest(SnapshotDto dto, Path file) throws IOException {
         AtomicWrites.save(file, out -> {
-            try (var gzipOut = new GZIPOutputStream(out)) {
-                FORY.serialize(gzipOut, dto);
+            try (var lz4Out = new LZ4FrameOutputStream(out)) {
+                FORY.serialize(lz4Out, dto);
             }
         });
     }
@@ -230,10 +229,10 @@ public final class TreeSitterStateIO {
     static Optional<SnapshotDto> loadRaw(Path file) throws IOException {
         if (!Files.exists(file)) return Optional.empty();
         try (InputStream fis = Files.newInputStream(file);
-                GZIPInputStream gis = new GZIPInputStream(fis)) {
-            byte[] bytes = gis.readAllBytes();
+                LZ4FrameInputStream lz4In = new LZ4FrameInputStream(fis)) {
+            byte[] bytes = lz4In.readAllBytes();
             return Optional.ofNullable(FORY.deserialize(bytes, SnapshotDto.class));
-        } catch (ZipException | EOFException e) {
+        } catch (EOFException | RuntimeException e) {
             return Optional.empty();
         }
     }
@@ -275,9 +274,9 @@ public final class TreeSitterStateIO {
         }
         long startMs = System.currentTimeMillis();
         try (InputStream fis = Files.newInputStream(file);
-                GZIPInputStream gis = new GZIPInputStream(fis)) {
+                LZ4FrameInputStream lz4In = new LZ4FrameInputStream(fis)) {
 
-            byte[] bytes = gis.readAllBytes();
+            byte[] bytes = lz4In.readAllBytes();
             SnapshotDto top = FORY.deserialize(bytes, SnapshotDto.class);
 
             if (top == null || !isSchemaVersionLoadable(top.schemaVersion())) {
@@ -301,14 +300,15 @@ public final class TreeSitterStateIO {
                     top.schemaVersion(),
                     durMs);
             return Optional.of(new SnapshotWithCache(state, cache));
-        } catch (ZipException | EOFException e) {
-            log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
+        } catch (EOFException e) {
+            log.debug("Analyzer state at {} is truncated; will rebuild ({}).", file, e.getMessage());
             return Optional.empty();
         } catch (IOException e) {
             log.debug("I/O error reading analyzer state at {}; will rebuild ({}).", file, e.getMessage());
             return Optional.empty();
         } catch (RuntimeException e) {
-            log.warn("Unexpected error loading TreeSitter AnalyzerState from {}; will rebuild.", file, e);
+            // LZ4FrameInputStream and Fory may throw various RuntimeExceptions on corrupt data
+            log.debug("Corrupt analyzer state at {}; will rebuild ({}).", file, e.getMessage());
             return Optional.empty();
         }
     }

@@ -109,6 +109,7 @@ dependencies {
     implementation(libs.pcollections)
     implementation(libs.caffeine)
     implementation(libs.fory.core)
+    implementation("at.yawk.lz4:lz4-java:1.10.3")
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
 

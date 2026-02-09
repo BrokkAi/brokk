@@ -99,8 +99,8 @@ public class TreeSitterSnapshotFormatTest {
     }
 
     @Test
-    void snapshotSavedWithGzipFormatIsGzipped(@TempDir Path tempDir) throws Exception {
-        var builder = InlineTestProjectCreator.code("public class GzipTest { }", "GzipTest.java");
+    void snapshotSavedWithLZ4FormatIsCompressed(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code("public class LZ4Test { }", "LZ4Test.java");
 
         try (IProject project = builder.build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
@@ -109,14 +109,17 @@ public class TreeSitterSnapshotFormatTest {
 
             assertTrue(Files.exists(out));
 
-            // Verify it IS gzipped. GZIP header is 0x1f 0x8b.
+            // Verify it has LZ4 Frame magic: 0x04 0x22 0x4D 0x18
             byte[] bytes = Files.readAllBytes(out);
-            assertTrue(bytes.length > 2);
-            assertTrue(bytes[0] == (byte) 0x1f && bytes[1] == (byte) 0x8b, "File should have GZIP header");
+            assertTrue(bytes.length > 4);
+            assertEquals((byte) 0x04, bytes[0]);
+            assertEquals((byte) 0x22, bytes[1]);
+            assertEquals((byte) 0x4D, bytes[2]);
+            assertEquals((byte) 0x18, bytes[3]);
 
             // Verify it loads
             var loaded = TreeSitterStateIO.load(out);
-            assertTrue(loaded.isPresent(), "Should load gzipped snapshot");
+            assertTrue(loaded.isPresent(), "Should load LZ4 snapshot");
         }
     }
 
