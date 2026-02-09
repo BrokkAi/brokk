@@ -44,10 +44,19 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     /**
-     * Snapshot schema version. Increment this when you change the on-disk layout.
-     * Consumers of on-disk snapshots should consult this value to decide how to migrate/load.
+     * Snapshot schema version in SemVer form: {@code MAJOR.MINOR.PATCH}.
+     *
+     * <p>Versioning policy:
+     * <ul>
+     *   <li><b>MAJOR</b>: non-migratable. A different major version must be rebuilt (do not load).</li>
+     *   <li><b>MINOR</b>: migratable without rebuild. Minor is required and may change load/migration behavior.</li>
+     *   <li><b>PATCH</b>: no migration/rebuild required (e.g., removing an optional field).</li>
+     * </ul>
+     *
+     * <p>At the moment we do not attempt backward compatibility across majors. Minor/patch differences are
+     * treated as best-effort load for now.
      */
-    public static final String SCHEMA_VERSION = "ai.brokk.treesitter.snapshot.v1";
+    public static final String SCHEMA_VERSION = "1.0.0";
 
     // Dedicated ObjectMapper (previously Smile-backed). We persist snapshots using a binary
     // format produced by Jackson; removing Smile dependency means we use the default ObjectMapper here.
@@ -402,9 +411,17 @@ public final class TreeSitterStateIO {
                     return Optional.empty();
                 }
 
+                if (!isSchemaVersionLoadable(top.schemaVersion())) {
+                    log.debug(
+                            "Snapshot schemaVersion not loadable: expectedMajor={}, found={}. Will rebuild.",
+                            majorOf(SCHEMA_VERSION),
+                            top.schemaVersion());
+                    return Optional.empty();
+                }
+
                 if (!SCHEMA_VERSION.equals(top.schemaVersion())) {
                     log.debug(
-                            "Snapshot schemaVersion mismatch: expected={}, found={}. Will attempt best-effort load of state portion.",
+                            "Snapshot schemaVersion differs: expected={}, found={}. Proceeding with best-effort load.",
                             SCHEMA_VERSION,
                             top.schemaVersion());
                 }
@@ -711,6 +728,23 @@ public final class TreeSitterStateIO {
     }
 
     /* ================= Helpers ================= */
+
+    private static boolean isSchemaVersionLoadable(@Nullable String found) {
+        Integer expectedMajor = majorOf(SCHEMA_VERSION);
+        Integer foundMajor = majorOf(found);
+        return expectedMajor != null && expectedMajor.equals(foundMajor);
+    }
+
+    private static @Nullable Integer majorOf(@Nullable String v) {
+        if (v == null) return null;
+        String[] parts = v.split("\\.", -1);
+        if (parts.length != 3) return null;
+        try {
+            return Integer.parseInt(parts[0]);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
 
     /**
      * Parse a root string that may be a plain path or a file: URI into an absolute, normalized Path.
