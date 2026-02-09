@@ -177,6 +177,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // balance-notification state
     private boolean lowBalanceNotified = false;
     private boolean freeTierNotified = false;
+    private final AtomicBoolean missingBrokkKeyWarned = new AtomicBoolean(false);
 
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildDetails> buildAgentFuture;
@@ -2753,10 +2754,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * background executor so callers may invoke this from any thread without blocking.
      */
     public void checkBalanceAndNotify() {
-        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK
-                || Boolean.getBoolean("brokk.test.mode")
-                || MainProject.getBrokkKey().isBlank()) {
-            return; // Only relevant when using the Brokk proxy, not in tests, and requires a key
+        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK) {
+            return;
+        }
+        if (Boolean.getBoolean("brokk.test.mode")) {
+            return;
+        }
+        if (MainProject.getBrokkKey().isBlank()) {
+            if (missingBrokkKeyWarned.compareAndSet(false, true)) {
+                logger.warn("Brokk balance checks and notifications are disabled because 'brokkApiKey' is missing. "
+                        + "Please configure it in your global properties.");
+            }
+            return;
         }
 
         submitBackgroundTask("Balance Check", () -> {
