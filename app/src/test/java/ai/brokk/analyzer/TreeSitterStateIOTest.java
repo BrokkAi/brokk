@@ -130,7 +130,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 1L);
 
-        Path out = tempDir.resolve("state.bin.gzip");
+        Path out = tempDir.resolve("state.bin");
         TreeSitterStateIO.save(state, out);
 
         assertTrue(Files.exists(out), "Expected final state file to exist");
@@ -167,7 +167,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("props_roundtrip.bin.gzip");
+        Path out = tempDir.resolve("props_roundtrip.bin");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -191,7 +191,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>(List.of("KeyA", "keyb"))),
                 99L);
 
-        Path out = tempDir.resolve("roundtrip.bin.gzip");
+        Path out = tempDir.resolve("roundtrip.bin");
         TreeSitterStateIO.save(original, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -222,7 +222,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("imports_roundtrip.bin.gzip");
+        Path out = tempDir.resolve("imports_roundtrip.bin");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -265,7 +265,7 @@ public class TreeSitterStateIOTest {
             assertNotNull(analyzer.treeOf(file), "Original analyzer should have parsed tree");
 
             // 3. Save state to temp file
-            Path stateFile = tempDir.resolve("lazy_test.bin.gzip");
+            Path stateFile = tempDir.resolve("lazy_test.bin");
             TreeSitterStateIO.save(analyzer.snapshotState(), stateFile);
             assertTrue(Files.exists(stateFile), "State file should exist after save");
 
@@ -473,7 +473,7 @@ public class TreeSitterStateIOTest {
 
             // 3. Snapshot and save state + cache
             TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
-            Path storage = tempDir.resolve("ancestor_test.bin.gzip");
+            Path storage = tempDir.resolve("ancestor_test.bin");
             TreeSitterStateIO.save(snapshot, cacheForPersist.snapshot(), storage);
 
             var loadedWithCacheOpt = TreeSitterStateIO.loadWithCache(storage);
@@ -535,7 +535,7 @@ public class TreeSitterStateIOTest {
             return set;
         });
 
-        Path out = tempDir.resolve("imports.bin.gzip");
+        Path out = tempDir.resolve("imports.bin");
         // Save state together with cache snapshot so import forward mappings are persisted
         TreeSitterStateIO.save(state, cacheForPersist.snapshot(), out);
 

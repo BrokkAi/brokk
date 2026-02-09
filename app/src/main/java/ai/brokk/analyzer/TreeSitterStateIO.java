@@ -11,8 +11,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipException;
 import org.apache.fory.ThreadLocalFory;
 import org.apache.fory.config.ForyBuilder;
@@ -159,11 +157,7 @@ public final class TreeSitterStateIO {
             var dto = toTopLevelDto(state, cacheSnapshot);
             byte[] foryBytes = FORY.serialize(dto);
 
-            AtomicWrites.save(file, out -> {
-                try (GZIPOutputStream gzipOut = new GZIPOutputStream(out)) {
-                    gzipOut.write(foryBytes);
-                }
-            });
+            AtomicWrites.save(file, foryBytes);
 
             long durMs = System.currentTimeMillis() - startMs;
             log.debug("Saved TreeSitter Snapshot (state + cache view) to {} in {} ms", file, durMs);
@@ -184,11 +178,7 @@ public final class TreeSitterStateIO {
             var dto = new SnapshotDto(SCHEMA_VERSION, asd, null);
             byte[] foryBytes = FORY.serialize(dto);
 
-            AtomicWrites.save(file, out -> {
-                try (GZIPOutputStream gzipOut = new GZIPOutputStream(out)) {
-                    gzipOut.write(foryBytes);
-                }
-            });
+            AtomicWrites.save(file, foryBytes);
 
             long durMs = System.currentTimeMillis() - startMs;
             log.debug("Saved TreeSitter Snapshot (state only) to {} in {} ms", file, durMs);
@@ -222,21 +212,15 @@ public final class TreeSitterStateIO {
     @Blocking
     static void saveRawSnapshotForTest(SnapshotDto dto, Path file) throws IOException {
         byte[] foryBytes = FORY.serialize(dto);
-        AtomicWrites.save(file, out -> {
-            try (GZIPOutputStream gzipOut = new GZIPOutputStream(out)) {
-                gzipOut.write(foryBytes);
-            }
-        });
+        AtomicWrites.save(file, foryBytes);
     }
 
     @Blocking
     static Optional<SnapshotDto> loadRaw(Path file) throws IOException {
         if (!Files.exists(file)) return Optional.empty();
-        try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
-            byte[] bytes = in.readAllBytes();
-            // NB: This is nullable
-            return Optional.ofNullable(FORY.deserialize(bytes, SnapshotDto.class));
-        }
+        byte[] bytes = Files.readAllBytes(file);
+        // NB: This is nullable
+        return Optional.ofNullable(FORY.deserialize(bytes, SnapshotDto.class));
     }
 
     /**
@@ -276,12 +260,9 @@ public final class TreeSitterStateIO {
         }
         long startMs = System.currentTimeMillis();
         try {
-            byte[] gunzipped;
-            try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
-                gunzipped = in.readAllBytes();
-            }
+            byte[] bytes = Files.readAllBytes(file);
 
-            SnapshotDto top = FORY.deserialize(gunzipped, SnapshotDto.class);
+            SnapshotDto top = FORY.deserialize(bytes, SnapshotDto.class);
 
             if (!isSchemaVersionLoadable(top.schemaVersion())) {
                 log.debug(

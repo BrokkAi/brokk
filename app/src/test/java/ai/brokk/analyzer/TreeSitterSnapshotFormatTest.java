@@ -43,7 +43,7 @@ public class TreeSitterSnapshotFormatTest {
                             List.of("test-sig"));
             var cacheSnapshot = cache.snapshot();
 
-            Path out = tempDir.resolve("snapshot_with_cache.bin.gz");
+            Path out = tempDir.resolve("snapshot_with_cache.bin");
             TreeSitterStateIO.save(state, cacheSnapshot, out);
 
             assertTrue(Files.exists(out), "Snapshot file should have been written");
@@ -78,7 +78,7 @@ public class TreeSitterSnapshotFormatTest {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             var state = analyzer.snapshotState();
 
-            Path out = tempDir.resolve("snapshot_no_cache.bin.gz");
+            Path out = tempDir.resolve("snapshot_no_cache.bin");
             TreeSitterStateIO.save(state, out); // uses overload without cache
 
             assertTrue(Files.exists(out));
@@ -94,6 +94,28 @@ public class TreeSitterSnapshotFormatTest {
             // Verify load() returns the state even without cache
             var loadedStateOpt = TreeSitterStateIO.load(out);
             assertTrue(loadedStateOpt.isPresent(), "load() should return AnalyzerState for saved snapshot");
+        }
+    }
+
+    @Test
+    void snapshotSavedWithNewFormatIsNotGzipped(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code("public class GzipTest { }", "GzipTest.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            Path out = tempDir.resolve("test.bin");
+            TreeSitterStateIO.save(analyzer.snapshotState(), out);
+
+            assertTrue(Files.exists(out));
+
+            // Verify it's NOT gzipped. GZIP header is 0x1f 0x8b.
+            byte[] bytes = Files.readAllBytes(out);
+            assertTrue(bytes.length > 2);
+            assertFalse(bytes[0] == (byte) 0x1f && bytes[1] == (byte) 0x8b, "File should not have GZIP header");
+
+            // Verify it still loads
+            var loaded = TreeSitterStateIO.load(out);
+            assertTrue(loaded.isPresent(), "Should load non-gzipped snapshot");
         }
     }
 
@@ -121,7 +143,7 @@ public class TreeSitterSnapshotFormatTest {
                                     .next(),
                             List.of("v1-sig"));
 
-            Path originalPath = tempDir.resolve("original_v1.bin.gz");
+            Path originalPath = tempDir.resolve("original_v1.bin");
             TreeSitterStateIO.save(state, cache.snapshot(), originalPath);
 
             // Load the raw DTO to mutate it
@@ -132,7 +154,7 @@ public class TreeSitterSnapshotFormatTest {
             // Create a mutated version with a major version bump (1.0.0 -> 2.0.0)
             var mutated = new TreeSitterStateIO.SnapshotDto("2.0.0", raw.analyzerState(), raw.cacheSnapshot());
 
-            Path mutatedPath = tempDir.resolve("mutated_v2.bin.gz");
+            Path mutatedPath = tempDir.resolve("mutated_v2.bin");
             TreeSitterStateIO.saveRawSnapshotForTest(mutated, mutatedPath);
 
             // Verify that loadWithCache returns empty due to major version mismatch
