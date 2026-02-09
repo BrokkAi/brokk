@@ -3,7 +3,6 @@ package ai.brokk;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -459,10 +458,14 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         jvmNode.put("maxMemory", runtime.maxMemory());
         jvmNode.put("freeMemory", runtime.freeMemory());
         jvmNode.put("version", System.getProperty("java.version", "unknown"));
-        jvmNode.put("fullVersion", String.format("%s %s (%s)",
-                System.getProperty("java.runtime.name", "unknown"),
-                System.getProperty("java.runtime.version", System.getProperty("java.version", "unknown")),
-                System.getProperty("java.vendor", "unknown")));
+        jvmNode.put(
+                "fullVersion",
+                String.format(
+                        "%s %s (%s)",
+                        System.getProperty("java.runtime.name", "unknown"),
+                        System.getProperty("java.runtime.version", System.getProperty("java.version", "unknown")),
+                        System.getProperty("java.vendor", "unknown")));
+        jvmNode.put("isJdk", isJdk());
         fieldsNode.set("jvm", jvmNode);
 
         jsonBody.set("context", fieldsNode);
@@ -482,6 +485,23 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             String responseBody = response.body() != null ? response.body().string() : "{}";
             LogManager.getLogger(Service.class).debug("Exception reported successfully to server: {}", responseBody);
             return objectMapper.readTree(responseBody);
+        }
+    }
+
+    /**
+     * Detects whether the current runtime is a JDK (has compiler) or JRE (runtime only).
+     * Uses reflection to check for javax.tools.ToolProvider because:
+     * - We build with JDK but support running on either JDK or JRE
+     * - Direct import would cause NoClassDefFoundError when Service loads on JRE
+     * - Reflection delays class loading until runtime check, returning false on JRE
+     */
+    private static boolean isJdk() {
+        try {
+            Class<?> toolProvider = Class.forName("javax.tools.ToolProvider");
+            var method = toolProvider.getMethod("getSystemJavaCompiler");
+            return method.invoke(null) != null;
+        } catch (Exception e) {
+            return false;
         }
     }
 

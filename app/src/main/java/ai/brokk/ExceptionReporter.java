@@ -68,8 +68,7 @@ public class ExceptionReporter {
     @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
         // Enrich with standard telemetry (preserve caller values if provided)
-        var enriched = new HashMap<>(optionalFields);
-        enriched.putIfAbsent("watchService", Environment.getActiveWatchServiceImpl());
+        var enriched = enrichFields(optionalFields);
 
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
@@ -247,6 +246,31 @@ public class ExceptionReporter {
             var cm = activeWindow.getContextManager();
             cm.reportException(throwable);
         });
+    }
+
+    /**
+     * Enriches the provided fields with standard telemetry data.
+     * Uses putIfAbsent to preserve any caller-provided values.
+     *
+     * @param originalFields The original fields from the caller
+     * @return A new map with enriched telemetry fields
+     */
+    private static Map<String, String> enrichFields(Map<String, String> originalFields) {
+        var enriched = new HashMap<>(originalFields);
+
+        // Add watch service telemetry (but don't overwrite caller-provided values)
+        enriched.putIfAbsent("activeWatchServiceImpl", Environment.getActiveWatchServiceImpl());
+
+        // Launch mode detection
+        String jdeployLauncher = System.getProperty("jdeploy.launcher.path");
+        if (jdeployLauncher != null) {
+            enriched.putIfAbsent("launchMode", "jdeploy");
+            enriched.putIfAbsent("jdeployLauncherPath", jdeployLauncher);
+        } else {
+            enriched.putIfAbsent("launchMode", "other");
+        }
+
+        return enriched;
     }
 
     /**
