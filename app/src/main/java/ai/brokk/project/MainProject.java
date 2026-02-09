@@ -721,7 +721,7 @@ public final class MainProject extends AbstractProject {
     public Set<Language> getAnalyzerLanguages() {
         String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
         if (langsProp != null && !langsProp.isBlank()) {
-            return Arrays.stream(langsProp.split(","))
+            Set<Language> parsed = Arrays.stream(langsProp.split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
                     .map(langName -> {
@@ -734,6 +734,11 @@ public final class MainProject extends AbstractProject {
                     })
                     .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
+
+            if (parsed.isEmpty()) {
+                return Set.of(Languages.NONE);
+            }
+            return parsed;
         }
 
         Set<Language> detectedLanguages = new HashSet<>();
