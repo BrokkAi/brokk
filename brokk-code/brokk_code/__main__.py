@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 def main():
-    parser = argparse.ArgumentParser(description="Brokk TUI - Interactive Terminal Interface")
+    parser = argparse.ArgumentParser(description="Brokk Code - Interactive Terminal Interface")
     parser.add_argument(
         "--workspace", 
         type=str, 
@@ -19,7 +19,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        from brokk_tui.app import BrokkApp
+        from brokk_code.app import BrokkApp
         
         workspace_path = Path(args.workspace).resolve()
         if not workspace_path.exists():

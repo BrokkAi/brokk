@@ -8,10 +8,10 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Header, Footer
 
-from brokk_tui.executor import ExecutorError, ExecutorManager
-from brokk_tui.widgets.chat_panel import ChatPanel
-from brokk_tui.widgets.context_panel import ContextPanel
-from brokk_tui.widgets.tasklist_panel import TaskListPanel
+from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.widgets.chat_panel import ChatPanel
+from brokk_code.widgets.context_panel import ContextPanel
+from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 class BrokkApp(App):
     """The main Brokk TUI application."""

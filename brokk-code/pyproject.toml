@@ -1,5 +1,5 @@
 [project]
-name = "brokk-tui"
+name = "brokk-code"
 version = "0.1.0"
 description = "A Textual-based TUI for Brokk"
 requires-python = ">=3.11"
@@ -15,7 +15,7 @@ dev = [
 ]
 
 [project.scripts]
-brokk = "brokk_tui.__main__:main"
+brokk = "brokk_code.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

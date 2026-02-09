@@ -1,4 +1,4 @@
-# Brokk TUI
+# Brokk Code
 
 A Textual-based Terminal User Interface for interacting with the Brokk Headless Executor.
 
@@ -21,14 +21,14 @@ For local development, you can build the JAR manually:
 **Using uv (recommended):**
 
 ```bash
-cd brokk-tui
+cd brokk-code
 uv sync
 ```
 
 **Using pip:**
 
 ```bash
-cd brokk-tui
+cd brokk-code
 pip install -e .
 ```
 
