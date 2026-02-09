@@ -339,6 +339,27 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                                 sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
             }
 
+            case TUPLE_TYPE -> {
+                // Tuple types like (A, B) - extract the first element for naming
+                // The tuple_type node has children that are the element types
+                if (typeNode.getChildCount() > 0) {
+                    for (int i = 0; i < typeNode.getChildCount(); i++) {
+                        TSNode child = typeNode.getChild(i);
+                        if (child != null && !child.isNull()) {
+                            String childType = child.getType();
+                            // Skip punctuation like '(' ',' ')'
+                            if (!childType.equals("(") && !childType.equals(")") && !childType.equals(",")) {
+                                Optional<String> extracted = extractCoreTypeName(child, sourceContent);
+                                if (extracted.isPresent()) {
+                                    yield extracted;
+                                }
+                            }
+                        }
+                    }
+                }
+                yield Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+            }
+
             default -> {
                 String text = sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
                 log.debug("extractCoreTypeName: unhandled node type '{}', using full text '{}'", nodeType, text);
