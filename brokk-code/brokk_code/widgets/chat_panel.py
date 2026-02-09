@@ -1,11 +1,12 @@
 from typing import Optional
+
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.message import Message
 from textual.widgets import Input, RichLog
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.text import Text
 
 
 class ChatPanel(Vertical):

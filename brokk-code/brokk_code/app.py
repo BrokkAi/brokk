@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
-from textual.widgets import Header, Footer
+from textual.widgets import Footer, Header
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.widgets.chat_panel import ChatPanel
@@ -84,7 +84,7 @@ class BrokkApp(App):
             context_data = await self.executor.get_context()
             self.query_one(ContextPanel).refresh_context(context_data)
             self.query_one(TaskListPanel).refresh_tasklist(context_data)
-        except Exception as e:
+        except Exception:
             # Silently fail for background refreshes unless panel is visible?
             # For now, just log or ignore to avoid spamming the chat
             pass

@@ -1,8 +1,9 @@
 from typing import Any, Dict, Optional
-from textual.app import ComposeResult
-from textual.widgets import Static, Label
-from textual.containers import Vertical, VerticalScroll
+
 from rich.text import Text
+from textual.app import ComposeResult
+from textual.containers import Vertical, VerticalScroll
+from textual.widgets import Label, Static
 
 
 class TaskListPanel(Vertical):

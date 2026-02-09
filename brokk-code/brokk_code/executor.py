@@ -1,9 +1,8 @@
 import asyncio
-import json
 import logging
 import uuid
 from pathlib import Path
-from typing import AsyncIterator, Optional, Dict, Any
+from typing import Any, AsyncIterator, Dict, Optional
 
 import httpx
 
@@ -140,12 +139,14 @@ class ExecutorManager:
             )
         except FileNotFoundError:
             raise ExecutorError(
-                "Java executable not found. Please ensure JDK 21+ is installed and 'java' is in your PATH."
+                "Java executable not found. "
+                "Please ensure JDK 21+ is installed and 'java' is in your PATH."
             )
 
         # Parse stdout for the listening URL
         port = None
-        # We use a timeout for the initial port readout to avoid hanging if the JAR crashes immediately
+        # We use a timeout for the initial port readout to avoid hanging
+        # if the JAR crashes immediately
         while True:
             try:
                 line_bytes = await asyncio.wait_for(self._process.stdout.readline(), timeout=10.0)

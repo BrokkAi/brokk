@@ -1,8 +1,9 @@
 from typing import Any, Dict, List
-from textual.app import ComposeResult
-from textual.widgets import Static, ListView, ListItem, Label
-from textual.containers import Vertical
+
 from rich.text import Text
+from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.widgets import Label, ListItem, ListView
 
 
 class ContextFragmentItem(ListItem):
