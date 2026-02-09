@@ -77,6 +77,11 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             return;
         }
         try {
+            var queryParams =
+                    RouterUtil.parseQueryParams(exchange.getRequestURI().getQuery());
+            var tokensParam = queryParams.getOrDefault("tokens", "false");
+            boolean includeTokens = "true".equalsIgnoreCase(tokensParam) || "1".equals(tokensParam);
+
             var live = contextManager.liveContext();
             var fragments = live.getAllFragmentsInDisplayOrder();
 
@@ -94,7 +99,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 map.put("valid", fragment.isValid());
                 map.put("editable", fragment.getType().isEditable());
 
-                int tokens = estimateFragmentTokens(fragment);
+                int tokens = includeTokens ? estimateFragmentTokens(fragment) : 0;
                 map.put("tokens", tokens);
                 totalUsedTokens += tokens;
 
@@ -105,7 +110,8 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             var response = Map.of(
                     "fragments", fragmentList,
                     "usedTokens", totalUsedTokens,
-                    "maxTokens", maxTokens);
+                    "maxTokens", maxTokens,
+                    "tokensEstimated", includeTokens);
 
             SimpleHttpServer.sendJsonResponse(exchange, response);
         } catch (Exception e) {
