@@ -43,3 +43,4 @@ def test_action_toggle_mode_handles_unknown_mode():
     # Should default to first mode in cycle after first (index 0 + 1)
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
+    assert app.sub_title == "Mode: ASK"
