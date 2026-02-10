@@ -31,6 +31,7 @@ class ChatPanel(Vertical):
         self.response_active: bool = False
         self._last_token_time: float = 0
         self._inactivity_timeout: float = 10.0
+        self._get_now = time.time
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
@@ -57,7 +58,7 @@ class ChatPanel(Vertical):
         """Called when the first token of a response (or new message in stream) arrives."""
         self.response_pending = False
         self.response_active = True
-        self._last_token_time = time.time()
+        self._last_token_time = self._get_now()
         self._show_spinner(False)
 
     def set_response_finished(self) -> None:
@@ -78,11 +79,15 @@ class ChatPanel(Vertical):
         """Re-shows spinner if no tokens arrive for a while during an active stream."""
         while self.response_active:
             await asyncio.sleep(1.0)
-            if (
-                self.response_active
-                and (time.time() - self._last_token_time) > self._inactivity_timeout
-            ):
-                self._show_spinner(True)
+            self._check_inactivity()
+
+    def _check_inactivity(self) -> None:
+        """Internal check to update spinner based on time since last token."""
+        if (
+            self.response_active
+            and (self._get_now() - self._last_token_time) > self._inactivity_timeout
+        ):
+            self._show_spinner(True)
 
     def append_token(
         self,
@@ -93,7 +98,7 @@ class ChatPanel(Vertical):
         is_terminal: bool,
     ) -> None:
         """Appends a token to the current buffer and handles rendering transitions."""
-        self._last_token_time = time.time()
+        self._last_token_time = self._get_now()
         self._show_spinner(False)
 
         if is_new_message:

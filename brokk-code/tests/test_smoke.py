@@ -595,3 +595,56 @@ def test_chat_panel_lifecycle_states():
     panel.set_response_finished()
     assert not panel.response_pending
     assert not panel.response_active
+
+
+def test_chat_panel_spinner_transitions():
+    """Verify spinner visibility during various response lifecycle stages."""
+    from unittest.mock import MagicMock
+
+    from textual.widgets import LoadingIndicator, RichLog
+
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    panel = ChatPanel()
+    mock_log = MagicMock(spec=RichLog)
+    mock_spinner = MagicMock(spec=LoadingIndicator)
+
+    def mock_query_one(selector, cls=None):
+        if selector == "#chat-log":
+            return mock_log
+        if selector == "#chat-spinner":
+            return mock_spinner
+        return None
+
+    panel.query_one = mock_query_one
+
+    # 1. Simulate prompt submission -> spinner shown
+    panel.set_response_pending()
+    mock_spinner.remove_class.assert_called_with("hidden")
+
+    # 2. Simulate first token arrival -> spinner hidden
+    # Setup mock time for inactivity test
+    current_time = 1000.0
+    panel._get_now = lambda: current_time
+    panel.append_token("Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=False)
+    mock_spinner.add_class.assert_called_with("hidden")
+
+    # 3. Simulate inactivity while stream active -> spinner shown again
+    # Advance time beyond inactivity timeout (default 10s)
+    current_time += 15.0
+    panel._check_inactivity()
+    # verify remove_class("hidden") was called (it was called during set_response_pending too,
+    # but append_token added "hidden" back)
+    assert mock_spinner.remove_class.call_args_list[-1][0][0] == "hidden"
+
+    # 4. Simulate token arrival after inactivity -> spinner hidden again
+    panel.append_token(" world", "AI", is_new_message=False, is_reasoning=False, is_terminal=False)
+    assert mock_spinner.add_class.call_args_list[-1][0][0] == "hidden"
+
+    # 5. Simulate terminal token -> spinner remains hidden (or explicitly hidden)
+    panel.append_token("!", "AI", is_new_message=False, is_reasoning=False, is_terminal=True)
+    assert mock_spinner.add_class.call_args_list[-1][0][0] == "hidden"
+
+    # 6. Final finish state
+    panel.set_response_finished()
+    assert mock_spinner.add_class.call_args_list[-1][0][0] == "hidden"
