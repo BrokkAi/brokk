@@ -806,6 +806,50 @@ def test_download_jar_latest_snapshot_mode_paging(tmp_path, monkeypatch):
     assert 2 in fake_client.requested_pages
 
 
+def test_download_jar_snapshot_prefers_snapshot_tag(tmp_path, monkeypatch):
+    """Verify snapshot mode picks a snapshot tag over a newer stable tag."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    releases_payload = [
+        {"tag_name": "v3.0.0", "assets": []},  # Newer stable
+        {
+            "tag_name": "v2.9.0-snapshot",
+            "assets": [
+                {
+                    "name": "brokk.jar",
+                    "browser_download_url": "https://example.invalid/snap.jar",
+                }
+            ],
+        },
+    ]
+
+    class FakeResponse:
+        def __init__(self, json_data=None, content=b""):
+            self._json_data = json_data
+            self.content = content
+            self.status_code = 200
+
+        def raise_for_status(self): pass
+        def json(self): return self._json_data
+
+    class FakeClient:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def get(self, url, params=None):
+            if "/releases" in url:
+                return FakeResponse(json_data=releases_payload if params.get("page") == 1 else [])
+            return FakeResponse(content=b"snapshot-bytes")
+
+    monkeypatch.setattr(httpx, "Client", lambda **kw: FakeClient())
+
+    executor = ExecutorManager(workspace_dir=tmp_path, executor_snapshot=True)
+    jar_path = executor._download_jar(None)
+
+    # Should have picked the snapshot tag despite v3.0.0 being "first" (latest)
+    assert "brokk-snapshot.jar" in str(jar_path)
+    assert jar_path.read_bytes() == b"snapshot-bytes"
+
+
 def test_chat_panel_no_markup_crash():
     """Verify ChatPanel methods don't crash when text contains Rich markup characters."""
     from unittest.mock import MagicMock

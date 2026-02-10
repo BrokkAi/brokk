@@ -103,51 +103,63 @@ class ExecutorManager:
             self.use_snapshot,
         )
         try:
+            target_release: Optional[Dict[str, Any]] = None
+            all_fetched_releases: List[Dict[str, Any]] = []
+
             with httpx.Client(follow_redirects=True, timeout=30.0) as client:
-                response = client.get(api_url)
-                response.raise_for_status()
-                releases = response.json()
+                page = 1
+                while True:
+                    response = client.get(api_url, params={"per_page": 100, "page": page})
+                    response.raise_for_status()
+                    releases = response.json()
+                    if not releases:
+                        break
+                    all_fetched_releases.extend(releases)
 
-                if self.use_snapshot:
-                    all_tags = [r.get("tag_name", "") for r in releases]
-                    logger.info("Available releases (snapshot mode): %s", all_tags)
-
-                target_release: Optional[Dict[str, Any]] = None
-                if requested:
-                    for release in releases:
-                        if release.get("tag_name") == requested:
-                            target_release = release
-                            break
-                    if not target_release:
-                        available = [r.get("tag_name", "") for r in releases]
-                        raise ExecutorError(
-                            "Executor release tag not found on GitHub: "
-                            f"tag='{requested}'. Available tags: {available}"
+                    if requested:
+                        target_release = next(
+                            (r for r in releases if r.get("tag_name") == requested), None
                         )
-                else:
-                    if self.use_snapshot:
-                        # In snapshot mode, just take the first release (no filtering)
-                        if releases:
-                            target_release = releases[0]
-                            logger.info(
-                                "Using first available release (snapshot mode): %s",
-                                target_release.get("tag_name", "unknown"),
-                            )
+                    elif self.use_snapshot:
+                        # Preferred snapshot selection: first one with 'snapshot' in tag
+                        target_release = next(
+                            (r for r in releases if "snapshot" in r.get("tag_name", "").lower()),
+                            None,
+                        )
                     else:
-                        # In normal mode, skip releases with "snapshot" in the name
-                        for release in releases:
-                            tag_name = release.get("tag_name", "")
-                            if "snapshot" not in tag_name.lower():
-                                target_release = release
-                                break
-
-                    if not target_release:
-                        mode = "snapshot" if self.use_snapshot else "non-snapshot"
-                        available = [r.get("tag_name", "") for r in releases]
-                        raise ExecutorError(
-                            f"No suitable release found on GitHub (mode={mode}). "
-                            f"Available: {available}"
+                        # Stable selection: first one WITHOUT 'snapshot' in tag
+                        target_release = next(
+                            (
+                                r
+                                for r in releases
+                                if "snapshot" not in r.get("tag_name", "").lower()
+                            ),
+                            None,
                         )
+
+                    if target_release:
+                        break
+                    page += 1
+
+                if not target_release and not requested and self.use_snapshot:
+                    # Fallback for snapshot mode: if no explicit snapshot tag found, take the latest
+                    if all_fetched_releases:
+                        target_release = all_fetched_releases[0]
+                        logger.info(
+                            "No explicit snapshot tag found; falling back to latest: %s",
+                            target_release.get("tag_name"),
+                        )
+
+                if not target_release:
+                    available = [r.get("tag_name", "") for r in all_fetched_releases]
+                    if requested:
+                        raise ExecutorError(
+                            f"Executor release tag not found: '{requested}'. Available: {available}"
+                        )
+                    mode = "snapshot" if self.use_snapshot else "stable"
+                    raise ExecutorError(
+                        f"No suitable {mode} release found on GitHub. Available: {available}"
+                    )
 
                 assets = target_release.get("assets", [])
                 jar_asset: Optional[Dict[str, Any]] = None
