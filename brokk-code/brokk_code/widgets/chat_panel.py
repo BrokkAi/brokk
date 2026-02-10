@@ -84,15 +84,24 @@ class ChatPanel(Vertical):
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
-        if not self.query_one("#chat-input", ChatInput).has_focus:
+        chat_input = self.query_one("#chat-input", ChatInput)
+        if not chat_input.has_focus:
+            return
+
+        # Only trigger history navigation if there is no selection
+        if not chat_input.selection.is_empty:
             return
 
         if event.key == "up":
-            self._navigate_history(-1)
-            event.prevent_default()
+            # Only navigate history if at the start of the text
+            if chat_input.cursor_at_start_of_text:
+                self._navigate_history(-1)
+                event.prevent_default()
         elif event.key == "down":
-            self._navigate_history(1)
-            event.prevent_default()
+            # Only navigate history if at the end of the text
+            if chat_input.cursor_at_end_of_text:
+                self._navigate_history(1)
+                event.prevent_default()
 
     def _navigate_history(self, delta: int) -> None:
         """

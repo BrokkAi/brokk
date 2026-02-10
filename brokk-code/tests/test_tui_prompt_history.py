@@ -142,27 +142,35 @@ async def test_tui_history_navigation(tmp_path):
         await pilot.click("#chat-input")
         await type_text(pilot, "draft text")
 
+        # Ensure cursor is at start for Up navigation
+        chat_input_widget = app.query_one("#chat-input")
+        chat_input_widget.cursor_location = (0, 0)
+
         # Up once -> second prompt
         await pilot.press("up")
         await pilot.pause()
-        assert app.query_one("#chat-input").text == "second prompt"
+        assert chat_input_widget.text == "second prompt"
 
         # Up again -> first prompt
+        chat_input_widget.cursor_location = (0, 0)
         await pilot.press("up")
         await pilot.pause()
-        assert app.query_one("#chat-input").text == "first prompt"
+        assert chat_input_widget.text == "first prompt"
 
         # Up again -> stays at first prompt (boundary)
+        chat_input_widget.cursor_location = (0, 0)
         await pilot.press("up")
-        assert app.query_one("#chat-input").text == "first prompt"
+        assert chat_input_widget.text == "first prompt"
 
         # Down -> second prompt
+        chat_input_widget.move_cursor(chat_input_widget.document.end)
         await pilot.press("down")
-        assert app.query_one("#chat-input").text == "second prompt"
+        assert chat_input_widget.text == "second prompt"
 
         # Down -> draft text
+        chat_input_widget.move_cursor(chat_input_widget.document.end)
         await pilot.press("down")
-        assert app.query_one("#chat-input").text == "draft text"
+        assert chat_input_widget.text == "draft text"
 
 
 @pytest.mark.asyncio
@@ -197,38 +205,49 @@ async def test_tui_history_navigation_complex(tmp_path):
         await type_text(pilot, "draft")
         assert chat_input.value == "draft"
 
+        # Start a draft. Cursor is at the end after typing.
+        # To trigger Up navigation from non-empty draft, must move to start.
+        chat_input.cursor_location = (0, 0)
+
         # Up x1 -> "three"
         await pilot.press("up")
         await pilot.pause()
         assert chat_input.text == "three"
 
         # Up x1 -> "two"
+        chat_input.cursor_location = (0, 0)
         await pilot.press("up")
         await pilot.pause()
         assert chat_input.text == "two"
 
         # Up x1 -> "one"
+        chat_input.cursor_location = (0, 0)
         await pilot.press("up")
         await pilot.pause()
         assert chat_input.text == "one"
 
         # Up x1 -> stays at "one"
+        chat_input.cursor_location = (0, 0)
         await pilot.press("up")
         assert chat_input.text == "one"
 
         # Down x1 -> "two"
+        chat_input.move_cursor(chat_input.document.end)
         await pilot.press("down")
         assert chat_input.text == "two"
 
         # Down x1 -> "three"
+        chat_input.move_cursor(chat_input.document.end)
         await pilot.press("down")
         assert chat_input.text == "three"
 
         # Down x1 -> "draft"
+        chat_input.move_cursor(chat_input.document.end)
         await pilot.press("down")
         assert chat_input.text == "draft"
 
         # Down x1 -> stays at "draft"
+        chat_input.move_cursor(chat_input.document.end)
         await pilot.press("down")
         assert chat_input.text == "draft"
 
@@ -259,13 +278,16 @@ async def test_tui_history_duplicates(tmp_path):
         await pilot.click("#chat-input")
 
         # Up 1 -> "a"
+        chat_input.cursor_location = (0, 0)
         await pilot.press("up")
         assert chat_input.text == "a"
 
         # Up 2 -> "b"
+        chat_input.cursor_location = (0, 0)
         await pilot.press("up")
         assert chat_input.text == "b"
 
         # Up 3 -> "a"
+        chat_input.cursor_location = (0, 0)
         await pilot.press("up")
         assert chat_input.text == "a"
