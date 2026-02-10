@@ -11,6 +11,10 @@ DEFAULT_THEME = "textual-dark"
 _LEGACY_THEME_ALIASES = {
     "builtin:dark": "textual-dark",
     "builtin:light": "textual-light",
+    "dark": "textual-dark",
+    "light": "textual-light",
+    "brokk-dark": "textual-dark",
+    "brokk-light": "textual-light",
 }
 
 

@@ -62,6 +62,29 @@ def test_app_theme_cycling(tmp_path, monkeypatch):
         assert app.theme == expected_theme
 
 
+def test_theme_normalization(tmp_path, monkeypatch):
+    """Verify legacy theme names are correctly normalized."""
+    from brokk_code.settings import normalize_theme_name, Settings
+
+    # Test direct normalization
+    assert normalize_theme_name("builtin:dark") == "textual-dark"
+    assert normalize_theme_name("dark") == "textual-dark"
+    assert normalize_theme_name("brokk-light") == "textual-light"
+    assert normalize_theme_name("unknown") == "unknown"
+
+    # Test loading from file with legacy name
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    from brokk_code.settings import SETTINGS_FILE, SETTINGS_DIR
+    SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    
+    import json
+    with SETTINGS_FILE.open("w") as f:
+        json.dump({"theme": "brokk-dark"}, f)
+    
+    settings = Settings.load()
+    assert settings.theme == "textual-dark"
+
+
 def test_app_theme_commands(tmp_path, monkeypatch):
     """Verify /theme commands update settings and app state."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
