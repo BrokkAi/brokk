@@ -143,14 +143,10 @@ public class Context {
                 .toList();
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
-        var result = new LinkedHashMap<ProjectFile, String>();
-        for (var pf : candidates) {
-            var summary = analyzer.summarizeSymbols(pf);
-            if (!summary.isBlank()) {
-                result.put(pf, summary);
-            }
-        }
-        return result;
+        return candidates.parallelStream()
+                .map(pf -> Map.entry(pf, analyzer.summarizeSymbols(pf)))
+                .filter(e -> !e.getValue().isBlank())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a));
     }
 
     public static UUID newContextId() {

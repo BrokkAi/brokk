@@ -23,6 +23,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -547,8 +548,7 @@ public class SearchPrompts {
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
             List<ChatMessage> sessionMessages,
-            Set<ProjectFile> presentedRelatedFiles)
-            throws InterruptedException {
+            Map<ProjectFile, String> relatedSymbols) {
 
         var cm = context.getContextManager();
         var inputLimit = cm.getService().getMaxInputTokens(model);
@@ -580,10 +580,8 @@ public class SearchPrompts {
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)
-        var related = context.buildRelatedSymbols(10, 20, presentedRelatedFiles);
-        presentedRelatedFiles.addAll(related.keySet());
-        if (!related.isEmpty()) {
-            var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
+        if (!relatedSymbols.isEmpty()) {
+            var relatedBlock = ArchitectPrompts.formatRelatedFiles(relatedSymbols);
             messages.add(new UserMessage(
                     """
                     <related_files>

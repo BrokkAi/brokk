@@ -119,7 +119,6 @@ public class SearchAgent {
     private boolean terminalCompletionReported = false;
 
     private final SearchPrompts.Objective objective;
-    private final Set<ProjectFile> presentedRelatedFiles = new HashSet<>();
 
     SearchState currentState;
     private SearchState checkpointState;
@@ -352,13 +351,19 @@ public class SearchAgent {
                 }
                 case TurnOutcome.Continue c -> {
                     currentState = new SearchState(
-                            c.contextAfterTurn(), c.sessionMessagesAfterTurn(), stateAtTurnStart.context());
+                            c.contextAfterTurn(),
+                            c.sessionMessagesAfterTurn(),
+                            stateAtTurnStart.context(),
+                            stateAtTurnStart.presentedRelatedFiles());
                     checkpointState = stateAtTurnStart;
                     dropOnlyMode = false;
                 }
                 case TurnOutcome.PendingTerminal pt -> {
                     currentState = new SearchState(
-                            pt.contextAfterTurn(), pt.sessionMessagesAfterTurn(), stateAtTurnStart.lastTurnContext());
+                            pt.contextAfterTurn(),
+                            pt.sessionMessagesAfterTurn(),
+                            stateAtTurnStart.lastTurnContext(),
+                            stateAtTurnStart.presentedRelatedFiles());
                     pendingTerminal = pt.pendingTerminal();
                     dropOnlyMode = true;
                 }
@@ -857,6 +862,13 @@ public class SearchAgent {
         private TurnPrompt preparePrompt() throws InterruptedException {
             wst.setContext(context);
 
+            var related = context.buildRelatedSymbols(10, 20, agent.currentState.presentedRelatedFiles());
+            if (!related.isEmpty()) {
+                Set<ProjectFile> updatedRelated = new HashSet<>(agent.currentState.presentedRelatedFiles());
+                updatedRelated.addAll(related.keySet());
+                agent.currentState = agent.currentState.withPresentedRelatedFiles(updatedRelated);
+            }
+
             var messages = SearchPrompts.instance.buildPrompt(
                     context,
                     agent.model,
@@ -865,7 +877,7 @@ public class SearchAgent {
                     agent.getObjective(),
                     agent.mcpTools,
                     sessionMessages,
-                    agent.presentedRelatedFiles);
+                    related);
 
             if (dropOnlyMode) {
                 context = agent.resetPinsToOriginal(context);
