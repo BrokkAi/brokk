@@ -9,10 +9,6 @@ import static dev.langchain4j.model.chat.request.ResponseFormatType.TEXT;
 import static dev.langchain4j.model.openai.internal.chat.ResponseFormatType.JSON_OBJECT;
 import static dev.langchain4j.model.openai.internal.chat.ResponseFormatType.JSON_SCHEMA;
 import static dev.langchain4j.model.openai.internal.chat.ToolType.FUNCTION;
-import static dev.langchain4j.model.output.FinishReason.CONTENT_FILTER;
-import static dev.langchain4j.model.output.FinishReason.LENGTH;
-import static dev.langchain4j.model.output.FinishReason.STOP;
-import static dev.langchain4j.model.output.FinishReason.TOOL_EXECUTION;
 import static java.lang.String.format;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
@@ -365,23 +361,37 @@ public class OpenAiUtils {
      *   distinguish "OpenAI provided a reason but we don't classify it" (OTHER) from "OpenAI provided no reason" (null).
      */
     public static FinishReason finishReasonFrom(String openAiFinishReason) {
+        // Mapping rules:
+        // - If OpenAI did not provide a finish_reason (null), preserve that and return null to indicate "not provided".
+        // - If OpenAI provided a non-null finish_reason string, map known values to the corresponding FinishReason
+        // enum.
+        // - For any non-null but unrecognized finish_reason string (including Opus- or model-specific variants),
+        //   return FinishReason.OTHER so metadata reflects that OpenAI supplied a reason while we don't classify it.
+        //
+        // Rationale:
+        // Returning OTHER for unknown non-null strings is backward-compatible and prevents dropping valid
+        // OpenAI-provided
+        // finish_reason values (which previously could become null). Callers can still distinguish "no reason provided"
+        // (null) from "reason provided but unrecognized" (OTHER).
         if (openAiFinishReason == null) {
             // preserve semantic: OpenAI didn't provide a reason
             return null;
         }
+
         switch (openAiFinishReason) {
             case "stop":
-                return STOP;
+                return FinishReason.STOP;
             case "length":
-                return LENGTH;
+                return FinishReason.LENGTH;
             case "tool_calls":
             case "function_call":
-                return TOOL_EXECUTION;
+                return FinishReason.TOOL_EXECUTION;
             case "content_filter":
-                return CONTENT_FILTER;
+                return FinishReason.CONTENT_FILTER;
             default:
-                // If OpenAI provided a non-null but unknown finish_reason (e.g., new model-specific string),
-                // return OTHER rather than null so metadata reflects that OpenAI supplied a reason.
+                // If OpenAI provided a non-null but unknown finish_reason (e.g., new model-specific string,
+                // opus variant, etc.), return OTHER rather than null so metadata reflects that OpenAI supplied a
+                // reason.
                 return FinishReason.OTHER;
         }
     }
