@@ -9,6 +9,17 @@ def test_settings_default_load(tmp_path, monkeypatch):
     # File doesn't exist
     settings = Settings.load()
     assert settings.theme == "textual-dark"
+    assert settings.prompt_history_size == 50
+
+
+def test_settings_prompt_history_persistence(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    settings = Settings(prompt_history_size=100)
+    settings.save()
+
+    loaded = Settings.load()
+    assert loaded.prompt_history_size == 100
 
 
 def test_settings_save_and_load(tmp_path, monkeypatch):

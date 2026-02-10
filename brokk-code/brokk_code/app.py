@@ -149,7 +149,9 @@ class BrokkApp(App):
         if text.startswith("/"):
             self._handle_command(text)
         elif text:
-            append_prompt(self.executor.workspace_dir, text)
+            append_prompt(
+                self.executor.workspace_dir, text, max_history=self.settings.prompt_history_size
+            )
             chat = self.query_one(ChatPanel)
             chat.add_user_message(text)
 

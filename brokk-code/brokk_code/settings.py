@@ -6,6 +6,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 DEFAULT_THEME = "textual-dark"
+DEFAULT_PROMPT_HISTORY_SIZE = 50
 _LEGACY_THEME_ALIASES = {
     "builtin:dark": "textual-dark",
     "builtin:light": "textual-light",
@@ -31,6 +32,7 @@ def settings_file() -> Path:
 @dataclass
 class Settings:
     theme: str = DEFAULT_THEME
+    prompt_history_size: int = DEFAULT_PROMPT_HISTORY_SIZE
 
     @classmethod
     def load(cls) -> "Settings":
