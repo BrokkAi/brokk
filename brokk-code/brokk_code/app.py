@@ -143,12 +143,12 @@ class BrokkApp(App):
         - Prompts are recorded at the moment of submission, regardless of whether
           they trigger a cancellation or are later aborted.
         - History is stored in the project-specific directory:
-          `self.executor.workspace_dir / ".brokk" / "prompts"`
+          `self.executor.workspace_dir / ".brokk" / "prompts.json"`
         """
         text = message.text.strip()
         if text.startswith("/"):
             self._handle_command(text)
-        else:
+        elif text:
             append_prompt(self.executor.workspace_dir, text)
             chat = self.query_one(ChatPanel)
             chat.add_user_message(text)
