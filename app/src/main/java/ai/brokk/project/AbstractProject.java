@@ -505,7 +505,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public Language computedBuildLanguage() {
+    public final synchronized Language computedBuildLanguage() {
         var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
         if (configured != null && !configured.isBlank()) {
             try {
@@ -515,9 +515,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             }
         }
         // If cache is populated, compute from it; otherwise return NONE
-        var currentCache = filesByRelPathCache;
-        if (currentCache != null) {
-            return computeMostCommonLanguage(currentCache.values());
+        if (filesByRelPathCache != null) {
+            return computeMostCommonLanguage(filesByRelPathCache.values());
         }
         return Languages.NONE;
     }
