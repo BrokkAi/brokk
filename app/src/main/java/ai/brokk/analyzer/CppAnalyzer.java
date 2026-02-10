@@ -943,7 +943,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
      * @return the template parameter list (e.g. "<typename T>"), or null if not a template
      */
     private @Nullable String buildCppTemplateSignature(TSNode node, SourceContent sourceContent) {
-        if (node == null || node.isNull()) return null;
+        if (node.isNull()) return null;
 
         // Template parameters are usually on the parent template_declaration node
         TSNode templateDecl = node.getParent();
