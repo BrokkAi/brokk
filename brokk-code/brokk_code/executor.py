@@ -523,6 +523,33 @@ class ExecutorManager:
                 # Force status check on next loop if we are idling
                 last_status_check = 0.0
 
+    async def _handle_http_error(self, e: httpx.HTTPError, endpoint: str) -> None:
+        """Centralized error handling for executor HTTP calls."""
+        response = getattr(e, "response", None)
+        status = getattr(response, "status_code", None)
+
+        if status == 404:
+            # Perform best-effort diagnostic to check version/protocol
+            diag_info = ""
+            try:
+                # Use base_url directly to avoid recursion if _http_client logic is complex
+                diag_resp = await self._http_client.get("/v1/executor")
+                if diag_resp.status_code == 200:
+                    data = diag_resp.json()
+                    ver = data.get("version", "unknown")
+                    p_ver = data.get("protocolVersion", "unknown")
+                    diag_info = f" (Executor Version: {ver}, Protocol: {p_ver})"
+            except Exception:
+                pass
+            raise ExecutorError(
+                f"Endpoint {endpoint} not found (404). Your executor version may be too old{diag_info}."
+            ) from e
+
+        status_str = str(status) if status is not None else "N/A"
+        raise ExecutorError(
+            f"Failed GET {endpoint} (status={status_str}): {type(e).__name__}: {e}"
+        ) from e
+
     async def get_context(self) -> Dict[str, Any]:
         """Returns the current session context."""
         if not self._http_client:
@@ -533,29 +560,8 @@ class ExecutorManager:
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as e:
-            response = getattr(e, "response", None)
-            status = getattr(response, "status_code", None)
-
-            if status == 404:
-                # Perform best-effort diagnostic to check version/protocol
-                diag_info = ""
-                try:
-                    diag_resp = await self._http_client.get("/v1/executor")
-                    if diag_resp.status_code == 200:
-                        data = diag_resp.json()
-                        ver = data.get("version", "unknown")
-                        p_ver = data.get("protocolVersion", "unknown")
-                        diag_info = f" (Executor Version: {ver}, Protocol: {p_ver})"
-                except Exception:
-                    pass
-                raise ExecutorError(
-                    f"Endpoint /v1/context not found (404). Your executor version may be too old{diag_info}."
-                ) from e
-
-            status_str = str(status) if status is not None else "N/A"
-            raise ExecutorError(
-                f"Failed GET /v1/context (status={status_str}): {type(e).__name__}: {e}"
-            ) from e
+            await self._handle_http_error(e, "/v1/context")
+            raise  # Should not be reached
 
     async def get_tasklist(self) -> Dict[str, Any]:
         """Returns the current task list data."""
@@ -567,29 +573,8 @@ class ExecutorManager:
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as e:
-            response = getattr(e, "response", None)
-            status = getattr(response, "status_code", None)
-
-            if status == 404:
-                # Perform best-effort diagnostic to check version/protocol
-                diag_info = ""
-                try:
-                    diag_resp = await self._http_client.get("/v1/executor")
-                    if diag_resp.status_code == 200:
-                        data = diag_resp.json()
-                        ver = data.get("version", "unknown")
-                        p_ver = data.get("protocolVersion", "unknown")
-                        diag_info = f" (Executor Version: {ver}, Protocol: {p_ver})"
-                except Exception:
-                    pass
-                raise ExecutorError(
-                    f"Endpoint /v1/tasklist not found (404). Your executor version may be too old{diag_info}."
-                ) from e
-
-            status_str = str(status) if status is not None else "N/A"
-            raise ExecutorError(
-                f"Failed GET /v1/tasklist (status={status_str}): {type(e).__name__}: {e}"
-            ) from e
+            await self._handle_http_error(e, "/v1/tasklist")
+            raise  # Should not be reached
 
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""

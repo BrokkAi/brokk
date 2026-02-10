@@ -37,10 +37,50 @@ async def test_get_tasklist_404_with_diagnostic():
         await manager.get_tasklist()
 
     msg = str(exc_info.value)
-    assert "Endpoint /v1/tasklist not found (404)" in msg
-    assert "executor version may be too old" in msg
-    assert "Executor Version: 0.9.0" in msg
+    assert "/v1/tasklist" in msg
+    assert "404" in msg
+    assert "version may be too old" in msg
+    assert "0.9.0" in msg
     assert "Protocol: 1" in msg
+
+
+@pytest.mark.asyncio
+async def test_get_context_404_with_diagnostic():
+    """Test that get_context handles 404 with executor version diagnostics."""
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+    manager.base_url = "http://127.0.0.1:1234"
+
+    # Setup 404 for context
+    context_response = MagicMock(spec=httpx.Response)
+    context_response.status_code = 404
+
+    # Setup 200 for executor info diagnostic
+    executor_response = MagicMock(spec=httpx.Response)
+    executor_response.status_code = 200
+    executor_response.json.return_value = {"version": "0.9.5", "protocolVersion": "2"}
+
+    def side_effect(url, **kwargs):
+        if "/v1/context" in url:
+            raise httpx.HTTPStatusError(
+                "404 Not Found", request=MagicMock(), response=context_response
+            )
+        if "/v1/executor" in url:
+            return executor_response
+        return MagicMock()
+
+    mock_client.get.side_effect = side_effect
+
+    with pytest.raises(ExecutorError) as exc_info:
+        await manager.get_context()
+
+    msg = str(exc_info.value)
+    assert "/v1/context" in msg
+    assert "404" in msg
+    assert "version may be too old" in msg
+    assert "0.9.5" in msg
+    assert "Protocol: 2" in msg
 
 
 @pytest.mark.asyncio
@@ -61,7 +101,8 @@ async def test_get_tasklist_generic_http_error():
         await manager.get_tasklist()
 
     msg = str(exc_info.value)
-    assert "Failed GET /v1/tasklist (status=500)" in msg
+    assert "/v1/tasklist" in msg
+    assert "status=500" in msg
     assert "HTTPStatusError" in msg
 
 

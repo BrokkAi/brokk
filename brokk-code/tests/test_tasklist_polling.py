@@ -72,6 +72,7 @@ async def test_tasklist_polling_updates_ui(tmp_path):
             # would have called it by checking the mock.
 
             from brokk_code.widgets.tasklist_panel import TaskListPanel
+
             panel = app.query_one(TaskListPanel)
             panel.update_tasklist_details(mock_tasklist)
 
