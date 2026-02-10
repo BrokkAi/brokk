@@ -46,6 +46,11 @@ async def test_spinner_and_timer_lifecycle():
         current_time += 65.0
         await asyncio.sleep(0.2) # Give worker time to loop
         assert str(timer_label.renderable) == "Elapsed: 01:05"
+
+        # Advance time to cross 1 hour (3600s + 65s = 3665s)
+        current_time += 3600.0
+        await asyncio.sleep(0.2)
+        assert str(timer_label.renderable) == "Elapsed: 01:01:05"
         
         # Append tokens - spinner should STAY visible
         panel.append_token("Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=False)
