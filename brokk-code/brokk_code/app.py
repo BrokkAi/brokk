@@ -69,6 +69,7 @@ class BrokkApp(App):
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
+        self._pending_updated_at: float = 0
         self._last_ctrl_c_time: float = 0
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
@@ -292,6 +293,7 @@ class BrokkApp(App):
             chat.add_user_message(raw_text)
             if self.job_in_progress and self.current_job_id:
                 self._pending_prompt = raw_text
+                self._pending_updated_at = time.monotonic()
                 chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
             else:
@@ -318,13 +320,18 @@ class BrokkApp(App):
         finally:
             chat.set_response_finished()
 
+            # Small yield to catch any near-simultaneous pending updates arriving via event loop
+            await asyncio.sleep(0.01)
+
             if self._pending_prompt:
-                # Wait for pending prompt to stabilize. Rapid submissions
-                # (like in tests) might update _pending_prompt across multiple
-                # event loop turns. We loop until it stops changing.
-                last_pending = None
-                while self._pending_prompt and self._pending_prompt != last_pending:
-                    last_pending = self._pending_prompt
+                # Wait for pending prompt to stabilize (debounce).
+                # This ensures that "intermediate" prompts in a rapid sequence are dropped.
+                debounce_window = 0.05  # 50ms
+                while True:
+                    last_val = self._pending_prompt
+                    elapsed = time.monotonic() - self._pending_updated_at
+                    if elapsed >= debounce_window and self._pending_prompt == last_val:
+                        break
                     await asyncio.sleep(0.01)
 
                 next_prompt = self._pending_prompt
@@ -519,6 +526,7 @@ class BrokkApp(App):
 
         if self.job_in_progress and self.current_job_id:
             self._pending_prompt = None  # Clear any pending prompt on manual cancel
+            self._pending_updated_at = 0
             self.query_one(ChatPanel).add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)
             # Reset double-tap timer so they don't accidentally quit while cancelling
