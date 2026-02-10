@@ -33,7 +33,7 @@ This project acts as a client that communicates with the Java-based Brokk execut
 
 ## Project Structure
 
-- `brokk_code/`: Main package directory.
+- `brokk_code/`: Main package directory. (See [brokk_code/AGENTS.md](brokk_code/AGENTS.md) for subtree rules).
   - `app.py`: Main Textual Application class.
   - `executor.py`: Logic for managing the Java executor lifecycle and API calls.
   - `widgets/`: Custom Textual widgets (Chat, Context, TaskList).

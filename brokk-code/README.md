@@ -102,3 +102,15 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 | `/model <name>` | Switch the LLM model |
 | `/help` | Show available commands |
 | `/quit` | Exit the application |
+
+## For Contributors & LLMs
+
+To avoid common mistakes when working on this subproject:
+
+- **Context**: `brokk-code` is the **Python TUI client**. It launches and manages the **Java executor** as a subprocess.
+- **Do**: Run all Python-related commands (pytest, ruff, uv) from within the `brokk-code/` directory.
+- **Don't**: Assume `./gradlew` builds the Python client; it builds the Java executor/app.
+- **Executor JAR**: The client automatically downloads/caches the executor to `~/.brokk/brokk.jar` (or `brokk-<tag>.jar`).
+- **Guidelines**: 
+    - See [AGENTS.md](AGENTS.md) for general Python contribution rules.
+    - See [brokk_code/AGENTS.md](brokk_code/AGENTS.md) for package-specific details.
