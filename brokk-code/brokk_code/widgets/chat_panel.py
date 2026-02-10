@@ -65,6 +65,8 @@ class ChatPanel(Vertical):
         """Called when the job is complete, cancelled, or failed."""
         self.response_pending = False
         self.response_active = False
+        # Some backends do not emit an explicit terminal token; flush any buffered text on finish.
+        self._flush_message()
         # Ensure we stop monitoring if it was running
         self._show_spinner(False)
 

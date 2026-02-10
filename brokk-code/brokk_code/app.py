@@ -26,6 +26,7 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
+        Binding("f2", "toggle_theme", "Theme", show=True),
     ]
 
     def __init__(
@@ -197,6 +198,16 @@ class BrokkApp(App):
             chat.add_system_message_markup(
                 f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
             )
+        elif base == "/theme" and len(parts) > 1:
+            theme = parts[1].lower()
+            if theme == "dark":
+                self.theme = "builtin:dark"
+                chat.add_system_message_markup("Theme changed to: [bold]dark[/]")
+            elif theme == "light":
+                self.theme = "builtin:light"
+                chat.add_system_message_markup("Theme changed to: [bold]light[/]")
+            else:
+                chat.add_system_message("Invalid theme. Use 'dark' or 'light'.", level="ERROR")
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -204,6 +215,7 @@ class BrokkApp(App):
                 "  /model-code <name>    - Change the code LLM model\n"
                 "  /reasoning <level>    - Set reasoning level for planner\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
+                "  /theme <dark|light>   - Change UI theme\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
             )
@@ -226,6 +238,12 @@ class BrokkApp(App):
     def action_toggle_notifications(self) -> None:
         panel = self.query_one("#notification-panel")
         panel.toggle_class("hidden")
+
+    def action_toggle_theme(self) -> None:
+        if self.theme == "builtin:dark":
+            self.theme = "builtin:light"
+        else:
+            self.theme = "builtin:dark"
 
     async def action_handle_ctrl_c(self) -> None:
         """Handles Ctrl+C: Cancel job first, then double-tap to quit."""

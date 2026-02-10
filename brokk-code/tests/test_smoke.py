@@ -548,6 +548,48 @@ def test_chat_panel_streaming_markdown():
     assert "**bold** [link](url) tail" in md_instance.markup
 
 
+def test_chat_panel_flushes_on_finish_without_terminal_token():
+    """Verify buffered output is rendered when a job finishes without terminal metadata."""
+    from unittest.mock import MagicMock
+
+    from rich.markdown import Markdown
+    from textual.widgets import LoadingIndicator, RichLog
+
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    panel = ChatPanel()
+    mock_log = MagicMock(spec=RichLog)
+    mock_spinner = MagicMock(spec=LoadingIndicator)
+
+    def mock_query_one(selector, cls=None):
+        if selector == "#chat-log":
+            return mock_log
+        if selector == "#chat-spinner":
+            return mock_spinner
+        return None
+
+    panel.query_one = mock_query_one
+    panel._monitor_inactivity = lambda: None
+
+    panel.append_token("partial", "AI", is_new_message=False, is_reasoning=False, is_terminal=False)
+    panel.append_token(" output", "AI", is_new_message=False, is_reasoning=False, is_terminal=False)
+
+    # No terminal chunk arrived yet, so nothing should be rendered.
+    markdown_calls = [
+        call for call in mock_log.write.call_args_list if isinstance(call.args[0], Markdown)
+    ]
+    assert len(markdown_calls) == 0
+
+    panel.set_response_finished()
+
+    markdown_calls = [
+        call for call in mock_log.write.call_args_list if isinstance(call.args[0], Markdown)
+    ]
+    assert len(markdown_calls) == 1
+    md_instance = markdown_calls[0].args[0]
+    assert "partial output" in md_instance.markup
+
+
 def test_chat_panel_notification_safety():
     """Verify notification panel handles markup safely."""
     from unittest.mock import MagicMock
