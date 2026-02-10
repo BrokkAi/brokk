@@ -2335,7 +2335,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
 
             boolean hasBody = false;
-            if (getSkeletonTypeForCapture(primaryCaptureName) == SkeletonType.FUNCTION_LIKE) {
+            SkeletonType primarySkeletonType = getSkeletonTypeForCapture(primaryCaptureName);
+            if (primarySkeletonType == SkeletonType.FUNCTION_LIKE || primarySkeletonType == SkeletonType.CLASS_LIKE) {
                 langProfile = getLanguageSyntaxProfile();
                 TSNode nodeForBody = node;
 
