@@ -155,18 +155,29 @@ public final class ScrollCoordinateCalculator {
      * @return The viewport Y position to pass to {@code JViewport#setViewPosition}
      */
     public static int calculateCenteredViewportY(int targetStartY, int targetEndY, int viewportHeight, int maxY) {
+        int clampedMaxY = Math.max(0, maxY);
+
         // Fallback: if viewport height is invalid, just clamp targetStartY.
         if (viewportHeight <= 0) {
-            return Math.max(0, Math.min(targetStartY, maxY));
+            return Math.max(0, Math.min(targetStartY, clampedMaxY));
         }
 
-        // Calculate midpoint of target region
-        int targetMidY = (targetStartY + targetEndY) / 2;
+        long startY = targetStartY;
+        long endY = targetEndY;
 
-        // Center the midpoint in the viewport
-        int viewportY = targetMidY - (viewportHeight / 2);
+        // Calculate midpoint of target region using an overflow-safe idiom.
+        long targetMidY = startY + ((endY - startY) / 2);
 
-        // Clamp to valid range [0, maxY]
-        return Math.max(0, Math.min(viewportY, maxY));
+        // Center the midpoint in the viewport.
+        long viewportY = targetMidY - (viewportHeight / 2L);
+
+        // Clamp to valid range [0, maxY].
+        if (viewportY < 0L) {
+            return 0;
+        }
+        if (viewportY > clampedMaxY) {
+            return clampedMaxY;
+        }
+        return (int) viewportY;
     }
 }

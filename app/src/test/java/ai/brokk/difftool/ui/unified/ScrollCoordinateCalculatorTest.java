@@ -464,6 +464,19 @@ class ScrollCoordinateCalculatorTest {
             assertEquals(0, result);
         }
 
+        @Test
+        @DisplayName("Does not overflow when targetStartY + targetEndY would overflow int")
+        void doesNotOverflowForVeryLargeCoordinates() {
+            int start = Integer.MAX_VALUE - 10;
+            int end = Integer.MAX_VALUE;
+            int viewportHeight = 100;
+            int maxY = Integer.MAX_VALUE;
+
+            // Midpoint is MAX-5; centered is (MAX-5) - 50 = MAX-55
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(start, end, viewportHeight, maxY);
+            assertEquals(Integer.MAX_VALUE - 55, result);
+        }
+
         @ParameterizedTest
         @CsvSource({
             "400, 450, 200, 800, 325", // Simple centering
