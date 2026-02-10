@@ -145,24 +145,24 @@ async def test_tui_history_navigation(tmp_path):
         # Up once -> second prompt
         await pilot.press("up")
         await pilot.pause()
-        assert app.query_one("#chat-input").value == "second prompt"
+        assert app.query_one("#chat-input").text == "second prompt"
 
         # Up again -> first prompt
         await pilot.press("up")
         await pilot.pause()
-        assert app.query_one("#chat-input").value == "first prompt"
+        assert app.query_one("#chat-input").text == "first prompt"
 
         # Up again -> stays at first prompt (boundary)
         await pilot.press("up")
-        assert app.query_one("#chat-input").value == "first prompt"
+        assert app.query_one("#chat-input").text == "first prompt"
 
         # Down -> second prompt
         await pilot.press("down")
-        assert app.query_one("#chat-input").value == "second prompt"
+        assert app.query_one("#chat-input").text == "second prompt"
 
         # Down -> draft text
         await pilot.press("down")
-        assert app.query_one("#chat-input").value == "draft text"
+        assert app.query_one("#chat-input").text == "draft text"
 
 
 @pytest.mark.asyncio
@@ -200,37 +200,37 @@ async def test_tui_history_navigation_complex(tmp_path):
         # Up x1 -> "three"
         await pilot.press("up")
         await pilot.pause()
-        assert chat_input.value == "three"
+        assert chat_input.text == "three"
 
         # Up x1 -> "two"
         await pilot.press("up")
         await pilot.pause()
-        assert chat_input.value == "two"
+        assert chat_input.text == "two"
 
         # Up x1 -> "one"
         await pilot.press("up")
         await pilot.pause()
-        assert chat_input.value == "one"
+        assert chat_input.text == "one"
 
         # Up x1 -> stays at "one"
         await pilot.press("up")
-        assert chat_input.value == "one"
+        assert chat_input.text == "one"
 
         # Down x1 -> "two"
         await pilot.press("down")
-        assert chat_input.value == "two"
+        assert chat_input.text == "two"
 
         # Down x1 -> "three"
         await pilot.press("down")
-        assert chat_input.value == "three"
+        assert chat_input.text == "three"
 
         # Down x1 -> "draft"
         await pilot.press("down")
-        assert chat_input.value == "draft"
+        assert chat_input.text == "draft"
 
         # Down x1 -> stays at "draft"
         await pilot.press("down")
-        assert chat_input.value == "draft"
+        assert chat_input.text == "draft"
 
 
 @pytest.mark.asyncio
@@ -260,12 +260,12 @@ async def test_tui_history_duplicates(tmp_path):
 
         # Up 1 -> "a"
         await pilot.press("up")
-        assert chat_input.value == "a"
+        assert chat_input.text == "a"
 
         # Up 2 -> "b"
         await pilot.press("up")
-        assert chat_input.value == "b"
+        assert chat_input.text == "b"
 
         # Up 3 -> "a"
         await pilot.press("up")
-        assert chat_input.value == "a"
+        assert chat_input.text == "a"

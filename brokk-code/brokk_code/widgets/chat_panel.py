@@ -7,9 +7,35 @@ from rich.panel import Panel
 from rich.text import Text
 from textual import events, work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import Input, LoadingIndicator, RichLog, Static
+from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
+
+
+class ChatInput(TextArea):
+    """A multiline text area for chat input that submits on Enter."""
+
+    BINDINGS = [
+        Binding("enter", "submit", "Submit", show=False),
+        Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
+    ]
+
+    class Submitted(Message):
+        """Posted when user submits the text."""
+
+        def __init__(self, text: str) -> None:
+            self.text = text
+            super().__init__()
+
+    def action_submit(self) -> None:
+        text = self.text
+        if text.strip():
+            self.post_message(self.Submitted(text))
+            self.text = ""
+
+    def action_insert_newline(self) -> None:
+        self.insert("\n")
 
 
 class ChatPanel(Vertical):
@@ -50,15 +76,15 @@ class ChatPanel(Vertical):
             yield Static(id="chat-timer", classes="ml-1 hidden")
             yield Static(id="chat-token-usage", classes="token-usage")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
-        yield Input(placeholder="Type a message or /command...", id="chat-input")
+        yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
 
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
-        self.query_one("#chat-input", Input).focus()
+        self.query_one("#chat-input", ChatInput).focus()
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
-        if not self.query_one("#chat-input", Input).has_focus:
+        if not self.query_one("#chat-input", ChatInput).has_focus:
             return
 
         if event.key == "up":
@@ -79,11 +105,11 @@ class ChatPanel(Vertical):
         if not self._history:
             return
 
-        chat_input = self.query_one("#chat-input", Input)
+        chat_input = self.query_one("#chat-input", ChatInput)
 
         # If starting navigation, save the current text
         if self._history_index == -1:
-            self._draft_buffer = chat_input.value
+            self._draft_buffer = chat_input.text
 
         new_index = self._history_index + delta
 
@@ -100,14 +126,14 @@ class ChatPanel(Vertical):
 
         if new_index >= len(self._history):
             # Move back to draft
-            chat_input.value = self._draft_buffer
+            chat_input.text = self._draft_buffer
             self._history_index = -1
         else:
             # Load from history
             self._history_index = new_index
-            chat_input.value = self._history[self._history_index]
+            chat_input.text = self._history[self._history_index]
             # Move cursor to end
-            chat_input.cursor_position = len(chat_input.value)
+            chat_input.cursor_at_end_of_text
 
     def set_history(self, history: list[str]) -> None:
         """Updates the internal history list (e.g. from disk)."""
@@ -121,12 +147,11 @@ class ChatPanel(Vertical):
             self._history.append(text)
         self._history_index = -1
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.value.strip():
-            self.post_message(self.Submitted(event.value))
-            event.input.value = ""
-            self._history_index = -1
-            self._draft_buffer = ""
+    def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
+        """Forward submission message from the internal ChatInput."""
+        self.post_message(self.Submitted(event.text))
+        self._history_index = -1
+        self._draft_buffer = ""
 
     def set_job_running(self, running: bool) -> None:
         """Explicitly controls the visibility of the job progress spinner and timer."""
