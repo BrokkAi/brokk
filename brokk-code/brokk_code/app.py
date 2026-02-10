@@ -71,6 +71,7 @@ class BrokkApp(App):
         self._pending_prompt: Optional[str] = None
         self._last_ctrl_c_time: float = 0
         self._executor_ready: bool = False
+        self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
 
     @property
@@ -230,37 +231,39 @@ class BrokkApp(App):
         """Fetches latest context and updates context, task list, and chat panels."""
         if not self._executor_ready:
             return
-        try:
-            context_data = await self.executor.get_context()
 
-            # UI updates are best-effort if screen is not on stack
+        async with self._refresh_context_lock:
             try:
-                self.query_one(ContextPanel).refresh_context(context_data)
-                self.query_one(TaskListPanel).refresh_tasklist(context_data)
-            except (ScreenStackError, Exception):
-                pass
+                context_data = await self.executor.get_context()
 
-            # Update token usage in ChatPanel
-            chat = self._maybe_chat()
-            if chat:
-                used = context_data.get("usedTokens", 0)
-                max_tokens = context_data.get("maxTokens")
-                chat.set_token_usage(used, max_tokens)
+                # UI updates are best-effort if screen is not on stack
+                try:
+                    self.query_one(ContextPanel).refresh_context(context_data)
+                    self.query_one(TaskListPanel).refresh_tasklist(context_data)
+                except (ScreenStackError, Exception):
+                    pass
 
-            # Clear error tracking on success
-            self._reported_refresh_errors.clear()
-        except Exception as e:
-            # Rate-limit notifications to once per unique exception type per session
-            err_key = type(e).__name__
-            if err_key not in self._reported_refresh_errors:
-                msg = f"Context refresh failed: {e}"
+                # Update token usage in ChatPanel
                 chat = self._maybe_chat()
                 if chat:
-                    chat.add_system_message(msg, level="ERROR")
-                else:
-                    logger.error(msg)
-                self._reported_refresh_errors.add(err_key)
-            logger.debug("Failed to refresh context panel", exc_info=True)
+                    used = context_data.get("usedTokens", 0)
+                    max_tokens = context_data.get("maxTokens")
+                    chat.set_token_usage(used, max_tokens)
+
+                # Clear error tracking on success
+                self._reported_refresh_errors.clear()
+            except Exception as e:
+                # Rate-limit notifications to once per unique exception type per session
+                err_key = type(e).__name__
+                if err_key not in self._reported_refresh_errors:
+                    msg = f"Context refresh failed: {e}"
+                    chat = self._maybe_chat()
+                    if chat:
+                        chat.add_system_message(msg, level="ERROR")
+                    else:
+                        logger.error(msg)
+                    self._reported_refresh_errors.add(err_key)
+                logger.debug("Failed to refresh context panel", exc_info=True)
 
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
