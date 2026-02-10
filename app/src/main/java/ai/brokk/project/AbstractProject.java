@@ -172,6 +172,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 }
             }
 
+            // Clear explicit language configuration to force re-detection including new dependencies
+            setAnalyzerLanguages(Set.of());
+
             // Always persist
             saveLiveDependencies(newLiveDependencyDirs);
 
