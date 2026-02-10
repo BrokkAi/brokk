@@ -460,7 +460,10 @@ class ExecutorManager:
         return resp.json()["jobId"]
 
     async def stream_events(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
-        """Streams events for a specific job until it reaches a terminal state with adaptive polling."""
+        """
+        Streams events for a specific job until it reaches a terminal state
+        with adaptive polling.
+        """
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
@@ -501,10 +504,12 @@ class ExecutorManager:
 
             # 3. Check for termination
             if state in terminal_states:
-                # If we just hit a terminal state, check one last time for any race-condition events
+                # If we just hit a terminal state, check one last time for any
+                # race-condition events.
                 if not events:
                     break
-                # If we did get events, we continue one more loop without sleeping to clear the buffer
+                # If we did get events, we continue one more loop without sleeping
+                # to clear the buffer.
 
             # 4. Adaptive sleep
             if events:
@@ -542,7 +547,8 @@ class ExecutorManager:
             except Exception:
                 pass
             raise ExecutorError(
-                f"Endpoint {endpoint} not found (404). Your executor version may be too old{diag_info}."
+                f"Endpoint {endpoint} not found (404). "
+                f"Your executor version may be too old{diag_info}."
             ) from e
 
         status_str = str(status) if status is not None else "N/A"
