@@ -66,15 +66,19 @@ ChatPanel {
     background: $surface;
 }
 
-#chat-spinner {
+#chat-spinner-area {
     height: 1;
     margin: 0 2;
-    background: transparent;
-    color: $accent;
 }
 
-#chat-spinner.hidden {
+#chat-spinner-area.hidden {
     display: none;
+}
+
+#chat-spinner {
+    height: 1;
+    background: transparent;
+    color: $accent;
 }
 
 #chat-input {
@@ -95,4 +99,8 @@ ChatPanel {
 
 #chat-input:focus {
     border: tall $accent;
+}
+
+.ml-1 {
+    margin-left: 1;
 }

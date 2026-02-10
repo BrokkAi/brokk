@@ -38,7 +38,7 @@ class ChatPanel(Vertical):
         yield RichLog(highlight=True, markup=True, id="chat-log")
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner")
-            yield Static(id="chat-timer")
+            yield Static(id="chat-timer", classes="ml-1")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield Input(placeholder="Type a message or /command...", id="chat-input")
 
