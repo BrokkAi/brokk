@@ -42,11 +42,13 @@ class TaskListPanel(Vertical):
         big_picture = tasklist_data.get("bigPicture")
         tasks = tasklist_data.get("tasks", [])
 
+        content = self.query_one("#tasklist-content", Static)
         if not big_picture and not tasks:
+            content.update(Text("No task list active", style="dim"))
             return
 
-        content = self.query_one("#tasklist-content", Static)
         text = Text()
+        text.append("Task List Active\n\n", style="bold green")
 
         if big_picture:
             text.append("Goal: ", style="bold")
@@ -55,10 +57,21 @@ class TaskListPanel(Vertical):
         for i, task in enumerate(tasks, 1):
             done = task.get("done", False)
             title = task.get("title", f"Task {i}")
-            marker = " [bold green]OK[/] " if done else " [bold yellow]..[/] "
+            instruction = task.get("text", "")
+            
+            # Use a more descriptive marker
+            marker = " [bold green]DONE[/] " if done else " [bold blue]TODO[/] "
             
             text.append(marker)
-            text.append(title, style="strike" if done else "")
-            text.append("\n")
+            text.append(title, style="bold strike" if done else "bold")
+            
+            if instruction:
+                # Add a short snippet of the instructions
+                snippet = instruction.split("\n")[0]
+                if len(snippet) > 60:
+                    snippet = snippet[:57] + "..."
+                text.append(f"\n      {snippet}", style="dim italic")
+            
+            text.append("\n\n")
 
         content.update(text)

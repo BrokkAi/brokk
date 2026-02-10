@@ -13,10 +13,20 @@ async def test_tasklist_polling_updates_ui():
     
     # Mock data
     mock_tasklist = {
-        "bigPicture": "Fix the world",
+        "bigPicture": "Refactor Authentication",
         "tasks": [
-            {"id": "t1", "title": "Task 1", "done": False},
-            {"id": "t2", "title": "Task 2", "done": True}
+            {
+                "id": "t1", 
+                "title": "Update LoginController", 
+                "text": "Change the authentication endpoint to use JWT instead of sessions.",
+                "done": False
+            },
+            {
+                "id": "t2", 
+                "title": "Add logging", 
+                "text": "Add SLF4J logging to the service layer.",
+                "done": True
+            }
         ]
     }
 
@@ -37,9 +47,12 @@ async def test_tasklist_polling_updates_ui():
             content = panel.query_one("#tasklist-content").renderable
             content_str = str(content)
             
-            assert "Fix the world" in content_str
-            assert "Task 1" in content_str
-            assert "Task 2" in content_str
+            assert "Refactor Authentication" in content_str
+            assert "Update LoginController" in content_str
+            assert "Change the authentication endpoint" in content_str
+            assert "Add logging" in content_str
+            assert "DONE" in content_str
+            assert "TODO" in content_str
             
             # Trigger one iteration of the polling logic manually if possible, 
             # or simply rely on the fact that _poll_tasklist is started in on_mount.
