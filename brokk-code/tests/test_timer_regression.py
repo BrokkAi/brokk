@@ -105,6 +105,7 @@ async def test_timer_ticks_during_run_job():
 
         # Process the Textual interval callback
         await pilot.pause()
+        await pilot.pause()
 
         # The timer should have updated to 00:02 even though FakeExecutor
         # is still sleeping (no tokens yielded yet).

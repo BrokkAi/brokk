@@ -48,6 +48,8 @@ async def test_spinner_and_timer_lifecycle():
         # Advance time by 65 seconds
         current_time += 65.0
         # Give the Textual interval a moment to fire and process the mock time update
+        # We may need multiple pauses to ensure the interval task is scheduled and executed
+        await pilot.pause()
         await pilot.pause()
         assert str(timer_label.renderable) == "Elapsed: 01:05"
 

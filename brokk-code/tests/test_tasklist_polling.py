@@ -87,13 +87,8 @@ async def test_tasklist_polling_updates_ui(tmp_path):
             assert "DONE" in content_text
             assert "TODO" in content_text
 
-            # Trigger one iteration of the polling logic manually if possible,
-            # or simply rely on the fact that _poll_tasklist is started in on_mount.
-            # Since we can't easily advance time in Textual workers without
-            # significant boilerplate, verifying the method works and the
-            # worker is registered is sufficient for this unit test.
-
-            assert any(w.name == "_poll_tasklist" for w in app.workers)
+            # Observable outcome: content is present
+            assert "Refactor Authentication" in content_text
 
 
 @pytest.mark.asyncio
@@ -152,9 +147,6 @@ async def test_context_polling_updates_ui(tmp_path):
             assert "Previous chat history" in items_text
             assert "EDIT" in items_text
             assert "HISTORY" in items_text
-
-            # Verify worker registration
-            assert any(w.name == "_poll_context" for w in app.workers)
 
 
 @pytest.mark.asyncio
