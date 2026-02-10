@@ -1119,11 +1119,16 @@ public class Llm {
             try {
                 toolRequestsJson =
                         objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(ai.toolExecutionRequests());
-                if (originalResponse() != null) {
-                    metadataJson = objectMapper
-                            .writerWithDefaultPrettyPrinter()
-                            .writeValueAsString(originalResponse().metadata());
+                Map<String, Object> metadata = new HashMap<>();
+                var meta = metadata();
+                if (meta != null) {
+                    metadata.put("inputTokens", meta.inputTokens());
+                    metadata.put("cachedInputTokens", meta.cachedInputTokens());
+                    metadata.put("thinkingTokens", meta.thinkingTokens());
+                    metadata.put("outputTokens", meta.outputTokens());
                 }
+                metadata.put("elapsedMs", elapsedMs);
+                metadataJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(metadata);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to serialize components for formatted()", e);
             }
