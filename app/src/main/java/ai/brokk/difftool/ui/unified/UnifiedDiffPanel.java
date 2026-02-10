@@ -877,25 +877,25 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
                 int offset = textArea.getLineStartOffset(Math.max(0, lineNumber - 1));
                 textArea.setCaretPosition(offset);
 
-                // Scroll the line to the top with a 3-line buffer
+                // Compute the target line's Y coordinate
                 var rect = textArea.modelToView2D(offset);
                 if (rect != null) {
                     var viewport = scrollPane.getViewport();
                     int viewportHeight = viewport.getHeight();
-
-                    // If viewport height isn't ready yet, it's hard to position correctly.
-                    // But we can at least scroll to a position relative to the text area.
                     int lineHeight = textArea.getLineHeight();
-                    int buffer = 3 * lineHeight;
-                    int y = (int) rect.getY() - buffer;
 
-                    // Ensure we don't scroll past the bottom if viewport size is known
-                    if (viewportHeight > 0) {
-                        int maxY = Math.max(0, textArea.getHeight() - viewportHeight);
-                        y = Math.min(y, maxY);
-                    }
+                    // Target region is the single line
+                    int targetStartY = (int) rect.getY();
+                    int targetEndY = targetStartY + lineHeight;
 
-                    viewport.setViewPosition(new Point(0, Math.max(0, y)));
+                    // Calculate max scrollable Y position
+                    int maxY = Math.max(0, textArea.getHeight() - viewportHeight);
+
+                    // Use centering helper to compute viewport position
+                    int centeredY = ScrollCoordinateCalculator.calculateCenteredViewportY(
+                            targetStartY, targetEndY, viewportHeight, maxY);
+
+                    viewport.setViewPosition(new Point(0, centeredY));
                 }
             } catch (BadLocationException e) {
                 logger.warn("Could not scroll to line {}", lineNumber, e);
