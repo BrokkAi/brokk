@@ -56,6 +56,9 @@ class ChatPanel(Vertical):
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
+        if not self.query_one("#chat-input", Input).has_focus:
+            return
+
         if event.key == "up":
             self._navigate_history(-1)
             event.prevent_default()
@@ -120,6 +123,8 @@ class ChatPanel(Vertical):
         if event.value.strip():
             self.post_message(self.Submitted(event.value))
             event.input.value = ""
+            self._history_index = -1
+            self._draft_buffer = ""
 
     def set_job_running(self, running: bool) -> None:
         """Explicitly controls the visibility of the job progress spinner and timer."""

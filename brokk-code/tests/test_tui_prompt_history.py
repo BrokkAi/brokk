@@ -105,3 +105,52 @@ async def test_tui_history_commands(tmp_path):
         
         # Verify empty on disk
         assert load_history(workspace) == []
+
+@pytest.mark.asyncio
+async def test_tui_history_navigation(tmp_path):
+    """
+    Verify that Up/Down arrows cycle through history in the TUI.
+    """
+    workspace = tmp_path / "project_nav"
+    workspace.mkdir()
+    
+    stub = StubExecutor()
+    stub.workspace_dir = workspace
+    stub.release_stream.set()
+    
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+    
+    async with app.run_test() as pilot:
+        await pilot.click("#chat-input")
+        
+        # 1. Populate some history
+        await pilot.press_ascii("first prompt")
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press_ascii("second prompt")
+        await pilot.press("enter")
+        await pilot.pause()
+        
+        # 2. Test navigation
+        await pilot.click("#chat-input")
+        await pilot.press_ascii("draft text")
+        
+        # Up once -> second prompt
+        await pilot.press("up")
+        assert app.query_one("#chat-input").value == "second prompt"
+        
+        # Up again -> first prompt
+        await pilot.press("up")
+        assert app.query_one("#chat-input").value == "first prompt"
+        
+        # Up again -> stays at first prompt (boundary)
+        await pilot.press("up")
+        assert app.query_one("#chat-input").value == "first prompt"
+        
+        # Down -> second prompt
+        await pilot.press("down")
+        assert app.query_one("#chat-input").value == "second prompt"
+        
+        # Down -> draft text
+        await pilot.press("down")
+        assert app.query_one("#chat-input").value == "draft text"
