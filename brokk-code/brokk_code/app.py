@@ -99,7 +99,11 @@ class BrokkApp(App):
     async def _start_executor(self) -> None:
         chat = self.query_one(ChatPanel)
         try:
-            from brokk_code.session_persistence import load_last_session_id, save_last_session_id
+            from brokk_code.session_persistence import (
+                get_session_zip_path,
+                load_last_session_id,
+                save_last_session_id,
+            )
 
             await self.executor.start()
 
@@ -120,22 +124,19 @@ class BrokkApp(App):
             if not session_to_resume and self.resume_session:
                 session_to_resume = load_last_session_id(self.executor.workspace_dir)
 
+            resumed = False
             if session_to_resume:
-                try:
-                    chat.add_system_message(f"Resuming session {session_to_resume}...")
-                    # In this architecture, 'import_session_zip' with no bytes is not supported.
-                    # However, if the session exists in the executor's workspace,
-                    # we would typically want a 'switch_session' endpoint.
-                    # Given the existing SessionRouter.java, handlePutSession handles zip uploads.
-                    # If we don't have the zip locally, we create a new one.
-                    # For now, we'll try to create/resume by ensuring create_session is called
-                    # if switching fails or is unsupported.
-                    # FUTURE: Add a proper 'switch session' endpoint to executor.
-                    await self.executor.create_session(name=f"Resumed: {session_to_resume}")
-                except Exception as e:
-                    logger.warning("Failed to resume session %s: %s", session_to_resume, e)
-                    await self.executor.create_session()
-            else:
+                zip_path = get_session_zip_path(self.executor.workspace_dir, session_to_resume)
+                if zip_path.exists():
+                    try:
+                        chat.add_system_message(f"Resuming session {session_to_resume}...")
+                        zip_bytes = zip_path.read_bytes()
+                        await self.executor.import_session_zip(zip_bytes, session_id=session_to_resume)
+                        resumed = True
+                    except Exception as e:
+                        logger.warning("Failed to resume session %s: %s", session_to_resume, e)
+
+            if not resumed:
                 await self.executor.create_session()
 
             if self.executor.session_id:
@@ -431,14 +432,34 @@ class BrokkApp(App):
             self.query_one(ChatPanel).add_system_message("Press Ctrl+C again to quit.")
             self._last_ctrl_c_time = now
 
+    async def _export_session(self) -> None:
+        """Best-effort export of the current session zip to workspace cache."""
+        if not self.executor.session_id or not self._executor_ready:
+            return
+
+        from brokk_code.session_persistence import get_session_zip_path
+
+        try:
+            session_id = self.executor.session_id
+            zip_bytes = await self.executor.download_session_zip(session_id)
+            zip_path = get_session_zip_path(self.executor.workspace_dir, session_id)
+            zip_path.write_bytes(zip_bytes)
+            logger.info("Session %s exported to %s", session_id, zip_path)
+        except Exception as e:
+            logger.warning("Failed to export session zip on shutdown: %s", e)
+
     async def action_quit(self) -> None:
         chat = self.query_one(ChatPanel)
         chat.add_system_message("Shutting down...")
+        await self._export_session()
         await self.executor.stop()
         self.exit()
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""
+        # Note: action_quit already calls _export_session.
+        # on_unmount is a fallback for other exit paths.
+        await self._export_session()
         await self.executor.stop()
 
 
