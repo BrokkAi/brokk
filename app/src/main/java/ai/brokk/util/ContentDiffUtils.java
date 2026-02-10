@@ -346,10 +346,9 @@ public class ContentDiffUtils {
         String targetSpec = "+" + header.newStart() + "," + header.newLen();
 
         if (methodName.isBlank()) {
-            return "@@ " + sourceSpec + " @@ " + targetSpec + " @@ @@";
+            return headerLine;
         }
-
-        return "@@ " + sourceSpec + " @@ " + targetSpec + " @@ " + methodName + " @@";
+        return "@@ " + sourceSpec + " @@ " + targetSpec + " @@ " + methodName;
     }
 
     private static boolean isSameEnclosingFunction(
