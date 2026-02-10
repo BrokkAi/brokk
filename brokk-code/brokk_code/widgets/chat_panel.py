@@ -5,7 +5,7 @@ from typing import Optional
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
@@ -37,6 +37,11 @@ class ChatPanel(Vertical):
         self._job_start_time: Optional[float] = None
         self._incremental_line_index: Optional[int] = None
 
+        # History Navigation State
+        self._history: list[str] = []
+        self._history_index: int = -1  # -1 means no history navigation active
+        self._draft_buffer: str = ""  # Stores text before history navigation started
+
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
         with Horizontal(id="chat-spinner-area", classes="hidden"):
@@ -48,6 +53,68 @@ class ChatPanel(Vertical):
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
         self.query_one("#chat-input", Input).focus()
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle Up/Down arrow keys for prompt history navigation."""
+        if event.key == "up":
+            self._navigate_history(-1)
+            event.prevent_default()
+        elif event.key == "down":
+            self._navigate_history(1)
+            event.prevent_default()
+
+    def _navigate_history(self, delta: int) -> None:
+        """
+        Logic for cycling through history:
+        - Up (delta -1): Moves towards older entries.
+        - Down (delta 1): Moves towards newer entries and eventually the draft.
+        - Commands (/) are not in the history.
+        - Restores draft_buffer when moving past the newest entry.
+        """
+        if not self._history:
+            return
+
+        chat_input = self.query_one("#chat-input", Input)
+
+        # If starting navigation, save the current text
+        if self._history_index == -1:
+            self._draft_buffer = chat_input.value
+
+        new_index = self._history_index + delta
+
+        # Boundaries
+        if delta == -1:  # Up
+            if self._history_index == -1:
+                new_index = len(self._history) - 1
+            else:
+                new_index = max(0, self._history_index - 1)
+        else:  # Down
+            if self._history_index == -1:
+                return  # Already at draft
+            new_index = self._history_index + 1
+
+        if new_index >= len(self._history):
+            # Move back to draft
+            chat_input.value = self._draft_buffer
+            self._history_index = -1
+        else:
+            # Load from history
+            self._history_index = new_index
+            chat_input.value = self._history[self._history_index]
+            # Move cursor to end
+            chat_input.cursor_position = len(chat_input.value)
+
+    def set_history(self, history: list[str]) -> None:
+        """Updates the internal history list (e.g. from disk)."""
+        self._history = history
+        self._history_index = -1
+
+    def add_history_entry(self, text: str) -> None:
+        """Adds a new entry to the history if it isn't a command."""
+        if text and not text.startswith("/"):
+            if not self._history or self._history[-1] != text:
+                self._history.append(text)
+        self._history_index = -1
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.value.strip():

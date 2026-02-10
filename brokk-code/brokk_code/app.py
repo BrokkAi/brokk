@@ -82,6 +82,11 @@ class BrokkApp(App):
         chat = self.query_one(ChatPanel)
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         chat.add_system_message("Starting Brokk executor...")
+
+        # Load initial prompt history for arrow-key navigation
+        history = load_history(self.executor.workspace_dir)
+        chat.set_history(history)
+
         self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
         self.run_worker(self._poll_tasklist())
@@ -186,6 +191,7 @@ class BrokkApp(App):
                 self.executor.workspace_dir, text, max_history=self.settings.prompt_history_size
             )
             chat = self.query_one(ChatPanel)
+            chat.add_history_entry(text)
             chat.add_user_message(text)
 
             if self.job_in_progress and self.current_job_id:
@@ -312,6 +318,7 @@ class BrokkApp(App):
                 chat.append_message("System", f"Recent Prompts:\n{formatted}")
         elif base == "/history-clear":
             clear_history(self.executor.workspace_dir)
+            chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
         elif base == "/help":
             help_text = (
