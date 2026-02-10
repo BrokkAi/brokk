@@ -181,10 +181,7 @@ public class AnalyzerUtil {
      */
     public static Optional<ContextFragment> selectFileFragment(IContextManager cm, String input, boolean summarize) {
         ProjectFile chosenFromInput = cm.toFile(input);
-        var allFiles = cm.getProject().getAllFiles();
-        var match = allFiles.stream()
-                .filter(pf -> pf.getRelPath().equals(chosenFromInput.getRelPath()))
-                .findFirst();
+        var match = cm.getProject().getFileByRelPath(chosenFromInput.getRelPath());
 
         if (match.isEmpty()) {
             return Optional.empty();
