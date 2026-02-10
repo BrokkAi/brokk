@@ -149,8 +149,14 @@ async def test_context_polling_updates_ui(tmp_path):
             assert len(fragment_items) == 2
 
             # Check for specific text in list items
-            # We iterate and render each fragment item to ensure content is present
-            items_text = "".join(str(item.render()) for item in fragment_items)
+            # We iterate each ContextFragmentItem and render its Label children
+            # because rendering the ListItem itself may return a Blank object.
+            all_labels_text = []
+            for item in fragment_items:
+                for label in item.query("Label"):
+                    all_labels_text.append(label.render().plain)
+
+            items_text = " ".join(all_labels_text)
             assert "Modified UserAuth.java" in items_text
             assert "Previous chat history" in items_text
             assert "EDIT" in items_text
