@@ -752,11 +752,14 @@ public final class MOPBridge {
                         var analyzableFiles = project.getAnalyzableFiles(language);
                         int fileCount = analyzableFiles.size();
 
-                        // Count files from dependencies matching this language
+                        // Count files from dependencies matching this language's extensions
+                        var extensions = language.getExtensions();
                         int depCount = 0;
                         for (var dep : liveDeps) {
-                            if (dep.language() == language) {
-                                depCount += dep.files().size();
+                            for (var file : dep.files()) {
+                                if (extensions.contains(file.extension())) {
+                                    depCount++;
+                                }
                             }
                         }
 
