@@ -23,12 +23,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * This class needs to be thread safe because it is called when a streaming result comes back and there is no guarantee
  * that this thread will be the same as the one that initiated the request, in fact it almost certainly won't be.
  */
 public class OpenAiStreamingResponseBuilder {
+
+    private static final Logger logger = LogManager.getLogger(OpenAiStreamingResponseBuilder.class);
 
     private final StringBuffer contentBuilder = new StringBuffer();
     private final StringBuffer reasoningContentBuilder = new StringBuffer();
