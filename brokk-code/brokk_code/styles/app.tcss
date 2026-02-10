@@ -72,9 +72,6 @@ ChatPanel {
     layout: horizontal;
 }
 
-#chat-spinner-area.hidden {
-    display: none;
-}
 
 #chat-spinner {
     height: 1;

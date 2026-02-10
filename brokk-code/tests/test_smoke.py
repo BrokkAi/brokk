@@ -1090,6 +1090,7 @@ def test_chat_panel_spinner_transitions():
 
     # 1. Simulate prompt submission -> spinner shown
     panel.set_response_pending()
+    panel._show_spinner(True)
     mock_spinner.remove_class.assert_called_with("hidden")
 
     # 2. Simulate first token arrival -> spinner hidden
@@ -1103,8 +1104,7 @@ def test_chat_panel_spinner_transitions():
     # Advance time beyond inactivity timeout (default 10s)
     current_time += 15.0
     panel._check_inactivity()
-    # verify remove_class("hidden") was called (it was called during set_response_pending too,
-    # but append_token added "hidden" back)
+    # verify remove_class("hidden") was called
     assert mock_spinner.remove_class.call_args_list[-1][0][0] == "hidden"
 
     # 4. Simulate token arrival after inactivity -> spinner hidden again
@@ -1118,3 +1118,26 @@ def test_chat_panel_spinner_transitions():
     # 6. Final finish state
     panel.set_response_finished()
     assert mock_spinner.add_class.call_args_list[-1][0][0] == "hidden"
+
+
+def test_chat_panel_token_visibility_without_job():
+    """Verify that tokens can be displayed even when no job is running."""
+    from unittest.mock import MagicMock
+    from textual.widgets import Static
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    panel = ChatPanel()
+    mock_token_label = MagicMock(spec=Static)
+
+    def mock_query_one(selector, cls=None):
+        if selector == "#chat-token-usage":
+            return mock_token_label
+        return MagicMock()
+
+    panel.query_one = mock_query_one
+
+    # Set token usage while job is NOT running
+    panel.set_token_usage(1234, 5000)
+
+    # Verify update was called with the correct text
+    mock_token_label.update.assert_called_once_with("Tokens: 1,234 / 5,000")

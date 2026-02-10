@@ -45,9 +45,9 @@ class ChatPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
-        with Horizontal(id="chat-spinner-area", classes="hidden"):
-            yield LoadingIndicator(id="chat-spinner")
-            yield Static(id="chat-timer", classes="ml-1")
+        with Horizontal(id="chat-spinner-area"):
+            yield LoadingIndicator(id="chat-spinner", classes="hidden")
+            yield Static(id="chat-timer", classes="ml-1 hidden")
             yield Static(id="chat-token-usage", classes="token-usage")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield Input(placeholder="Type a message or /command...", id="chat-input")
@@ -168,11 +168,14 @@ class ChatPanel(Vertical):
         self._flush_message()
 
     def _show_spinner(self, show: bool) -> None:
-        spinner_area = self.query_one("#chat-spinner-area", Horizontal)
+        spinner = self.query_one("#chat-spinner", LoadingIndicator)
+        timer = self.query_one("#chat-timer", Static)
         if show:
-            spinner_area.remove_class("hidden")
+            spinner.remove_class("hidden")
+            timer.remove_class("hidden")
         else:
-            spinner_area.add_class("hidden")
+            spinner.add_class("hidden")
+            timer.add_class("hidden")
 
     def _update_elapsed_time_label(self) -> None:
         """Updates the elapsed time ticker label."""
