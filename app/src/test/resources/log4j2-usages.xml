@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Log4j2 configuration for the UsageBenchEval benchmark tool -->
+<Configuration status="WARN">
+  <Properties>
+    <!-- short, timestamped pattern for console -->
+    <Property name="pattern">%d{HH:mm:ss.SSS} [%t] %-5level %c{1} - %msg%n</Property>
+  </Properties>
+
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="${pattern}"/>
+    </Console>
+  </Appenders>
+
+  <Loggers>
+    <!-- suppress verbose output from dependencies -->
+    <Logger name="org.eclipse"        level="error" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+    <Logger name="dev.langchain4j"    level="warn"  additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+    <Logger name="com.github.tjake.jlama" level="warn" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+
+    <!-- Disable debug logging specifically for skeleton printer to reduce verbose output -->
+    <Logger name="ai.brokk.tools.SkeletonPrinter" level="warn" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+
+    <!-- Benchmark tool runs with root at WARN to stay quiet -->
+    <Root level="warn">
+      <AppenderRef ref="Console"/>
+    </Root>
+  </Loggers>
+</Configuration>

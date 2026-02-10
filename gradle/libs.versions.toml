@@ -1,0 +1,156 @@
+[versions]
+junit = "6.0.0"
+log4j = "2.20.0"
+jackson = "2.18.3"
+jgit = "7.5.0.202512021534-r"
+nullaway = "0.12.7"
+flatlaf = "3.6.2"
+flexmark = "0.64.8"
+treesitter = "0.25.3"
+treesitter-lang = "0.23.4"
+palantirJavaFormat = "2.73.0"
+picocli = "4.7.7"
+maven-embedder = "3.9.6"
+maven-resolver = "1.9.20"
+dependency-analysis = "3.5.1"
+javafx = "22"
+node = "7.1.0"
+nodejs = "22.14.0"
+npm = "10.9.2"
+pnpm = "9.15.4"
+jediterm = "3.54"
+jediterm-pty = "2.69"
+pty4j = "0.13.11"
+
+[libraries]
+# Logging
+slf4j-api = "org.slf4j:slf4j-api:2.0.16"
+log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", version.ref = "log4j" }
+
+# Jackson
+jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
+jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
+jackson-smile = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-smile", version.ref = "jackson" }
+
+# Testing
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
+junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
+junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
+junit-platform-engine = { module = "org.junit.platform:junit-platform-engine", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit" }
+junit-platform-commons = { module = "org.junit.platform:junit-platform-commons", version.ref = "junit" }
+jupiter-iface = "com.github.sbt.junit:jupiter-interface:0.13.3"
+
+# Static Analysis
+nullaway = { module = "com.uber.nullaway:nullaway", version.ref = "nullaway" }
+checker-qual = "org.checkerframework:checker-qual:3.49.3"
+checker-util = "org.checkerframework:checker-util:3.49.3"
+dataflow-errorprone = "io.github.eisop:dataflow-errorprone:3.49.3-eisop1"
+auto-service-annotations = "com.google.auto.service:auto-service-annotations:1.1.1"
+auto-service = "com.google.auto.service:auto-service:1.1.1"
+errorprone-test-helpers = "com.google.errorprone:error_prone_test_helpers:2.44.0"
+errorprone-annotations = "com.google.errorprone:error_prone_annotations:2.44.0"
+
+# UI
+flatlaf = { module = "com.formdev:flatlaf", version.ref = "flatlaf" }
+flatlaf-extras = { module = "com.formdev:flatlaf-extras", version.ref = "flatlaf" }
+rsyntaxtextarea = "com.fifesoft:rsyntaxtextarea:3.5.4"
+autocomplete = "com.fifesoft:autocomplete:3.3.2"
+jgoodies-forms = "com.jgoodies:jgoodies-forms:1.9.0"
+
+# Utilities
+okhttp = "com.squareup.okhttp3:okhttp:4.12.0"
+jspecify = "org.jspecify:jspecify:1.0.0"
+jetbrains-annotations = "org.jetbrains:annotations:25.0.0"
+java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
+jtokkit = "com.knuddels:jtokkit:1.1.0"
+picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
+apache-compress = "org.apache.commons:commons-compress:1.26.2"
+apache-commons-text = "org.apache.commons:commons-text:1.12.0"
+handlebars = "com.github.jknack:handlebars:4.5.0"
+mustache = "com.github.spullara.mustache.java:compiler:0.9.10"
+mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.12.1" }
+uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
+pcollections = "org.pcollections:pcollections:5.0.0"
+
+# Terminal
+jediterm-ui = { module = "org.jetbrains.jediterm:jediterm-ui", version.ref = "jediterm" }
+jediterm-core = { module = "org.jetbrains.jediterm:jediterm-core", version.ref = "jediterm" }
+jediterm-pty = { module = "org.jetbrains.jediterm:jediterm-pty", version.ref = "jediterm-pty" }
+pty4j = { module = "org.jetbrains.pty4j:pty4j", version.ref="pty4j" }
+
+# JDKMon
+disco = "io.foojay.api:discoclient:21.0.1"
+jdktools = "eu.hansolo:jdktools:21.0.11"
+osdetector-plugin = "com.google.gradle:osdetector-gradle-plugin:1.7.3"
+commons-compress = "org.apache.commons:commons-compress:1.27.0"
+xz = "org.tukaani:xz:1.10"
+
+# Markdown
+flexmark-core = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
+flexmark-html2md = { module = "com.vladsch.flexmark:flexmark-html2md-converter", version.ref = "flexmark" }
+
+# GitHub API
+github-api = "org.kohsuke:github-api:1.327"
+jsoup = "org.jsoup:jsoup:1.19.1"
+
+# Git
+jgit-core = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
+jgit-gpg = { module = "org.eclipse.jgit:org.eclipse.jgit.gpg.bc", version.ref = "jgit" }
+jgit-ssh = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.ref = "jgit" }
+bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
+
+# TreeSitter
+treesitter-core = { module = "io.github.bonede:tree-sitter", version.ref = "treesitter" }
+treesitter-java = { module = "io.github.bonede:tree-sitter-java", version.ref = "treesitter-lang" }
+treesitter-cpp = { module = "io.github.bonede:tree-sitter-cpp", version.ref = "treesitter-lang" }
+treesitter-csharp = "io.github.bonede:tree-sitter-c-sharp:0.23.1"
+treesitter-go = "io.github.bonede:tree-sitter-go:0.23.3"
+treesitter-javascript = "io.github.bonede:tree-sitter-javascript:0.23.1"
+treesitter-php = "io.github.bonede:tree-sitter-php:0.23.11"
+treesitter-python = { module = "io.github.bonede:tree-sitter-python", version.ref = "treesitter-lang" }
+treesitter-rust = "io.github.bonede:tree-sitter-rust:0.23.1"
+treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
+treesitter-scala = "io.github.bonede:tree-sitter-scala:0.23.3"
+
+# Eclipse JDT
+eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.44.0"
+
+# Decompiler
+java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.59"
+
+# Maven Resolver for dependency import
+maven-embedder = { module = "org.apache.maven:maven-embedder", version.ref = "maven-embedder" }
+maven-resolver-api = { module = "org.apache.maven.resolver:maven-resolver-api", version.ref = "maven-resolver" }
+maven-resolver-spi = { module = "org.apache.maven.resolver:maven-resolver-spi", version.ref = "maven-resolver" }
+maven-resolver-util = { module = "org.apache.maven.resolver:maven-resolver-util", version.ref = "maven-resolver" }
+maven-resolver-impl = { module = "org.apache.maven.resolver:maven-resolver-impl", version.ref = "maven-resolver" }
+maven-resolver-connector-basic = { module = "org.apache.maven.resolver:maven-resolver-connector-basic", version.ref = "maven-resolver" }
+maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-resolver-transport-http", version.ref = "maven-resolver" }
+
+# NEW: DiskLruCache library
+disklrucache = "com.jakewharton:disklrucache:2.0.2"
+caffeine = "com.github.ben-manes.caffeine:caffeine:3.2.3"
+
+[bundles]
+logging = ["slf4j-api", "log4j-slf4j2-impl"]
+junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
+junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
+ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
+markdown = ["flexmark-core", "flexmark-html2md", "handlebars", "mustache"]
+git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]
+treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript", "treesitter-scala"]
+maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
+apache = ["apache-compress", "apache-commons-text"]
+jdkmon = ["disco", "jdktools", "osdetector-plugin", "commons-compress", "xz"]
+jediterm = ["jediterm-ui", "jediterm-core", "jediterm-pty", "pty4j"]
+
+[plugins]
+errorprone = { id = "net.ltgt.errorprone", version = "4.3.0" }
+shadow = { id = "com.gradleup.shadow", version = "9.0.2" }
+buildconfig = { id = "com.github.gmazzo.buildconfig", version = "5.6.7" }
+spotless = { id = "com.diffplug.spotless", version = "7.2.0" }
+javafx = { id = "org.openjfx.javafxplugin", version = "0.1.0" }
+dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version.ref = "dependency-analysis" }
+node = { id = "com.github.node-gradle.node", version.ref = "node" }

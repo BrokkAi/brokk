@@ -1,0 +1,782 @@
+package ai.brokk.context;
+
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
+import ai.brokk.IConsoleIO;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.project.IProject;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.time.Duration;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Thread-safe undo/redo stack for {@link Context} snapshots with a live-context, non-blocking async design.
+ *
+ * <p>The newest entry is always at the tail of {@link #history}. All public methods are {@code synchronized}, so
+ * callers need no extra locking.
+ *
+ * <p><strong>Contract:</strong> Contexts stored in this history are <em>live</em> (contain dynamic fragments with
+ * {@link ComputedValue} futures). This class does NOT freeze contexts before storing them. For
+ * serialization, use {@link #applySnapshotToWorkspace(Context, IConsoleIO)} (Context, java.time.Duration)} to
+ * materialize computed values as needed without blocking the UI.
+ */
+public class ContextHistory {
+    private static final Logger logger = LogManager.getLogger(ContextHistory.class);
+    private static final int MAX_DEPTH = 200;
+    public static final Duration SNAPSHOT_AWAIT_TIMEOUT = Duration.ofSeconds(5);
+
+    public record ResetEdge(UUID sourceId, UUID targetId) {}
+
+    public record GitState(String commitHash, @Nullable String diff) {}
+
+    public record DeletedFile(ProjectFile file, String content, boolean wasTracked) {}
+
+    public record ContextHistoryEntryInfo(List<DeletedFile> deletedFiles) {}
+
+    private static class AnnotatedContext {
+        final Context context;
+
+        @Nullable
+        GitState gitState;
+
+        @Nullable
+        ContextHistoryEntryInfo entryInfo;
+
+        @Nullable
+        UUID groupId;
+
+        @Nullable
+        String groupLabel;
+
+        AnnotatedContext(Context context) {
+            this.context = context;
+        }
+    }
+
+    private final Deque<AnnotatedContext> history = new ArrayDeque<>();
+    private final Deque<AnnotatedContext> redo = new ArrayDeque<>();
+    private final List<ResetEdge> resetEdges = new ArrayList<>();
+
+    /**
+     * Tracks the ID of the last context created by an external file change to handle continuations.
+     */
+    private @Nullable UUID lastExternalChangeId;
+
+    /**
+     * UI-selection; never {@code null} once an initial context is set.
+     */
+    private @Nullable Context selected;
+
+    /**
+     * Centralized diff service for computing and caching diffs between consecutive history entries.
+     * Works with live contexts and uses asynchronous {@link ComputedValue} evaluation
+     * where needed to avoid blocking the UI.
+     */
+    private final DiffService diffService;
+
+    public ContextHistory(Context liveContext) {
+        pushContext(liveContext);
+        this.diffService = new DiffService(this);
+    }
+
+    ContextHistory(List<Context> contexts) {
+        this(contexts, List.of(), Map.of(), Map.of(), Map.of(), Map.of());
+    }
+
+    // for v3 migration
+    public ContextHistory(
+            List<Context> contexts,
+            List<ResetEdge> resetEdges,
+            Map<UUID, GitState> gitStates,
+            Map<UUID, ContextHistoryEntryInfo> entryInfos) {
+        this(contexts, resetEdges, gitStates, entryInfos, Map.of(), Map.of());
+    }
+
+    public ContextHistory(
+            List<Context> contexts,
+            List<ResetEdge> resetEdges,
+            Map<UUID, GitState> gitStates,
+            Map<UUID, ContextHistoryEntryInfo> entryInfos,
+            Map<UUID, UUID> contextToGroupId,
+            Map<UUID, String> groupLabels) {
+        if (contexts.isEmpty()) {
+            throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
+        }
+        for (Context ctx : contexts) {
+            AnnotatedContext ac = new AnnotatedContext(ctx);
+            ac.gitState = gitStates.get(ctx.id());
+            ac.entryInfo = entryInfos.get(ctx.id());
+            ac.groupId = contextToGroupId.get(ctx.id());
+            if (ac.groupId != null) {
+                ac.groupLabel = groupLabels.get(ac.groupId);
+            }
+            history.add(ac);
+        }
+        this.resetEdges.addAll(resetEdges);
+
+        AnnotatedContext last = history.peekLast();
+        selected = last != null ? last.context : null;
+
+        this.diffService = new DiffService(this);
+    }
+
+    private synchronized Context replaceTopInternal(Context newLive) {
+        assert !history.isEmpty() : "Cannot replace top context in empty history";
+        history.removeLast();
+        history.addLast(new AnnotatedContext(newLive));
+        redo.clear();
+        selected = newLive;
+        return newLive;
+    }
+
+    /* ───────────────────────── public API ─────────────────────────── */
+
+    /**
+     * Immutable view (oldest → newest).
+     */
+    public synchronized List<Context> getHistory() {
+        return history.stream().map(ac -> ac.context).toList();
+    }
+
+    /**
+     * Latest context or {@code null} when uninitialised.
+     */
+    public synchronized Context liveContext() {
+        return castNonNull(history.peekLast()).context;
+    }
+
+    public synchronized boolean hasUndoStates() {
+        return history.size() > 1;
+    }
+
+    public synchronized boolean hasRedoStates() {
+        return !redo.isEmpty();
+    }
+
+    public synchronized @Nullable Context getSelectedContext() {
+        if (selected == null || !getContextIds().contains(selected.id())) {
+            selected = liveContext();
+        }
+        return selected;
+    }
+
+    /**
+     * @param ctx the context to check
+     * @return {@code true} if the new selection differs from the old
+     */
+    public synchronized boolean setSelectedContext(Context ctx) {
+        if (!getContextIds().contains(ctx.id())) {
+            logger.error("Attempted to select context not present in history: " + ctx.id());
+            return false;
+        }
+
+        if (Objects.equals(selected, ctx)) {
+            return false;
+        }
+
+        selected = ctx;
+        // Ensure diffs for the selected context start computing
+        diffService.diff(selected);
+        return true;
+    }
+
+    public Context push(Function<Context, Context> contextGenerator) {
+        while (true) {
+            Context snapshot = liveContext();
+            Context updated = contextGenerator.apply(snapshot);
+
+            synchronized (this) {
+                // Verify the context hasn't changed since we started computing 'updated'
+                if (liveContext().equals(snapshot)) {
+                    if (Objects.equals(snapshot, updated)) {
+                        return snapshot;
+                    }
+                    pushContextInternal(updated);
+                    return liveContext();
+                }
+            }
+            // If we're here, context changed; loop and retry with the new liveContext
+        }
+    }
+
+    /**
+     * Inherently not undo-able, use with care!
+     */
+    public Context replaceTop(Function<Context, Context> contextGenerator) {
+        while (true) {
+            Context snapshot = liveContext();
+            Context updated = contextGenerator.apply(snapshot);
+
+            synchronized (this) {
+                if (liveContext().equals(snapshot)) {
+                    if (Objects.equals(snapshot, updated)) {
+                        return snapshot;
+                    }
+                    return replaceTopInternal(updated);
+                }
+            }
+        }
+    }
+
+    /**
+     * Push {@code ctx}, select it, and clear redo stack.
+     */
+    public synchronized void pushContext(Context ctx) {
+        pushContextInternal(ctx);
+    }
+
+    @Blocking
+    public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
+        var base = liveContext();
+
+        // Refresh only the affected fragments. copyAndRefresh(changed) handles:
+        // 1. Identifying affected fragments.
+        // 2. Returning the same instance if no content actually changed.
+        // 3. Mapping pinned/read-only status to the new fragment instances.
+        var merged = base.copyAndRefresh(changed);
+
+        if (merged.equals(base)) {
+            return null; // nothing meaningful changed; do not push/replace
+        }
+
+        // Maintain continuation semantics for rapid external changes.
+        boolean isContinuation = Objects.equals(base.id(), lastExternalChangeId);
+
+        if (isContinuation) {
+            replaceTopInternal(merged);
+        } else {
+            pushContextInternal(merged);
+        }
+        lastExternalChangeId = merged.id();
+        return merged;
+    }
+
+    /**
+     * Returns the previous frozen Context for the given one, or {@code null} if none (oldest).
+     */
+    public synchronized @Nullable Context previousOf(Context curr) {
+        Context prev = null;
+        for (var ac : history) {
+            if (ac.context.equals(curr)) {
+                return prev;
+            }
+            prev = ac.context;
+        }
+        return null;
+    }
+
+    /**
+     * Returns {@code true} if {@code context} is best classified as an AI result.
+     *
+     * This is derived from the transition between {@code previousOf(context)} and {@code context}:
+     * - It must add at least one task entry (i.e., represent substantive task progression).
+     * - It must not be a structural session-management action (copy/branch/reference), which we
+     *   currently identify by the presence of a reset-edge targeting this context, or by delta
+     *   flags indicating session reset / history manipulation.
+     *
+     * This method is designed to be safe to call on the EDT: it does not block. If the async delta
+     * is not yet available, it falls back to a cheap non-blocking task-history size comparison.
+     */
+    public boolean isAiResult(Context context) {
+        var prev = previousOf(context);
+        if (prev == null) {
+            return false;
+        }
+
+        if (isResetTargetId(context.id())) {
+            return false;
+        }
+
+        return context.getTaskHistory().size() > prev.getTaskHistory().size();
+    }
+
+    private boolean isResetTargetId(UUID contextId) {
+        return resetEdges.stream().anyMatch(e -> e.targetId().equals(contextId));
+    }
+
+    /**
+     * Exposes the centralized diff service.
+     */
+    public DiffService getDiffService() {
+        return diffService;
+    }
+
+    /* ─────────────── undo / redo  ────────────── */
+
+    public record UndoResult(boolean wasUndone, int steps, Set<ProjectFile> changedFiles) {
+        public static UndoResult none() {
+            return new UndoResult(false, 0, Set.of());
+        }
+
+        public static UndoResult success(int n, Set<ProjectFile> changedFiles) {
+            return new UndoResult(true, n, changedFiles);
+        }
+    }
+
+    public synchronized UndoResult undo(int steps, IConsoleIO io, IProject project) {
+        if (steps <= 0 || !hasUndoStates()) {
+            return UndoResult.none();
+        }
+
+        var toUndo = Math.min(steps, history.size() - 1);
+        for (int i = 0; i < toUndo; i++) {
+            var popped = history.removeLast();
+            // Snapshot the context before moving it to redo stack, as it was the live context
+            // and its content might not be cached yet.
+            try {
+                popped.context.awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted while waiting for undo state to complete.");
+            }
+            resetEdges.removeIf(edge -> edge.targetId().equals(popped.context.id()));
+            undoFileDeletions(io, project, popped);
+            redo.addLast(popped);
+        }
+        var changedFiles = applySnapshotToWorkspace(liveContext(), io);
+        selected = liveContext();
+        // Start computing diffs for the new live context post-undo
+        diffService.diff(selected);
+        return UndoResult.success(toUndo, changedFiles);
+    }
+
+    private void undoFileDeletions(IConsoleIO io, IProject project, AnnotatedContext popped) {
+        if (popped.entryInfo == null) return;
+        var info = popped.entryInfo;
+        if (info.deletedFiles().isEmpty()) {
+            return;
+        }
+
+        var trackedToStage = new ArrayList<ProjectFile>();
+
+        for (var deletedFile : info.deletedFiles()) {
+            var pf = deletedFile.file();
+            try {
+                pf.write(deletedFile.content());
+                if (deletedFile.wasTracked()) {
+                    trackedToStage.add(pf);
+                }
+            } catch (IOException e) {
+                var msg = "Failed to restore deleted file during undo: " + pf;
+                io.toolError(msg, "Undo Error");
+                logger.error(msg, e);
+            }
+        }
+
+        if (!trackedToStage.isEmpty() && project.hasGit()) {
+            try {
+                project.getRepo().add(trackedToStage);
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Restored and staged files: "
+                                + trackedToStage.stream().map(Object::toString).collect(Collectors.joining(", ")));
+            } catch (Exception e) {
+                var msg = "Failed to stage restored files during undo: " + e.getMessage();
+                io.toolError(msg, "Undo Error");
+                logger.error(msg, e);
+            }
+        }
+    }
+
+    public synchronized UndoResult undoUntil(@Nullable Context target, IConsoleIO io, IProject project) {
+        if (target == null) {
+            return UndoResult.none();
+        }
+        var idx = indexOf(target);
+        if (idx < 0) return UndoResult.none();
+        var distance = history.size() - 1 - idx;
+        return distance == 0 ? UndoResult.none() : undo(distance, io, project);
+    }
+
+    /**
+     * Redoes the last undone operation.
+     *
+     * @param wasRedone true if the redo was applied.
+     * @param changedFiles the changes files from the result
+     */
+    public record RedoResult(boolean wasRedone, Set<ProjectFile> changedFiles) {
+        public static RedoResult none() {
+            return new RedoResult(false, Set.of());
+        }
+
+        public static RedoResult success(Set<ProjectFile> changedFiles) {
+            return new RedoResult(true, changedFiles);
+        }
+    }
+
+    public synchronized RedoResult redo(IConsoleIO io, IProject project) {
+        if (redo.isEmpty()) return RedoResult.none();
+        var popped = redo.removeLast();
+        history.addLast(popped);
+        truncateHistory();
+        selected = liveContext();
+        var changedFiles = applySnapshotToWorkspace(liveContext(), io);
+        // Start computing diffs for the live context post-redo
+        diffService.diff(selected);
+        redoFileDeletions(io, project, popped);
+        return RedoResult.success(changedFiles);
+    }
+
+    private void redoFileDeletions(IConsoleIO io, IProject project, AnnotatedContext popped) {
+        if (popped.entryInfo != null) {
+            var info = popped.entryInfo;
+            var filesToDelete =
+                    info.deletedFiles().stream().map(DeletedFile::file).toList();
+            if (!filesToDelete.isEmpty()) {
+                try {
+                    if (project.hasGit()) {
+                        project.getRepo().forceRemoveFiles(filesToDelete);
+                    } else {
+                        for (var file : filesToDelete) {
+                            Files.deleteIfExists(file.absPath());
+                        }
+                    }
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Deleted files as part of redo: "
+                                    + filesToDelete.stream()
+                                            .map(Object::toString)
+                                            .collect(Collectors.joining(", ")));
+                } catch (Exception e) {
+                    io.toolError("Failed to delete files during redo: " + e.getMessage(), "Redo error");
+                    logger.error("Failed to delete files during redo", e);
+                }
+            }
+        }
+    }
+
+    /* ────────────────────────── private helpers ─────────────────────────── */
+
+    private void truncateHistory() {
+        while (history.size() > MAX_DEPTH) {
+            var removed = history.removeFirst();
+            var historyIds = getContextIds();
+            resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
+            if (logger.isDebugEnabled()) {
+                logger.debug("Truncated history (removed oldest context: {})", removed.context);
+            }
+        }
+    }
+
+    /**
+     * Internal helper to push a context with control over whether to capture a snapshot immediately.
+     */
+    private synchronized void pushContextInternal(Context ctx) {
+        history.addLast(new AnnotatedContext(ctx));
+        truncateHistory();
+        redo.clear();
+        selected = ctx;
+    }
+
+    private Set<UUID> getContextIds() {
+        return history.stream().map(ac -> ac.context.id()).collect(Collectors.toSet());
+    }
+
+    private int indexOf(Context ctx) {
+        var i = 0;
+        for (var c : history) {
+            if (c.context.equals(ctx)) return i;
+            i++;
+        }
+        return -1;
+    }
+
+    private @Nullable AnnotatedContext findAnnotatedContext(UUID id) {
+        for (AnnotatedContext ac : history) {
+            if (ac.context.id().equals(id)) return ac;
+        }
+        return null;
+    }
+
+    public synchronized void addResetEdge(Context source, Context target) {
+        resetEdges.add(new ResetEdge(source.id(), target.id()));
+    }
+
+    public synchronized List<ResetEdge> getResetEdges() {
+        return List.copyOf(resetEdges);
+    }
+
+    /**
+     * Registers a context as belonging to a specific UI group.
+     */
+    public synchronized void addContextToGroup(UUID contextId, UUID groupId, String groupLabel) {
+        var ac = findAnnotatedContext(contextId);
+        if (ac == null) {
+            logger.error("Context not found: " + contextId);
+            return;
+        }
+        ac.groupId = groupId;
+        ac.groupLabel = groupLabel;
+    }
+
+    /**
+     * Returns the group ID associated with a context, or null if none.
+     */
+    public synchronized @Nullable UUID getGroupId(UUID contextId) {
+        var ac = findAnnotatedContext(contextId);
+        return ac != null ? ac.groupId : null;
+    }
+
+    public synchronized Map<UUID, UUID> getContextToGroupId() {
+        var map = new HashMap<UUID, UUID>();
+        for (var ac : history) {
+            if (ac.groupId != null) map.put(ac.context.id(), ac.groupId);
+        }
+        return map;
+    }
+
+    public synchronized Map<UUID, String> getGroupLabels() {
+        var map = new HashMap<UUID, String>();
+        for (var ac : history) {
+            if (ac.groupId != null && ac.groupLabel != null) {
+                // putIfAbsent to preserve the first label defined for a group.
+                map.putIfAbsent(ac.groupId, ac.groupLabel);
+            }
+        }
+        return map;
+    }
+
+    public synchronized void addGitState(UUID contextId, GitState gitState) {
+        var ac = findAnnotatedContext(contextId);
+        if (ac == null) {
+            logger.error("Context not found: " + contextId);
+            return;
+        }
+        ac.gitState = gitState;
+    }
+
+    public synchronized Optional<GitState> getGitState(UUID contextId) {
+        var ac = findAnnotatedContext(contextId);
+        return Optional.ofNullable(ac != null ? ac.gitState : null);
+    }
+
+    public synchronized Optional<GitState> getFirstGitState() {
+        for (var ac : history) {
+            if (ac.gitState != null) {
+                return Optional.of(ac.gitState);
+            }
+        }
+        return Optional.empty();
+    }
+
+    public synchronized Map<UUID, GitState> getGitStates() {
+        var map = new HashMap<UUID, GitState>();
+        for (var ac : history) {
+            if (ac.gitState != null) map.put(ac.context.id(), ac.gitState);
+        }
+        return map;
+    }
+
+    public synchronized void addEntryInfo(UUID contextId, ContextHistoryEntryInfo info) {
+        var ac = findAnnotatedContext(contextId);
+        if (ac == null) {
+            logger.error("Context not found: " + contextId);
+            return;
+        }
+        ac.entryInfo = info;
+    }
+
+    public synchronized Optional<ContextHistoryEntryInfo> getEntryInfo(UUID contextId) {
+        var ac = findAnnotatedContext(contextId);
+        return Optional.ofNullable(ac != null ? ac.entryInfo : null);
+    }
+
+    public synchronized Map<UUID, ContextHistoryEntryInfo> getEntryInfos() {
+        var map = new HashMap<UUID, ContextHistoryEntryInfo>();
+        for (var ac : history) {
+            if (ac.entryInfo != null) map.put(ac.context.id(), ac.entryInfo);
+        }
+        return map;
+    }
+
+    @Blocking
+    private Set<ProjectFile> applySnapshotToWorkspace(Context snapshot, IConsoleIO io) {
+        // Phase 0: wait once up front
+        try {
+            snapshot.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
+
+        // Phase 1: materialize all desired contents from the snapshot with bounded waits
+        var desiredContents = new LinkedHashMap<ProjectFile, String>();
+        var desiredImageBytes = new LinkedHashMap<ProjectFile, byte[]>();
+        var materializationWarnings = new ArrayList<String>();
+
+        // Restore editable project text files
+        snapshot.getEditableFragments()
+                .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .forEach(fragment -> {
+                    var filesOpt = fragment.files().tryGet();
+                    if (filesOpt.isEmpty()) {
+                        materializationWarnings.add(fragment.toString());
+                        return;
+                    }
+
+                    var files = filesOpt.get();
+                    assert files.size() == 1 : fragment.files();
+                    var pf = files.iterator().next();
+
+                    var awaited = fragment.text().tryGet();
+                    if (awaited.isPresent()) {
+                        desiredContents.put(pf, awaited.get());
+                    } else {
+                        materializationWarnings.add(fragment.toString());
+                    }
+                });
+
+        // Restore project-backed image files (IMAGE_FILE)
+        snapshot.allFragments()
+                .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE)
+                .forEach(fragment -> {
+                    var filesOpt = fragment.files().tryGet();
+                    if (filesOpt.isEmpty()) {
+                        materializationWarnings.add(fragment.toString());
+                        return;
+                    }
+                    var files = filesOpt.get();
+                    if (files.size() != 1) {
+                        materializationWarnings.add(fragment.toString());
+                        return;
+                    }
+                    var pf = files.iterator().next();
+                    // Only restore images that are within the project (ProjectFile)
+                    var imageBytesCv = fragment.imageBytes();
+                    if (imageBytesCv == null) {
+                        materializationWarnings.add(fragment.toString());
+                        return;
+                    }
+                    var bytesOpt = imageBytesCv.tryGet();
+                    if (bytesOpt.isPresent()) {
+                        desiredImageBytes.put(pf, bytesOpt.get());
+                    } else {
+                        materializationWarnings.add(fragment.toString());
+                    }
+                });
+
+        // Phase 2: write all differing files and collect changed files
+        var changedFiles = new HashSet<ProjectFile>();
+
+        // Write text files
+        for (var entry : desiredContents.entrySet()) {
+            var pf = entry.getKey();
+            var newContent = entry.getValue();
+            try {
+                var currentContent = pf.exists() ? pf.read().orElse("") : "";
+                if (!Objects.equals(newContent, currentContent)) {
+                    pf.write(newContent);
+                    changedFiles.add(pf);
+                }
+            } catch (IOException e) {
+                logger.error("Failed to restore file {} from snapshot", pf, e);
+                io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Undo/Redo Error");
+            }
+        }
+
+        // Write image files
+        for (var entry : desiredImageBytes.entrySet()) {
+            var pf = entry.getKey();
+            var bytes = entry.getValue();
+            if (bytes == null) continue;
+            try {
+                byte[] currentBytes = Files.exists(pf.absPath()) ? Files.readAllBytes(pf.absPath()) : null;
+                if (currentBytes == null || !Arrays.equals(currentBytes, bytes)) {
+                    AtomicWrites.save(pf.absPath(), bytes);
+                    changedFiles.add(pf);
+                }
+            } catch (IOException e) {
+                logger.error("Failed to restore image file {} from snapshot", pf, e);
+                io.toolError("Failed to restore image file " + pf + ": " + e.getMessage(), "Undo/Redo Error");
+            }
+        }
+
+        if (!changedFiles.isEmpty()) {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Restored files: "
+                            + changedFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
+            io.updateWorkspace();
+        }
+
+        if (!materializationWarnings.isEmpty()) {
+            io.toolError(
+                    "Some files could not be restored within timeout: " + String.join(", ", materializationWarnings),
+                    "Undo/Redo Warning");
+        }
+
+        return changedFiles;
+    }
+
+    public static boolean areDiverged(ContextHistory history1, ContextHistory history2) {
+        var list1 = history1.getHistory();
+        var list2 = history2.getHistory();
+        int minSize = Math.min(list1.size(), list2.size());
+
+        for (int i = 0; i < minSize; i++) {
+            if (!Objects.equals(list1.get(i), list2.get(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static ContextHistory merge(ContextHistory older, ContextHistory newer) {
+        var oldList = older.getHistory();
+        var newList = newer.getHistory();
+        int minSize = Math.min(oldList.size(), newList.size());
+        int commonPrefixLength = 0;
+
+        for (int i = 0; i < minSize; i++) {
+            if (!Objects.equals(oldList.get(i), newList.get(i))) {
+                break;
+            }
+            commonPrefixLength++;
+        }
+
+        List<Context> mergedList = new ArrayList<>(oldList.subList(0, commonPrefixLength));
+        // Add remaining from older (diverged part)
+        mergedList.addAll(oldList.subList(commonPrefixLength, oldList.size()));
+        // Add remaining from newer (diverged part)
+        mergedList.addAll(newList.subList(commonPrefixLength, newList.size()));
+
+        // Merge auxiliary data
+        List<ResetEdge> mergedResetEdges = new ArrayList<>();
+        mergedResetEdges.addAll(older.resetEdges);
+        mergedResetEdges.addAll(newer.resetEdges);
+
+        Map<UUID, GitState> mergedGitStates = new HashMap<>();
+        mergedGitStates.putAll(older.getGitStates());
+        mergedGitStates.putAll(newer.getGitStates());
+
+        Map<UUID, ContextHistoryEntryInfo> mergedEntryInfos = new HashMap<>();
+        mergedEntryInfos.putAll(older.getEntryInfos());
+        mergedEntryInfos.putAll(newer.getEntryInfos());
+
+        Map<UUID, UUID> mergedContextToGroupId = new HashMap<>();
+        mergedContextToGroupId.putAll(older.getContextToGroupId());
+        mergedContextToGroupId.putAll(newer.getContextToGroupId());
+
+        Map<UUID, String> mergedGroupLabels = new HashMap<>();
+        mergedGroupLabels.putAll(older.getGroupLabels());
+        mergedGroupLabels.putAll(newer.getGroupLabels());
+
+        ContextHistory mergedHistory = new ContextHistory(
+                mergedList,
+                mergedResetEdges,
+                mergedGitStates,
+                mergedEntryInfos,
+                mergedContextToGroupId,
+                mergedGroupLabels);
+        mergedHistory.redo.addAll(newer.redo);
+
+        return mergedHistory;
+    }
+}

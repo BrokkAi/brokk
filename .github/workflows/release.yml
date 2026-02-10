@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+concurrency:
+  group: jdeploy-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for git describe to work
+
+      - name: Set up JBR 21
+        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Get version from git
+        id: version
+        run: |
+          VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null || git describe --tags --always --dirty=-SNAPSHOT)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Build and test
+        run: ./gradlew build
+
+      - name: Build shadow JAR
+        run: ./gradlew shadowJar
+
+      - name: Download jdeploy-prelaunch.jar
+        run: |
+          PRELAUNCH_VERSION=$(jq -r '.jdeployPrelaunchVersion' package.json)
+          mkdir -p app/build/libs
+          curl -L "https://github.com/shannah/brokk-jdeploy-prelaunch/releases/download/${PRELAUNCH_VERSION}/jdeploy-prelaunch.jar" \
+            -o app/build/libs/jdeploy-prelaunch.jar
+          echo "Downloaded jdeploy-prelaunch.jar version ${PRELAUNCH_VERSION}"
+
+      - name: Get JAR filename
+        id: jar
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SRC_JAR=$(find app/build/libs -name "brokk-*.jar" | head -1)
+          DEST_JAR="app/build/libs/brokk-${VERSION}.jar"
+          if [ "$SRC_JAR" != "$DEST_JAR" ]; then
+            cp "$SRC_JAR" "$DEST_JAR"
+            echo "Renamed $(basename "$SRC_JAR") -> $(basename "$DEST_JAR")"
+          fi
+          echo "jar_file=$DEST_JAR" >> $GITHUB_OUTPUT
+          echo "jar_name=$(basename "$DEST_JAR")" >> $GITHUB_OUTPUT
+          echo "Found JAR: $(basename "$DEST_JAR")"
+
+      - name: Create GitHub Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: ${{ steps.jar.outputs.jar_file }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: brokk-${{ steps.version.outputs.version }}
+          path: |
+            app/build/libs/*.jar
+            !app/build/libs/*-sources.jar
+            !app/build/libs/*-javadoc.jar
+          retention-days: 90
+
+      - name: Update package.json with JAR name
+        run: |
+          jq '.jdeploy.jar = "${{ steps.jar.outputs.jar_file }}"' package.json > package.tmp.json && mv package.tmp.json package.json
+
+      - name: Build App Installer Bundles
+        uses: shannah/jdeploy@master
+        with:
+          github_token: ${{ secrets.BROKK_RELEASES_TOKEN }}
+          target_repository: 'BrokkAi/brokk-releases'
+
+      - name: Upload JAR to brokk-releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          repository: BrokkAi/brokk-releases
+          draft: false
+          prerelease: false
+          files: ${{ steps.jar.outputs.jar_file }}
+          token: ${{ secrets.BROKK_RELEASES_TOKEN }}
+
+      - name: Update jbang catalog in brokk-releases
+        env:
+          BROKK_RELEASES_TOKEN: ${{ secrets.BROKK_RELEASES_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Clone brokk-releases (shallow)
+          git clone --depth 1 \
+            "https://x-access-token:${BROKK_RELEASES_TOKEN}@github.com/BrokkAi/brokk-releases.git" \
+            /tmp/brokk-releases
+
+          # Seed catalog if it doesn't exist yet
+          if [ ! -f /tmp/brokk-releases/jbang-catalog.json ]; then
+            echo '{"catalogs": {}, "aliases": {"brokk": {"script-ref": "", "java": "21", "java-options": []}}, "templates": {}}' \
+              > /tmp/brokk-releases/jbang-catalog.json
+          fi
+
+          # Reuse existing update script (runs in brokk checkout for git tags)
+          bash scripts/update-jbang-catalog.sh \
+            "$VERSION" \
+            /tmp/brokk-releases/jbang-catalog.json \
+            3
+
+          # Commit and push to brokk-releases
+          cd /tmp/brokk-releases
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add jbang-catalog.json
+          if git diff --cached --quiet; then
+            echo "No changes to jbang-catalog.json"
+          else
+            git commit -m "Update jbang-catalog.json for ${VERSION}"
+            git push
+          fi
