@@ -119,6 +119,7 @@ public class SearchAgent {
     private boolean terminalCompletionReported = false;
 
     private final SearchPrompts.Objective objective;
+    private final Set<ProjectFile> presentedRelatedFiles = new HashSet<>();
 
     SearchState currentState;
     private SearchState checkpointState;
@@ -863,7 +864,8 @@ public class SearchAgent {
                     agent.goal,
                     agent.getObjective(),
                     agent.mcpTools,
-                    sessionMessages);
+                    sessionMessages,
+                    agent.presentedRelatedFiles);
 
             if (dropOnlyMode) {
                 context = agent.resetPinsToOriginal(context);

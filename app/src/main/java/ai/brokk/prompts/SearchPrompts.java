@@ -5,6 +5,7 @@ import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.Messages;
@@ -545,7 +546,8 @@ public class SearchPrompts {
             String goal,
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
-            List<ChatMessage> sessionMessages)
+            List<ChatMessage> sessionMessages,
+            Set<ProjectFile> presentedRelatedFiles)
             throws InterruptedException {
 
         var cm = context.getContextManager();
@@ -578,7 +580,8 @@ public class SearchPrompts {
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)
-        var related = context.buildRelatedSymbols(10);
+        var related = context.buildRelatedSymbols(10, 20, presentedRelatedFiles);
+        presentedRelatedFiles.addAll(related.keySet());
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             messages.add(new UserMessage(
