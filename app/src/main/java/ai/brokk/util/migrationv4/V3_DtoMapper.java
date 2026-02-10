@@ -128,9 +128,24 @@ public class V3_DtoMapper {
     private static @Nullable ContextFragment _buildReferencedFragment(
             V3_FragmentDtos.ReferencedFragmentDto dto, IContextManager mgr, V3_HistoryIo.ContentReader reader) {
         return switch (dto) {
-            case V3_FragmentDtos.ProjectFileDto pfd ->
-                // Use current project root for cross-platform compatibility
-                ContextFragments.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
+            case V3_FragmentDtos.ProjectFileDto pfd -> {
+                // Use current project root for cross-platform compatibility.
+                // Defensively handle empty or missing relPath that may originate from legacy data:
+                // - If relPath is null/blank, fall back to treating the entry as an external file (absolute path built
+                // from repoRoot),
+                //   avoiding ProjectPathFragment creation which assumes a non-empty relPath.
+                String rel = pfd.relPath();
+                if (rel == null || rel.isBlank()) {
+                    logger.warn(
+                            "V3 migration: ProjectFileDto with id={} has empty relPath; falling back to ExternalPathFragment. repoRoot={}",
+                            pfd.id(),
+                            pfd.repoRoot());
+                    Path abs = Path.of(requireNonNullElse(pfd.repoRoot(), "")).toAbsolutePath();
+                    yield ContextFragments.ExternalPathFragment.withId(new ExternalFile(abs), pfd.id(), mgr);
+                }
+                // Normal path: construct ProjectPathFragment using current IContextManager.toFile(relPath)
+                yield ContextFragments.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
+            }
             case V3_FragmentDtos.ExternalFileDto efd ->
                 ContextFragments.ExternalPathFragment.withId(
                         new ExternalFile(Path.of(efd.absPath()).toAbsolutePath()), efd.id(), mgr);
