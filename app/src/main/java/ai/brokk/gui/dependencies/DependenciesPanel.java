@@ -558,22 +558,11 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
         addButton.setEnabled(!locked);
         removeButton.setEnabled(!locked && table.getSelectedRow() != -1);
 
-        // Avoid causing reentrant toggle handling via stopCellEditing.
-        if (table.isEditing()) {
+        // Avoid causing reentrant toggle handling via stopCellEditing if we're already in the middle of a toggle.
+        if (table.isEditing() && !handlingLiveToggle) {
             var editor = table.getCellEditor();
             if (editor != null) {
-                if (!handlingLiveToggle) {
-                    // Temporarily mark we're handling to prevent the table model listener from re-entering.
-                    handlingLiveToggle = true;
-                    try {
-                        editor.stopCellEditing();
-                    } finally {
-                        handlingLiveToggle = false;
-                    }
-                } else {
-                    // If already handling a toggle, avoid calling stopCellEditing again.
-                    // Rely on the outer handler to finish and refresh the UI.
-                }
+                editor.stopCellEditing();
             }
         }
         table.repaint();
