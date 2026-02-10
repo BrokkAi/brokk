@@ -21,8 +21,8 @@ public class BorderUtils {
      */
     public static void addFocusBorder(JComponent componentToBorder, JComponent componentToListenFocus) {
         Border unfocusedBorder = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Color.GRAY, 1), BorderFactory.createEmptyBorder(1, 1, 1, 1));
-        Border focusedBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.focusColor"), 2);
+                new javax.swing.border.LineBorder(Color.GRAY, 1, true), BorderFactory.createEmptyBorder(1, 1, 1, 1));
+        Border focusedBorder = new javax.swing.border.LineBorder(UIManager.getColor("Component.focusColor"), 2, true);
 
         componentToBorder.setBorder(unfocusedBorder);
 
