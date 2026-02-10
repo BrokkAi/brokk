@@ -769,7 +769,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("view.resetZoom", "Reset Zoom");
         adder.add("workspace.attachContext", "Add Content to Workspace");
         adder.add("workspace.attachFilesAndSummarize", "Attach Files + Summarize");
-        adder.add("global.showThemePalette", "Theme Palette");
 
         var resetAllBtn = new JButton("Reset All to Defaults");
         resetAllBtn.setToolTipText("Reset all keybindings to their default values");
