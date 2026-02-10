@@ -744,7 +744,10 @@ public final class MainProject extends AbstractProject {
             return parsed;
         }
 
+        // Auto-detect: consider both tracked repository files and live dependencies.
         Set<Language> detectedLanguages = new HashSet<>();
+
+        // 1) Repo-tracked files (existing behavior)
         for (ProjectFile pf : repo.getTrackedFiles()) {
             Language lang = Languages.fromExtension(pf.extension());
             if (lang != Languages.NONE) {
@@ -752,14 +755,37 @@ public final class MainProject extends AbstractProject {
             }
         }
 
+        // 2) Live dependencies: namesToDependencies / getLiveDependencies already detect a predominant language
+        // for each live dependency (via AbstractProject.detectLanguageForDependency). Merge those languages as well.
+        try {
+            for (IProject.Dependency dep : getLiveDependencies()) {
+                Language depLang = dep.language();
+                if (depLang != null && depLang != Languages.NONE) {
+                    detectedLanguages.add(depLang);
+                } else {
+                    // Fallback: if dependency language is NONE for some reason, attempt to scan files in the dep
+                    // to discover any non-NONE languages (covers edge cases).
+                    for (ProjectFile depFile : dep.files()) {
+                        Language lang = Languages.fromExtension(depFile.extension());
+                        if (lang != Languages.NONE) {
+                            detectedLanguages.add(lang);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Error while detecting languages from live dependencies for {}: {}", root, e.getMessage());
+        }
+
         if (detectedLanguages.isEmpty()) {
             logger.debug(
-                    "No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
+                    "No files with recognized (non-NONE) languages found for {} (repo files and live dependencies checked). Defaulting to Language.NONE.",
+                    root);
             return Set.of(Languages.NONE);
         }
 
         logger.debug(
-                "Auto-detected languages for {}: {}",
+                "Auto-detected languages for {} (including live dependencies): {}",
                 root,
                 detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
         return detectedLanguages;
