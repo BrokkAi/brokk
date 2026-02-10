@@ -45,7 +45,7 @@ class DependencyDefaultCheckedBehaviorTest {
     void testFirstDependencyIsLiveByDefault() throws IOException {
         // Setup: Create a mock dependency directory
         String depName1 = "dep-first";
-        createDependencyDirectory(mainProject, depName1);
+        createDependencyDirectory(depName1);
 
         // Act: Simulate import by adding to live dependencies
         simulateDependencyImport(mainProject, depName1);
@@ -63,7 +63,7 @@ class DependencyDefaultCheckedBehaviorTest {
     void testSecondDependencyIsLiveAndFirstRemains() throws IOException {
         // Setup: Create and import first dependency
         String depName1 = "dep-first";
-        createDependencyDirectory(mainProject, depName1);
+        createDependencyDirectory(depName1);
         simulateDependencyImport(mainProject, depName1);
 
         Set<IProject.Dependency> liveDepsAfterFirst = mainProject.getLiveDependencies();
@@ -71,7 +71,7 @@ class DependencyDefaultCheckedBehaviorTest {
 
         // Act: Import a second dependency
         String depName2 = "dep-second";
-        createDependencyDirectory(mainProject, depName2);
+        createDependencyDirectory(depName2);
         simulateDependencyImport(mainProject, depName2);
 
         // Assert: Both dependencies should be live
@@ -90,7 +90,7 @@ class DependencyDefaultCheckedBehaviorTest {
         String[] depNames = {"dep-alpha", "dep-beta", "dep-gamma"};
         for (int i = 0; i < depNames.length; i++) {
             String depName = depNames[i];
-            createDependencyDirectory(mainProject, depName);
+            createDependencyDirectory(depName);
             simulateDependencyImport(mainProject, depName);
 
             // Assert: All previously imported dependencies should remain live
@@ -113,7 +113,7 @@ class DependencyDefaultCheckedBehaviorTest {
     void testToggleDependencyOffAndOn() throws IOException {
         // Setup: Create and import a dependency
         String depName = "dep-toggle";
-        createDependencyDirectory(mainProject, depName);
+        createDependencyDirectory(depName);
         simulateDependencyImport(mainProject, depName);
 
         Set<IProject.Dependency> liveDeps = mainProject.getLiveDependencies();
@@ -145,11 +145,11 @@ class DependencyDefaultCheckedBehaviorTest {
     void testWorktreeProjectClonesParentLiveDependencies(@TempDir Path worktreeRoot) throws IOException {
         // Setup: Create parent project with imported dependencies
         String depName1 = "dep-parent-first";
-        createDependencyDirectory(mainProject, depName1);
+        createDependencyDirectory(depName1);
         simulateDependencyImport(mainProject, depName1);
 
         String depName2 = "dep-parent-second";
-        createDependencyDirectory(mainProject, depName2);
+        createDependencyDirectory(depName2);
         simulateDependencyImport(mainProject, depName2);
 
         // Verify parent has both live
@@ -161,8 +161,8 @@ class DependencyDefaultCheckedBehaviorTest {
 
         try (WorktreeProject worktreeProject = new WorktreeProject(worktreeRoot, mainProject)) {
             // Create matching dependency directories in the worktree so they can be discovered
-            createDependencyDirectory(worktreeProject, depName1);
-            createDependencyDirectory(worktreeProject, depName2);
+            createDependencyDirectory(depName1);
+            createDependencyDirectory(depName2);
 
             // Act: Access live dependencies for the first time
             Set<IProject.Dependency> worktreeLiveDeps = worktreeProject.getLiveDependencies();
@@ -176,7 +176,7 @@ class DependencyDefaultCheckedBehaviorTest {
 
             // Act: Import a new dependency into the worktree
             String wtDepName = "dep-worktree-new";
-            createDependencyDirectory(worktreeProject, wtDepName);
+            createDependencyDirectory(wtDepName);
             simulateDependencyImport(worktreeProject, wtDepName);
 
             // Assert: Worktree should have 3 live dependencies (2 inherited + 1 new)
@@ -205,7 +205,7 @@ class DependencyDefaultCheckedBehaviorTest {
     void worktreeDiscoversDependenciesFromMainProject(@TempDir Path worktreeRoot) throws IOException {
         // Setup: Create a MainProject with a dependency
         String depName = "some-dep";
-        createDependencyDirectory(mainProject, depName);
+        createDependencyDirectory(depName);
 
         // Setup: Create a WorktreeProject from that MainProject
         Files.createDirectories(worktreeRoot.resolve(AbstractProject.BROKK_DIR));
@@ -237,7 +237,7 @@ class DependencyDefaultCheckedBehaviorTest {
     void worktreeGetAllFilesIncludesDependencyFiles(@TempDir Path worktreeRoot) throws IOException {
         // Setup: Create a MainProject with a dependency containing a source file
         String depName = "shared-dep";
-        createDependencyDirectory(mainProject, depName);
+        createDependencyDirectory(depName);
 
         Path dependenciesDir = mainProject
                 .getMasterRootPathForConfig()
@@ -282,11 +282,11 @@ class DependencyDefaultCheckedBehaviorTest {
     void testDependencyPersistenceAcrossReload() throws IOException {
         // Setup: Create and import dependencies
         String depName1 = "dep-persist-1";
-        createDependencyDirectory(mainProject, depName1);
+        createDependencyDirectory(depName1);
         simulateDependencyImport(mainProject, depName1);
 
         String depName2 = "dep-persist-2";
-        createDependencyDirectory(mainProject, depName2);
+        createDependencyDirectory(depName2);
         simulateDependencyImport(mainProject, depName2);
 
         Set<String> originalLiveDeps = extractDependencyNames(mainProject.getLiveDependencies());
@@ -309,7 +309,7 @@ class DependencyDefaultCheckedBehaviorTest {
      * Creates a mock dependency directory structure under the main project's .brokk/dependencies.
      * Dependencies are shared across worktrees and must reside in the main project's config dir.
      */
-    private void createDependencyDirectory(AbstractProject project, String depName) throws IOException {
+    private void createDependencyDirectory(String depName) throws IOException {
         Path dependenciesDir = mainProject
                 .getMasterRootPathForConfig()
                 .resolve(AbstractProject.BROKK_DIR)
