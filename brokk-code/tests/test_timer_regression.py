@@ -1,13 +1,14 @@
 import asyncio
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict
 from unittest.mock import MagicMock
 
 import pytest
+from textual.widgets import Static
+
 from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorManager
 from brokk_code.widgets.chat_panel import ChatPanel
-from textual.widgets import Static
 
 
 class FakeExecutor(ExecutorManager):

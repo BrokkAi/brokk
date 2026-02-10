@@ -1,7 +1,9 @@
-import pytest
-import httpx
 from unittest.mock import AsyncMock, MagicMock
-from brokk_code.executor import ExecutorManager, ExecutorError
+
+import httpx
+import pytest
+
+from brokk_code.executor import ExecutorError, ExecutorManager
 
 
 @pytest.mark.asyncio

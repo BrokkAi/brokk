@@ -139,7 +139,7 @@ class BrokkApp(App):
                     chat.add_system_message(msg)
                 else:
                     logger.info(msg)
-            except Exception as e:
+            except Exception:
                 logger.debug("Failed to fetch health/live info", exc_info=True)
 
             # Session Management Logic

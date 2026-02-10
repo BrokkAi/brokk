@@ -1,9 +1,10 @@
 import asyncio
+from unittest.mock import patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
+
 from brokk_code.app import BrokkApp
-from brokk_code.session_persistence import save_last_session_id, get_session_zip_path
+from brokk_code.session_persistence import get_session_zip_path, save_last_session_id
 from tests.test_tui_resubmit import StubExecutor
 
 

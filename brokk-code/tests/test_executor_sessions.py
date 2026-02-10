@@ -1,6 +1,8 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import httpx
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+
 from brokk_code.executor import ExecutorManager
 
 

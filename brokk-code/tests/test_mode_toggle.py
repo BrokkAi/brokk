@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock
+
 from brokk_code.app import BrokkApp
 from brokk_code.widgets.chat_panel import ChatPanel
 

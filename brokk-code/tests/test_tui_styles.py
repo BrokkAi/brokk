@@ -1,8 +1,6 @@
 import importlib.resources
 import re
 
-import pytest
-
 
 def test_chat_input_border_style():
     """

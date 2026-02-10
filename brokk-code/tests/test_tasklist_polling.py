@@ -1,5 +1,7 @@
 from unittest.mock import AsyncMock, patch
+
 import pytest
+
 from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorManager
 from brokk_code.widgets.chat_panel import ChatPanel

@@ -1,9 +1,11 @@
 import asyncio
 import time
+
 import pytest
-from brokk_code.widgets.chat_panel import ChatPanel
-from textual.widgets import Static
 from textual.containers import Horizontal
+from textual.widgets import Static
+
+from brokk_code.widgets.chat_panel import ChatPanel
 
 
 @pytest.mark.asyncio

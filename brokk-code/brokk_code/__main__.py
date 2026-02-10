@@ -27,7 +27,10 @@ def main():
         "--executor-snapshot",
         action="store_true",
         default=True,
-        help="Download the latest snapshot release if no specific version is provided (default: True)",
+        help=(
+            "Download the latest snapshot release if no specific version is provided "
+            "(default: True)"
+        ),
     )
     parser.add_argument(
         "--executor-stable",

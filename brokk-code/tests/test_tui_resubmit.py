@@ -1,11 +1,11 @@
 import asyncio
-from typing import Any, AsyncIterator, Dict, List, Optional
 from pathlib import Path
+from typing import Any, AsyncIterator, Dict, List
 
 import pytest
+
 from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorManager
-from brokk_code.widgets.chat_panel import ChatPanel
 
 
 class StubExecutor(ExecutorManager):

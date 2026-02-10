@@ -1,6 +1,4 @@
-import json
-from pathlib import Path
-from brokk_code.prompt_history import append_prompt, load_history, get_history_file
+from brokk_code.prompt_history import append_prompt, get_history_file, load_history
 
 
 def test_append_and_load_history(tmp_path):

@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from pathlib import Path
+
 from brokk_code.app import BrokkApp
 from brokk_code.prompt_history import load_history
 from tests.test_tui_resubmit import StubExecutor
