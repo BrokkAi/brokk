@@ -302,6 +302,14 @@ class BrokkApp(App):
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
                 self.run_worker(self._refresh_context_panel())
 
+    def _set_mode(self, new_mode: str, *, announce: bool = True) -> None:
+        """Sets the agent mode, updates the subtitle, and optionally announces to chat."""
+        self.agent_mode = new_mode
+        self.sub_title = f"Mode: {self.agent_mode}"
+        if announce:
+            chat = self.query_one(ChatPanel)
+            chat.add_system_message_markup(f"Mode changed to: [bold]{self.agent_mode}[/]")
+
     def _render_info(self) -> None:
         """Renders current status and configuration info to the chat."""
         chat = self.query_one(ChatPanel)
@@ -348,8 +356,7 @@ class BrokkApp(App):
                 )
             self.action_change_theme()
         elif base in ("/ask", "/search", "/lutz"):
-            self.current_mode = base[1:].upper()
-            chat.add_system_message_markup(f"Mode changed to: [bold]{self.current_mode}[/]")
+            self._set_mode(base[1:].upper())
         elif base == "/info":
             self._render_info()
         elif base == "/history":
@@ -405,11 +412,7 @@ class BrokkApp(App):
             current_index = 0
 
         next_index = (current_index + 1) % len(modes)
-        self.agent_mode = modes[next_index]
-        self.sub_title = f"Mode: {self.agent_mode}"
-
-        chat = self.query_one(ChatPanel)
-        chat.add_system_message_markup(f"Mode changed to: [bold]{self.agent_mode}[/]")
+        self._set_mode(modes[next_index])
 
     def action_toggle_notifications(self) -> None:
         panel = self.query_one("#notification-panel")
