@@ -113,6 +113,51 @@ def test_app_theme_commands(tmp_path, monkeypatch):
     assert any("/theme, /palette" in text for _, text in fake_chat.appended_messages)
 
 
+def test_app_mode_commands(tmp_path, monkeypatch):
+    """Verify /ask, /search, and /lutz commands update the app mode."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    class FakeChat:
+        def __init__(self):
+            self.system_markup = []
+
+        def add_system_message_markup(self, text: str) -> None:
+            self.system_markup.append(text)
+
+    fake_chat = FakeChat()
+    monkeypatch.setattr(app, "query_one", lambda *args, **kwargs: fake_chat)
+
+    app._handle_command("/ask")
+    assert app.current_mode == "ASK"
+    assert "Mode changed to: [bold]ASK[/]" in fake_chat.system_markup[-1]
+
+    app._handle_command("/SEARCH")  # Test case insensitivity
+    assert app.current_mode == "SEARCH"
+    assert "Mode changed to: [bold]SEARCH[/]" in fake_chat.system_markup[-1]
+
+    app._handle_command("/lutz")
+    assert app.current_mode == "LUTZ"
+    assert "Mode changed to: [bold]LUTZ[/]" in fake_chat.system_markup[-1]
+
+    # Verify help contains mode commands
+    class FakeHelpChat(FakeChat):
+        def __init__(self):
+            super().__init__()
+            self.appended_messages = []
+
+        def append_message(self, author: str, text: str) -> None:
+            self.appended_messages.append(text)
+
+    fake_help_chat = FakeHelpChat()
+    monkeypatch.setattr(app, "query_one", lambda *args, **kwargs: fake_help_chat)
+    app._handle_command("/help")
+    help_text = fake_help_chat.appended_messages[0]
+    assert "/ask" in help_text
+    assert "/search" in help_text
+    assert "/lutz" in help_text
+
+
 def test_version():
     from brokk_code import __version__
 

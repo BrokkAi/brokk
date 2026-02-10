@@ -211,9 +211,15 @@ class BrokkApp(App):
                     "Theme selection now uses the theme palette. Use /theme with no arguments."
                 )
             self.action_change_theme()
+        elif base in ("/ask", "/search", "/lutz"):
+            self.current_mode = base[1:].upper()
+            chat.add_system_message_markup(f"Mode changed to: [bold]{self.current_mode}[/]")
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
+                "  /ask                  - Set mode to ASK (questions only)\n"
+                "  /search               - Set mode to SEARCH (read-only code search)\n"
+                "  /lutz                 - Set mode to LUTZ (default; full agent access)\n"
                 "  /model <name>         - Change the planner LLM model\n"
                 "  /model-code <name>    - Change the code LLM model\n"
                 "  /reasoning <level>    - Set reasoning level for planner\n"
