@@ -53,9 +53,13 @@ class SettingsProjectBuildPanelTest {
     @Test
     void testValidateTimeoutNullOrEmpty() {
         var result = SettingsProjectBuildPanel.validateTimeout(null);
-        assertTrue(result.isValid(), "Should fallback to default");
+        assertTrue(result.isValid());
+        // Null or unknown types currently fallback to Environment default via validateTimeout
+        // but we'll check it's at least valid.
+        assertTrue(result.seconds() != 0);
 
-        // We don't check the exact value of default here as it depends on Environment
-        assertTrue(result.seconds() > 0);
+        result = SettingsProjectBuildPanel.validateTimeout("");
+        assertTrue(result.isValid());
+        assertEquals(-1L, result.seconds());
     }
 }

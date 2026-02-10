@@ -67,6 +67,9 @@ public class SettingsProjectBuildPanel extends JPanel {
     private JComboBox<TimeoutItem> runTimeoutComboBox = createTimeoutComboBox();
     private JComboBox<TimeoutItem> testTimeoutComboBox = createTimeoutComboBox();
 
+    private TimeoutItem lastValidRunTimeout = TimeoutItem.NO_TIMEOUT;
+    private TimeoutItem lastValidTestTimeout = TimeoutItem.NO_TIMEOUT;
+
     private JProgressBar buildProgressBar = new JProgressBar();
     private MaterialButton inferBuildDetailsButton = new MaterialButton("Infer Build Details");
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
@@ -318,6 +321,9 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.weightx = 1.0;
         buildGbc.fill = GridBagConstraints.HORIZONTAL;
         buildConfigPanel.add(testTimeoutComboBox, buildGbc);
+
+        setupTimeoutValidation(runTimeoutComboBox, true);
+        setupTimeoutValidation(testTimeoutComboBox, false);
 
         // Infer/Verify buttons
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -864,31 +870,15 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         var mainProject = project.getMainProject();
 
-        var runValidation = validateTimeout(runTimeoutComboBox.getSelectedItem());
-        if (!runValidation.isValid()) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Run Command Timeout: " + runValidation.errorMessage(),
-                    "Invalid Timeout",
-                    JOptionPane.ERROR_MESSAGE);
-            return false;
-        }
-        long runTimeout = runValidation.seconds();
+        commitTimeout(runTimeoutComboBox, true);
+        long runTimeout = lastValidRunTimeout.seconds();
         if (runTimeout != mainProject.getRunCommandTimeoutSeconds()) {
             mainProject.setRunCommandTimeoutSeconds(runTimeout);
             logger.debug("Applied Run Command Timeout: {} seconds", runTimeout);
         }
 
-        var testValidation = validateTimeout(testTimeoutComboBox.getSelectedItem());
-        if (!testValidation.isValid()) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Test Command Timeout: " + testValidation.errorMessage(),
-                    "Invalid Timeout",
-                    JOptionPane.ERROR_MESSAGE);
-            return false;
-        }
-        long testTimeout = testValidation.seconds();
+        commitTimeout(testTimeoutComboBox, false);
+        long testTimeout = lastValidTestTimeout.seconds();
         if (testTimeout != mainProject.getTestCommandTimeoutSeconds()) {
             mainProject.setTestCommandTimeoutSeconds(testTimeout);
             logger.debug("Applied Test Command Timeout: {} seconds", testTimeout);
@@ -1210,19 +1200,62 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void selectTimeoutInCombo(JComboBox<TimeoutItem> combo, long seconds) {
+        TimeoutItem itemToSelect;
         if (seconds == -1) {
-            combo.setSelectedItem(TimeoutItem.NO_TIMEOUT);
-            return;
-        }
-
-        for (int i = 0; i < combo.getItemCount(); i++) {
-            var item = combo.getItemAt(i);
-            if (item.seconds() == seconds) {
-                combo.setSelectedIndex(i);
-                return;
+            itemToSelect = TimeoutItem.NO_TIMEOUT;
+        } else {
+            itemToSelect = null;
+            for (int i = 0; i < combo.getItemCount(); i++) {
+                var item = combo.getItemAt(i);
+                if (item.seconds() == seconds) {
+                    itemToSelect = item;
+                    break;
+                }
+            }
+            if (itemToSelect == null) {
+                itemToSelect = new TimeoutItem(seconds);
             }
         }
-        // Not in curated list, set as custom text
-        combo.setSelectedItem(new TimeoutItem(seconds));
+
+        combo.setSelectedItem(itemToSelect);
+        if (combo == runTimeoutComboBox) {
+            lastValidRunTimeout = itemToSelect;
+        } else if (combo == testTimeoutComboBox) {
+            lastValidTestTimeout = itemToSelect;
+        }
+    }
+
+    private void setupTimeoutValidation(JComboBox<TimeoutItem> combo, boolean isRunTimeout) {
+        Component editor = combo.getEditor().getEditorComponent();
+        if (editor instanceof JTextField textField) {
+            textField.addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override
+                public void focusLost(java.awt.event.FocusEvent e) {
+                    commitTimeout(combo, isRunTimeout);
+                }
+            });
+            textField.addActionListener(e -> commitTimeout(combo, isRunTimeout));
+        }
+    }
+
+    private void commitTimeout(JComboBox<TimeoutItem> combo, boolean isRunTimeout) {
+        Object item = combo.getEditor().getItem();
+        var validation = validateTimeout(item);
+
+        if (validation.isValid()) {
+            long seconds = validation.seconds();
+            TimeoutItem validItem = (seconds == -1) ? TimeoutItem.NO_TIMEOUT : new TimeoutItem(seconds);
+            combo.setSelectedItem(validItem);
+            if (isRunTimeout) {
+                lastValidRunTimeout = validItem;
+            } else {
+                lastValidTestTimeout = validItem;
+            }
+        } else {
+            JOptionPane.showMessageDialog(
+                    this, validation.errorMessage(), "Invalid Timeout", JOptionPane.ERROR_MESSAGE);
+            // Revert to last valid
+            combo.setSelectedItem(isRunTimeout ? lastValidRunTimeout : lastValidTestTimeout);
+        }
     }
 }
