@@ -417,6 +417,7 @@ public class OpenAiUtils {
                                 ? parameters.serviceTier().toApiString()
                                 : null)
                 .previousResponseId(parameters.previousResponseId())
-                .reasoningEffort(parameters.reasoningEffort());
+                .reasoningEffort(parameters.reasoningEffort())
+                .promptCacheKey(parameters.promptCacheKey());
     }
 }

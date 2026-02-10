@@ -846,6 +846,7 @@ public class Llm {
     private OpenAiChatRequestParameters.Builder getParamsBuilder() {
         OpenAiChatRequestParameters.Builder builder = OpenAiChatRequestParameters.builder();
 
+        // user opted in to data retention for this request
         if (tagRetain) {
             // this is the only place we add metadata so we can just overwrite what's there
             logger.trace("Adding 'retain' metadata tag to LLM request.");

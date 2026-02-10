@@ -84,6 +84,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .metadata(getOrDefault(builder.metadata, defaultParameters.metadata()))
                 .serviceTier(getOrDefault(builder.serviceTier, defaultParameters.serviceTier()))
                 .reasoningEffort(defaultParameters.reasoningEffort())
+                .promptCacheKey(getOrDefault(builder.promptCacheKey, defaultParameters.promptCacheKey()))
                 .build();
         this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
         this.strictTools = getOrDefault(builder.strictTools, false);
@@ -205,6 +206,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         private Boolean strictJsonSchema;
         private Integer seed;
         private String user;
+        private String promptCacheKey;
         private Boolean strictTools;
         private Boolean parallelToolCalls;
         private Boolean store;
@@ -322,6 +324,11 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
 
         public OpenAiStreamingChatModelBuilder user(String user) {
             this.user = user;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder promptCacheKey(String promptCacheKey) {
+            this.promptCacheKey = promptCacheKey;
             return this;
         }
 
