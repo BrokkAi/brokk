@@ -793,10 +793,11 @@ public class SettingsProjectBuildPanel extends JPanel {
             runTestsInWorkspaceRadio.setSelected(true);
         }
 
-        long runTimeout = project.getMainProject().getRunCommandTimeoutSeconds();
+        var mainProject = project.getMainProject();
+        long runTimeout = mainProject.getRunCommandTimeoutSeconds();
         selectTimeoutInCombo(runTimeoutComboBox, runTimeout);
 
-        long testTimeout = project.getMainProject().getTestCommandTimeoutSeconds();
+        long testTimeout = mainProject.getTestCommandTimeoutSeconds();
         selectTimeoutInCombo(testTimeoutComboBox, testTimeout);
 
         populateJdkControlsFromProject();
