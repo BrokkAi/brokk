@@ -7,9 +7,9 @@ from rich.panel import Panel
 from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import Input, LoadingIndicator, RichLog
+from textual.widgets import Input, LoadingIndicator, RichLog, Static
 
 
 class ChatPanel(Vertical):
@@ -32,10 +32,13 @@ class ChatPanel(Vertical):
         self._last_token_time: float = 0
         self._inactivity_timeout: float = 10.0
         self._get_now = time.time
+        self._job_start_time: Optional[float] = None
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
-        yield LoadingIndicator(id="chat-spinner", classes="hidden")
+        with Horizontal(id="chat-spinner-area", classes="hidden"):
+            yield LoadingIndicator(id="chat-spinner")
+            yield Static(id="chat-timer")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield Input(placeholder="Type a message or /command...", id="chat-input")
 
@@ -49,7 +52,14 @@ class ChatPanel(Vertical):
             event.input.value = ""
 
     def set_job_running(self, running: bool) -> None:
-        """Explicitly controls the visibility of the job progress spinner."""
+        """Explicitly controls the visibility of the job progress spinner and timer."""
+        if running:
+            self._job_start_time = self._get_now()
+            self._update_elapsed_time()
+        else:
+            self._job_start_time = None
+            self.query_one("#chat-timer", Static).update("")
+
         self._show_spinner(running)
 
     def set_response_pending(self) -> None:
@@ -71,11 +81,28 @@ class ChatPanel(Vertical):
         self._flush_message()
 
     def _show_spinner(self, show: bool) -> None:
-        spinner = self.query_one("#chat-spinner", LoadingIndicator)
+        spinner_area = self.query_one("#chat-spinner-area", Horizontal)
         if show:
-            spinner.remove_class("hidden")
+            spinner_area.remove_class("hidden")
         else:
-            spinner.add_class("hidden")
+            spinner_area.add_class("hidden")
+
+    @work(exclusive=True)
+    async def _update_elapsed_time(self) -> None:
+        """Periodic worker to update the elapsed time ticker."""
+        timer_label = self.query_one("#chat-timer", Static)
+        while self._job_start_time is not None:
+            elapsed = int(self._get_now() - self._job_start_time)
+            hours, remainder = divmod(elapsed, 3600)
+            minutes, seconds = divmod(remainder, 60)
+
+            if hours > 0:
+                time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
+            else:
+                time_str = f"{minutes:02}:{seconds:02}"
+
+            timer_label.update(f"Elapsed: {time_str}")
+            await asyncio.sleep(1.0)
 
     @work(exclusive=True)
     async def _monitor_inactivity(self) -> None:

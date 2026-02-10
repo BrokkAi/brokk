@@ -17,14 +17,14 @@ async def test_spinner_lifecycle():
     app = TestApp()
     async with app.run_test() as pilot:
         panel = app.query_one("#chat", ChatPanel)
-        spinner = panel.query_one("#chat-spinner", LoadingIndicator)
+        spinner_area = panel.query_one("#chat-spinner-area", Horizontal)
         
         # Initial state: hidden
-        assert "hidden" in spinner.classes
+        assert "hidden" in spinner_area.classes
         
         # Start job
         panel.set_job_running(True)
-        assert "hidden" not in spinner.classes
+        assert "hidden" not in spinner_area.classes
         
         # Append tokens - spinner should STAY visible
         panel.append_token("Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=False)
@@ -35,4 +35,4 @@ async def test_spinner_lifecycle():
         
         # Explicit finish
         panel.set_job_running(False)
-        assert "hidden" in spinner.classes
+        assert "hidden" in spinner_area.classes
