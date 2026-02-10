@@ -1299,7 +1299,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return false; // Don't ignore - add the candidate
         }
 
-        if (candidate.isClass() || candidate.isField() || candidate.isModule()) {
+        if (candidate.isField() || candidate.isModule()) {
             // These are true duplicates in C++ (header guards, preprocessor conditionals, etc.)
             return true; // Ignore the duplicate
         }
