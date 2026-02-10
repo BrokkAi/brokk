@@ -65,7 +65,7 @@ async def test_tasklist_polling_updates_ui(tmp_path):
     ) as mock_get:
         mock_get.return_value = mock_tasklist
 
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Manually set ready state to trigger polling logic
             app._executor_ready = True
 
@@ -188,7 +188,7 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
         mock_ctx.return_value = mock_context
         mock_tl.return_value = mock_tasklist
 
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Initially not ready
             app._executor_ready = False
 
