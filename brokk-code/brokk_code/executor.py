@@ -370,6 +370,7 @@ class ExecutorManager:
         code_model: Optional[str] = None,
         reasoning_level: Optional[str] = None,
         reasoning_level_code: Optional[str] = None,
+        mode: str = "LUTZ",
     ) -> str:
         """Submits a new job to the executor."""
         if not self._http_client:
@@ -380,7 +381,7 @@ class ExecutorManager:
             "plannerModel": planner_model,
             "autoCommit": True,
             "autoCompress": True,
-            "tags": {"mode": "LUTZ"},
+            "tags": {"mode": mode},
         }
 
         # Add optional fields only if they are set

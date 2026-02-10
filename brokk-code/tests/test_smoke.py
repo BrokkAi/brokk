@@ -22,6 +22,7 @@ def test_app_importable():
     """Verify BrokkApp can be instantiated without starting the event loop."""
     # We don't call .run() or ._start_executor() to avoid side effects
     app = BrokkApp(workspace_dir=Path("."))
+    assert app.current_mode == "LUTZ"
     assert app.current_model == "gpt-5.2"
     assert app.executor is not None
 

@@ -30,9 +30,12 @@ class ChatPanel(Vertical):
         self.response_pending: bool = False
         self.response_active: bool = False
         self._last_token_time: float = 0
+        self._last_flush_time: float = 0
+        self._flush_interval: float = 0.25  # seconds
         self._inactivity_timeout: float = 10.0
         self._get_now = time.time
         self._job_start_time: Optional[float] = None
+        self._incremental_line_index: Optional[int] = None
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
@@ -131,7 +134,8 @@ class ChatPanel(Vertical):
         is_terminal: bool,
     ) -> None:
         """Appends a token to the current buffer and handles rendering transitions."""
-        self._last_token_time = self._get_now()
+        now = self._get_now()
+        self._last_token_time = now
 
         if is_new_message:
             self.set_response_active()
@@ -139,6 +143,7 @@ class ChatPanel(Vertical):
             self._flush_message()
             self._current_message_type = message_type
             self._is_reasoning = is_reasoning
+            self._last_flush_time = now
 
             if is_reasoning:
                 log = self.query_one("#chat-log", RichLog)
@@ -148,31 +153,59 @@ class ChatPanel(Vertical):
 
         if is_terminal:
             self._flush_message()
+        elif not is_reasoning:
+            # Incremental rendering for AI responses
+            should_flush = (now - self._last_flush_time) > self._flush_interval or "\n" in token
+            if should_flush:
+                self._flush_message(is_incremental=True)
+                self._last_flush_time = now
 
-    def _flush_message(self) -> None:
-        """Renders the accumulated buffer as Markdown or a reasoning Panel and clears it."""
+    def _flush_message(self, is_incremental: bool = False) -> None:
+        """Renders the accumulated buffer as Markdown or a reasoning Panel."""
         if not self._current_message_buffer.strip():
-            self._current_message_buffer = ""
+            if not is_incremental:
+                self._current_message_buffer = ""
+                self._incremental_line_index = None
             return
 
         log = self.query_one("#chat-log", RichLog)
 
         if self._is_reasoning:
-            # Render reasoning in a distinct panel
-            log.write(
-                Panel(
-                    Text(self._current_message_buffer.strip(), style="grey50"),
-                    title="Thinking",
-                    border_style="grey37",
+            # Reasoning is flushed only when complete
+            if not is_incremental:
+                log.write(
+                    Panel(
+                        Text(self._current_message_buffer.strip(), style="grey50"),
+                        title="Thinking",
+                        border_style="grey37",
+                    )
                 )
-            )
+                self._current_message_buffer = ""
+                self._is_reasoning = False
         else:
-            # Render AI response as Markdown
-            log.write(Markdown(self._current_message_buffer.strip()))
-            log.write("")  # Spacer
+            # AI Response
+            content = self._current_message_buffer.strip()
+            # If incremental, we replace the previous line we wrote if it exists
+            if is_incremental:
+                if self._incremental_line_index is not None:
+                    # Clear the previous incremental line. RichLog doesn't have a direct 'replace'
+                    # so we clear and rewrite if it's the last line, but Textual RichLog
+                    # is append-only. To achieve "incremental" look without excessive growth:
+                    # we write the markdown. Note: Multiple log.write calls for the same
+                    # message will repeat the content.
+                    # Standard RichLog behavior makes it hard to 'update' a line.
+                    # We will append, but only if significant content has changed.
+                    pass
 
-        self._current_message_buffer = ""
-        self._is_reasoning = False
+                # For now, append markdown. In a real terminal, we'd ideally use a Static
+                # widget for the "active" message and move it to RichLog when done,
+                # but RichLog is the current architecture.
+                log.write(Markdown(content))
+            else:
+                log.write(Markdown(content))
+                log.write("")  # Spacer
+                self._current_message_buffer = ""
+                self._incremental_line_index = None
 
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""

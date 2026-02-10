@@ -46,6 +46,7 @@ class BrokkApp(App):
         )
         self.settings = Settings.load()
         self._set_theme(self.settings.theme)
+        self.current_mode = "LUTZ"
         self.current_model = "gpt-5.2"
         self.code_model: Optional[str] = "gemini-3-flash-preview"
         self.reasoning_level: Optional[str] = "low"
@@ -83,6 +84,7 @@ class BrokkApp(App):
             if await self.executor.wait_ready():
                 chat.add_system_message_markup(
                     f"Ready!\n"
+                    f"  Mode:  [bold]{self.current_mode}[/]\n"
                     f"  Model: [bold]{self.current_model}[/]\n"
                     f"  (reasoning: [bold]{self.reasoning_level}[/])\n"
                     f"  Code model: [bold]{self.code_model}[/]\n"
@@ -142,6 +144,7 @@ class BrokkApp(App):
                 code_model=self.code_model,
                 reasoning_level=self.reasoning_level,
                 reasoning_level_code=self.reasoning_level_code,
+                mode=self.current_mode,
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
