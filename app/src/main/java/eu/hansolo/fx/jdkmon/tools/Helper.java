@@ -643,6 +643,20 @@ public class Helper {
         Platform.runLater(() -> app.getHostServices().showDocument(url));
     }
 
+    public static void deleteDirectory(File directory) {
+        File[] files = directory.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isDirectory()) {
+                    deleteDirectory(file);
+                } else {
+                    file.delete();
+                }
+            }
+        }
+        directory.delete();
+    }
+
     public static long getFolderSize(final String folderName) throws IOException {
         final File f = new File(folderName);
         if (f.exists() && f.isDirectory()) {

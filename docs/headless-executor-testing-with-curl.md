@@ -61,9 +61,9 @@ curl -sS -X GET "${BASE}/v1/sessions/<session-id>" \
 
 ## Context Injection (Optional)
 
-Before running ASK (or any mode), you can optionally inject specific files, classes, and methods into the context.
-This is useful for precise, caller-driven context control. Note that ASK mode already uses SearchAgent for
-automatic codebase discovery, so these endpoints are optional but provide finer-grained control.
+Before running any mode, you can optionally inject specific files, classes, and methods into the context.
+This is useful for precise, caller-driven context control. If you want automatic read-only repository discovery,
+use SEARCH mode (SearchAgent); these endpoints are optional but provide finer-grained control.
 
 ### Add Files to Context
 
@@ -172,7 +172,38 @@ Response (200 OK):
 { "id": "context-fragment-id", "chars": 87 }
 ```
 
+### Get Current Task List (Authenticated)
+
+Retrieve the structured content of the current active task list. This endpoint is useful for clients (like TUIs) to provide real-time visibility into the executor's plan. It requires a valid `Authorization: Bearer <AUTH_TOKEN>` header.
+
+```bash
+curl -sS -X GET "${BASE}/v1/tasklist" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "bigPicture": "Implement error handling in UserService",
+  "tasks": [
+    { "id": "task-1", "title": "Add try-catch blocks", "text": "Wrap all database calls...", "done": true },
+    { "id": "task-2", "title": "Configure logger", "text": "Set up log4j configuration", "done": false }
+  ]
+}
+```
+
+**Empty Response (200 OK):**
+If no task list is active, the executor returns:
+```json
+{
+  "bigPicture": null,
+  "tasks": []
+}
+```
+
 Behavior notes:
+- **Polling**: Clients should poll this endpoint periodically (e.g., approximately every 15 seconds) to reflect updates from autonomous agents (like LUTZ or ISSUE modes). This is a suggestion for UI responsiveness, not a protocol requirement.
 - Size limit: Up to 1 MiB (UTF-8 bytes). Larger payloads are rejected with HTTP 400.
 - Logging: Only the size is logged; the text content is never logged.
 - Blank text is rejected with HTTP 400.
@@ -200,7 +231,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Based on the code I just added, explain the UserService class structure and its key responsibilities.",
   "autoCommit": false,
   "autoCompress": false,
@@ -219,7 +249,7 @@ JSON
 All job payloads must include `plannerModel`. The examples below use inline JSON via stdin; swap in real identifiers.
 
 Notes on request vs persisted fields:
-- `sessionId` exists in the request body and is used to select the active session; it is not persisted in `JobSpec` (it may be copied into tags as `session_id`).
+- `sessionId` exists in the request body for compatibility, but it is not currently used to select the active session. Jobs execute against the server's currently active session (set by `POST /v1/sessions` or `PUT /v1/sessions`).
 - `sourceBranch` / `targetBranch` are persisted/reserved `JobSpec` fields but are not currently accepted by `POST /v1/jobs`.
 
 ### Job-scoped free-form text seeding (inline)
@@ -243,7 +273,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Use the notes I added to plan the next steps.",
   "autoCommit": false,
   "autoCompress": false,
@@ -265,7 +294,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Plan next steps based on the notes provided.",
   "autoCommit": false,
   "autoCompress": false,
@@ -292,7 +320,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "echo minimal job",
   "autoCommit": false,
   "autoCompress": false,
@@ -310,7 +337,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Design a REST client for the new API.",
   "autoCommit": true,
   "autoCompress": true,
@@ -339,7 +365,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Refactor the authentication module: improve error handling, add logging, and create unit tests.",
   "autoCommit": true,
   "autoCompress": true,
@@ -449,10 +474,9 @@ curl -sS "http://localhost:8080/v1/jobs/550e8400-e29b-41d4-a716-446655440000/eve
 
 ### ASK Mode
 
-ASK mode enables read-only exploration of your codebase using natural language queries.
-Under the hood, ASK uses the SearchAgent to discover and inspect code symbols, classes, methods, and file contents without making any modifications or commits.
+ASK mode returns a single written answer using the current session's Workspace context. It does not modify files, commit changes, or run repository-wide discovery by default.
 
-You can run ASK with no pre-seeded context and let SearchAgent automatically discover relevant code, or optionally pre-seed specific context using the `/v1/context/*` endpoints (see Context Injection above) for precise control.
+If you want automatic read-only repository discovery (symbols, usages, file search, etc.), use SEARCH mode.
 
 #### Example: Ask about code structure
 
@@ -463,7 +487,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Summarize recent changes in the repo.",
   "autoCommit": false,
   "autoCompress": true,
@@ -475,7 +498,7 @@ curl -sS -X POST "${BASE}/v1/jobs" \
 JSON
 ```
 
-#### Example: Search for symbols
+#### Example: Search for symbols (SEARCH mode)
 
 ```bash
 curl -sS -X POST "${BASE}/v1/jobs" \
@@ -484,21 +507,20 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Find all classes and methods related to authentication. Show me where AuthenticationManager and LoginController are defined.",
   "autoCommit": false,
   "autoCompress": true,
   "plannerModel": "gpt-5",
   "tags": {
-    "mode": "ASK"
+    "mode": "SEARCH"
   }
 }
 JSON
 ```
 
-ASK will search for these symbols and return their locations and signatures without modifying any code.
+SEARCH will discover these symbols and return their locations and signatures without modifying any code.
 
-#### Example: Inspect file summaries
+#### Example: Inspect file summaries (SEARCH mode)
 
 ```bash
 curl -sS -X POST "${BASE}/v1/jobs" \
@@ -507,38 +529,36 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Show me the structure of all classes in the 'src/main/java/com/example/service' directory. List their fields and method signatures.",
   "autoCommit": false,
   "autoCompress": true,
   "plannerModel": "gpt-5",
   "tags": {
-    "mode": "ASK"
+    "mode": "SEARCH"
   }
 }
 JSON
 ```
 
-ASK will retrieve class skeletons with method signatures and fields, providing a high-level overview without retrieving full source code.
+SEARCH will retrieve class skeletons with method signatures and fields, providing a high-level overview without retrieving full source code.
 
 #### Key characteristics of ASK mode
 
 - Read-only: No code modifications, commits, or builds
-- Intelligent search: Uses SearchAgent to find relevant code based on natural language queries
-- Multiple inspection tools: Searches symbols, classes, methods, usages, file contents, and git history
-- Responsive: Streams results back via `/v1/jobs/{jobId}/events` as they are discovered
-- Requires `plannerModel`: Specify which LLM to use for understanding your query and navigating the codebase
+- Single-shot answer: Produces one written answer from the current Workspace context
+- Requires `plannerModel`: Specify which LLM to use for generating the answer
 - Ignores `codeModel`: Code model is not used in ASK mode
+- Optional `preScan`: If `preScan: true`, the executor seeds the Workspace with Context Engine findings before answering
 
 ### SEARCH Mode (read-only repository scan)
 
-SEARCH mode is a read-only mode focused on explicit repository scanning and discovery. It behaves similarly to ASK (no code modifications, no commits), but it lets the caller explicitly choose the scanning LLM via the optional `scanModel` field in the job payload.
+SEARCH mode is a read-only mode focused on repository scanning and discovery. It does not modify files or create commits, and it lets the caller explicitly choose the scanning LLM via the optional `scanModel` field in the job payload.
 
 Key points:
 - Read-only: SEARCH will not write, commit, or modify repository files. No code diffs or git commits are produced.
 - Uses a scan model: When creating a SEARCH job you may optionally supply a `scanModel` in the job payload. If provided, the executor will use that model for scanning and searching the repository. If `scanModel` is not provided, the executor falls back to the project's default scan model (via the Service's `getScanModel()`).
 - `plannerModel` is still required by the API for validation (kept for API uniformity), but SEARCH prefers `scanModel` to select the actual scanning LLM. `codeModel` is ignored in SEARCH mode.
-- Behavior vs ASK: ASK also performs read-only searches using the SearchAgent; SEARCH exposes an explicit `scanModel` override and is intended as the canonical "scan-only" mode when callers want to pick the scanning LLM. Functionally the streamed output and read-only guarantees are the same.
+- Behavior vs ASK: ASK produces a single answer from the current Workspace context. SEARCH runs repository discovery using SearchAgent and returns findings (still read-only).
 - Behavior vs LUTZ: LUTZ is a two-phase planning+execution workflow (SearchAgent generates a task list, then Architect executes tasks possibly producing code). SEARCH does not plan or execute — it only discovers and returns information.
 
 #### Example: SEARCH with explicit scan model
@@ -550,7 +570,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Find all usages of AuthenticationManager and summarize where it's referenced.",
   "autoCommit": false,
   "autoCompress": false,
@@ -576,7 +595,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Implement a utility to sanitize filenames.",
   "autoCommit": false,
   "autoCompress": false,
@@ -623,7 +641,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "",
   "autoCommit": false,
   "autoCompress": false,
@@ -714,7 +731,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Ignored for ISSUE mode; issue body drives the work.",
   "autoCommit": false,
   "autoCompress": false,
@@ -887,7 +903,6 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Implement a utility to sanitize filenames.",
   "autoCommit": false,
   "autoCompress": false,

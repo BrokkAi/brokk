@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.ContextManager;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.project.MainProject;
+import ai.brokk.tasks.TaskList;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpContext;
@@ -31,12 +33,73 @@ class ContextRouterTest {
     private ContextRouter contextRouter;
     private Path projectRoot;
 
+    private ContextManager contextManager;
+
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws Exception {
         projectRoot = tempDir;
         var project = new MainProject(tempDir);
-        var contextManager = new ContextManager(project);
+        contextManager = new ContextManager(project);
         contextRouter = new ContextRouter(contextManager);
+    }
+
+    @Test
+    void handleGetTaskList_noTaskList_returnsEmpty() throws Exception {
+        var exchange = TestHttpExchange.request("GET", "/v1/tasklist");
+        contextRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertTrue(body.containsKey("bigPicture"));
+        assertEquals(null, body.get("bigPicture"));
+        assertTrue(body.get("tasks") instanceof List);
+        assertTrue(((List<?>) body.get("tasks")).isEmpty());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handleGetTaskList_withTasks_returnsBigPictureAndTasks() throws Exception {
+        var task1 = new TaskList.TaskItem("T1", "Text 1", false);
+        var task2 = new TaskList.TaskItem("T2", "Text 2", true);
+        var tasks = List.of(task1, task2);
+
+        // createOrReplaceTaskList returns a new context; we must push it to make it live
+        contextManager.pushContext(ctx -> contextManager.createOrReplaceTaskList(ctx, "The Big Picture", tasks));
+
+        var exchange = TestHttpExchange.request("GET", "/v1/tasklist");
+        contextRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+
+        assertEquals("The Big Picture", body.get("bigPicture"));
+        List<Map<String, Object>> returnedTasks = (List<Map<String, Object>>) body.get("tasks");
+        assertEquals(2, returnedTasks.size());
+
+        assertEquals("T1", returnedTasks.get(0).get("title"));
+        assertEquals(false, returnedTasks.get(0).get("done"));
+        assertEquals("T2", returnedTasks.get(1).get("title"));
+        assertEquals(true, returnedTasks.get(1).get("done"));
+        assertTrue(!((String) returnedTasks.get(0).get("id")).isBlank());
+    }
+
+    @Test
+    void handleGetContext_tokensTrue_returnsExpectedKeys() throws Exception {
+        var exchange = TestHttpExchange.request("GET", "/v1/context?tokens=true");
+        contextRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+
+        assertTrue(body.containsKey("fragments"), "Should contain fragments key");
+        assertTrue(body.containsKey("usedTokens"), "Should contain usedTokens key");
+        assertTrue(body.containsKey("maxTokens"), "Should contain maxTokens key");
+        assertTrue(body.containsKey("tokensEstimated"), "Should contain tokensEstimated key");
+
+        assertEquals(Boolean.TRUE, body.get("tokensEstimated"));
+        assertTrue(body.get("fragments") instanceof List, "fragments should be a List");
+        assertTrue(body.get("usedTokens") instanceof Number, "usedTokens should be a Number");
+        assertTrue(body.get("maxTokens") instanceof Number, "maxTokens should be a Number");
     }
 
     @Test
@@ -74,11 +137,16 @@ class ContextRouterTest {
         private int responseCode = -1;
 
         static TestHttpExchange jsonRequest(String method, String path, Object body) throws IOException {
+            var ex = request(method, path);
+            ex.requestHeaders.set("Content-Type", "application/json");
+            ex.requestBodyBytes = MAPPER.writeValueAsBytes(body);
+            return ex;
+        }
+
+        static TestHttpExchange request(String method, String path) {
             var ex = new TestHttpExchange();
             ex.method = method;
             ex.uri = URI.create(path);
-            ex.requestHeaders.set("Content-Type", "application/json");
-            ex.requestBodyBytes = MAPPER.writeValueAsBytes(body);
             return ex;
         }
 

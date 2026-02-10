@@ -725,8 +725,6 @@ public final class BrokkCli implements Callable<Integer> {
                     homeDir.resolve(".claude").resolve("skills").resolve("brokk"),
                     homeDir.resolve(".agents").resolve("skills").resolve("brokk"));
 
-            ai.brokk.util.Version current = new ai.brokk.util.Version(ai.brokk.BuildInfo.version);
-
             boolean needsInstall = false;
             for (var dir : targets) {
                 if (!Files.isDirectory(dir)) {
@@ -738,9 +736,8 @@ public final class BrokkCli implements Callable<Integer> {
                     break;
                 }
                 try {
-                    ai.brokk.util.Version installed = new ai.brokk.util.Version(
-                            Files.readString(versionFile).strip());
-                    if (current.compareTo(installed) > 0) {
+                    String installed = Files.readString(versionFile).strip();
+                    if (!"master-snapshot".equals(installed)) {
                         needsInstall = true;
                         break;
                     }
@@ -754,7 +751,12 @@ public final class BrokkCli implements Callable<Integer> {
                 try {
                     new InstallCommand().call();
                 } catch (Exception e) {
-                    logger.error("Failed to auto-update Brokk skill", e);
+                    logger.error(
+                            "Failed to auto-update Brokk skill to {} from {}: {}",
+                            targets,
+                            ai.brokk.util.BrokkSnapshotTgz.SNAPSHOT_URL,
+                            e.getMessage(),
+                            e);
                 }
             }
         }
@@ -1234,21 +1236,32 @@ public final class BrokkCli implements Callable<Integer> {
 
             String skillText = buildSkillMarkdown(cmd);
 
-            var installedFor = new ArrayList<String>();
-            for (var target : targets) {
-                Path skillDir = target.rootDir();
-                Files.createDirectories(skillDir);
+            Path tempDir = Files.createTempDirectory("brokk-install-");
+            try {
+                Path extractedJar =
+                        ai.brokk.util.BrokkSnapshotTgz.downloadAndExtractJar(tempDir, tempDir.resolve("extracted"));
 
-                Path skillFile = skillDir.resolve("SKILL.md");
-                ai.brokk.concurrent.AtomicWrites.save(skillFile, skillText);
+                var installedFor = new ArrayList<String>();
+                for (var target : targets) {
+                    Path skillDir = target.rootDir();
+                    Files.createDirectories(skillDir);
 
-                Path versionFile = skillDir.resolve(".brokk-version");
-                ai.brokk.concurrent.AtomicWrites.save(versionFile, ai.brokk.BuildInfo.version);
+                    Path skillFile = skillDir.resolve("SKILL.md");
+                    ai.brokk.concurrent.AtomicWrites.save(skillFile, skillText);
 
-                installedFor.add(target.label());
+                    Path jarTarget = skillDir.resolve(extractedJar.getFileName().toString());
+                    ai.brokk.concurrent.AtomicWrites.save(jarTarget, Files.readAllBytes(extractedJar));
+
+                    Path versionFile = skillDir.resolve(".brokk-version");
+                    ai.brokk.concurrent.AtomicWrites.save(versionFile, "master-snapshot");
+
+                    installedFor.add(target.label());
+                }
+
+                System.out.println("Skill installed for: " + String.join(", ", installedFor));
+            } finally {
+                eu.hansolo.fx.jdkmon.tools.Helper.deleteDirectory(tempDir.toFile());
             }
-
-            System.out.println("Skill installed for: " + String.join(", ", installedFor));
 
             return 0;
         }
