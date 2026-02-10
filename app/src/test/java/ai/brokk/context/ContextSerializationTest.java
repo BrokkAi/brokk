@@ -82,6 +82,70 @@ public class ContextSerializationTest {
         }
     }
 
+    @Test
+    void testHistorySerializationWithEmptyRelPathProjectFile() throws Exception {
+        // Arrange: create a ProjectFile with an empty relative path (intentional regression input)
+        ProjectFile emptyRelFile = new ProjectFile(tempDir, "");
+        // Create a normal project file to exercise real path-fragment serialization
+        ProjectFile normalFile = new ProjectFile(tempDir, "src/Normal.java");
+        Files.createDirectories(normalFile.absPath().getParent());
+        Files.writeString(normalFile.absPath(), "public class Normal {}");
+
+        // Create fragments:
+        // - a StringFragment that mentions the empty-relPath file (keeps test lightweight)
+        var mentionText =
+                "Referenced empty-rel path file abs: " + emptyRelFile.absPath().toString();
+        var stringFragment = new ContextFragments.StringFragment(
+                mockContextManager, mentionText, "Mention emptyRelPath", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        // - a regular ProjectPathFragment pointing at a normal file so path-fragment serialization is exercised
+        var pathFragment = new ContextFragments.ProjectPathFragment(normalFile, mockContextManager);
+
+        Context ctx = new Context(mockContextManager).addFragments(List.of(stringFragment, pathFragment));
+        ContextHistory history = new ContextHistory(ctx);
+
+        Path zipFile = tempDir.resolve("empty_relpath_history.zip");
+
+        // Act: write and read; should not throw IllegalArgumentException
+        assertDoesNotThrow(() -> HistoryIo.writeZip(history, zipFile), "HistoryIo.writeZip should not throw");
+        assertTrue(Files.exists(zipFile), "History zip should be created");
+
+        ContextHistory loaded = assertDoesNotThrow(
+                () -> HistoryIo.readZip(zipFile, mockContextManager), "HistoryIo.readZip should not throw");
+
+        // Assert: high-level invariants
+        assertNotNull(loaded, "Loaded history should not be null");
+        assertEquals(history.getHistory().size(), loaded.getHistory().size(), "Context count should be preserved");
+
+        Context loadedCtx = loaded.getHistory().get(0);
+
+        // Ensure the normal path fragment survived round-trip and is present
+        var loadedPathFragmentOpt = loadedCtx
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
+                .findFirst();
+        assertTrue(
+                loadedPathFragmentOpt.isPresent(),
+                "A ProjectPathFragment for normal file should be present after load");
+        var loadedPathFragment = (ContextFragments.ProjectPathFragment) loadedPathFragmentOpt.get();
+        assertEquals(pathFragment.id(), loadedPathFragment.id(), "Path fragment id should match");
+        assertEquals(pathFragment.getType(), loadedPathFragment.getType(), "Path fragment type should match");
+        assertEquals(
+                pathFragment.description().join(),
+                loadedPathFragment.description().join(),
+                "Path fragment description should survive");
+
+        // Ensure the string fragment that mentioned the empty-rel path is preserved
+        var loadedStringOpt = loadedCtx
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.StringFragment)
+                .map(f -> (ContextFragments.StringFragment) f)
+                .filter(sf -> sf.description().join().equals("Mention emptyRelPath"))
+                .findFirst();
+        assertTrue(loadedStringOpt.isPresent(), "String fragment mentioning empty relPath should survive round-trip");
+        assertEquals(mentionText, loadedStringOpt.get().text().join(), "String fragment text should be preserved");
+    }
+
     private BufferedImage createTestImage(Color color, int width, int height) {
         var image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = image.createGraphics();

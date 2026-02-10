@@ -6,6 +6,7 @@ import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
@@ -35,6 +36,41 @@ public class HistoryIoTest {
     @BeforeEach
     void setup() throws IOException {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
+    }
+
+    @Test
+    void testWriteZipWithEmptyRelPathProjectFile_doesNotCrashAndZipIsValid() throws Exception {
+        // Arrange: create a ProjectFile with empty relPath and a normal context fragment
+        ProjectFile emptyRelFile = new ProjectFile(tempDir, "");
+        ProjectFile normalFile = new ProjectFile(tempDir, "src/Hi.java");
+        Files.createDirectories(normalFile.absPath().getParent());
+        Files.writeString(normalFile.absPath(), "public class Hi {}");
+
+        var stringFragment = new ContextFragments.StringFragment(
+                contextManager, "mentioning empty relPath: " + emptyRelFile.absPath(), "MentionEmptyRelPath", null);
+        var pathFragment = new ContextFragments.ProjectPathFragment(normalFile, contextManager);
+
+        Context ctx = new Context(contextManager).addFragments(List.of(stringFragment, pathFragment));
+        ContextHistory history = new ContextHistory(ctx);
+
+        Path zipFile = tempDir.resolve("history_empty_relpath_check.zip");
+
+        // Act: write zip
+        assertDoesNotThrow(
+                () -> HistoryIo.writeZip(history, zipFile), "writeZip should not throw for empty-rel ProjectFile");
+        assertTrue(Files.exists(zipFile), "Zip file should be created");
+
+        // Inspect zip entries for structural validity
+        try (var zf = new java.util.zip.ZipFile(zipFile.toFile())) {
+            assertNotNull(zf.getEntry("fragments-v4.json"), "fragments-v4.json should be present in the zip");
+            assertNotNull(zf.getEntry("contexts.jsonl"), "contexts.jsonl should be present in the zip");
+        }
+
+        // Also verify readZip succeeds and returns a non-null history
+        ContextHistory loaded =
+                assertDoesNotThrow(() -> HistoryIo.readZip(zipFile, contextManager), "readZip should not throw");
+        assertNotNull(loaded, "Loaded ContextHistory should not be null");
+        assertFalse(loaded.getHistory().isEmpty(), "Loaded history should contain at least one context");
     }
 
     @Test
