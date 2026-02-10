@@ -94,6 +94,41 @@ async def test_tasklist_polling_updates_ui(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_refresh_context_does_not_clobber_details(tmp_path):
+    """
+    Verifies that refresh_tasklist (from /v1/context) does not overwrite
+    detailed info (from /v1/tasklist) if details are already present.
+    """
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+
+    mock_tasklist = {
+        "bigPicture": "Detailed Goal",
+        "tasks": [{"title": "Detailed Task", "done": False}],
+    }
+    mock_context = {"fragments": [{"chipKind": "TASK_LIST", "shortDescription": "Summary Only"}]}
+
+    async with app.run_test():
+        from brokk_code.widgets.tasklist_panel import TaskListPanel
+
+        panel = app.query_one(TaskListPanel)
+
+        # 1. Set details
+        panel.update_tasklist_details(mock_tasklist)
+        content_text = panel.query_one("#tasklist-content").render().plain
+        assert "Detailed Goal" in content_text
+        assert "Detailed Task" in content_text
+
+        # 2. Call refresh_tasklist (which usually shows summary)
+        panel.refresh_tasklist(mock_context)
+        content_text_after = panel.query_one("#tasklist-content").render().plain
+
+        # Should NOT have been replaced by "Summary Only"
+        assert "Detailed Goal" in content_text_after
+        assert "Summary Only" not in content_text_after
+
+
+@pytest.mark.asyncio
 async def test_context_polling_updates_ui(tmp_path):
     """
     Verifies that the background context polling worker updates the ContextPanel.

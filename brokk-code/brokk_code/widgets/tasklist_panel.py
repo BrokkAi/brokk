@@ -14,6 +14,10 @@ class TaskListPanel(Vertical):
     Future enhancement: Add an endpoint to fetch fragment content by ID.
     """
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._last_details: Optional[Dict[str, Any]] = None
+
     def compose(self) -> ComposeResult:
         yield Label("Task List", id="tasklist-header")
         with VerticalScroll(id="tasklist-container"):
@@ -26,24 +30,32 @@ class TaskListPanel(Vertical):
             (f for f in fragments if f.get("chipKind") == "TASK_LIST"), None
         )
 
-        content = self.query_one("#tasklist-content", Static)
+        if not task_fragment:
+            self._last_details = None
+            self.query_one("#tasklist-content", Static).update(
+                Text("No task list active", style="dim")
+            )
+            return
 
-        if task_fragment:
-            desc = task_fragment.get("shortDescription", "Active task list")
-            text = Text()
-            text.append("Task list active\n\n", style="bold green")
-            text.append(desc, style="italic")
-            content.update(text)
-        else:
-            content.update(Text("No task list active", style="dim"))
+        # If we have detailed data already, don't clobber it with the summary
+        if self._last_details:
+            return
+
+        desc = task_fragment.get("shortDescription", "Active task list")
+        text = Text()
+        text.append("Task list active\n\n", style="bold green")
+        text.append(desc, style="italic")
+        self.query_one("#tasklist-content", Static).update(text)
 
     def update_tasklist_details(self, tasklist_data: Dict[str, Any]) -> None:
         """Updates the display with detailed task list information from /v1/tasklist."""
+        self._last_details = tasklist_data
         big_picture = tasklist_data.get("bigPicture")
         tasks = tasklist_data.get("tasks", [])
 
         content = self.query_one("#tasklist-content", Static)
         if not big_picture and not tasks:
+            self._last_details = None
             content.update(Text("No task list active", style="dim"))
             return
 
