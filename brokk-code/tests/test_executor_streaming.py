@@ -55,12 +55,15 @@ async def test_stream_events_polling_logic():
     ]
 
     # Use a small sleep to speed up test
-    with patch("asyncio.sleep", AsyncMock()), patch("asyncio.get_event_loop") as mock_loop_factory:
+    with (
+        patch("asyncio.sleep", AsyncMock()),
+        patch("asyncio.get_event_loop") as mock_loop_factory,
+    ):
         mock_loop = MagicMock()
         # Advance time by 3.0s on each call to trigger status_interval (2.0s) checks.
         # stream_events calls time() at the start of each while loop iteration.
-        # We provide a long sequence to avoid StopAsyncIteration if the loop runs many times.
-        mock_loop.time.side_effect = [float(i * 3.0) for i in range(100)]
+        # We provide a very long sequence to avoid StopAsyncIteration/RuntimeError if the loop runs many times.
+        mock_loop.time.side_effect = [float(i * 3.0) for i in range(1000)]
         mock_loop_factory.return_value = mock_loop
         collected_events = []
         async for event in executor.stream_events(job_id):
@@ -116,7 +119,7 @@ async def test_stream_events_adaptive_backoff():
         mock_loop = MagicMock()
         # Advance time to ensure status checks trigger and loop can exit.
         # stream_events calls time() at the start of each while loop iteration.
-        mock_loop.time.side_effect = [float(i * 3.0) for i in range(100)]
+        mock_loop.time.side_effect = [float(i * 3.0) for i in range(1000)]
         mock_loop_factory.return_value = mock_loop
 
         async for _ in executor.stream_events("job"):
