@@ -67,49 +67,27 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             FileFilteringService.createPatternMatcher(Set.of());
 
     public AbstractProject(Path root) {
-        assert root.isAbsolute() : root;
-        this.root = root.toAbsolutePath().normalize();
-        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
-        this.masterRootPathForConfig = computeMasterRootForConfig(this.root, this.repo);
-
-        assert this.root.isAbsolute() : this.root;
-        assert this.masterRootPathForConfig.isAbsolute() : this.masterRootPathForConfig;
-
-        this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
-        this.workspaceProps = new Properties();
-        this.fileFilteringService = new FileFilteringService(this.root, this.repo);
-
-        initializeProject();
+        this(root.toAbsolutePath().normalize(), null, null);
     }
 
-    /**
-     * Constructor for subclasses that need to override the master root path.
-     * Used by WorktreeProject to share the parent MainProject's config/dependencies location.
-     *
-     * @param root the project's working directory root
-     * @param masterRootPathForConfig the path to use for shared config (.brokk directory)
-     */
     protected AbstractProject(Path root, Path masterRootPathForConfig) {
+        this(
+                root.toAbsolutePath().normalize(),
+                masterRootPathForConfig.toAbsolutePath().normalize(),
+                null);
+    }
+
+    protected AbstractProject(Path root, @Nullable Path masterRootPathForConfig, @Nullable IGitRepo repo) {
         this.root = root.toAbsolutePath().normalize();
-        this.masterRootPathForConfig = masterRootPathForConfig.toAbsolutePath().normalize();
-        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+        this.repo = repo != null
+                ? repo
+                : (GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root));
+        this.masterRootPathForConfig = masterRootPathForConfig != null
+                ? masterRootPathForConfig
+                : computeMasterRootForConfig(this.root, this.repo);
 
         assert this.root.isAbsolute() : this.root;
         assert this.masterRootPathForConfig.isAbsolute() : this.masterRootPathForConfig;
-
-        this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
-        this.workspaceProps = new Properties();
-        this.fileFilteringService = new FileFilteringService(this.root, this.repo);
-
-        initializeProject();
-    }
-
-    protected AbstractProject(Path root, Path masterRootPathForConfig, IGitRepo repo) {
-        assert root.isAbsolute() : root;
-        assert masterRootPathForConfig.isAbsolute() : masterRootPathForConfig;
-        this.root = root.toAbsolutePath().normalize();
-        this.masterRootPathForConfig = masterRootPathForConfig.toAbsolutePath().normalize();
-        this.repo = repo;
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
