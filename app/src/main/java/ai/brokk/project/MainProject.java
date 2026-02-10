@@ -773,8 +773,8 @@ public final class MainProject extends AbstractProject {
 
         // 2) Live dependencies: namesToDependencies / getLiveDependencies already detect a predominant language
         // for each live dependency (via AbstractProject.detectLanguageForDependency). Merge those languages as well.
-        try {
-            for (IProject.Dependency dep : getLiveDependencies()) {
+        for (IProject.Dependency dep : getLiveDependencies()) {
+            try {
                 Language depLang = dep.language();
                 if (depLang != null && depLang != Languages.NONE) {
                     detectedLanguages.add(depLang);
@@ -788,9 +788,9 @@ public final class MainProject extends AbstractProject {
                         }
                     }
                 }
+            } catch (Exception e) {
+                logger.warn("Error detecting languages for dependency {} in {}", dep, root, e);
             }
-        } catch (Exception e) {
-            logger.warn("Error while detecting languages from live dependencies for {}: {}", root, e.getMessage());
         }
 
         if (detectedLanguages.isEmpty()) {
