@@ -903,32 +903,66 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     /**
-     * Extracts the signature string for a function/method, including parameter types and qualifiers.
+     * Extracts the signature string for a function/method, including parameter types and qualifiers,
+     * or for a class-like entity if it has template parameters.
      * This signature is used to populate CodeUnit.signature field for overload disambiguation.
      *
      * @param captureName The capture name from the query
-     * @param definitionNode The AST node for the function definition
+     * @param definitionNode The AST node for the definition
      * @param sourceContent The source content wrapper
-     * @return The signature string (e.g., "(int)" or "(int) const"), or null for non-functions
+     * @return The signature string, or null if no signature-relevant traits are present
      */
     @Override
     protected @Nullable String extractSignature(
             String captureName, TSNode definitionNode, SourceContent sourceContent) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
-        // Only extract signature for function-like entities
-        if (skeletonType != SkeletonType.FUNCTION_LIKE) {
+        if (skeletonType == SkeletonType.FUNCTION_LIKE) {
+            String paramSignature = buildCppOverloadSuffix(definitionNode, sourceContent);
+            String qualifierSuffix = buildCppQualifierSuffix(definitionNode, sourceContent);
+
+            if (!paramSignature.isEmpty()) {
+                return "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+            }
+            // Empty parameter list: still return "()" for stable function identity, optionally with qualifiers
+            return "()" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+        }
+
+        if (skeletonType == SkeletonType.CLASS_LIKE) {
+            return buildCppTemplateSignature(definitionNode, sourceContent);
+        }
+
+        return null;
+    }
+
+    /**
+     * Extracts template parameters for a class or function to be used as part of its CodeUnit signature.
+     *
+     * @param node the definition node (e.g. class_specifier)
+     * @param sourceContent the source content
+     * @return the template parameter list (e.g. "<typename T>"), or null if not a template
+     */
+    private @Nullable String buildCppTemplateSignature(TSNode node, SourceContent sourceContent) {
+        if (node == null || node.isNull()) return null;
+
+        // Template parameters are usually on the parent template_declaration node
+        TSNode templateDecl = node.getParent();
+        if (templateDecl == null || templateDecl.isNull() || !"template_declaration".equals(templateDecl.getType())) {
+            // Check if the node itself is a template_declaration (unlikely for capture, but defensive)
+            if ("template_declaration".equals(node.getType())) {
+                templateDecl = node;
+            } else {
+                return null;
+            }
+        }
+
+        TSNode paramsNode = templateDecl.getChildByFieldName("parameters");
+        if (paramsNode == null || paramsNode.isNull()) {
             return null;
         }
 
-        String paramSignature = buildCppOverloadSuffix(definitionNode, sourceContent);
-        String qualifierSuffix = buildCppQualifierSuffix(definitionNode, sourceContent);
-
-        if (!paramSignature.isEmpty()) {
-            return "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
-        }
-        // Empty parameter list: still return "()" for stable function identity, optionally with qualifiers
-        return "()" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+        String templateText = sourceContent.substringFrom(paramsNode).strip();
+        return templateText.isEmpty() ? null : templateText;
     }
 
     /**
