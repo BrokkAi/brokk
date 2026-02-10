@@ -45,12 +45,17 @@ class BrokkApp(App):
         resume_session: bool = True,
     ) -> None:
         super().__init__()
-        self.executor = executor or ExecutorManager(
-            workspace_dir or Path.cwd(),
-            jar_path,
-            executor_version=executor_version,
-            executor_snapshot=executor_snapshot,
-        )
+        if executor:
+            self.executor = executor
+            if workspace_dir:
+                self.executor.workspace_dir = workspace_dir.resolve()
+        else:
+            self.executor = ExecutorManager(
+                workspace_dir or Path.cwd(),
+                jar_path,
+                executor_version=executor_version,
+                executor_snapshot=executor_snapshot,
+            )
         self.requested_session_id = session_id
         self.resume_session = resume_session
         self.settings = Settings.load()

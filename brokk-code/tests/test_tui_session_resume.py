@@ -9,7 +9,9 @@ from tests.test_tui_resubmit import StubExecutor
 
 class SessionStubExecutor(StubExecutor):
     def __init__(self):
-        super().__init__()
+        # We don't call super().__init__ with Path('.') because BrokkApp
+        # will now correctly set the workspace_dir on the injected executor.
+        self.workspace_dir = None
         self.import_calls = []
         self.create_calls = []
         self.download_calls = []
