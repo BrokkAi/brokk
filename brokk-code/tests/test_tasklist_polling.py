@@ -129,6 +129,58 @@ async def test_refresh_context_does_not_clobber_details(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_refresh_context_panel_integration_preserves_task_details(tmp_path):
+    """
+    Higher-level integration test: ensures BrokkApp._refresh_context_panel
+    doesn't clobber the task list panel's detailed state.
+    """
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+
+    mock_tasklist = {
+        "bigPicture": "Complex Refactoring Goal",
+        "tasks": [
+            {"title": "Task One", "done": False, "text": "Details for one"},
+            {"title": "Task Two", "done": True, "text": "Details for two"},
+        ],
+    }
+    mock_context = {
+        "usedTokens": 500,
+        "fragments": [{"chipKind": "TASK_LIST", "shortDescription": "Generic Task List Summary"}],
+    }
+
+    with patch(
+        "brokk_code.executor.ExecutorManager.get_context", new_callable=AsyncMock
+    ) as mock_get_ctx:
+        mock_get_ctx.return_value = mock_context
+
+        async with app.run_test() as pilot:
+            app._executor_ready = True
+            from brokk_code.widgets.tasklist_panel import TaskListPanel
+
+            panel = app.query_one(TaskListPanel)
+
+            # 1. Manually inject details (as if /v1/tasklist poll just finished)
+            panel.update_tasklist_details(mock_tasklist)
+
+            initial_render = panel.query_one("#tasklist-content").render().plain
+            assert "Complex Refactoring Goal" in initial_render
+            assert "Task One" in initial_render
+            assert "TODO" in initial_render
+            assert "DONE" in initial_render
+
+            # 2. Trigger the app-level context refresh
+            await app._refresh_context_panel()
+            await pilot.pause()
+
+            # 3. Verify details persist
+            final_render = panel.query_one("#tasklist-content").render().plain
+            assert "Complex Refactoring Goal" in final_render
+            assert "Task One" in final_render
+            assert "Generic Task List Summary" not in final_render
+
+
+@pytest.mark.asyncio
 async def test_context_polling_updates_ui(tmp_path):
     """
     Verifies that the background context polling worker updates the ContextPanel.
