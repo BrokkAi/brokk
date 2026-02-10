@@ -375,11 +375,42 @@ public class DtoMapper {
                 String snapshotId = null;
                 String snapshot = pf.text().tryGet().orElse(null);
                 if (snapshot != null && !snapshot.isBlank()) {
-                    String fileKey = file.getRoot() + ":" + file.getRelPath();
+                    // prefer stable file-key when available; fall back to absPath if relPath missing
+                    String fileKey;
+                    try {
+                        String rel = file.getRelPath().toString();
+                        if (rel == null || rel.isBlank()) {
+                            fileKey = file.absPath().toString();
+                        } else {
+                            fileKey = file.getRoot() + ":" + rel;
+                        }
+                    } catch (Exception e) {
+                        // Defensive: if any oddness occurs, fall back to absolute path
+                        fileKey = file.absPath().toString();
+                    }
                     snapshotId = writer.writeContent(snapshot, fileKey);
                 }
-                yield new ProjectFileDto(
-                        pf.id(), file.getRoot().toString(), file.getRelPath().toString(), snapshotId);
+
+                // Defensive handling: some ProjectFile instances may have an empty relPath (legacy or malformed).
+                // The ProjectFileDto requires a non-empty relPath; to avoid IllegalArgumentException we fall back
+                // to serializing as an ExternalFileDto using the absolute path. Log a clear warning so diagnostics
+                // show which fragment was affected.
+                String relPathStr = "";
+                try {
+                    relPathStr = file.getRelPath().toString();
+                } catch (Exception ignored) {
+                    // leave as empty
+                }
+                if (relPathStr == null || relPathStr.isBlank()) {
+                    logger.warn(
+                            "ProjectPathFragment {} references a ProjectFile with empty relPath (absPath={}). "
+                                    + "Falling back to ExternalFileDto for serialization to avoid failure.",
+                            pf.id(),
+                            file.absPath());
+                    yield new ExternalFileDto(pf.id(), file.absPath().toString(), snapshotId);
+                }
+
+                yield new ProjectFileDto(pf.id(), file.getRoot().toString(), relPathStr, snapshotId);
             }
             case ContextFragments.GitFileFragment gf -> {
                 var file = gf.file();
