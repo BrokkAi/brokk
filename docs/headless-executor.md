@@ -571,7 +571,23 @@ Once running, the executor exposes the following endpoints:
   - Returns: `{ "sessionId": "<uuid>" }`
 
 - **`GET /v1/tasklist`** - Get current task list content
-  - Returns: `{ "bigPicture": "...", "tasks": [ { "id": "...", "title": "...", "text": "...", "done": false }, ... ] }`
+  - Returns the structured content of the current active task list.
+  - Recommended polling interval: ~15 seconds.
+  - Empty state: If no task list is active, `bigPicture` will be `null` and `tasks` will be an empty list `[]`.
+  - Schema:
+    ```json
+    {
+      "bigPicture": "Goal or overview of the current task sequence",
+      "tasks": [
+        {
+          "id": "uuid-or-string",
+          "title": "Short task name",
+          "text": "Detailed task instructions",
+          "done": false
+        }
+      ]
+    }
+    ```
 
 ### Job Management (Authenticated)
 

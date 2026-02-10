@@ -174,7 +174,7 @@ Response (200 OK):
 
 ### Get Current Task List
 
-Retrieve the structured content of the current active task list.
+Retrieve the structured content of the current active task list. This endpoint is useful for clients (like TUIs) to provide real-time visibility into the executor's plan.
 
 ```bash
 curl -sS -X GET "${BASE}/v1/tasklist" \
@@ -193,7 +193,17 @@ curl -sS -X GET "${BASE}/v1/tasklist" \
 }
 ```
 
+**Empty Response (200 OK):**
+If no task list is active, the executor returns:
+```json
+{
+  "bigPicture": null,
+  "tasks": []
+}
+```
+
 Behavior notes:
+- **Polling**: Clients should poll this endpoint periodically (e.g., every 15 seconds) to reflect updates from autonomous agents (like LUTZ or ISSUE modes).
 - Size limit: Up to 1 MiB (UTF-8 bytes). Larger payloads are rejected with HTTP 400.
 - Logging: Only the size is logged; the text content is never logged.
 - Blank text is rejected with HTTP 400.
