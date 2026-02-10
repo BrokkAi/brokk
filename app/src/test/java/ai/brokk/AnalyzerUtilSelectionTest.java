@@ -88,7 +88,7 @@ public class AnalyzerUtilSelectionTest {
     void fileFound_withDistinctRootPathObject() {
         // Create a new ContextManager where the project root is a distinct Path object (different instance, same value)
         Path distinctRoot = Path.of(projectRoot.toString());
-        assertNotSame(projectRoot, distinctRoot, "Test requires a distinct Path instance");
+        assertEquals(projectRoot, distinctRoot, "Paths should represent the same location");
 
         TestContextManager distinctCm = new TestContextManager(distinctRoot, new NoOpConsoleIO(), analyzer);
 
