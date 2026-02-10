@@ -35,6 +35,7 @@ class ChatPanel(Vertical):
         self._inactivity_timeout: float = 10.0
         self._get_now = time.time
         self._job_start_time: Optional[float] = None
+        self._timer_interval = None
         self._incremental_line_index: Optional[int] = None
 
         # History Navigation State
@@ -131,9 +132,14 @@ class ChatPanel(Vertical):
         if running:
             if self._job_start_time is None:
                 self._job_start_time = self._get_now()
-                self._update_elapsed_time()
+                self._update_elapsed_time_label()
+                if self._timer_interval is None:
+                    self._timer_interval = self.set_interval(0.2, self._update_elapsed_time_label)
         else:
             self._job_start_time = None
+            if self._timer_interval is not None:
+                self._timer_interval.stop()
+                self._timer_interval = None
             try:
                 self.query_one("#chat-timer", Static).update("")
             except Exception:
@@ -167,28 +173,26 @@ class ChatPanel(Vertical):
         else:
             spinner_area.add_class("hidden")
 
-    @work(exclusive=True)
-    async def _update_elapsed_time(self) -> None:
-        """Periodic worker to update the elapsed time ticker."""
+    def _update_elapsed_time_label(self) -> None:
+        """Updates the elapsed time ticker label."""
+        if self._job_start_time is None:
+            return
+
         try:
             timer_label = self.query_one("#chat-timer", Static)
         except Exception:
             return
 
-        while self._job_start_time is not None:
-            elapsed = max(0, int(self._get_now() - self._job_start_time))
-            hours, remainder = divmod(elapsed, 3600)
-            minutes, seconds = divmod(remainder, 60)
+        elapsed = max(0, int(self._get_now() - self._job_start_time))
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
 
-            if hours > 0:
-                time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
-            else:
-                time_str = f"{minutes:02}:{seconds:02}"
+        if hours > 0:
+            time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
+        else:
+            time_str = f"{minutes:02}:{seconds:02}"
 
-            timer_label.update(f"Elapsed: {time_str}")
-            # Use a smaller sleep interval to remain responsive to _job_start_time becoming None,
-            # but the logic remains driven by _get_now for deterministic testing.
-            await asyncio.sleep(0.1)
+        timer_label.update(f"Elapsed: {time_str}")
 
     @work(exclusive=True)
     async def _monitor_inactivity(self) -> None:
