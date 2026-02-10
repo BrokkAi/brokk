@@ -67,7 +67,6 @@ class BrokkApp(App):
     async def on_mount(self) -> None:
         chat = self.query_one(ChatPanel)
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
-        chat.add_system_message_markup(f"Workspace: [bold]{self.executor.workspace_dir}[/]")
         chat.add_system_message("Starting Brokk executor...")
         self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
@@ -76,16 +75,11 @@ class BrokkApp(App):
         chat = self.query_one(ChatPanel)
         try:
             await self.executor.start()
-            chat.add_system_message_markup(
-                f"Executor started from [bold]{self.executor.resolved_jar_path}[/],\n"
-                "initializing session..."
-            )
             await self.executor.create_session()
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
                 chat.add_system_message("Ready!")
-                self._render_info()
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
             else:

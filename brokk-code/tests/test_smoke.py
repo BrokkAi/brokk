@@ -159,6 +159,44 @@ def test_app_mode_commands(tmp_path, monkeypatch):
     assert "/lutz" in help_text
 
 
+@pytest.mark.asyncio
+async def test_app_startup_messages(tmp_path, monkeypatch):
+    """Verify that startup does not emit verbose info banner, only essential status."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    # Mock the executor to skip real process/network work
+    app.executor.start = AsyncMock()
+    app.executor.create_session = AsyncMock()
+    app.executor.wait_ready = AsyncMock(return_value=True)
+    app.executor.resolved_jar_path = tmp_path / "brokk.jar"
+
+    system_messages = []
+    system_markup = []
+
+    mock_chat = MagicMock()
+    mock_chat.add_system_message = lambda text, level="INFO": system_messages.append(text)
+    mock_chat.add_system_message_markup = lambda text: system_markup.append(text)
+
+    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock())
+
+    # Trigger on_mount logic
+    await app.on_mount()
+    # Manually run the start executor worker logic
+    await app._start_executor()
+
+    # Essential status should be there
+    assert any("Starting Brokk executor" in msg for msg in system_messages)
+    assert any("Ready" in msg for msg in system_messages)
+
+    # Verbose info (workspace, jar path, models) should NOT be there automatically
+    all_output = " ".join(system_messages + system_markup)
+    assert str(tmp_path.resolve()) not in all_output
+    assert str(app.executor.resolved_jar_path) not in all_output
+    assert "Planner Model" not in all_output
+    assert "Code Model" not in all_output
+
+
 def test_app_info_command(tmp_path, monkeypatch):
     """Verify /info command outputs expected configuration details."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
