@@ -268,24 +268,26 @@ class BrokkApp(App):
         - History is stored in the project-specific directory:
           `self.executor.workspace_dir / ".brokk" / "prompts.json"`
         """
-        text = message.text.strip()
-        if text.startswith("/"):
-            self._handle_command(text)
-        elif text:
+        raw_text = message.text
+        check_text = raw_text.strip()
+
+        if check_text.startswith("/"):
+            self._handle_command(check_text)
+        elif check_text:
             # Record in history regardless of routing
             append_prompt(
-                self.executor.workspace_dir, text, max_history=self.settings.prompt_history_size
+                self.executor.workspace_dir, raw_text, max_history=self.settings.prompt_history_size
             )
             chat = self.query_one(ChatPanel)
-            chat.add_history_entry(text)
+            chat.add_history_entry(raw_text)
 
-            chat.add_user_message(text)
+            chat.add_user_message(raw_text)
             if self.job_in_progress and self.current_job_id:
-                self._pending_prompt = text
+                self._pending_prompt = raw_text
                 chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
             else:
-                self.run_worker(self._run_job(text))
+                self.run_worker(self._run_job(raw_text))
 
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
