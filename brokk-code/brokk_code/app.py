@@ -134,10 +134,21 @@ class BrokkApp(App):
             logger.debug("Failed to refresh context panel", exc_info=True)
 
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
+        """
+        Handles user input from the chat panel.
+
+        Persistence Policy:
+        - Only non-command prompts (text not starting with '/') are recorded.
+        - Prompts are recorded at the moment of submission, regardless of whether
+          they trigger a cancellation or are later aborted.
+        - History is stored in the project-specific directory:
+          `self.executor.workspace_dir / ".brokk" / "prompts"`
+        """
         text = message.text.strip()
         if text.startswith("/"):
             self._handle_command(text)
         else:
+            # TODO: Implement prompt persistence here
             chat = self.query_one(ChatPanel)
             chat.add_user_message(text)
 
