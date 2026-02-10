@@ -10,12 +10,10 @@ SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 
 
 @dataclass
-刻板
 class Settings:
     theme: str = "builtin:dark"
 
     @classmethod
-    刻板
     def load(cls) -> "Settings":
         """Loads settings from disk, returning defaults if file is missing or corrupt."""
         if not SETTINGS_FILE.exists():

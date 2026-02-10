@@ -26,6 +26,26 @@ def test_app_importable():
     assert app.executor is not None
 
 
+def test_app_theme_persistence(tmp_path, monkeypatch):
+    """Verify BrokkApp loads and saves theme settings."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    # 1. Create initial settings
+    from brokk_code.settings import Settings
+    Settings(theme="builtin:light").save()
+
+    # 2. Instantiate app and verify it loaded the theme
+    app = BrokkApp(workspace_dir=tmp_path)
+    assert app.theme == "builtin:light"
+
+    # 3. Change theme via action and verify save
+    app.action_toggle_theme()
+    assert app.theme == "builtin:dark"
+
+    loaded = Settings.load()
+    assert loaded.theme == "builtin:dark"
+
+
 def test_version():
     from brokk_code import __version__
 
