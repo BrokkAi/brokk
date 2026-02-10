@@ -570,10 +570,10 @@ Once running, the executor exposes the following endpoints:
   - Content-Type: `application/zip`
   - Returns: `{ "sessionId": "<uuid>" }`
 
-- **`GET /v1/tasklist`** - Get current task list content
+- **`GET /v1/tasklist`** (Authenticated) - Get current task list content
   - Returns the structured content of the current active task list.
-  - Recommended polling interval: ~15 seconds.
-  - Empty state: If no task list is active, `bigPicture` will be `null` and `tasks` will be an empty list `[]`.
+  - Recommended polling interval: ~15 seconds (suggestion, not a protocol requirement).
+  - Empty state: If no task list is active, returns HTTP 200 with `bigPicture: null` and `tasks: []`.
   - Schema:
     ```json
     {

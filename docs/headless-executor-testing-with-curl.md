@@ -172,9 +172,9 @@ Response (200 OK):
 { "id": "context-fragment-id", "chars": 87 }
 ```
 
-### Get Current Task List
+### Get Current Task List (Authenticated)
 
-Retrieve the structured content of the current active task list. This endpoint is useful for clients (like TUIs) to provide real-time visibility into the executor's plan.
+Retrieve the structured content of the current active task list. This endpoint is useful for clients (like TUIs) to provide real-time visibility into the executor's plan. It requires a valid `Authorization: Bearer <AUTH_TOKEN>` header.
 
 ```bash
 curl -sS -X GET "${BASE}/v1/tasklist" \
@@ -203,7 +203,7 @@ If no task list is active, the executor returns:
 ```
 
 Behavior notes:
-- **Polling**: Clients should poll this endpoint periodically (e.g., every 15 seconds) to reflect updates from autonomous agents (like LUTZ or ISSUE modes).
+- **Polling**: Clients should poll this endpoint periodically (e.g., approximately every 15 seconds) to reflect updates from autonomous agents (like LUTZ or ISSUE modes). This is a suggestion for UI responsiveness, not a protocol requirement.
 - Size limit: Up to 1 MiB (UTF-8 bytes). Larger payloads are rejected with HTTP 400.
 - Logging: Only the size is logged; the text content is never logged.
 - Blank text is rejected with HTTP 400.
