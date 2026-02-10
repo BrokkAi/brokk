@@ -28,13 +28,15 @@ async def test_spinner_and_timer_lifecycle():
             return current_time
         panel._get_now = mock_now
         
-        # Initial state: hidden, no timer text
+        # Initial state: hidden, no timer text, display is 'none'
         assert "hidden" in spinner_area.classes
+        assert spinner_area.styles.display == "none"
         assert str(timer_label.renderable) == ""
         
         # Start job
         panel.set_job_running(True)
         assert "hidden" not in spinner_area.classes
+        assert spinner_area.styles.display == "block"
         
         # Wait for the update worker to run once
         await asyncio.sleep(0.1)
@@ -63,6 +65,7 @@ async def test_spinner_and_timer_lifecycle():
         # Explicit job finish - hides area and clears timer
         panel.set_job_running(False)
         assert "hidden" in spinner_area.classes
+        assert spinner_area.styles.display == "none"
         # Wait for worker to exit and check final state
         await asyncio.sleep(0.1)
         assert str(timer_label.renderable) == ""
