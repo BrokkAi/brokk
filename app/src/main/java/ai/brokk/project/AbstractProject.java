@@ -36,7 +36,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
-public abstract class AbstractProject implements IProject {
+public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
     protected static final Logger logger = LogManager.getLogger(AbstractProject.class);
     public static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -72,6 +72,9 @@ public abstract class AbstractProject implements IProject {
         this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
         this.masterRootPathForConfig = computeMasterRootForConfig(this.root, this.repo);
 
+        assert this.root.isAbsolute() : this.root;
+        assert this.masterRootPathForConfig.isAbsolute() : this.masterRootPathForConfig;
+
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
         this.fileFilteringService = new FileFilteringService(this.root, this.repo);
@@ -91,6 +94,9 @@ public abstract class AbstractProject implements IProject {
         this.masterRootPathForConfig = masterRootPathForConfig.toAbsolutePath().normalize();
         this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
+        assert this.root.isAbsolute() : this.root;
+        assert this.masterRootPathForConfig.isAbsolute() : this.masterRootPathForConfig;
+
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
         this.fileFilteringService = new FileFilteringService(this.root, this.repo);
@@ -100,6 +106,7 @@ public abstract class AbstractProject implements IProject {
 
     protected AbstractProject(Path root, Path masterRootPathForConfig, IGitRepo repo) {
         assert root.isAbsolute() : root;
+        assert masterRootPathForConfig.isAbsolute() : masterRootPathForConfig;
         this.root = root.toAbsolutePath().normalize();
         this.masterRootPathForConfig = masterRootPathForConfig.toAbsolutePath().normalize();
         this.repo = repo;
