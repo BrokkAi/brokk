@@ -947,9 +947,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // Template parameters are usually on the parent template_declaration node
         TSNode templateDecl = node.getParent();
-        if (templateDecl == null || templateDecl.isNull() || !"template_declaration".equals(templateDecl.getType())) {
+        if (templateDecl == null || templateDecl.isNull() || !TEMPLATE_DECLARATION.equals(templateDecl.getType())) {
             // Check if the node itself is a template_declaration (unlikely for capture, but defensive)
-            if ("template_declaration".equals(node.getType())) {
+            if (TEMPLATE_DECLARATION.equals(node.getType())) {
                 templateDecl = node;
             } else {
                 return null;
