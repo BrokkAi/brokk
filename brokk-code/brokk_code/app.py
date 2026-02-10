@@ -70,6 +70,7 @@ class BrokkApp(App):
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
         self._pending_updated_at: float = 0
+        self._pending_generation: int = 0
         self._last_ctrl_c_time: float = 0
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
@@ -294,6 +295,7 @@ class BrokkApp(App):
             if self.job_in_progress and self.current_job_id:
                 self._pending_prompt = raw_text
                 self._pending_updated_at = time.monotonic()
+                self._pending_generation += 1
                 chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
             else:
@@ -328,15 +330,16 @@ class BrokkApp(App):
                 # This ensures that "intermediate" prompts in a rapid sequence are dropped.
                 debounce_window = 0.05  # 50ms
                 while True:
-                    last_val = self._pending_prompt
+                    current_gen = self._pending_generation
                     elapsed = time.monotonic() - self._pending_updated_at
-                    if elapsed >= debounce_window and self._pending_prompt == last_val:
+                    if elapsed >= debounce_window and self._pending_generation == current_gen:
                         break
                     await asyncio.sleep(0.01)
 
                 next_prompt = self._pending_prompt
                 self._pending_prompt = None
                 self._pending_updated_at = 0
+                self._pending_generation = 0
 
                 # Recurse within the same worker context to prevent
                 # the app from flickering to 'idle' and allowing race-condition submits.
@@ -528,6 +531,7 @@ class BrokkApp(App):
         if self.job_in_progress and self.current_job_id:
             self._pending_prompt = None  # Clear any pending prompt on manual cancel
             self._pending_updated_at = 0
+            self._pending_generation = 0
             self.query_one(ChatPanel).add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)
             # Reset double-tap timer so they don't accidentally quit while cancelling
