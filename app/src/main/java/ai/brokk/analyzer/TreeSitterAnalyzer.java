@@ -1699,24 +1699,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
-     * Determines whether repeated occurrences of the same top-level CodeUnit (as judged by equals/hashCode)
-     * in the final localTopLevelCUs list are considered benign for the language. The default implementation
-     * returns false so that the previous behavior (ERROR logging) is preserved for languages that do not
-     * specially classify duplicates.
-     *
-     * Subclasses (e.g., CppAnalyzer) may override this to mark certain kinds of duplicates as expected
-     * (for example: class/field/module duplicates arising from header/include patterns) so that the analyzer
-     * suppresses ERROR-level diagnostics for those cases.
-     *
-     * @param cu the CodeUnit that appears multiple times
-     * @param count how many times it was observed
-     * @return true if this duplicate is benign and should not trigger an ERROR-level diagnostic
-     */
-    protected boolean isBenignTopLevelDuplicate(CodeUnit cu, long count) {
-        return false;
-    }
-
-    /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
      * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
      * <p>
@@ -1763,64 +1745,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // SPECIAL CASE: For functions and classes, prefer the definition (with body) over a forward declaration.
-        // Use AST-derived hasBody flag captured during analysis instead of string marker inspection.
         if ((cu.isFunction() && existingDuplicate.isFunction()) || (cu.isClass() && existingDuplicate.isClass())) {
             boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
             boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
-                // Keep existing (definition) and ignore new declaration/duplicate
                 log.trace(
-                        "Ignoring duplicate {} for {} in {} because definition already present",
-                        cu.isFunction() ? "declaration" : "forward declaration",
-                        cu.fqName(),
-                        file.getFileName());
+                        "Ignoring {} declaration for {} (definition already present)",
+                        cu.kind().name().toLowerCase(),
+                        cu.fqName());
                 return;
             } else if (candidateHasBody && !existingHasBody) {
-                // Replace existing (declaration) with candidate (definition)
                 localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
                 localTopLevelCUs.add(cu);
                 removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
                 return;
-            } else if (cu.isFunction()) {
-                // If both have body or both lack body, allow the language to classify some duplicates
-                // as benign (e.g., C++: same fqName + identical signature across translation units).
-                if (isBenignDuplicate(existingDuplicate, cu)) {
-                    // Prefer the definition if one has a body.
-                    if (existingHasBody && !candidateHasBody) {
-                        log.trace(
-                                "Ignoring benign duplicate declaration for {} in {} because definition already present",
-                                cu.fqName(),
-                                file.getFileName());
-                        return;
-                    } else if (candidateHasBody && !existingHasBody) {
-                        localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
-                        localTopLevelCUs.add(cu);
-                        removeCodeUnitAndDescendants(
-                                existingDuplicate, localChildren, localSignatures, localSourceRanges);
-                        return;
-                    }
-                    // Both same hasBody state: collapse as true duplicate and ignore candidate.
-                    log.trace(
-                            "Ignoring benign duplicate function (by policy) for {} in {}",
-                            cu.fqName(),
-                            file.getFileName());
-                    return;
-                }
-
-                // If language doesn't mark it benign, fall back to exact-signature check as a conservative
-                // language-agnostic heuristic.
-                String sigExisting = existingDuplicate.signature();
-                String sigCandidate = cu.signature();
-                if (sigExisting != null && sigCandidate != null && sigExisting.equals(sigCandidate)) {
-                    log.trace(
-                            "Ignoring duplicate function with identical signature for {} in {}",
-                            cu.fqName(),
-                            file.getFileName());
-                    return;
-                }
             }
-            // Otherwise fall through to general duplicate handling below (e.g., distinct overloads)
         }
 
         if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
@@ -1832,41 +1772,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             // This prevents orphaned children from appearing in the final result
             removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
-            // Language-specific duplicate handling says ignore
-            log.trace("Ignoring duplicate {} in {} per language policy", cu.fqName(), file.getFileName());
-        } else {
-            // shouldIgnoreDuplicate returned false - verify it's truly different
-            // Language-specific benign-duplicate policy may collapse semantically-equal CUs before equality check.
-            if (isBenignDuplicate(existingDuplicate, cu)) {
-                // Prefer definition if present (should already have been handled earlier), otherwise ignore candidate.
-                boolean existingHasBody2 = localHasBody.getOrDefault(existingDuplicate, false);
-                boolean candidateHasBody2 = localHasBody.getOrDefault(cu, false);
-                if (existingHasBody2 && !candidateHasBody2) {
-                    log.trace(
-                            "Ignoring benign duplicate {} in {} because existing has body",
-                            cu.fqName(),
-                            file.getFileName());
-                    return;
-                } else if (candidateHasBody2 && !existingHasBody2) {
-                    localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
-                    localTopLevelCUs.add(cu);
-                    removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
-                    return;
-                } else {
-                    log.trace(
-                            "Ignoring benign duplicate {} in {} per language policy", cu.fqName(), file.getFileName());
-                    return;
-                }
-            }
-
-            if (existingDuplicate.equals(cu)) {
-                // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
-                log.trace("Ignoring true duplicate {} in {} (same signature)", cu.fqName(), file.getFileName());
-            } else {
-                // Different CodeUnits (e.g., overloads with different signatures) - add it
-                localTopLevelCUs.add(cu);
-                log.trace("Adding non-duplicate {} in {} (e.g., overload)", cu.fqName(), file.getFileName());
-            }
+            log.trace("Ignoring duplicate {} per language policy", cu.fqName());
+        } else if (!existingDuplicate.equals(cu)) {
+            localTopLevelCUs.add(cu);
+            log.trace("Adding non-duplicate {} (e.g., overload)", cu.fqName());
         }
     }
 
@@ -1930,21 +1839,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
-                // Keep existing definition
                 log.trace(
-                        "Skipping duplicate {} child '{}' in parent '{}' - existing has body, candidate does not",
-                        cu.isFunction() ? "function" : "class",
-                        cu.fqName(),
-                        parentCu.fqName());
+                        "Skipping {} child '{}' - definition already present",
+                        cu.kind().name().toLowerCase(),
+                        cu.fqName());
                 return;
             } else if (candidateHasBody && !existingHasBody) {
-                // Replace any existing children with same FQN by this definition
                 kids.removeIf(k -> k.fqName().equals(cu.fqName()));
                 removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
                 kids.add(cu);
                 return;
             }
-            // If both have body or both lack body, fall through to general handling below
         }
 
         if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
@@ -1957,53 +1862,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 kids.removeAll(toRemove);
             }
             kids.add(cu);
-        } else {
-            // For languages that don't allow replacement, treat non-equal CodeUnits (e.g., overloads) as distinct,
-            // but consult language-specific benign-duplicate policy to collapse semantically-identical functions.
-            if (isBenignDuplicate(existingDuplicate, cu)) {
-                boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
-                boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
-                if (existingHasBody && !candidateHasBody) {
-                    log.trace(
-                            "Skipping benign duplicate child '{}' in parent '{}' - existing has body",
-                            cu.fqName(),
-                            parentCu.fqName());
-                    return;
-                } else if (candidateHasBody && !existingHasBody) {
-                    kids.removeIf(k -> k.fqName().equals(cu.fqName()));
-                    removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
-                    kids.add(cu);
-                    return;
-                } else {
-                    log.trace(
-                            "Skipping benign duplicate child '{}' in parent '{}' per language policy",
-                            cu.fqName(),
-                            parentCu.fqName());
-                    return;
-                }
-            }
-
-            if (existingDuplicate.equals(cu)) {
-                // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
-                log.trace("Skipping true duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
-            } else {
-                // If both are functions and signatures are identical, treat as duplicate and skip (fallback heuristic)
-                if (cu.isFunction() && existingDuplicate.isFunction()) {
-                    String sigExisting = existingDuplicate.signature();
-                    String sigCandidate = cu.signature();
-                    if (sigExisting != null && sigCandidate != null && sigExisting.equals(sigCandidate)) {
-                        log.trace(
-                                "Skipping duplicate function child with identical signature: {} in parent {}",
-                                cu.fqName(),
-                                parentCu.fqName());
-                        return;
-                    }
-                }
-                // Different CodeUnits (e.g., overloads with different signatures) - add it
-                kids.add(cu);
-                log.trace(
-                        "Adding non-duplicate child (e.g., overload): {} in parent {}", cu.fqName(), parentCu.fqName());
-            }
+        } else if (shouldIgnoreDuplicate(existingDuplicate, cu, cu.source())) {
+            log.trace("Skipping duplicate child '{}' per language policy", cu.fqName());
+        } else if (!existingDuplicate.equals(cu)) {
+            kids.add(cu);
+            log.trace("Adding non-duplicate child '{}' (e.g., overload)", cu.fqName());
         }
     }
 
