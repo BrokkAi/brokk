@@ -336,6 +336,7 @@ class BrokkApp(App):
 
                 next_prompt = self._pending_prompt
                 self._pending_prompt = None
+                self._pending_updated_at = 0
 
                 # Recurse within the same worker context to prevent
                 # the app from flickering to 'idle' and allowing race-condition submits.
