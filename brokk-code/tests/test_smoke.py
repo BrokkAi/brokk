@@ -159,6 +159,31 @@ def test_app_mode_commands(tmp_path, monkeypatch):
     assert "/lutz" in help_text
 
 
+def test_app_info_command(tmp_path, monkeypatch):
+    """Verify /info command outputs expected configuration details."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    class FakeChat:
+        def __init__(self):
+            self.system_markup = []
+
+        def add_system_message_markup(self, text: str) -> None:
+            self.system_markup.append(text)
+
+    fake_chat = FakeChat()
+    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: fake_chat if "chat" in sel else MagicMock())
+
+    app._handle_command("/info")
+
+    assert len(fake_chat.system_markup) > 0
+    info_text = fake_chat.system_markup[-1]
+    assert str(tmp_path.resolve()) in info_text
+    assert app.agent_mode in info_text
+    assert app.current_model in info_text
+    assert app.code_model in info_text
+
+
 @pytest.mark.asyncio
 async def test_app_mode_affects_submission_payload(tmp_path, monkeypatch):
     """Verify that setting the mode via command affects the tags.mode in submit_job."""

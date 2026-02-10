@@ -46,7 +46,7 @@ class BrokkApp(App):
         )
         self.settings = Settings.load()
         self._set_theme(self.settings.theme)
-        self.current_mode = "LUTZ"
+        self.agent_mode = "LUTZ"
         self.current_model = "gpt-5.2"
         self.code_model: Optional[str] = "gemini-3-flash-preview"
         self.reasoning_level: Optional[str] = "low"
@@ -54,6 +54,7 @@ class BrokkApp(App):
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._last_ctrl_c_time: float = 0
+        self._executor_ready: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -82,14 +83,9 @@ class BrokkApp(App):
             await self.executor.create_session()
 
             if await self.executor.wait_ready():
-                chat.add_system_message_markup(
-                    f"Ready!\n"
-                    f"  Mode:  [bold]{self.current_mode}[/]\n"
-                    f"  Model: [bold]{self.current_model}[/]\n"
-                    f"  (reasoning: [bold]{self.reasoning_level}[/])\n"
-                    f"  Code model: [bold]{self.code_model}[/]\n"
-                    f"  (reasoning: [bold]{self.reasoning_level_code}[/])"
-                )
+                self._executor_ready = True
+                chat.add_system_message("Ready!")
+                self._render_info()
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
             else:
@@ -144,7 +140,7 @@ class BrokkApp(App):
                 code_model=self.code_model,
                 reasoning_level=self.reasoning_level,
                 reasoning_level_code=self.reasoning_level_code,
-                mode=self.current_mode,
+                mode=self.agent_mode,
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
@@ -184,6 +180,22 @@ class BrokkApp(App):
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
                 self.run_worker(self._refresh_context_panel())
 
+    def _render_info(self) -> None:
+        """Renders current status and configuration info to the chat."""
+        chat = self.query_one(ChatPanel)
+        status = "[bold green]Ready[/]" if self._executor_ready else "[bold yellow]Initializing...[/]"
+        jar_path = self.executor.resolved_jar_path or "Unknown"
+
+        info_markup = (
+            f"Status: {status}\n"
+            f"Workspace: [bold]{self.executor.workspace_dir}[/]\n"
+            f"Executor JAR: [bold]{jar_path}[/]\n"
+            f"Mode: [bold]{self.agent_mode}[/]\n"
+            f"Planner Model: [bold]{self.current_model}[/] (reasoning: [bold]{self.reasoning_level}[/])\n"
+            f"Code Model: [bold]{self.code_model}[/] (reasoning: [bold]{self.reasoning_level_code}[/])"
+        )
+        chat.add_system_message_markup(info_markup)
+
     def _handle_command(self, cmd: str) -> None:
         chat = self.query_one(ChatPanel)
         parts = cmd.split()
@@ -212,8 +224,10 @@ class BrokkApp(App):
                 )
             self.action_change_theme()
         elif base in ("/ask", "/search", "/lutz"):
-            self.current_mode = base[1:].upper()
-            chat.add_system_message_markup(f"Mode changed to: [bold]{self.current_mode}[/]")
+            self.agent_mode = base[1:].upper()
+            chat.add_system_message_markup(f"Mode changed to: [bold]{self.agent_mode}[/]")
+        elif base == "/info":
+            self._render_info()
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -225,6 +239,7 @@ class BrokkApp(App):
                 "  /reasoning <level>    - Set reasoning level for planner\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
                 "  /theme, /palette      - Open the theme palette\n"
+                "  /info                 - Show current configuration and status\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
             )
