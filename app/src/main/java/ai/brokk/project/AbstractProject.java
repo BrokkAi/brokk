@@ -172,7 +172,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 }
             }
 
-            // Invalidate auto-detected languages to force re-detection including new dependencies
+            // Invalidate auto-detected languages cache to force re-detection including new dependencies
+            // This preserves any explicit user configuration while ensuring new dependencies are considered
             invalidateAutoDetectedLanguages();
 
             // Always persist
