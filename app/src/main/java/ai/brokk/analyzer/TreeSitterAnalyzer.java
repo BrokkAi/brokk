@@ -51,14 +51,8 @@ import org.treesitter.*;
  * Generic, language-agnostic skeleton extractor backed by Tree-sitter. Stores summarized skeletons for top-level
  * definitions only.
  *
- * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query,
- * and how to map a capture to a {@link CodeUnit}.
- *
- * <p>Important persistence note: heavy, variable-sized presentation data such as rendered signatures are
- * NOT stored inside the immutable {@link AnalyzerState} snapshot. Such data is transient and cache-backed
- * (see {@link ai.brokk.analyzer.cache.AnalyzerCache}), and is populated on-demand during analysis. The
- * AnalyzerState contains the structural, compact information required to reconstruct indices, ranges, imports, and
- * type-hierarchy graphs, while signatures and other large presentation artifacts remain in the in-memory cache.
+ * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
+ * how to map a capture to a {@link CodeUnit}.
  */
 public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider {
 
@@ -141,16 +135,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
-     * Per-CodeUnit state: children, ranges, and AST-derived hasBody flag.
+     * Per-CodeUnit state: children, signatures, ranges, and AST-derived hasBody flag.
      * <p>
      * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
      * During incremental updates and multi-file merges, hasBody is combined using logical OR so that a single
      * definition anywhere marks the CodeUnit as having a body.
      */
-    public record CodeUnitProperties(List<CodeUnit> children, List<Range> ranges, boolean hasBody) {
+    public record CodeUnitProperties(
+            List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
 
         public static CodeUnitProperties empty() {
-            return new CodeUnitProperties(Collections.emptyList(), Collections.emptyList(), false);
+            return new CodeUnitProperties(
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false);
         }
     }
 
@@ -220,7 +216,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
-            Map<CodeUnit, List<String>> signatures,
             Map<String, Set<CodeUnit>> codeUnitsBySymbol,
             List<ImportInfo> importStatements,
             boolean containsTests) {}
@@ -375,20 +370,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                 ioExecutor)
                         .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
                         .thenAcceptAsync(
-                                analysisResult -> {
-                                    mergeAnalysisResultIntoMaps(
-                                            pf,
-                                            analysisResult,
-                                            timing,
-                                            localSymbolIndex,
-                                            localCodeUnitState,
-                                            localFileState,
-                                            moduleKeyCache);
-                                    // Populate local cache from analysis results
-                                    analysisResult.signatures().forEach((cu, sigs) -> {
-                                        this.cache.signatures().put(cu, List.copyOf(sigs));
-                                    });
-                                },
+                                analysisResult -> mergeAnalysisResultIntoMaps(
+                                        pf,
+                                        analysisResult,
+                                        timing,
+                                        localSymbolIndex,
+                                        localCodeUnitState,
+                                        localFileState,
+                                        moduleKeyCache),
                                 ingestExecutor)
                         .whenComplete((ignored, ex) -> {
                             progressReporter.increment();
@@ -604,16 +593,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected List<String> signaturesOf(CodeUnit codeUnit) {
-        // Primary source: transient analyzer cache populated during file analysis.
-        List<String> cached = cache.signatures().get(codeUnit);
-        if (cached != null) {
-            return List.copyOf(cached);
-        }
-
-        // No signatures found in the transient cache. Historically CodeUnitProperties.signatures()
-        // returned an empty list (signatures were removed from persistent AnalyzerState). To preserve
-        // legacy behavior, return an explicit empty list here and allow callers to still render children.
-        return Collections.emptyList();
+        return codeUnitProperties(codeUnit).signatures();
     }
 
     protected List<Range> rangesOf(CodeUnit codeUnit) {
@@ -638,15 +618,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Exposes the current immutable AnalyzerState snapshot for persistence.
-     *
-     * <p>Intended for use by Language.saveAnalyzer and other persistence hooks.
-     *
-     * <p>Important: This snapshot excludes transient, cache-resident payloads such as rendered signatures.
-     * Signatures are maintained in {@link AnalyzerCache} (the {@code cache} field) and are not persisted into the
-     * AnalyzerState DTO. When snapshotting, any lazily-populated derived graphs that live in the transient cache
-     * (e.g., import/type-hierarchy forward/reverse mappings) are merged into the returned AnalyzerState so that
-     * subsequent loads have the necessary structural data; however, presentation-heavy lists of signature strings
-     * remain transient and are repopulated into a new AnalyzerCache during analysis or update.
+     * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
         if (cache.isEmpty()) {
@@ -1964,7 +1936,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
         if (fileBytes.length == 0) {
             log.trace("Skipping binary/empty file: {}", file);
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), List.of(), false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         }
 
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
@@ -1984,7 +1956,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
         long __parseEnd = System.nanoTime();
-
         if (timing != null) {
             timing.parseStageNanos().addAndGet(__parseEnd - __parseStart);
             timing.parseStageFirstStartNanos().accumulateAndGet(__parseStart, Math::min);
@@ -2000,7 +1971,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), List.of(), false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         }
         String rootNodeType = rootNode.getType();
         log.trace("Root node type for {}: {}", file, rootNodeType);
@@ -2528,9 +2499,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         unionKeys.addAll(finalLocalSourceRanges.keySet());
         for (var cu : unionKeys) {
             var kids = finalLocalChildren.getOrDefault(cu, List.of());
+            var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
             boolean hasBody = localHasBody.getOrDefault(cu, false);
-            localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(rngs), hasBody));
+            localStates.put(
+                    cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody));
         }
 
         for (var cu : localStates.keySet()) {
@@ -2568,7 +2541,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return new FileAnalysisResult(
                 localTopLevelCUs.stream().distinct().toList(),
                 Collections.unmodifiableMap(localStates),
-                Collections.unmodifiableMap(localSignatures),
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportInfos),
                 containsTests);
@@ -3622,7 +3594,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             final CodeUnit finalMergeKey = mergeKey;
             targetCodeUnitState.compute(mergeKey, (k, existing) -> {
                 if (existing == null) {
-                    return new CodeUnitProperties(newState.children(), newState.ranges(), newState.hasBody());
+                    return new CodeUnitProperties(
+                            newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
                 }
                 List<CodeUnit> mergedKids = existing.children();
                 var newKids = newState.children();
@@ -3632,8 +3605,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     for (var kid : newKids) if (!tmp.contains(kid)) tmp.add(kid);
                     mergedKids = List.copyOf(tmp);
                 }
-                // Signatures are no longer part of persisted CodeUnitProperties.
-                // Keep merge logic limited to children and ranges; signatures remain local during analysis.
+                List<String> mergedSigs = existing.signatures();
+                var newSigs = newState.signatures();
+                if (!newSigs.isEmpty()) {
+                    var tmp = new ArrayList<String>(existing.signatures().size() + newSigs.size());
+                    tmp.addAll(existing.signatures());
+                    for (var s : newSigs) if (!tmp.contains(s)) tmp.add(s);
+                    mergedSigs = List.copyOf(tmp);
+                }
                 List<Range> mergedRanges = existing.ranges();
                 var newRngs = newState.ranges();
                 if (!newRngs.isEmpty()) {
@@ -3646,7 +3625,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
-                return new CodeUnitProperties(mergedKids, mergedRanges, mergedHasBody);
+                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedHasBody);
             });
 
             if (cu.isModule()) {
@@ -3729,7 +3708,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     .toList();
             return (filtered.size() == children.size())
                     ? props
-                    : new CodeUnitProperties(filtered, props.ranges(), props.hasBody());
+                    : new CodeUnitProperties(filtered, props.signatures(), props.ranges(), props.hasBody());
         });
 
         // Filter symbol index
@@ -3739,11 +3718,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         long cleanupNanos = System.nanoTime() - cleanupStart;
 
-        // 3. Prepare the new cache by transferring valid entries from the previous one.
-        // The AnalyzerCache transfer constructor filters out entries sourced from changedFiles.
-        var filteredCache = new AnalyzerCache(this.cache, relevantFiles);
-
-        // 4. Re-analyze changed files in parallel
+        // 3. Re-analyze changed files in parallel
         int total = relevantFiles.size();
         var reanalyzedCount = new AtomicInteger(0);
         var deletedCount = new AtomicInteger(0);
@@ -3762,7 +3737,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         try {
                                             var parser = getTSParser();
                                             byte[] bytes = readFileBytes(file, null);
-
                                             var analysisResult = analyzeFileContent(file, bytes, parser, null);
                                             mergeAnalysisResultIntoMaps(
                                                     file,
@@ -3772,17 +3746,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                                     newCodeUnitState,
                                                     newFileState,
                                                     moduleKeyCache);
-
-                                            // Populate the new cache with signatures from re-analysis immediately.
-                                            // This avoids an O(N*M) scan of the entire state later.
-                                            analysisResult.signatures().forEach((cu, sigs) -> {
-                                                if (sigs == null || sigs.isEmpty()) {
-                                                    filteredCache.signatures().put(cu, List.of());
-                                                } else {
-                                                    filteredCache.signatures().put(cu, List.copyOf(sigs));
-                                                }
-                                            });
-
                                             reanalyzedCount.incrementAndGet();
                                         } catch (UncheckedIOException e) {
                                             log.warn("IO error re-analysing {}: {}", file, e.getMessage());
@@ -3842,6 +3805,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Re-run combined post-processing (imports + type analysis) after ingesting updates
         var typedState = runPostProcessing(nextState);
 
+        var filteredCache = new AnalyzerCache(this.cache, changedFiles);
         return newSnapshot(typedState, getProgressListener(), filteredCache);
     }
 

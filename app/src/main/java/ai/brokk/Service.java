@@ -3,6 +3,7 @@ package ai.brokk;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -393,11 +394,24 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             throws IOException {
         var kp = parseKey(MainProject.getBrokkKey());
 
+        // Resolve version and environment, defaulting to "Unknown" if blank/null
+        String version = BuildInfo.version;
+        if (version == null || version.isBlank()) {
+            version = "Unknown";
+        }
+        String environment = Environment.getOsDescription();
+        if (environment == null || environment.isBlank()) {
+            environment = "Unknown";
+        }
+        log.debug("Sending feedback with version={}, environment={}", version, environment);
+
         var bodyBuilder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("category", category)
                 .addFormDataPart("feedback_text", feedbackText)
-                .addFormDataPart("user_id", kp.userId().toString());
+                .addFormDataPart("user_id", kp.userId().toString())
+                .addFormDataPart("version", version)
+                .addFormDataPart("environment", environment);
 
         if (includeDebugLog) {
             var debugLogPath =
@@ -419,10 +433,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                             "debug.log.gz",
                             RequestBody.create(gzippedFile, MediaType.parse("application/gzip")));
                 } catch (IOException e) {
-                    LogManager.getLogger(Service.class).warn("Failed to gzip debug log, skipping: {}", e.getMessage());
+                    log.warn("Failed to gzip debug log, skipping: {}", e.getMessage());
                 }
             } else {
-                LogManager.getLogger(Service.class).debug("Debug log not found at {}", debugLogPath);
+                log.debug("Debug log not found at {}", debugLogPath);
             }
         }
 
@@ -443,7 +457,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
                 throw new ServiceHttpException(response.code(), errorBody, "Failed to send feedback");
             }
-            LogManager.getLogger(Service.class).debug("Feedback sent successfully");
+            log.debug("Feedback sent successfully");
         }
     }
 

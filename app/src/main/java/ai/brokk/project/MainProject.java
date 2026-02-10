@@ -1238,7 +1238,7 @@ public final class MainProject extends AbstractProject {
             return Set.of();
         }
 
-        return namesToDependencies(liveDepsNames);
+        return resolveDependencies(liveDepsNames);
     }
 
     @Override
@@ -1470,7 +1470,6 @@ public final class MainProject extends AbstractProject {
     private static final String MOP_ZOOM_KEY = "mopZoom";
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
-    private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
     private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
 
     public static String getUiScalePref() {
@@ -1534,25 +1533,6 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
-    // ------------------------------------------------------------
-    // Git branch poller (global) settings
-    // ------------------------------------------------------------
-
-    public static boolean getForceToolEmulation() {
-        var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(FORCE_TOOL_EMULATION_KEY, "false"));
-    }
-
-    public static void setForceToolEmulation(boolean force) {
-        var props = loadGlobalProperties();
-        if (force) {
-            props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
-        } else {
-            props.remove(FORCE_TOOL_EMULATION_KEY);
-        }
-        saveGlobalProperties(props);
-    }
-
     public static String getOtherModelsVendorPreference() {
         var props = loadGlobalProperties();
         return props.getProperty(OTHER_MODELS_VENDOR_KEY, "");
@@ -1607,7 +1587,7 @@ public final class MainProject extends AbstractProject {
     }
 
     // Grouped settings records for atomic batch saving
-    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting, boolean forceToolEmulation) {
+    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting) {
         public void applyTo(Properties props) {
             var existingKey = props.getProperty("brokkApiKey", "");
             if (brokkApiKey.isBlank()) {
@@ -1619,11 +1599,6 @@ public final class MainProject extends AbstractProject {
                 props.setProperty("brokkApiKey", brokkApiKey.trim());
             }
             props.setProperty(LLM_PROXY_SETTING_KEY, proxySetting.name());
-            if (forceToolEmulation) {
-                props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
-            } else {
-                props.remove(FORCE_TOOL_EMULATION_KEY);
-            }
         }
     }
 

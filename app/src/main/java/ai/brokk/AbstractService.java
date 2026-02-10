@@ -578,25 +578,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return modelName.contains("haiku") || modelName.contains("flash");
     }
 
-    public boolean requiresEmulatedTools(StreamingChatModel model) {
-        if (Boolean.getBoolean("brokk.devmode")) {
-            boolean force = MainProject.getForceToolEmulation();
-            logger.debug("Dev mode enabled; requiresEmulatedTools overridden by setting: {}", force);
-            return force;
-        }
-
-        var name = nameOf(model);
-
-        var info = getModelInfo(name);
-        if (info.isEmpty()) {
-            logger.warn("Model info not found for name {}, assuming tool emulation required.", name);
-            return true;
-        }
-
-        var b = info.get("supports_function_calling");
-        return !(b instanceof Boolean bVal) || !bVal;
-    }
-
     protected Map<String, Object> getModelInfo(String modelName) {
         var info = modelInfoMap.get(modelName);
         if (info != null) {

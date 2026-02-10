@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -164,7 +165,7 @@ public class TreeSitterStateIOTest {
         var cu = CodeUnit.cls(projectFile, "com.example", "Test");
 
         var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                List.of(), List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
+                List.of(), List.of("public class Test"), List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
 
         var stateMap = Map.of(cu, props);
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
@@ -187,6 +188,7 @@ public class TreeSitterStateIOTest {
 
         assertNotNull(loadedProps);
         assertEquals(props.ranges(), loadedProps.ranges());
+        assertEquals(props.signatures(), loadedProps.signatures());
         assertEquals(props.children(), loadedProps.children());
         assertEquals(props.hasBody(), loadedProps.hasBody());
     }
@@ -415,97 +417,7 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void analyzerStateDtoDoesNotContainSignatures() throws Exception {
-        var builder = InlineTestProjectCreator.code(
-                """
-                        package com.example;
-
-                        public class Hello {
-                            public int add(int a, int b) { return a + b; }
-                        }
-                        """,
-                "src/main/java/com/example/Hello.java");
-
-        try (IProject project = builder.build()) {
-            JavaAnalyzer analyzer = new JavaAnalyzer(project);
-
-            ProjectFile javaFile = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Hello.java"));
-            var skeletons = analyzer.getSkeletons(javaFile);
-            assertFalse(skeletons.isEmpty(), "Expected skeletons to be present (signatures computed into cache)");
-
-            var state = analyzer.snapshotState();
-            var dto = TreeSitterStateIO.toDto(state);
-
-            // Verify CodeUnitPropertiesDto has no signatures accessor (compile-time: DTO shape omits signatures)
-            for (var entry : dto.codeUnitState()) {
-                TreeSitterStateIO.CodeUnitPropertiesDto props = entry.value();
-                assertNotNull(props.children());
-                assertNotNull(props.ranges());
-                // There is no signatures() on CodeUnitPropertiesDto - this confirms signatures are not persisted.
-            }
-        }
-    }
-
-    @Test
-    void skeletonsRemainConsistentAcrossSaveAndLoad() throws Exception {
-        var builder = InlineTestProjectCreator.code(
-                """
-                        package com.example;
-
-                        public class Hello {
-                            public int add(int a, int b) { return a + b; }
-                        }
-                        """,
-                "src/main/java/com/example/Hello.java");
-
-        try (IProject project = builder.build()) {
-            JavaAnalyzer analyzer = new JavaAnalyzer(project);
-
-            ProjectFile file = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Hello.java"));
-            var skeletons = analyzer.getSkeletons(file);
-            assertFalse(skeletons.isEmpty(), "Expected skeletons before save");
-
-            String originalSkeleton = skeletons.entrySet().stream()
-                    .filter(e -> e.getKey().isClass())
-                    .map(java.util.Map.Entry::getValue)
-                    .findFirst()
-                    .orElseThrow();
-
-            Path storage = Languages.JAVA.getStoragePath(project);
-            TreeSitterStateIO.save(analyzer.snapshotState(), storage);
-            assertTrue(Files.exists(storage), "Saved analyzer state should exist");
-
-            var loadedStateOpt = TreeSitterStateIO.load(storage);
-            assertTrue(loadedStateOpt.isPresent(), "Expected state to load");
-            var loadedState = loadedStateOpt.get();
-
-            JavaAnalyzer analyzerFromState =
-                    JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
-
-            // After loading from persisted AnalyzerState signatures are not present in cache.
-            // Trigger a re-analysis of the file so transient signature cache is repopulated.
-            var updatedAnalyzer = analyzerFromState.update(Set.of(file));
-            assertNotNull(updatedAnalyzer, "update should return a new analyzer instance");
-            JavaAnalyzer reanalyzed = (JavaAnalyzer) updatedAnalyzer;
-
-            var skeletonsAfter = reanalyzed.getSkeletons(file);
-            assertFalse(skeletonsAfter.isEmpty(), "Expected skeletons after reload and re-analysis");
-
-            String reloadedSkeleton = skeletonsAfter.entrySet().stream()
-                    .filter(e -> e.getKey().isClass())
-                    .map(java.util.Map.Entry::getValue)
-                    .findFirst()
-                    .orElseThrow();
-
-            assertEquals(
-                    originalSkeleton,
-                    reloadedSkeleton,
-                    "Skeleton should remain consistent across save/load when signatures are recomputed");
-        }
-    }
-
-    @Test
-    void roundTripTypeHierarchy() throws Exception {
+    void roundTripTypeHierarchy(@TempDir Path tempDir) throws Exception {
         var builder = InlineTestProjectCreator.code(
                 """
                 package com.example;
@@ -541,7 +453,7 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void roundTripLazySubtypes() throws Exception {
+    void roundTripLazySubtypes(@TempDir Path tempDir) throws Exception {
         var builder = InlineTestProjectCreator.code(
                 """
                 package com.example;
@@ -732,5 +644,141 @@ public class TreeSitterStateIOTest {
             assertTrue(descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child1")), "Missing Child1");
             assertTrue(descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child2")), "Missing Child2");
         }
+    }
+
+    @Test
+    void deserializeLegacyStateWithComputedSupertypes(@TempDir Path tempDir) throws Exception {
+        // Construct DTO components manually to simulate legacy structure
+        var root = tempDir.toAbsolutePath().normalize();
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(root.toString(), "src/Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        // Legacy properties map with extra fields
+        Map<String, Object> legacyProps = new HashMap<>();
+        legacyProps.put("children", List.of());
+        legacyProps.put("signatures", List.of("sig"));
+        legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 10, 0, 1, 0)));
+        legacyProps.put("hasBody", true);
+        legacyProps.put("rawSupertypes", List.of("RawBase")); // Field removed from record
+        legacyProps.put("superTypes", Map.of("supertypes", List.of())); // Field removed from record
+
+        // Entry as Map to bypass CodeUnitEntryDto's type check
+        Map<String, Object> entry = new HashMap<>();
+        entry.put("key", cuDto);
+        entry.put("value", legacyProps);
+
+        // Simulate a legacy hierarchy graph as well to verify it's still loaded
+        Map<String, Object> supertypeEntry = Map.of("key", cuDto, "value", List.of());
+
+        // AnalyzerStateDto as Map
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("supertypes", List.of(supertypeEntry));
+        stateDtoMap.put("subtypes", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 12345L);
+
+        // Serialize to file using Smile
+        Path file = tempDir.resolve("legacy.smile.gz");
+        ObjectMapper mapper = new ObjectMapper(new SmileFactory());
+        try (var out = new GZIPOutputStream(Files.newOutputStream(file))) {
+            mapper.writeValue(out, stateDtoMap);
+        }
+
+        // Load using TreeSitterStateIO
+        var loadedOpt = TreeSitterStateIO.load(file);
+        assertTrue(loadedOpt.isPresent(), "Should load legacy state successfully");
+        var loadedState = loadedOpt.get();
+
+        // Verify loaded content
+        assertEquals(1, loadedState.codeUnitState().size());
+        var loadedCu = loadedState.codeUnitState().keySet().iterator().next();
+        var loadedProps = loadedState.codeUnitState().get(loadedCu);
+
+        assertEquals("Test", loadedCu.shortName());
+        assertEquals(1, loadedProps.ranges().size());
+
+        // Verify TypeHierarchyGraph data is still present
+        var hierarchy = loadedState.typeHierarchyGraph();
+        assertTrue(hierarchy.supertypes().containsKey(loadedCu), "Hierarchy data should be loaded");
+    }
+
+    @Test
+    void loadLegacyStateWithPerCodeUnitSupertypes(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("legacy_per_cu_supertypes.smile.gz");
+
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        // Simulate removed 'supertypes' and 'supertypesComputed' fields
+        Map<String, Object> legacyProps = new HashMap<>();
+        legacyProps.put("children", List.of());
+        legacyProps.put("signatures", List.of());
+        legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 1, 0, 1, 0)));
+        legacyProps.put("hasBody", false);
+        legacyProps.put("supertypes", List.of(cuDto));
+        legacyProps.put("supertypesComputed", true);
+
+        Map<String, Object> entry = Map.of("key", cuDto, "value", legacyProps);
+
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 1L);
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, stateDtoMap);
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Should successfully load state ignoring legacy supertype fields");
+    }
+
+    @Test
+    void loadIgnoresLegacyRawSupertypesField(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("legacy_raw_supertypes.smile.gz");
+
+        // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        Map<String, Object> legacyProps = new HashMap<>();
+        legacyProps.put("children", List.of());
+        legacyProps.put("signatures", List.of());
+        legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 1, 0, 1, 0)));
+        legacyProps.put("hasBody", false);
+        legacyProps.put("rawSupertypes", List.of("BaseClass", "InterfaceA")); // Field removed from DTO
+        legacyProps.put("supertypes", List.of()); // Field removed from DTO
+        legacyProps.put("supertypesComputed", true); // Field removed from DTO
+
+        Map<String, Object> entry = Map.of("key", cuDto, "value", legacyProps);
+
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 1L);
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, stateDtoMap);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isPresent(), "Should successfully load state even with unknown 'rawSupertypes' field");
     }
 }
