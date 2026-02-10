@@ -74,7 +74,8 @@ class ChatPanel(Vertical):
         self._last_token_time = self._get_now()
 
     def set_response_finished(self) -> None:
-        """Called when the job is complete, cancelled, or failed."""
+        """Called when the job loop exits. Flushes remaining tokens.
+        Does not manage spinner/ticker state (see set_job_running)."""
         self.response_pending = False
         self.response_active = False
         # Some backends do not emit an explicit terminal token; flush any buffered text on finish.

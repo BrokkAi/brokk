@@ -31,8 +31,12 @@ async def test_spinner_lifecycle():
         assert "hidden" not in spinner.classes
         
         panel.append_token(" world", "AI", is_new_message=False, is_reasoning=False, is_terminal=True)
-        assert "hidden" not in spinner.classes
+        assert "hidden" not in spinner_area.classes
         
-        # Explicit finish
+        # Verify set_response_finished does NOT hide spinner
+        panel.set_response_finished()
+        assert "hidden" not in spinner_area.classes
+
+        # Explicit job finish
         panel.set_job_running(False)
         assert "hidden" in spinner_area.classes

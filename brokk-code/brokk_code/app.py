@@ -175,7 +175,7 @@ class BrokkApp(App):
             chat.add_notification(msg, level="ERROR")
             # Also keep error in chat for visibility in logs
             chat.add_system_message(msg, level="ERROR")
-            chat.set_response_finished()
+            # Note: set_job_running(False) happens in _run_job finally block
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
