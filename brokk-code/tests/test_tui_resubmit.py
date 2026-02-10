@@ -179,3 +179,33 @@ async def test_add_context_text_stub():
     assert result["id"] == "fake-id"
     assert result["chars"] == len(text)
     assert stub.calls[-1] == {"type": "add_context_text", "text": text}
+
+
+@pytest.mark.asyncio
+async def test_large_paste_routing_to_context():
+    """
+    Verify that a submission exceeding thresholds is routed to context
+    and does NOT trigger a job submission.
+    """
+    from brokk_code.app import PASTE_THRESHOLD_CHARS
+
+    stub = StubExecutor()
+    app = BrokkApp(executor=stub)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+
+        # Create text that exceeds the character threshold
+        large_text = "A" * (PASTE_THRESHOLD_CHARS + 10)
+
+        chat_input.text = large_text
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Assertions
+        actions = [c["type"] for c in stub.calls]
+        assert "add_context_text" in actions
+        assert "submit" not in actions
+
+        add_call = next(c for c in stub.calls if c["type"] == "add_context_text")
+        assert add_call["text"] == large_text

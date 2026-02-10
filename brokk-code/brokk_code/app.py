@@ -19,6 +19,10 @@ from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 logger = logging.getLogger(__name__)
 
+# Heuristics for routing large pasted text to context instead of submitting a job
+PASTE_THRESHOLD_CHARS = 2000
+PASTE_THRESHOLD_LINES = 50
+
 
 class BrokkApp(App):
     """The main Brokk TUI application."""
@@ -229,19 +233,43 @@ class BrokkApp(App):
         if text.startswith("/"):
             self._handle_command(text)
         elif text:
+            # Record in history regardless of routing
             append_prompt(
                 self.executor.workspace_dir, text, max_history=self.settings.prompt_history_size
             )
             chat = self.query_one(ChatPanel)
             chat.add_history_entry(text)
-            chat.add_user_message(text)
 
-            if self.job_in_progress and self.current_job_id:
-                self._pending_prompt = text
-                chat.add_system_message("Interrupting current job to start new request...")
-                self.run_worker(self.executor.cancel_job(self.current_job_id))
+            # Route large pastes to context instead of submitting as a job
+            is_large_paste = (
+                len(text) >= PASTE_THRESHOLD_CHARS
+                or (text.count("\n") + 1) >= PASTE_THRESHOLD_LINES
+            )
+
+            if is_large_paste:
+                self.run_worker(self._handle_large_paste(text))
             else:
-                self.run_worker(self._run_job(text))
+                chat.add_user_message(text)
+                if self.job_in_progress and self.current_job_id:
+                    self._pending_prompt = text
+                    chat.add_system_message("Interrupting current job to start new request...")
+                    self.run_worker(self.executor.cancel_job(self.current_job_id))
+                else:
+                    self.run_worker(self._run_job(text))
+
+    async def _handle_large_paste(self, text: str) -> None:
+        """Adds large text submission to context and refreshes UI."""
+        chat = self.query_one(ChatPanel)
+        try:
+            result = await self.executor.add_context_text(text)
+            char_count = result.get("chars", len(text))
+            fragment_id = result.get("id", "unknown")
+            chat.add_system_message(
+                f"Added large submission to context (chars={char_count}, id={fragment_id})"
+            )
+            await self._refresh_context_panel()
+        except Exception as e:
+            chat.add_system_message(f"Failed to add paste to context: {e}", level="ERROR")
 
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
