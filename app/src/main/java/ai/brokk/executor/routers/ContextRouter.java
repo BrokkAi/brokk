@@ -111,8 +111,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 var map = new HashMap<String, Object>();
                 map.put("id", fragment.id());
                 map.put("type", fragment.getType().name());
-                var desc = fragment.shortDescription();
-                map.put("shortDescription", desc != null ? desc.renderNowOr("") : "");
+                map.put("shortDescription", fragment.shortDescription().renderNowOr(""));
                 map.put("chipKind", classifyChipKind(fragment));
                 map.put("pinned", live.isPinned(fragment));
                 map.put("readonly", live.isMarkedReadonly(fragment));
