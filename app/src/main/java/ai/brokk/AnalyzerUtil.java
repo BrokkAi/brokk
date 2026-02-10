@@ -181,18 +181,12 @@ public class AnalyzerUtil {
      */
     public static Optional<ContextFragment> selectFileFragment(IContextManager cm, String input, boolean summarize) {
         ProjectFile chosenFromInput = cm.toFile(input);
-        var match = cm.getProject().getFileByRelPath(chosenFromInput.getRelPath());
-
-        if (match.isEmpty()) {
-            return Optional.empty();
-        }
-
-        ProjectFile chosen = match.get();
-        ContextFragment frag = summarize
-                ? new ContextFragments.SummaryFragment(
-                        cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS)
-                : new ContextFragments.ProjectPathFragment(chosen, cm);
-        return Optional.of(frag);
+        return cm.getProject()
+                .getFileByRelPath(chosenFromInput.getRelPath())
+                .map(chosen -> summarize
+                        ? new ContextFragments.SummaryFragment(
+                                cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS)
+                        : new ContextFragments.ProjectPathFragment(chosen, cm));
     }
 
     /**
