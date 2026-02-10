@@ -40,6 +40,15 @@ def test_action_toggle_mode_cycles_correctly():
     )
 
 
+def test_mode_toggle_bindings_exist():
+    app = BrokkApp(executor=MagicMock())
+    # Verify the bindings are present and mapped to toggle_mode
+    bindings = {b.key: b.action for b in app.BINDINGS}
+    assert bindings["ctrl+m"] == "toggle_mode"
+    assert bindings["ctrl+shift+m"] == "toggle_mode"
+    assert bindings["f3"] == "toggle_mode"
+
+
 def test_action_toggle_mode_handles_unknown_mode():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)

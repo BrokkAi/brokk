@@ -30,6 +30,8 @@ class BrokkApp(App):
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
         Binding("ctrl+m", "toggle_mode", "Mode", show=True),
+        Binding("ctrl+shift+m", "toggle_mode", "Mode", show=False),
+        Binding("f3", "toggle_mode", "Mode", show=True),
         Binding("f2", "change_theme", "Theme Palette", show=True),
     ]
 
