@@ -82,6 +82,25 @@ class ContextRouterTest {
     }
 
     @Test
+    void handleGetContext_tokensTrue_returnsExpectedKeys() throws Exception {
+        var exchange = TestHttpExchange.request("GET", "/v1/context?tokens=true");
+        contextRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+
+        assertTrue(body.containsKey("fragments"), "Should contain fragments key");
+        assertTrue(body.containsKey("usedTokens"), "Should contain usedTokens key");
+        assertTrue(body.containsKey("maxTokens"), "Should contain maxTokens key");
+        assertTrue(body.containsKey("tokensEstimated"), "Should contain tokensEstimated key");
+
+        assertEquals(Boolean.TRUE, body.get("tokensEstimated"));
+        assertTrue(body.get("fragments") instanceof List, "fragments should be a List");
+        assertTrue(body.get("usedTokens") instanceof Number, "usedTokens should be a Number");
+        assertTrue(body.get("maxTokens") instanceof Number, "maxTokens should be a Number");
+    }
+
+    @Test
     void handlePostContextFiles_allPathsInvalid_returns400WithDetailedMessage() throws Exception {
         Map<String, Object> body =
                 Map.of("relativePaths", List.of("/absolute/path", "../outside/workspace", "nonexistent.txt"));
