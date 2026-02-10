@@ -320,8 +320,10 @@ class BrokkApp(App):
                 self._pending_prompt = None
                 # Recurse immediately within the same worker context to prevent
                 # the app from flickering to 'idle' and allowing race-condition submits.
+                # We keep job_in_progress = True during this transition.
                 await self._run_job(next_prompt)
             else:
+                # Only mark idle once we are sure no more prompts are queued
                 self.job_in_progress = False
                 self.current_job_id = None
                 chat.set_job_running(False)
