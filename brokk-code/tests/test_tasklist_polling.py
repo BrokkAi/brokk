@@ -71,18 +71,20 @@ async def test_tasklist_polling_updates_ui(tmp_path):
             # to verify it renders correctly, then we check if the worker loop
             # would have called it by checking the mock.
 
-            panel = app.query_one("TaskListPanel")
+            from brokk_code.widgets.tasklist_panel import TaskListPanel
+            panel = app.query_one(TaskListPanel)
             panel.update_tasklist_details(mock_tasklist)
 
-            content = panel.query_one("#tasklist-content").renderable
-            content_str = str(content)
+            content_widget = panel.query_one("#tasklist-content")
+            # Using plain_text to avoid markup/styling variations across versions
+            content_text = content_widget.renderable.plain
 
-            assert "Refactor Authentication" in content_str
-            assert "Update LoginController" in content_str
-            assert "Change the authentication endpoint" in content_str
-            assert "Add logging" in content_str
-            assert "DONE" in content_str
-            assert "TODO" in content_str
+            assert "Refactor Authentication" in content_text
+            assert "Update LoginController" in content_text
+            assert "Change the authentication endpoint" in content_text
+            assert "Add logging" in content_text
+            assert "DONE" in content_text
+            assert "TODO" in content_text
 
             # Trigger one iteration of the polling logic manually if possible,
             # or simply rely on the fact that _poll_tasklist is started in on_mount.
