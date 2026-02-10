@@ -1,6 +1,5 @@
 package ai.brokk.difftool.ui.unified;
 
-import java.awt.Point;
 import java.util.List;
 import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
@@ -224,13 +223,7 @@ public class UnifiedDiffNavigator {
                 var endRect = textArea.modelToView2D(endOffset);
                 targetEndY = endRect != null ? (int) endRect.getY() + lineHeight : targetStartY + lineHeight;
 
-                // Compute centered viewport position
-                int viewportHeight = viewport.getHeight();
-                int maxY = Math.max(0, textArea.getHeight() - viewportHeight);
-                int centeredY = ScrollCoordinateCalculator.calculateCenteredViewportY(
-                        targetStartY, targetEndY, viewportHeight, maxY);
-
-                viewport.setViewPosition(new Point(0, centeredY));
+                UnifiedDiffPanel.centerViewportY(viewport, targetStartY, targetEndY, textArea.getHeight());
 
             } catch (BadLocationException e) {
                 logger.error(
