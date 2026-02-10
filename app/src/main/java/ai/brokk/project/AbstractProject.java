@@ -807,9 +807,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Blocking
     public final synchronized Optional<ProjectFile> getFileByRelPath(Path relPath) {
         if (filesByRelPathCache == null) {
-            getAllFiles(); // Populate the cache
+            getAllFiles(); // Populate the cache (this uses a side effect, so linter won't see this)
         }
-        return Optional.ofNullable(filesByRelPathCache.get(relPath));
+        // The below is to keep the linter happy
+        var match = filesByRelPathCache != null ? filesByRelPathCache.get(relPath) : null;
+        return Optional.ofNullable(match);
     }
 
     @Override
