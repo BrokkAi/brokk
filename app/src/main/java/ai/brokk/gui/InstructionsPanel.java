@@ -2218,26 +2218,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void onActionButtonPressed() {
         assert SwingUtilities.isEventDispatchThread();
         if (isActionRunning()) {
-            // Interrupt current action and then proceed to start the new one
+            // Stop action
             chrome.getContextManager().interruptLlmAction();
-        }
-
-        // Start action
-        switch (storedAction) {
-            case ACTION_CODE -> {
-                var model = selectDropdownModelOrShowError("Code");
-                if (model == null) {
-                    LoggingFuture.runVirtual(this::updateButtonStates);
-                } else {
-                    prepareAndRunCodeCommand(model);
+        } else {
+            // Go action
+            switch (storedAction) {
+                case ACTION_CODE -> {
+                    var model = selectDropdownModelOrShowError("Code");
+                    if (model == null) {
+                        LoggingFuture.runVirtual(this::updateButtonStates);
+                    } else {
+                        prepareAndRunCodeCommand(model);
+                    }
                 }
+                case ACTION_LUTZ -> runSearchCommand();
+                case ACTION_ASK -> runAskCommand(getInstructions());
+                case ACTION_PLAN -> runPlanCommand();
+                default -> throw new IllegalArgumentException("Unknown action: " + storedAction);
             }
-            case ACTION_LUTZ -> runSearchCommand();
-            case ACTION_ASK -> runAskCommand(getInstructions());
-            case ACTION_PLAN -> runPlanCommand();
-            default -> throw new IllegalArgumentException("Unknown action: " + storedAction);
         }
-
         // Always return focus to the instructions area to avoid re-triggering with Enter on the button
         requestCommandInputFocus();
     }
