@@ -10,6 +10,7 @@ from textual.containers import Horizontal
 from textual.widgets import Footer, Header
 
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.settings import Settings
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
@@ -43,6 +44,8 @@ class BrokkApp(App):
             executor_version=executor_version,
             executor_snapshot=executor_snapshot,
         )
+        self.settings = Settings.load()
+        self.theme = self.settings.theme
         self.current_model = "gpt-5.2"
         self.code_model: Optional[str] = "gemini-3-flash-preview"
         self.reasoning_level: Optional[str] = "low"
@@ -199,13 +202,12 @@ class BrokkApp(App):
                 f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
             )
         elif base == "/theme" and len(parts) > 1:
-            theme = parts[1].lower()
-            if theme == "dark":
-                self.theme = "builtin:dark"
-                chat.add_system_message_markup("Theme changed to: [bold]dark[/]")
-            elif theme == "light":
-                self.theme = "builtin:light"
-                chat.add_system_message_markup("Theme changed to: [bold]light[/]")
+            theme_val = parts[1].lower()
+            if theme_val in ("dark", "light"):
+                self.theme = f"builtin:{theme_val}"
+                self.settings.theme = self.theme
+                self.settings.save()
+                chat.add_system_message_markup(f"Theme changed to: [bold]{theme_val}[/]")
             else:
                 chat.add_system_message("Invalid theme. Use 'dark' or 'light'.", level="ERROR")
         elif base == "/help":
@@ -244,6 +246,8 @@ class BrokkApp(App):
             self.theme = "builtin:light"
         else:
             self.theme = "builtin:dark"
+        self.settings.theme = self.theme
+        self.settings.save()
 
     async def action_handle_ctrl_c(self) -> None:
         """Handles Ctrl+C: Cancel job first, then double-tap to quit."""
