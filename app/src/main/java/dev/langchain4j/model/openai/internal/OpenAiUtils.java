@@ -318,8 +318,55 @@ public class OpenAiUtils {
                 .build();
     }
 
+    /**
+     * Maps OpenAI's finish_reason string into our FinishReason enum.
+     *
+     * Propagation path summary:
+     * - OpenAI HTTP responses (streaming and non-streaming) contain choices[].finish_reason (string) on a choice.
+     * - The adapter/response builders (e.g. OpenAiStreamingResponseBuilder and the non-streaming adapter that
+     *   converts ChatCompletionResponse -> ChatResponse / AiMessage) read that string from the first choice and
+     *   call this method to map it to dev.langchain4j.model.output.FinishReason.
+     * - The mapped FinishReason is then placed into OpenAiChatResponseMetadata (via its Builder.finishReason(...))
+     *   and subsequently into ChatResponseMetadata.finishReason().
+     *
+     * Where finishReason can become null:
+     * - If OpenAI omits finish_reason (null/absent), this method will return null and the metadata will have a null finishReason.
+     * - Previously, unrecognized finish_reason strings were also mapped to null here, which caused valid but new/variant
+     *   strings (for example from newer models or "opus"-style responses) to be dropped.
+     *
+     * Notes about Opus, gpt-5.2, flash-3:
+     * - Structurally Opus responses use the same choices[].finish_reason field as other chat models, but some variants
+     *   of models/platform behavior may use new or slightly different string values for finish_reason, or populate it
+     *   later in streaming scenarios. That means an OpenAI-provided non-null finish_reason could still be mapped to null
+     *   by this method if the string wasn't recognized.
+     *
+     * Recommendation implemented here:
+     * - Keep null when OpenAI did not provide finish_reason (preserve semantic "unknown / not provided").
+     * - For any non-null but unrecognized finish_reason string, map to FinishReason.OTHER instead of null.
+     *   This preserves the fact that OpenAI provided a reason (so metadata.finishReason will be non-null), while
+     *   still categorizing unknown values safely.
+     *
+     * Concrete places to change if different behavior is desired:
+     * - OpenAiStreamingResponseBuilder (handle method): it reads choices[0].finish_reason and stores into an AtomicReference<FinishReason>.
+     *   Ensure it calls finishReasonFrom(...) and updates metadata when streaming completes. If streaming populates finish_reason
+     *   later, make sure the builder updates metadata after final chunk arrives.
+     * - Non-streaming adapter (where ChatCompletionResponse -> ChatResponse/OpenAiChatResponseMetadata is converted):
+     *   ensure the builder uses OpenAiUtils.finishReasonFrom(choice.finishReason()) and does not drop the mapped value.
+     * - OpenAiChatResponseMetadata.Builder.finishReason(...) (and ChatResponseMetadata.Builder.finishReason(...)):
+     *   Currently accept a nullable FinishReason; consider making it non-null by defaulting to FinishReason.OTHER where appropriate,
+     *   or keep nullable but ensure callers pass OTHER for unrecognized non-null strings.
+     *
+     * Behavior change applied:
+     * - Unrecognized non-null strings are now mapped to FinishReason.OTHER instead of returning null.
+     *
+     * Rationale:
+     * - This change ensures that when OpenAI provides a finish_reason string (including novel values from Opus or other
+     *   newer models), the ChatResponse metadata will carry a non-null FinishReason, making downstream consumers able to
+     *   distinguish "OpenAI provided a reason but we don't classify it" (OTHER) from "OpenAI provided no reason" (null).
+     */
     public static FinishReason finishReasonFrom(String openAiFinishReason) {
         if (openAiFinishReason == null) {
+            // preserve semantic: OpenAI didn't provide a reason
             return null;
         }
         switch (openAiFinishReason) {
@@ -333,7 +380,9 @@ public class OpenAiUtils {
             case "content_filter":
                 return CONTENT_FILTER;
             default:
-                return null;
+                // If OpenAI provided a non-null but unknown finish_reason (e.g., new model-specific string),
+                // return OTHER rather than null so metadata reflects that OpenAI supplied a reason.
+                return FinishReason.OTHER;
         }
     }
 
