@@ -123,7 +123,7 @@ public class SessionManager implements AutoCloseable {
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
         int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
         var delegateExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
-        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
+        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th);
         sessionExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
@@ -605,6 +605,37 @@ public class SessionManager implements AutoCloseable {
         } catch (IOException e) {
             logger.warn("Failed to count AI responses for session {}", sessionId, e);
             return 0;
+        }
+    }
+
+    /**
+     * Counts incomplete tasks for a session without loading full history.
+     * Returns TaskCounts with total and incomplete counts.
+     */
+    @Blocking
+    public HistoryIo.TaskCounts countIncompleteTasks(UUID sessionId) {
+        try {
+            Path zipPath = resolveSessionHistoryZipPath(sessionId);
+            return HistoryIo.countIncompleteTasks(zipPath);
+        } catch (IOException e) {
+            logger.warn("Failed to count incomplete tasks for session {}", sessionId, e);
+            return new HistoryIo.TaskCounts(0, 0);
+        }
+    }
+
+    /**
+     * Counts both AI responses and tasks for a session in a single pass.
+     * More efficient than calling countAiResponses() and countIncompleteTasks() separately.
+     * Returns SessionCounts with both AI response count and task counts.
+     */
+    @Blocking
+    public HistoryIo.SessionCounts countSessionStats(UUID sessionId) {
+        try {
+            Path zipPath = resolveSessionHistoryZipPath(sessionId);
+            return HistoryIo.countSessionStats(zipPath);
+        } catch (IOException e) {
+            logger.warn("Failed to count session stats for session {}", sessionId, e);
+            return new HistoryIo.SessionCounts(0, new HistoryIo.TaskCounts(0, 0));
         }
     }
 

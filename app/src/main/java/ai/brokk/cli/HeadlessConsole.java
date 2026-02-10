@@ -12,10 +12,14 @@ import javax.swing.*;
  * errors to {@code System.err}. All other {@code IConsoleIO} methods inherit their default no-op behaviour, which is
  * sufficient for a command-line environment with no GUI.
  */
-public final class HeadlessConsole extends MemoryConsole {
+public class HeadlessConsole extends MemoryConsole {
     @Override
     public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         super.llmOutput(token, type, meta);
+        printLlmOutput(token, type, meta);
+    }
+
+    protected void printLlmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         if (isNewMessage(type, meta.isNewMessage())) {
             System.out.printf("# %s%n%n", type);
         }

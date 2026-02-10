@@ -31,8 +31,7 @@ public class GitRepoFactory {
                 return false;
             }
             try (var repo = builder.build()) {
-                // A valid repo for Brokk must have at least one local branch
-                return !repo.getRefDatabase().getRefsByPrefix("refs/heads/").isEmpty();
+                return repo.getObjectDatabase().exists();
             }
         } catch (IOException e) {
             // Corrupted or unreadable repo -> treat as non-git

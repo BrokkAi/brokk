@@ -3,12 +3,12 @@ package ai.brokk;
 import static java.lang.Math.min;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.BuildOutputPreprocessor;
 import ai.brokk.util.Messages;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -266,191 +266,6 @@ public class LlmTest {
                 "Should include the RedundantNullCheck warning - related to the NullAway error");
     }
 
-    @Test
-    void testParseJsonToToolRequests() {
-        var llm = new Llm(
-                getModel("test"),
-                "testParseJsonToToolRequests",
-                TaskResult.Type.NONE,
-                contextManager,
-                false,
-                false,
-                false,
-                false);
-        var mapper = new ObjectMapper();
-
-        // Case 1: Pure JSON with tool calls
-        var pureJson =
-                """
-                {
-                  "tool_calls": [
-                    {
-                      "name": "get_weather",
-                      "arguments": {"location": "London"}
-                    },
-                    {
-                      "name": "get_time",
-                      "arguments": {"timezone": "UTC"}
-                    }
-                  ]
-                }
-                """;
-        var result1 = createStreamingResult(pureJson);
-        var parsed1 = llm.parseJsonToToolRequests(result1, mapper);
-        assertEquals(2, parsed1.toolRequests().size());
-        assertEquals("get_weather", parsed1.toolRequests().get(0).name());
-        assertEquals("get_time", parsed1.toolRequests().get(1).name());
-
-        // Case 2: JSON with explanatory text before braces
-        var textBeforeJson =
-                """
-                Let me call the weather tool:
-
-                {
-                  "tool_calls": [
-                    {
-                      "name": "get_weather",
-                      "arguments": {"location": "Paris"}
-                    }
-                  ]
-                }
-                """;
-        var result2 = createStreamingResult(textBeforeJson);
-        var parsed2 = llm.parseJsonToToolRequests(result2, mapper);
-        assertEquals(1, parsed2.toolRequests().size());
-        assertEquals("get_weather", parsed2.toolRequests().get(0).name());
-
-        // Case 3: JSON with explanatory text after braces
-        var textAfterJson =
-                """
-                {
-                  "tool_calls": [
-                    {
-                      "name": "get_weather",
-                      "arguments": {"location": "Tokyo"}
-                    }
-                  ]
-                }
-
-                This will help us get the weather information.
-                """;
-        var result3 = createStreamingResult(textAfterJson);
-        var parsed3 = llm.parseJsonToToolRequests(result3, mapper);
-        assertEquals(1, parsed3.toolRequests().size());
-        assertEquals("get_weather", parsed3.toolRequests().get(0).name());
-
-        // Case 4: JSON surrounded by text on both sides
-        var textBothSides =
-                """
-                I'm going to call these tools:
-
-                {
-                  "tool_calls": [
-                    {
-                      "name": "get_weather",
-                      "arguments": {"location": "Berlin"}
-                    }
-                  ]
-                }
-
-                That should solve your problem.
-                """;
-        var result4 = createStreamingResult(textBothSides);
-        var parsed4 = llm.parseJsonToToolRequests(result4, mapper);
-        assertEquals(1, parsed4.toolRequests().size());
-        assertEquals("get_weather", parsed4.toolRequests().get(0).name());
-
-        // Case 5: JSON wrapped in markdown code fences
-        var markdownJson =
-                """
-                ```json
-                {
-                  "tool_calls": [
-                    {
-                      "name": "get_weather",
-                      "arguments": {"location": "Sydney"}
-                    }
-                  ]
-                }
-                ```
-                """;
-        var result5 = createStreamingResult(markdownJson);
-        var parsed5 = llm.parseJsonToToolRequests(result5, mapper);
-        assertEquals(1, parsed5.toolRequests().size());
-        assertEquals("get_weather", parsed5.toolRequests().get(0).name());
-
-        // Case 6: JSON with think tool
-        var jsonWithThink =
-                """
-                {
-                  "tool_calls": [
-                    {
-                      "name": "think",
-                      "arguments": {"reasoning": "The user asked for weather in NYC"}
-                    },
-                    {
-                      "name": "get_weather",
-                      "arguments": {"location": "New York"}
-                    }
-                  ]
-                }
-                """;
-        var result6 = createStreamingResult(jsonWithThink);
-        var parsed6 = llm.parseJsonToToolRequests(result6, mapper);
-        assertEquals(1, parsed6.toolRequests().size()); // think is filtered out
-        assertEquals("get_weather", parsed6.toolRequests().get(0).name());
-        assertEquals("The user asked for weather in NYC", parsed6.reasoningContent());
-
-        // Case 7: Multiple tool calls with think tool and surrounding text
-        var complexJson =
-                """
-                Based on the request, I'll execute the following tools:
-
-                {
-                  "tool_calls": [
-                    {
-                      "name": "think",
-                      "arguments": {"reasoning": "Need weather for multiple cities"}
-                    },
-                    {
-                      "name": "get_weather",
-                      "arguments": {"location": "London"}
-                    },
-                    {
-                      "name": "get_weather",
-                      "arguments": {"location": "Tokyo"}
-                    }
-                  ]
-                }
-
-                These calls will gather the necessary information.
-                """;
-        var result7 = createStreamingResult(complexJson);
-        var parsed7 = llm.parseJsonToToolRequests(result7, mapper);
-        assertEquals(2, parsed7.toolRequests().size()); // think is filtered out
-        assertEquals("get_weather", parsed7.toolRequests().get(0).name());
-        assertEquals("get_weather", parsed7.toolRequests().get(1).name());
-        assertEquals("Need weather for multiple cities", parsed7.reasoningContent());
-
-        // Case 8: Invalid JSON (no braces)
-        var noBraces = "This is just plain text with no JSON at all";
-        var result8 = createStreamingResult(noBraces);
-        assertThrows(IllegalArgumentException.class, () -> llm.parseJsonToToolRequests(result8, mapper));
-
-        // Case 9: Malformed JSON inside braces
-        var malformedJson =
-                """
-                Here's the data:
-                {
-                  "tool_calls": [
-                    { invalid json here }
-                  ]
-                }
-                """;
-        var result9 = createStreamingResult(malformedJson);
-        assertThrows(IllegalArgumentException.class, () -> llm.parseJsonToToolRequests(result9, mapper));
-    }
-
     /**
      * Helper to create a StreamingResult with text content for testing parseJsonToToolRequests
      */
@@ -460,144 +275,64 @@ public class LlmTest {
     }
 
     @Test
-    void testEmulateToolExecutionResults() {
-        var user1 = new UserMessage("Initial request");
-        var term1 = new ToolExecutionResultMessage("t1", "toolA", "Result A");
-        var term2 = new ToolExecutionResultMessage("t2", "toolB", "Result B");
-        var user2 = new UserMessage("Follow-up based on results");
-        var ai1 = new AiMessage("AI response");
-        var term3 = new ToolExecutionResultMessage("t3", "toolC", "Result C");
-        var user3 = new UserMessage("Another follow-up");
-        var term4 = new ToolExecutionResultMessage("t4", "toolD", "Result D"); // Trailing
+    void testNativeToolContractRetryOnInvalidToolCallThenSuccess() throws InterruptedException {
+        var weatherTool = new WeatherTool();
+        var toolSpecifications = ToolSpecifications.toolSpecificationsFrom(weatherTool);
+        var tr =
+                contextManager.getToolRegistry().builder().register(weatherTool).build();
+        var tc = new ToolContext(toolSpecifications, ToolChoice.REQUIRED, tr);
 
-        // Case 1: Single TERM followed by UserMessage
-        var messages1 = List.of(user1, term1, user2);
-        var result1 = Llm.emulateToolExecutionResults(messages1);
-        assertEquals(2, result1.size());
-        assertEquals(user1, result1.get(0));
-        assertInstanceOf(UserMessage.class, result1.get(1));
-        assertEquals(
-                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nFollow-up based on results",
-                Messages.getText(result1.get(1)));
-        assertEquals(user2.name(), ((UserMessage) result1.get(1)).name()); // Name preserved
-
-        // Case 2: Multiple TERMs followed by UserMessage
-        var messages2 = List.of(user1, term1, term2, user2);
-        var result2 = Llm.emulateToolExecutionResults(messages2);
-        assertEquals(2, result2.size());
-        assertEquals(user1, result2.get(0));
-        assertInstanceOf(UserMessage.class, result2.get(1));
-        assertEquals(
-                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n\nFollow-up based on results",
-                Messages.getText(result2.get(1)));
-
-        // Case 3: TERM followed by non-UserMessage (AiMessage)
-        var messages3 = List.of(user1, term1, ai1, user2);
-        var result3 = Llm.emulateToolExecutionResults(messages3);
-        assertEquals(4, result3.size());
-        assertEquals(user1, result3.get(0));
-        assertInstanceOf(UserMessage.class, result3.get(1));
-        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n", Messages.getText(result3.get(1)));
-        assertEquals(ai1, result3.get(2));
-        assertEquals(user2, result3.get(3));
-
-        // Case 4: Trailing TERM(s)
-        var messages4 = List.of(user1, term1, user2, term4);
-        var result4 = Llm.emulateToolExecutionResults(messages4);
-        assertEquals(3, result4.size());
-        assertEquals(user1, result4.get(0));
-        assertEquals(
-                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nFollow-up based on results",
-                Messages.getText(result4.get(1)));
-        assertEquals("<toolcall id=\"t4\" name=\"toolD\">\nResult D\n</toolcall>\n", Messages.getText(result4.get(2)));
-
-        // Case 5: Multiple combinations and other messages, including combining multiple terms
-        var messages5 = List.of(user1, term1, term2, user2, ai1, term3, term4, user3);
-        var result5 = Llm.emulateToolExecutionResults(messages5);
-        // Expected: user1, combined(message from term1,term2 and user2), ai1, combined(message from term3,term4 and
-        // user3)
-        assertEquals(4, result5.size());
-        assertEquals(user1, result5.get(0));
-        var expectedText5_1 =
-                """
-        <toolcall id="t1" name="toolA">
-        Result A
-        </toolcall>
-
-        <toolcall id="t2" name="toolB">
-        Result B
-        </toolcall>
-
-        Follow-up based on results""";
-        assertEquals(expectedText5_1, Messages.getText(result5.get(1)));
-        assertEquals(ai1, result5.get(2));
-        var expectedText5_3 =
-                """
-        <toolcall id="t3" name="toolC">
-        Result C
-        </toolcall>
-
-        <toolcall id="t4" name="toolD">
-        Result D
-        </toolcall>
-
-        Another follow-up""";
-        assertEquals(expectedText5_3, Messages.getText(result5.get(3)));
-
-        // Case 6: No TERMs
-        var messages6 = List.of(user1, ai1, user2);
-        var result6 = Llm.emulateToolExecutionResults(messages6);
-        assertEquals(messages6, result6);
-        assertEquals(messages6, result6, "List should be identical if unmodified");
-
-        // Case 7: Only TERMs - creates a new UserMessage
-        var messages7 = List.<ChatMessage>of(term1, term2);
-        var result7 = Llm.emulateToolExecutionResults(messages7);
-        assertEquals(1, result7.size());
-        assertInstanceOf(UserMessage.class, result7.getFirst());
-        assertEquals(
-                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n",
-                Messages.getText(result7.getFirst()));
-
-        // Case 8: TERM at the beginning followed by UserMessage
-        var messages8 = List.of(term1, user1);
-        var result8 = Llm.emulateToolExecutionResults(messages8);
-        assertEquals(1, result8.size());
-        assertInstanceOf(UserMessage.class, result8.getFirst());
-        assertEquals(
-                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nInitial request",
-                Messages.getText(result8.getFirst()));
-
-        // Case 9: TERM followed by AiMessage with native tool calls; ensure tool calls are stringified and not retained
-        var toolReq9 = ToolExecutionRequest.builder()
-                .id("x1")
-                .name("toolX")
-                .arguments("{\"a\":1}")
+        var invalidReq = ToolExecutionRequest.builder()
+                .id("bad1")
+                .name("not_a_tool")
+                .arguments("{\"x\":1}")
                 .build();
-        var aiWithToolCalls = new AiMessage("AI with tool call", null, List.of(toolReq9));
-        var messages9 = List.of(user1, term1, aiWithToolCalls, user2);
-        var result9 = Llm.emulateToolExecutionResults(messages9);
-        assertEquals(4, result9.size());
-        assertEquals(user1, result9.get(0));
-        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n", Messages.getText(result9.get(1)));
-        assertInstanceOf(AiMessage.class, result9.get(2));
-        var ai9 = (AiMessage) result9.get(2);
-        assertFalse(ai9.hasToolExecutionRequests(), "AI message should not contain native tool requests");
-        assertEquals(Messages.getRepr(aiWithToolCalls), ai9.text());
-        assertEquals(user2, result9.get(3));
+        var validReq = ToolExecutionRequest.builder()
+                .id("ok1")
+                .name("getWeather")
+                .arguments("{\"location\":\"London\"}")
+                .build();
+
+        var model = new TestScriptedLanguageModel(List.of(
+                new AiMessage("first", null, List.of(invalidReq)), new AiMessage("second", null, List.of(validReq))));
+
+        var llm = contextManager.getLlm(
+                model, "testNativeToolContractRetryOnInvalidToolCallThenSuccess", TaskResult.Type.NONE);
+
+        var result = llm.sendRequest(List.of(new UserMessage("What's the weather?")), tc);
+
+        assertNull(result.error(), "Expected eventual success after tool contract retry");
+        assertEquals(1, result.toolRequests().size());
+        assertEquals("getWeather", result.toolRequests().getFirst().name());
+
+        var seen = model.seenRequests();
+        assertEquals(2, seen.size(), "Expected exactly one contract-retry round trip");
+
+        var secondReqMessages = seen.get(1).messages();
+        assertEquals(1, secondReqMessages.size(), "Expected modified user message only (no message bloat)");
+
+        assertInstanceOf(UserMessage.class, secondReqMessages.getFirst());
+        var retryText = Messages.getText(secondReqMessages.getLast());
+        assertTrue(retryText.contains("retrying this turn"), "Retry instructions should mention retrying");
+        assertTrue(retryText.contains("not_a_tool"), "Retry instructions should include the invalid tool name");
     }
 
     @Test
-    void testGetInstructionsHandlesArrayOfObjects() {
-        // Create tool specifications for a tool with List<Record> parameter
-        var recordListTool = new RecordListTool();
-        var toolSpecs = ToolSpecifications.toolSpecificationsFrom(recordListTool);
+    void testToolChoiceRequiredFailsAfterContractRetriesWhenNoToolCalls() throws InterruptedException {
+        var weatherTool = new WeatherTool();
+        var toolSpecifications = ToolSpecifications.toolSpecificationsFrom(weatherTool);
+        var tr =
+                contextManager.getToolRegistry().builder().register(weatherTool).build();
+        var tc = new ToolContext(toolSpecifications, ToolChoice.REQUIRED, tr);
 
-        // This should not throw - previously it threw IllegalArgumentException for JsonObjectSchema array items
-        var result = Llm.getInstructions(toolSpecs, t -> "");
+        var model = new TestScriptedLanguageModel("no tools", "still no tools", "again no tools", "no tools final");
+        var llm = contextManager.getLlm(
+                model, "testToolChoiceRequiredFailsAfterContractRetriesWhenNoToolCalls", TaskResult.Type.NONE);
 
-        assertNotNull(result);
-        assertTrue(result.contains("processItems"), "Should contain the tool name");
-        assertTrue(result.contains("array of object"), "Should describe parameter as array of object");
+        var result = llm.sendRequest(List.of(new UserMessage("Use a tool")), tc);
+
+        assertNotNull(result.error(), "Expected failure after exceeding tool contract retries");
+        assertInstanceOf(Llm.MissingToolCallsException.class, result.error());
+        assertEquals(4, model.seenRequests().size(), "Expected 4 attempts (initial + 3 contract retries)");
     }
 }

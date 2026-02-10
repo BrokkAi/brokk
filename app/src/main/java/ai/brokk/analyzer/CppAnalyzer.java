@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
 import java.nio.file.InvalidPathException;
@@ -149,6 +150,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     DESTRUCTOR_DECLARATION,
                     DECLARATION),
             Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
             CaptureNames.IMPORT_DECLARATION,
             "name",
@@ -168,17 +170,19 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         super(project, Languages.C_CPP, listener);
     }
 
-    private CppAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.C_CPP, state, listener);
+    private CppAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.C_CPP, state, listener, cache);
     }
 
     public static CppAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new CppAnalyzer(project, state, listener);
+        return new CppAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new CppAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new CppAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -552,6 +556,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     @Override
     protected boolean requiresSemicolons() {
         return true;
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
     }
 
     @Override
@@ -1350,12 +1359,5 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         return identifiers;
-    }
-
-    public String getCacheStatistics() {
-        int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
-                .filter(fp -> fp.parsedTree() != null)
-                .count());
-        return "ParsedTrees: %d".formatted(parsedTreeCount);
     }
 }

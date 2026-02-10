@@ -1939,6 +1939,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     var result = agent.execute();
                     // MergeAgent orchestrates both a planning model and a code model.
                     scope.append(result);
+                    scope.compressTop();
                 } catch (Exception ex) {
                     logger.error("AI merge failed", ex);
                     SwingUtilities.invokeLater(

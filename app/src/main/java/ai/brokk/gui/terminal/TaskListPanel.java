@@ -85,7 +85,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         this.chrome = chrome;
         this.cm = chrome.getContextManager();
 
-        this.model = new TaskListModel(() -> cm.getTaskList().tasks());
+        this.model = new TaskListModel(() -> getResolvedTaskListData().tasks());
         this.list = new JList<>(model);
 
         this.bigPicturePanel = new MarkdownOutputPanel();
@@ -102,7 +102,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2 && taskListEditable) {
-                    var data = cm.getTaskList();
+                    var data = getResolvedTaskListData();
                     if (data.bigPicture() != null && !data.bigPicture().isBlank()) {
                         openBigPictureEditDialog(data.bigPicture());
                     }
@@ -1142,29 +1142,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 cm.checkBalanceAndNotify();
             }
 
-            boolean shouldRefreshUi = false;
-
-            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS && Objects.equals(runningIndex, idx)) {
-                var items = new ArrayList<>(cm.getTaskList().tasks());
-                if (idx >= 0 && idx < items.size()) {
-                    var it = items.get(idx);
-                    items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
-                    cm.setTaskListAsync(
-                            new TaskList.TaskListData(cm.getTaskList().bigPicture(), items));
-                    shouldRefreshUi = true;
-                }
-            }
-
-            boolean finalShouldRefreshUi = shouldRefreshUi;
+            // UI refresh happens automatically via contextChanged() when markTaskDone pushes a new context
             SwingUtilities.invokeLater(() -> {
                 try {
                     if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
                         finishQueueOnError();
                         return;
-                    }
-
-                    if (finalShouldRefreshUi) {
-                        refreshUi(false);
                     }
                 } finally {
                     runningIndex = null;
@@ -1312,6 +1295,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * Centralized UI refresh. Ensures EDT, refreshes model, buttons, and optionally performs
      * structural layout invalidation when list structure changes (add/remove/reorder/split/combine/clear).
      */
+    /**
+     * Resolves the task list data to display. If a historical context is selected,
+     * returns its data; otherwise falls back to the live context.
+     */
+    private TaskList.TaskListData getResolvedTaskListData() {
+        Context selected = cm.selectedContext();
+        if (selected != null) {
+            return selected.getTaskListDataOrEmpty();
+        }
+        return cm.liveContext().getTaskListDataOrEmpty();
+    }
+
     private void refreshUi(boolean structuralChange) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> refreshUi(structuralChange));
@@ -1320,7 +1315,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         model.fireRefresh();
 
-        var data = cm.getTaskList();
+        var data = getResolvedTaskListData();
         String bp = data.bigPicture();
         if (bp != null && !bp.isBlank()) {
             bigPicturePanel.setStaticDocument(bp);
@@ -1900,9 +1895,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         if (!taskTexts.isEmpty()) {
-            String clipboardText = String.join("\n", taskTexts);
-            StringSelection selection = new StringSelection(clipboardText);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+            cm.copyToClipboard(String.join("\n", taskTexts));
         }
     }
 

@@ -100,9 +100,9 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
             return fallback.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
         }
 
-        // Column 2 holds either a Context or a GroupRow; only Context rows get diff summaries.
+        // Column 2 holds either a ContextUiModel or a GroupRow; only Context rows get diff summaries.
         Object ctxVal = table.getModel().getValueAt(row, 2);
-        if (!(ctxVal instanceof Context ctx)) {
+        if (!(ctxVal instanceof ActivityTableRenderers.ContextUiModel uiModel)) {
             Component comp = super.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
             if (comp instanceof JLabel lbl) {
                 lbl.setVerticalAlignment(JLabel.TOP);
@@ -112,6 +112,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
             }
             return comp;
         }
+        Context ctx = uiModel.context();
 
         // Decide whether to render a diff panel below the action, using the cached DiffService results.
         var diffService = contextManager.getContextHistory().getDiffService();
@@ -150,7 +151,8 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         outerPanel.add(actionComp, BorderLayout.NORTH);
 
         // Ensure tooltip is visible even though we return a composite panel.
-        outerPanel.setToolTipText(ActivityTableRenderers.buildTooltipWithModel(ctx, actionText));
+        outerPanel.setToolTipText(
+                ActivityTableRenderers.buildTooltipWithModel(uiModel.isAiResult() ? ctx : null, actionText));
 
         List<DiffService.FragmentDiff> diffs = cachedOpt.orElseGet(List::of);
         if (!diffs.isEmpty()) {

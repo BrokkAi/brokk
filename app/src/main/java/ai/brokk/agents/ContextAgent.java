@@ -702,7 +702,7 @@ public class ContextAgent {
         }
         userPrompt.append(filenamePrompt);
 
-        var sys = new SystemMessage(SearchPrompts.instance.searchAgentIdentity());
+        var sys = new SystemMessage(SearchPrompts.Objective.WORKSPACE_ONLY.identity());
         List<ChatMessage> messages = Stream.concat(
                         Stream.of(sys),
                         Stream.concat(
@@ -983,7 +983,7 @@ public class ContextAgent {
     // --- Discarded context helper ---
 
     private String getDiscardedContextNote() {
-        var discardedMap = cm.liveContext().getDiscardedFragmentsNote();
+        var discardedMap = cm.liveContext().getDiscardedFragmentsNotes();
         if (discardedMap.isEmpty()) {
             return "";
         }

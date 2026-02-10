@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -32,6 +33,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                     RECORD_STRUCT_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION, LOCAL_FUNCTION_STATEMENT),
             Set.of(FIELD_DECLARATION, PROPERTY_DECLARATION, EVENT_FIELD_DECLARATION),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of("attribute_list"),
             IMPORT_DECLARATION,
             "name",
@@ -56,17 +58,19 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         log.debug("CSharpAnalyzer: Constructor called for project: {}", project);
     }
 
-    private CSharpAnalyzer(IProject project, AnalyzerState prebuiltState, ProgressListener listener) {
-        super(project, Languages.C_SHARP, prebuiltState, listener);
+    private CSharpAnalyzer(
+            IProject project, AnalyzerState prebuiltState, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.C_SHARP, prebuiltState, listener, cache);
     }
 
     public static CSharpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new CSharpAnalyzer(project, state, listener);
+        return new CSharpAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new CSharpAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new CSharpAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -102,7 +106,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                         yield CodeUnit.fn(file, packageName, finalShortName);
                     }
                     case CaptureNames.CONSTRUCTOR_DEFINITION -> {
-                        String finalShortName = classChain + ".<init>";
+                        String finalShortName = classChain + "." + simpleName;
                         yield CodeUnit.fn(file, packageName, finalShortName);
                     }
                     case CaptureNames.FIELD_DEFINITION -> {
@@ -246,6 +250,16 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCSharp(reference);
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
+    }
+
+    @Override
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        return null;
     }
 
     @Override

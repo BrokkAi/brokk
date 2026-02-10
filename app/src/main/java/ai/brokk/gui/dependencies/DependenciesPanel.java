@@ -164,7 +164,9 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
                 cb.setSelected(state == LiveState.LIVE);
                 cb.setHorizontalAlignment(CENTER);
                 cb.setOpaque(true);
-                cb.setEnabled(!controlsLocked);
+                // Individual checkboxes are disabled if the whole panel is locked,
+                // or if we are already saving a change (inFlightToggleSave != null).
+                cb.setEnabled(!controlsLocked && inFlightToggleSave == null);
                 if (isSelected) {
                     cb.setBackground(table.getSelectionBackground());
                     cb.setForeground(table.getSelectionForeground());
@@ -226,7 +228,11 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
             @Override
             public boolean isCellEditable(int row, int column) {
                 if (column != 0) return false;
+                // Panel level lock
                 if (controlsLocked) return false;
+                // Prevent multiple simultaneous toggles to avoid race conditions on the live set
+                if (inFlightToggleSave != null && !inFlightToggleSave.isDone()) return false;
+
                 Object v = getValueAt(row, 0);
                 // Only editable when in stable state (not transitioning)
                 return v instanceof LiveState state && !state.isTransitioning();
@@ -453,8 +459,11 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
                             return;
                         }
 
-                        // Lock UI early and stop editing to ensure renderer updates.
-                        setControlsLocked(true);
+                        // Stop editing to ensure renderer updates for the transitioning state.
+                        if (table.isEditing()) {
+                            var editor = table.getCellEditor();
+                            if (editor != null) editor.stopCellEditing();
+                        }
 
                         // Show transitioning state while saving
                         var transitionState = state == LiveState.LIVE ? LiveState.ENABLING : LiveState.DISABLING;
@@ -480,8 +489,8 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
                                     }
                                     isProgrammaticChange = false;
                                     inFlightToggleSave = null;
-                                    // Unlock UI after save completes (success or failure).
-                                    setControlsLocked(false);
+                                    // Refresh table to re-enable checkboxes
+                                    table.repaint();
                                 }));
                     }
                 }

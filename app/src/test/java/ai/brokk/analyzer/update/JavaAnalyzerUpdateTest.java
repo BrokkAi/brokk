@@ -1,12 +1,8 @@
-package ai.brokk.analyzer.update;
+package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.analyzer.*;
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.JavaAnalyzer;
-import ai.brokk.analyzer.Languages;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,11 +22,17 @@ class JavaAnalyzerUpdateTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        // initial Java source
+        // initial Java sources
         new ProjectFile(tempDir, "A.java")
                 .write("""
         public class A {
           public int method1() { return 1; }
+        }
+        """);
+        new ProjectFile(tempDir, "B.java")
+                .write("""
+        public class B {
+          public int methodB() { return 1; }
         }
         """);
 
@@ -117,6 +119,40 @@ class JavaAnalyzerUpdateTest {
 
         assertEquals(1, ancestorsUpdated.size());
         assertEquals("C", ancestorsUpdated.getFirst().shortName(), "Supertype should be updated to C");
+    }
+
+    @Test
+    void cachePreservedForUnchangedFilesOnExplicitUpdate() throws IOException {
+        var fileA = AnalyzerUtil.getFileFor(analyzer, "A").orElseThrow();
+        var fileB = AnalyzerUtil.getFileFor(analyzer, "B").orElseThrow();
+
+        // Trigger lazy tree caching
+        var treeABefore = ((TreeSitterAnalyzer) analyzer).treeOf(fileA);
+        var treeBBefore = ((TreeSitterAnalyzer) analyzer).treeOf(fileB);
+        assertNotNull(treeABefore);
+        assertNotNull(treeBBefore);
+
+        // Modify ONLY A.java on disk
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
+        public class A {
+          public int method1() { return 1; }
+          public int modified() { return 2; }
+        }
+        """);
+
+        // Run explicit update for A
+        analyzer = analyzer.update(Set.of(fileA));
+
+        // B's tree should be preserved (same instance)
+        var treeBAfter = ((TreeSitterAnalyzer) analyzer).treeOf(fileB);
+        assertSame(treeBBefore, treeBAfter, "B's cached tree should be carried over");
+
+        // A's tree should be different (or at least re-parsed)
+        var treeAAfter = ((TreeSitterAnalyzer) analyzer).treeOf(fileA);
+        assertNotSame(treeABefore, treeAAfter, "A's cached tree should be invalidated and replaced");
+        assertNotNull(treeAAfter);
     }
 
     @Test
