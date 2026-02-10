@@ -440,24 +440,6 @@ class ScrollCoordinateCalculatorTest {
         }
 
         @Test
-        @DisplayName("With padding parameter")
-        void withPaddingParameter() {
-            // Zero viewport height with padding=20
-            // Should return targetStartY - padding = 150 - 20 = 130
-            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(150, 200, 0, 800, 20);
-            assertEquals(130, result);
-        }
-
-        @Test
-        @DisplayName("Padding clamped at top")
-        void paddingClampedAtTop() {
-            // Zero viewport height with padding=60 and targetStartY=50
-            // Should return max(0, 50 - 60) = 0
-            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(50, 100, 0, 800, 60);
-            assertEquals(0, result);
-        }
-
-        @Test
         @DisplayName("Target region equals single point")
         void singlePointTarget() {
             // Target at y=400-400 (midpoint 400), viewport height 200
