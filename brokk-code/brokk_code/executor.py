@@ -581,15 +581,15 @@ class ExecutorManager:
         Adds a text fragment to the context.
         Returns the JSON response containing the fragment 'id' and 'chars' count.
         """
-        if not self._http_client:
-            raise ExecutorError("Executor not started")
-
         if not text.strip():
             raise ExecutorError("Text must not be blank")
 
         # 1 MiB limit check (matching Java side)
         if len(text.encode("utf-8")) > 1024 * 1024:
             raise ExecutorError("Text exceeds maximum size of 1 MiB")
+
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
 
         try:
             resp = await self._http_client.post("/v1/context/text", json={"text": text})

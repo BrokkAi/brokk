@@ -18,6 +18,7 @@ class StubExecutor(ExecutorManager):
         # Event to notify test that stream_events has started
         self.stream_started = asyncio.Event()
         self.auto_release = auto_release
+        self.add_context_text_exc: Optional[Exception] = None
 
     async def start(self):
         pass
@@ -41,6 +42,8 @@ class StubExecutor(ExecutorManager):
         return {}
 
     async def add_context_text(self, text: str) -> Dict[str, Any]:
+        if self.add_context_text_exc:
+            raise self.add_context_text_exc
         self.calls.append({"type": "add_context_text", "text": text})
         return {"id": "fake-id", "chars": len(text)}
 
@@ -216,3 +219,77 @@ async def test_large_paste_routing_to_context():
         chips = app.query(PasteChip)
         assert len(chips) == 1
         assert "Paste" in str(chips[0].label)
+
+
+@pytest.mark.asyncio
+async def test_large_paste_just_below_threshold_submits_normally():
+    """Verify text just below character threshold submits as a job."""
+    from brokk_code.app import PASTE_THRESHOLD_CHARS
+
+    stub = StubExecutor(auto_release=True)
+    app = BrokkApp(executor=stub)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        # Text length is threshold - 1, single line
+        text = "A" * (PASTE_THRESHOLD_CHARS - 1)
+
+        chat_input.text = text
+        await pilot.press("enter")
+        await pilot.pause()
+
+        actions = [c["type"] for c in stub.calls]
+        assert "submit" in actions
+        assert "add_context_text" not in actions
+
+
+@pytest.mark.asyncio
+async def test_large_paste_at_or_above_threshold_routes_to_context():
+    """Verify text exactly at character threshold routes to context (boundary test)."""
+    from brokk_code.app import PASTE_THRESHOLD_CHARS
+
+    stub = StubExecutor()
+    app = BrokkApp(executor=stub)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        # Text length is exactly threshold
+        text = "A" * PASTE_THRESHOLD_CHARS
+
+        chat_input.text = text
+        await pilot.press("enter")
+        await pilot.pause()
+
+        actions = [c["type"] for c in stub.calls]
+        assert "add_context_text" in actions
+        assert "submit" not in actions
+
+
+@pytest.mark.asyncio
+async def test_large_paste_add_context_text_exception_shows_error_and_no_submit():
+    """Verify that if add_context_text fails, we show an error and do not submit a job."""
+    from brokk_code.app import PASTE_THRESHOLD_CHARS
+
+    stub = StubExecutor()
+    stub.add_context_text_exc = Exception("Simulated API failure")
+    app = BrokkApp(executor=stub)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        large_text = "A" * (PASTE_THRESHOLD_CHARS + 1)
+
+        chat_input.text = large_text
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Should not have tried to submit a job
+        actions = [c["type"] for c in stub.calls]
+        assert "submit" not in actions
+
+        # Verify error message in Chat Log
+        from textual.widgets import RichLog
+
+        chat_log = app.query_one("#chat-log", RichLog)
+        log_text = chat_log.export_text()
+        assert "Failed to add paste to context" in log_text
+        assert "Simulated API failure" in log_text
