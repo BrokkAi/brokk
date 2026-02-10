@@ -48,6 +48,15 @@ class BrokkApp(App):
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.current_model = "gpt-5.2"
+
+    @property
+    def current_mode(self) -> str:
+        """Alias for agent_mode used by tests and for unified access."""
+        return self.agent_mode
+
+    @current_mode.setter
+    def current_mode(self, value: str) -> None:
+        self.agent_mode = value
         self.code_model: Optional[str] = "gemini-3-flash-preview"
         self.reasoning_level: Optional[str] = "low"
         self.reasoning_level_code: Optional[str] = "disable"
@@ -134,7 +143,7 @@ class BrokkApp(App):
                 code_model=self.code_model,
                 reasoning_level=self.reasoning_level,
                 reasoning_level_code=self.reasoning_level_code,
-                mode=self.agent_mode,
+                mode=self.current_mode,
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
@@ -218,8 +227,8 @@ class BrokkApp(App):
                 )
             self.action_change_theme()
         elif base in ("/ask", "/search", "/lutz"):
-            self.agent_mode = base[1:].upper()
-            chat.add_system_message_markup(f"Mode changed to: [bold]{self.agent_mode}[/]")
+            self.current_mode = base[1:].upper()
+            chat.add_system_message_markup(f"Mode changed to: [bold]{self.current_mode}[/]")
         elif base == "/info":
             self._render_info()
         elif base == "/help":

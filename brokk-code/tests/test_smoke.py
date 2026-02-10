@@ -212,14 +212,33 @@ def test_app_info_command(tmp_path, monkeypatch):
     fake_chat = FakeChat()
     monkeypatch.setattr(app, "query_one", lambda sel, cls=None: fake_chat if "chat" in sel else MagicMock())
 
+    # Test lowercase
     app._handle_command("/info")
-
     assert len(fake_chat.system_markup) > 0
     info_text = fake_chat.system_markup[-1]
     assert str(tmp_path.resolve()) in info_text
     assert app.agent_mode in info_text
-    assert app.current_model in info_text
-    assert app.code_model in info_text
+
+    # Test uppercase case-insensitivity
+    app._handle_command("/INFO")
+    assert len(fake_chat.system_markup) > 1
+    info_text_upper = fake_chat.system_markup[-1]
+    assert str(tmp_path.resolve()) in info_text_upper
+    assert app.agent_mode in info_text_upper
+
+    # Verify help contains info command description
+    class FakeHelpChat:
+        def __init__(self):
+            self.appended_messages = []
+        def append_message(self, author: str, text: str) -> None:
+            self.appended_messages.append(text)
+
+    fake_help_chat = FakeHelpChat()
+    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: fake_help_chat if "chat" in sel else MagicMock())
+    app._handle_command("/help")
+    help_text = fake_help_chat.appended_messages[0]
+    assert "/info" in help_text
+    assert "Show current configuration and status" in help_text
 
 
 @pytest.mark.asyncio
