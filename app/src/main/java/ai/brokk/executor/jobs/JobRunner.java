@@ -1039,12 +1039,16 @@ public final class JobRunner {
                                             // 4. Lutz-style execution: Planning then Task Iteration
                                             String taskDescription = "Issue #" + issueNumber + ": " + details.title();
                                             try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
+                                                var scanConfig = new SearchAgent.ScanConfig(true, null, true, false);
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         issueTaskPrompt,
                                                         issuePlannerModel,
                                                         SearchPrompts.Objective.TASKS_ONLY,
-                                                        scope);
+                                                        scope,
+                                                        cm.getIo(),
+                                                        scanConfig,
+                                                        null);
                                                 var taskListResult = searchAgent.execute();
                                                 scope.append(taskListResult);
 
