@@ -1197,7 +1197,7 @@ public final class MainProject extends AbstractProject {
             return Set.of();
         }
 
-        return namesToDependencies(liveDepsNames);
+        return resolveDependencies(liveDepsNames);
     }
 
     @Override
