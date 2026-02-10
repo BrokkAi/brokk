@@ -104,7 +104,6 @@ class SearchModeSearchAgentTest {
             return false;
         }
 
-        @Override
         public boolean requiresEmulatedTools(StreamingChatModel model) {
             return false;
         }
