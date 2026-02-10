@@ -60,6 +60,39 @@ class BrokkSnapshotTgzTest {
         assertThrows(IOException.class, () -> BrokkSnapshotTgz.extractJarFromTgz(tgzFile, destDir));
     }
 
+    @Test
+    void extractJarFromTgz_selectionConstraintsAndOrder() throws IOException {
+        Path tgzFile = tempDir.resolve("selection.tgz");
+        Path destDir = tempDir.resolve("selection-out");
+
+        // Prepare a tar with multiple candidates to test constraints:
+        // 1. package/jdeploy-bundle/brokk-111.jar -> MATCH
+        // 2. package/jdeploy-bundle/not-brokk.jar -> FAIL (regex)
+        // 3. other/brokk-222.jar                  -> FAIL (prefix)
+        // 4. package/jdeploy-bundle/brokk-333.jar -> MATCH (but should be ignored if 1 is found first)
+        createTestTgz(
+                tgzFile,
+                "package/jdeploy-bundle/brokk-111.jar",
+                "correct-jar",
+                "package/jdeploy-bundle/not-brokk.jar",
+                "wrong-name",
+                "other/brokk-222.jar",
+                "wrong-path",
+                "package/jdeploy-bundle/brokk-333.jar",
+                "duplicate-match");
+
+        Path extracted = BrokkSnapshotTgz.extractJarFromTgz(tgzFile, destDir);
+
+        // Assert only the FIRST valid match is returned
+        assertEquals("brokk-111.jar", extracted.getFileName().toString());
+        assertEquals("correct-jar", Files.readString(extracted));
+
+        // Ensure others weren't extracted
+        assertTrue(Files.notExists(destDir.resolve("not-brokk.jar")));
+        assertTrue(Files.notExists(destDir.resolve("brokk-222.jar")));
+        assertTrue(Files.notExists(destDir.resolve("brokk-333.jar")));
+    }
+
     private void createTestTgz(Path path, String... entries) throws IOException {
         try (OutputStream fos = Files.newOutputStream(path);
                 BufferedOutputStream bos = new BufferedOutputStream(fos);
