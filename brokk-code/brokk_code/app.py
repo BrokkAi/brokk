@@ -27,7 +27,7 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
-        Binding("f2", "cycle_theme", "Change Theme", show=True),
+        Binding("f2", "change_theme", "Theme Palette", show=True),
     ]
 
     def __init__(
@@ -124,7 +124,6 @@ class BrokkApp(App):
         else:
             chat = self.query_one(ChatPanel)
             chat.add_user_message(text)
-            chat.set_response_pending()
             self.run_worker(self._run_job(text))
 
     async def _run_job(self, task_input: str) -> None:
@@ -134,6 +133,8 @@ class BrokkApp(App):
 
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
+        chat.set_job_running(True)
+        chat.set_response_pending()
         try:
             self.current_job_id = await self.executor.submit_job(
                 task_input,
@@ -146,11 +147,11 @@ class BrokkApp(App):
                 self._handle_event(event)
         except Exception as e:
             chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
-            chat.set_response_finished()
         finally:
             self.job_in_progress = False
             self.current_job_id = None
             chat.set_response_finished()
+            chat.set_job_running(False)
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
@@ -201,27 +202,12 @@ class BrokkApp(App):
             chat.add_system_message_markup(
                 f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
             )
-        elif base == "/theme":
-            from rich.markup import escape
-
-            if len(parts) == 1:
-                chat.add_system_message_markup(
-                    f"Current theme: [bold]{escape(self.theme)}[/]\n"
-                    "Use [bold]/theme list[/] to see available themes."
+        elif base in ("/theme", "/palette"):
+            if len(parts) > 1:
+                chat.add_system_message(
+                    "Theme selection now uses the theme palette. Use /theme with no arguments."
                 )
-            elif parts[1].lower() == "list":
-                available = ", ".join(f"[bold]{escape(t)}[/]" for t in sorted(self.available_themes))
-                chat.add_system_message_markup(f"Available themes: {available}")
-            else:
-                theme_val = normalize_theme_name(parts[1].lower())
-                if theme_val in self.available_themes:
-                    self._set_theme(theme_val)
-                    chat.add_system_message_markup(f"Theme changed to: [bold]{escape(theme_val)}[/]")
-                else:
-                    chat.add_system_message(
-                        f"Invalid theme '{parts[1]}'. Use /theme list to see valid themes.",
-                        level="ERROR",
-                    )
+            self.action_change_theme()
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -229,7 +215,7 @@ class BrokkApp(App):
                 "  /model-code <name>    - Change the code LLM model\n"
                 "  /reasoning <level>    - Set reasoning level for planner\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
-                "  /theme [list|<name>]  - List available themes or switch to a specific one\n"
+                "  /theme, /palette      - Open the theme palette\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
             )
@@ -253,22 +239,8 @@ class BrokkApp(App):
         panel = self.query_one("#notification-panel")
         panel.toggle_class("hidden")
 
-    def action_cycle_theme(self) -> None:
-        """Cycles forward through available themes."""
-        themes = sorted(self.available_themes)
-        if not themes:
-            return
-
-        try:
-            current_index = themes.index(self.theme)
-            next_index = (current_index + 1) % len(themes)
-        except ValueError:
-            next_index = 0
-
-        self._set_theme(themes[next_index])
-
     def _set_theme(self, theme_name: str) -> None:
-        normalized_theme = normalize_theme_name(theme_name)
+        normalized_theme = normalize_theme_name(theme_name.lower())
         resolved_theme = (
             normalized_theme if normalized_theme in self.available_themes else DEFAULT_THEME
         )
@@ -279,7 +251,12 @@ class BrokkApp(App):
                 DEFAULT_THEME,
             )
         self.theme = resolved_theme
-        self.settings.theme = resolved_theme
+
+    def watch_theme(self, old_theme: str, new_theme: str) -> None:
+        """Persist any theme changes, including those from the Textual theme palette."""
+        if old_theme == new_theme:
+            return
+        self.settings.theme = new_theme
         self.settings.save()
 
     async def action_handle_ctrl_c(self) -> None:

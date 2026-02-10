@@ -48,18 +48,20 @@ class ChatPanel(Vertical):
             self.post_message(self.Submitted(event.value))
             event.input.value = ""
 
+    def set_job_running(self, running: bool) -> None:
+        """Explicitly controls the visibility of the job progress spinner."""
+        self._show_spinner(running)
+
     def set_response_pending(self) -> None:
         """Called when a job is submitted and we are waiting for the first token."""
         self.response_pending = True
         self.response_active = False
-        self._show_spinner(True)
 
     def set_response_active(self) -> None:
         """Called when the first token of a response (or new message in stream) arrives."""
         self.response_pending = False
         self.response_active = True
         self._last_token_time = self._get_now()
-        self._show_spinner(False)
 
     def set_response_finished(self) -> None:
         """Called when the job is complete, cancelled, or failed."""
@@ -67,8 +69,6 @@ class ChatPanel(Vertical):
         self.response_active = False
         # Some backends do not emit an explicit terminal token; flush any buffered text on finish.
         self._flush_message()
-        # Ensure we stop monitoring if it was running
-        self._show_spinner(False)
 
     def _show_spinner(self, show: bool) -> None:
         spinner = self.query_one("#chat-spinner", LoadingIndicator)
@@ -102,7 +102,6 @@ class ChatPanel(Vertical):
     ) -> None:
         """Appends a token to the current buffer and handles rendering transitions."""
         self._last_token_time = self._get_now()
-        self._show_spinner(False)
 
         if is_new_message:
             self.set_response_active()

@@ -76,9 +76,11 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 | Key | Action |
 |-----|--------|
 | `Ctrl+L` | Toggle context panel |
-| `Ctrl+R` | Toggle task list panel |
+| `Ctrl+T` | Toggle task list panel |
+| `Ctrl+N` | Toggle notifications panel |
 | `Ctrl+C` | Cancel job / quit |
-| `F2` | Cycle through available themes |
+| `F2` | Open the theme palette |
+| `Ctrl+P` | Open command palette |
 
 ## Theming
 
@@ -90,8 +92,8 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 
 ### Persistence & Interaction
 - **Settings**: The current theme is persisted in `~/.brokk/settings.json` under the `theme` key.
-- **Toggle (F2)**: Pressing `F2` cycles through all available themes.
-- **Command**: You can also use `/theme list` to see available options, or `/theme <name>` to switch.
+- **Theme Picker**: Use `F2`, or `Ctrl+P` then select `Change theme` to open the full theme palette (including options like solarized).
+- **Command**: You can also use `/theme` (or `/palette`) to open the same theme picker.
 
 ### Commands
 

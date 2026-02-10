@@ -32,39 +32,33 @@ def test_app_theme_persistence(tmp_path, monkeypatch):
 
     # 1. Create initial settings with a legacy theme alias
     from brokk_code.settings import Settings
+
     Settings(theme="builtin:light").save()
 
     # 2. Instantiate app and verify it normalized and loaded the theme
     app = BrokkApp(workspace_dir=tmp_path)
     assert app.theme == "textual-light"
 
-    # 3. Change theme via action and verify save
-    # Cycle should move from light -> dark (assuming alphabetical: textual-dark, textual-light)
-    app.action_cycle_theme()
+    # 3. Change theme directly (how the Textual theme palette updates it) and verify save
+    app.theme = "textual-dark"
     assert app.theme == "textual-dark"
 
     loaded = Settings.load()
     assert loaded.theme == "textual-dark"
 
 
-def test_app_theme_cycling(tmp_path, monkeypatch):
-    """Verify cycling through all available themes."""
+def test_app_set_theme_falls_back_to_default(tmp_path, monkeypatch):
+    """Verify unknown themes are normalized to the default theme."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     app = BrokkApp(workspace_dir=tmp_path)
 
-    themes = sorted(app.available_themes)
-    # Ensure we start at a known point
-    app._set_theme(themes[0])
-
-    for i in range(len(themes)):
-        expected_theme = themes[(i + 1) % len(themes)]
-        app.action_cycle_theme()
-        assert app.theme == expected_theme
+    app._set_theme("not-a-real-theme")
+    assert app.theme == "textual-dark"
 
 
 def test_theme_normalization(tmp_path, monkeypatch):
     """Verify legacy theme names are correctly normalized."""
-    from brokk_code.settings import normalize_theme_name, Settings
+    from brokk_code.settings import Settings, normalize_theme_name
 
     # Test direct normalization
     assert normalize_theme_name("builtin:dark") == "textual-dark"
@@ -74,42 +68,48 @@ def test_theme_normalization(tmp_path, monkeypatch):
 
     # Test loading from file with legacy name
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    from brokk_code.settings import SETTINGS_FILE, SETTINGS_DIR
-    SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
-    
+    from brokk_code.settings import settings_dir, settings_file
+
+    settings_dir().mkdir(parents=True, exist_ok=True)
+
     import json
-    with SETTINGS_FILE.open("w") as f:
+    with settings_file().open("w") as f:
         json.dump({"theme": "brokk-dark"}, f)
-    
+
     settings = Settings.load()
     assert settings.theme == "textual-dark"
 
 
 def test_app_theme_commands(tmp_path, monkeypatch):
-    """Verify /theme commands update settings and app state."""
+    """Verify /theme and /palette route to the Textual theme palette."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     app = BrokkApp(workspace_dir=tmp_path)
 
-    # Test /theme <name>
-    app._handle_command("/theme textual-light")
-    assert app.theme == "textual-light"
-    assert app.settings.theme == "textual-light"
+    class FakeChat:
+        def __init__(self):
+            self.system_messages = []
+            self.appended_messages = []
 
-    # Test /theme <alias>
-    app._handle_command("/theme builtin:dark")
-    assert app.theme == "textual-dark"
-    assert app.settings.theme == "textual-dark"
+        def add_system_message(self, text: str, level: str = "INFO") -> None:
+            self.system_messages.append((text, level))
 
-    # Test /theme list (smoke test for no crash)
-    app._handle_command("/theme list")
+        def append_message(self, author: str, text: str) -> None:
+            self.appended_messages.append((author, text))
 
-    # Test /theme (smoke test for no crash)
+    fake_chat = FakeChat()
+    palette_calls = []
+    monkeypatch.setattr(app, "query_one", lambda *args, **kwargs: fake_chat)
+    monkeypatch.setattr(app, "action_change_theme", lambda: palette_calls.append("open"))
+
+    app._handle_command("/palette")
     app._handle_command("/theme")
+    app._handle_command("/theme list")
+    assert palette_calls == ["open", "open", "open"]
+    assert any("Use /theme with no arguments" in text for text, _ in fake_chat.system_messages)
 
-    # Test help output includes /theme list and updated description
-    # Since append_message doesn't return anything, we check the chat log logic if accessible, 
-    # but here we just ensure the command handler doesn't crash and covers logic.
+    # Help output should still be available
     app._handle_command("/help")
+    assert any("/theme, /palette" in text for _, text in fake_chat.appended_messages)
 
 
 def test_version():
