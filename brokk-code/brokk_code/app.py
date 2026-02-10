@@ -313,17 +313,17 @@ class BrokkApp(App):
         except Exception as e:
             chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
         finally:
-            self.job_in_progress = False
-            self.current_job_id = None
             chat.set_response_finished()
 
             if self._pending_prompt:
                 next_prompt = self._pending_prompt
                 self._pending_prompt = None
-                # Small delay to ensure UI/state settles before restarting
-                await asyncio.sleep(0.05)
-                self.run_worker(self._run_job(next_prompt))
+                # Recurse immediately within the same worker context to prevent
+                # the app from flickering to 'idle' and allowing race-condition submits.
+                await self._run_job(next_prompt)
             else:
+                self.job_in_progress = False
+                self.current_job_id = None
                 chat.set_job_running(False)
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
