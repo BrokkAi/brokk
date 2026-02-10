@@ -537,8 +537,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             }
         }
         // If cache is populated, compute from it; otherwise return NONE
-        if (filesByRelPathCache != null) {
-            return computeMostCommonLanguage();
+        var currentCache = filesByRelPathCache;
+        if (currentCache != null) {
+            return computeMostCommonLanguage(currentCache.values());
         }
         return Languages.NONE;
     }
@@ -721,8 +722,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     private Language computeMostCommonLanguage() {
+        return computeMostCommonLanguage(getAllFiles());
+    }
+
+    private Language computeMostCommonLanguage(java.util.Collection<ProjectFile> files) {
         try {
-            var counts = getAllFiles().stream()
+            var counts = files.stream()
                     .map(pf -> com.google.common.io.Files.getFileExtension(
                             pf.absPath().toString()))
                     .filter(ext -> !ext.isEmpty())
