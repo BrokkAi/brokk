@@ -32,12 +32,14 @@ async def test_spinner_and_timer_lifecycle():
         panel._get_now = mock_now
 
         # Initial state: hidden, no timer text, display is 'none'
+        await pilot.pause()
         assert "hidden" in spinner_area.classes
         assert spinner_area.styles.display == "none"
         assert str(timer_label.render()) == ""
 
         # Start job
         panel.set_job_running(True)
+        await pilot.pause()
         assert "hidden" not in spinner_area.classes
         assert spinner_area.styles.display == "block"
 
@@ -84,6 +86,7 @@ async def test_spinner_and_timer_lifecycle():
 
         # Explicit job finish - hides area and clears timer
         panel.set_job_running(False)
+        await pilot.pause()
         assert "hidden" in spinner_area.classes
         assert spinner_area.styles.display == "none"
         # Wait for worker to exit and check final state
