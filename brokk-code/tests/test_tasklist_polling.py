@@ -61,3 +61,58 @@ async def test_tasklist_polling_updates_ui():
             # worker is registered is sufficient for this unit test.
             
             assert any(w.name == "_poll_tasklist" for w in app.workers)
+
+@pytest.mark.asyncio
+async def test_context_polling_updates_ui():
+    """
+    Verifies that the background context polling worker updates the ContextPanel.
+    """
+    app = BrokkApp()
+    
+    # Mock data
+    mock_context = {
+        "usedTokens": 1500,
+        "maxTokens": 100000,
+        "fragments": [
+            {
+                "chipKind": "EDIT",
+                "shortDescription": "Modified UserAuth.java",
+                "pinned": True,
+                "tokens": 450
+            },
+            {
+                "chipKind": "HISTORY",
+                "shortDescription": "Previous chat history",
+                "tokens": 1050
+            }
+        ]
+    }
+
+    with patch("brokk_code.executor.ExecutorManager.get_context", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_context
+        
+        async with app.run_test() as pilot:
+            # Manually set ready state
+            app._executor_ready = True
+            
+            # Directly call the refresh method that the worker would call
+            await app._refresh_context_panel()
+            
+            # Verify Header
+            panel = app.query_one("#side-context", ContextPanel)
+            header = panel.query_one("#context-header")
+            assert "1,500 / 100,000 tokens" in str(header.renderable)
+            
+            # Verify List Contents
+            list_view = panel.query_one("#context-list")
+            assert len(list_view.children) == 2
+            
+            # Check for specific text in list items
+            items_text = "".join(str(child.renderable) for child in list_view.children)
+            assert "Modified UserAuth.java" in items_text
+            assert "Previous chat history" in items_text
+            assert "EDIT" in items_text
+            assert "HISTORY" in items_text
+            
+            # Verify worker registration
+            assert any(w.name == "_poll_context" for w in app.workers)
