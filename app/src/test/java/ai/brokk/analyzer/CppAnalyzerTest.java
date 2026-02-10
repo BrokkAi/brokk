@@ -742,7 +742,7 @@ public class CppAnalyzerTest {
                 .orElseThrow(() -> new RuntimeException("overload_edgecases.h not found"));
 
         var decls = analyzer.getDeclarations(file);
-        assumeTrue(!decls.isEmpty(), "Should find declarations in overload_edgecases.h (skipping if none found)");
+        assertFalse(decls.isEmpty(), "Should find declarations in overload_edgecases.h");
 
         // Find overloaded 'f' declarations
         var overloads = decls.stream()
@@ -984,10 +984,7 @@ public class CppAnalyzerTest {
 
         var decls = analyzer.getDeclarations(file);
 
-        // Skip the test when analyzer produced no declarations for the file
-        assumeTrue(
-                !decls.isEmpty(),
-                "No declarations found in scoped_def.cpp; skipping testScopedDefinitionParameterExtraction");
+        assertFalse(decls.isEmpty(), "No declarations found in scoped_def.cpp");
 
         // Method m should be found
         assertTrue(decls.stream().anyMatch(cu -> getBaseFunctionName(cu).equals("m")), "Should find C::m");
@@ -1471,6 +1468,8 @@ public class CppAnalyzerTest {
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> getBaseFunctionName(cu).equals("foo"))
                 .collect(Collectors.toList());
+
+        // Reverting the implicit assumption in the previous logic that headerCandidates might be empty
         assertFalse(
                 headerCandidates.isEmpty(),
                 "Should find at least one function named 'foo' in header. Available: "
@@ -1488,29 +1487,29 @@ public class CppAnalyzerTest {
             }
         }
 
-        if (headerProto != null) {
-            final var headerProtoFinal = headerProto;
-            boolean headerHasBody = analyzer.withCodeUnitProperties(
-                    map -> map.getOrDefault(headerProtoFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
+        assertNotNull(headerProto, "Should find a header prototype for 'foo' with hasBody=false");
+
+        final var headerProtoFinal = headerProto;
+        boolean headerHasBody = analyzer.withCodeUnitProperties(
+                map -> map.getOrDefault(headerProtoFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                        .hasBody());
+        assertFalse(headerHasBody, "Header prototype should have hasBody == false");
+
+        // Search across all declarations for a definition (hasBody == true) with the same FQN
+        var allDecls = getAllDeclarations();
+        CodeUnit sourceDef = null;
+        for (var cu : allDecls) {
+            if (!cu.isFunction()) continue;
+            if (!getBaseFunctionName(cu).equals("foo")) continue;
+            if (!cu.fqName().equals(headerProto.fqName())) continue;
+
+            final var candidateFinal = cu;
+            boolean hasBody = analyzer.withCodeUnitProperties(
+                    map -> map.getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
                             .hasBody());
-            assertFalse(headerHasBody, "Header prototype should have hasBody == false");
-
-            // Search across all declarations for a definition (hasBody == true) with the same FQN
-            var allDecls = getAllDeclarations();
-            CodeUnit sourceDef = null;
-            for (var cu : allDecls) {
-                if (!cu.isFunction()) continue;
-                if (!getBaseFunctionName(cu).equals("foo")) continue;
-                if (!cu.fqName().equals(headerProto.fqName())) continue;
-
-                final var candidateFinal = cu;
-                boolean hasBody = analyzer.withCodeUnitProperties(
-                        map -> map.getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
-                                .hasBody());
-                if (hasBody) {
-                    sourceDef = cu;
-                    break;
-                }
+            if (hasBody) {
+                sourceDef = cu;
+                break;
             }
 
             assertNotNull(
@@ -1523,45 +1522,6 @@ public class CppAnalyzerTest {
             String srcSkel = sourceSkeletons.get(sourceDef);
             assertNotNull(srcSkel, "Source skeleton for definition should exist");
             assertCodeContains(srcSkel, "{...}");
-        } else {
-            // No header prototype (hasBody==false) found: header may contain definition or merges occurred
-            var allDecls = getAllDeclarations();
-            CodeUnit sourceDef = null;
-            for (var cu : allDecls) {
-                if (!cu.isFunction()) continue;
-                if (!getBaseFunctionName(cu).equals("foo")) continue;
-
-                final var candidateFinal = cu;
-                boolean hasBody = analyzer.withCodeUnitProperties(
-                        map -> map.getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
-                                .hasBody());
-                if (hasBody) {
-                    sourceDef = cu;
-                    break;
-                }
-            }
-
-            assertNotNull(
-                    sourceDef,
-                    "Could not find a definition (hasBody==true) for function 'foo' across all declarations.");
-
-            // Verify the skeleton for the found definition contains the display placeholder
-            var sourceFile = sourceDef.source();
-            var sourceSkeletons = analyzer.getSkeletons(sourceFile);
-            String srcSkel = sourceSkeletons.get(sourceDef);
-            assertNotNull(srcSkel, "Source skeleton for definition should exist");
-            assertCodeContains(srcSkel, "{...}");
-
-            // Additionally, ensure the header skeletons prefer a single function entry for 'foo'
-            var headerSkeletons = analyzer.getSkeletons(headerFile);
-            long headerFooCount = headerSkeletons.keySet().stream()
-                    .filter(CodeUnit::isFunction)
-                    .filter(k -> getBaseFunctionName(k).equals("foo"))
-                    .count();
-            assertEquals(
-                    1L,
-                    headerFooCount,
-                    "Header skeletons should prefer a single function entry for 'foo', but found: " + headerFooCount);
         }
     }
 
