@@ -23,9 +23,17 @@ class SettingsProjectBuildPanelTest {
         assertTrue(result.isValid());
         assertEquals(30L, result.seconds());
 
-        result = SettingsProjectBuildPanel.validateTimeout("60 sec");
+        result = SettingsProjectBuildPanel.validateTimeout(" 120 ");
         assertTrue(result.isValid());
-        assertEquals(60L, result.seconds());
+        assertEquals(120L, result.seconds());
+    }
+
+    @Test
+    void testValidateTimeoutInvalidWithSecSuffix() {
+        // Now that unit is in the label, "sec" in the field is invalid
+        var result = SettingsProjectBuildPanel.validateTimeout("60 sec");
+        assertFalse(result.isValid());
+        assertEquals("Please enter a valid numeric value for seconds.", result.errorMessage());
     }
 
     @Test

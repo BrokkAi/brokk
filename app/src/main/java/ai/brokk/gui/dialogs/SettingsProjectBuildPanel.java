@@ -60,7 +60,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         @Override
         public String toString() {
             if (this == NO_TIMEOUT || seconds == -1) return "No timeout";
-            return seconds + " sec";
+            return String.valueOf(seconds);
         }
     }
 
@@ -298,7 +298,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.weightx = 0.0;
         buildGbc.anchor = GridBagConstraints.WEST;
         buildGbc.fill = GridBagConstraints.NONE;
-        buildConfigPanel.add(new JLabel("Run Command Timeout:"), buildGbc);
+        buildConfigPanel.add(new JLabel("Run Command Timeout (sec):"), buildGbc);
 
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
@@ -311,7 +311,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.gridy = buildRow;
         buildGbc.weightx = 0.0;
         buildGbc.fill = GridBagConstraints.NONE;
-        buildConfigPanel.add(new JLabel("Test Command Timeout:"), buildGbc);
+        buildConfigPanel.add(new JLabel("Test Command Timeout (sec):"), buildGbc);
 
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
@@ -963,8 +963,8 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         if (selectedItem instanceof String s) {
-            String clean = s.toLowerCase().replace("sec", "").trim();
-            if (clean.equals("no timeout") || clean.isEmpty()) {
+            String clean = s.trim();
+            if (clean.equalsIgnoreCase("no timeout") || clean.isEmpty()) {
                 return new TimeoutValidation(-1, null);
             }
             try {
