@@ -27,10 +27,8 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
-        Binding("f2", "toggle_theme", "Theme", show=True),
+        Binding("f2", "cycle_theme", "Cycle Theme", show=True),
     ]
-    DARK_THEME = "textual-dark"
-    LIGHT_THEME = "textual-light"
 
     def __init__(
         self,
@@ -205,11 +203,14 @@ class BrokkApp(App):
             )
         elif base == "/theme" and len(parts) > 1:
             theme_val = parts[1].lower()
-            if theme_val in ("dark", "light"):
-                self._set_theme(self.DARK_THEME if theme_val == "dark" else self.LIGHT_THEME)
+            if theme_val in self.available_themes:
+                self._set_theme(theme_val)
                 chat.add_system_message_markup(f"Theme changed to: [bold]{theme_val}[/]")
             else:
-                chat.add_system_message("Invalid theme. Use 'dark' or 'light'.", level="ERROR")
+                available = ", ".join(sorted(self.available_themes))
+                chat.add_system_message(
+                    f"Invalid theme '{theme_val}'. Available: {available}", level="ERROR"
+                )
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -241,11 +242,19 @@ class BrokkApp(App):
         panel = self.query_one("#notification-panel")
         panel.toggle_class("hidden")
 
-    def action_toggle_theme(self) -> None:
-        if self.theme == self.DARK_THEME:
-            self._set_theme(self.LIGHT_THEME)
-        else:
-            self._set_theme(self.DARK_THEME)
+    def action_cycle_theme(self) -> None:
+        """Cycles forward through available themes."""
+        themes = sorted(self.available_themes)
+        if not themes:
+            return
+
+        try:
+            current_index = themes.index(self.theme)
+            next_index = (current_index + 1) % len(themes)
+        except ValueError:
+            next_index = 0
+
+        self._set_theme(themes[next_index])
 
     def _set_theme(self, theme_name: str) -> None:
         normalized_theme = normalize_theme_name(theme_name)

@@ -78,7 +78,7 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 | `Ctrl+L` | Toggle context panel |
 | `Ctrl+R` | Toggle task list panel |
 | `Ctrl+C` | Cancel job / quit |
-| `F2` | Toggle between Light/Dark themes |
+| `F2` | Cycle through available themes |
 
 ## Theming
 

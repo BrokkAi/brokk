@@ -39,11 +39,27 @@ def test_app_theme_persistence(tmp_path, monkeypatch):
     assert app.theme == "textual-light"
 
     # 3. Change theme via action and verify save
-    app.action_toggle_theme()
+    # Cycle should move from light -> dark (assuming alphabetical: textual-dark, textual-light)
+    app.action_cycle_theme()
     assert app.theme == "textual-dark"
 
     loaded = Settings.load()
     assert loaded.theme == "textual-dark"
+
+
+def test_app_theme_cycling(tmp_path, monkeypatch):
+    """Verify cycling through all available themes."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    themes = sorted(app.available_themes)
+    # Ensure we start at a known point
+    app._set_theme(themes[0])
+
+    for i in range(len(themes)):
+        expected_theme = themes[(i + 1) % len(themes)]
+        app.action_cycle_theme()
+        assert app.theme == expected_theme
 
 
 def test_version():
