@@ -10,7 +10,7 @@ import java.lang.annotation.Target;
 /** Annotation to attach a description to a class field. */
 @Target({FIELD, TYPE})
 @Retention(RUNTIME)
-public @interface Description {
+public @interface D {
 
     /**
      * The description can be defined in one line or multiple lines. If the description is defined in multiple lines,

@@ -16,6 +16,7 @@ import org.jetbrains.annotations.Nullable;
 public class TestService extends AbstractService {
 
     private final Map<ModelType, StreamingChatModel> modelOverrides = new HashMap<>();
+    private boolean supportsJsonSchema = true;
 
     public TestService(IProject project) {
         super(project);
@@ -36,14 +37,13 @@ public class TestService extends AbstractService {
         return false;
     }
 
-    @Override
-    public boolean requiresEmulatedTools(StreamingChatModel model) {
-        return false;
+    public void setSupportsJsonSchema(boolean supportsJsonSchema) {
+        this.supportsJsonSchema = supportsJsonSchema;
     }
 
     @Override
     public boolean supportsJsonSchema(StreamingChatModel model) {
-        return true;
+        return supportsJsonSchema;
     }
 
     public void setModel(ModelType modelType, StreamingChatModel model) {
@@ -59,8 +59,7 @@ public class TestService extends AbstractService {
     }
 
     @Override
-    public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
-            throws IOException {
+    public JsonNode reportClientException(JsonNode exceptionReport) throws IOException {
         return objectMapper.createObjectNode();
     }
 

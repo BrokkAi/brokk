@@ -74,9 +74,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JRadioButton localhostProxyRadio;
 
-    @Nullable
-    private JCheckBox forceToolEmulationCheckbox; // dev-only
-
     // Appearance controls (kept in Global)
     private JComboBox<String> themeCombo = new JComboBox<>();
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
@@ -137,10 +134,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             } else {
                 localhostProxyRadio.setSelected(true);
             }
-        }
-
-        if (forceToolEmulationCheckbox != null) {
-            forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
         }
 
         // Appearance
@@ -324,17 +317,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             gbc.gridy = ++row;
             servicePanel.add(restartLabel, gbc);
             gbc.insets = new Insets(2, 5, 2, 5);
-        }
-
-        if (Boolean.getBoolean("brokk.devmode")) {
-            forceToolEmulationCheckbox =
-                    new JCheckBox("[Dev Mode] Force tool emulation", MainProject.getForceToolEmulation());
-            forceToolEmulationCheckbox.setToolTipText("Development override: emulate tool calls.");
-            gbc.gridx = 1;
-            gbc.gridy = ++row;
-            gbc.weightx = 1.0;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            servicePanel.add(forceToolEmulationCheckbox, gbc);
         }
 
         gbc.gridy = ++row;
@@ -1071,7 +1053,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     ? MainProject.LlmProxySetting.BROKK
                     : MainProject.LlmProxySetting.LOCALHOST;
         }
-        boolean forceToolEmulation = (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
 
         // Appearance: theme
         String selectedDisplay = (String) themeCombo.getSelectedItem();
@@ -1116,7 +1097,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                         chrome,
                         newBrokkKeyFromField,
                         proxySetting,
-                        forceToolEmulation,
                         newTheme,
                         newWrapMode,
                         uiScaleChanged,
@@ -2374,7 +2354,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private class SaveGlobalSettingsWorker extends ExceptionAwareSwingWorker<Void, Void> {
         private final String newBrokkKeyFromField;
         private final MainProject.LlmProxySetting proxySetting;
-        private final boolean forceToolEmulation;
         private final String newTheme;
         private final boolean newWrapMode;
         private final boolean uiScaleChanged;
@@ -2392,7 +2371,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 Chrome chrome,
                 String newBrokkKeyFromField,
                 MainProject.LlmProxySetting proxySetting,
-                boolean forceToolEmulation,
                 String newTheme,
                 boolean newWrapMode,
                 boolean uiScaleChanged,
@@ -2408,7 +2386,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             super(chrome);
             this.newBrokkKeyFromField = newBrokkKeyFromField;
             this.proxySetting = proxySetting;
-            this.forceToolEmulation = forceToolEmulation;
             this.newTheme = newTheme;
             this.newWrapMode = newWrapMode;
             this.uiScaleChanged = uiScaleChanged;
@@ -2427,7 +2404,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         protected Void doInBackground() {
             MainProject.setBrokkKey(newBrokkKeyFromField);
             MainProject.setLlmProxySetting(proxySetting);
-            MainProject.setForceToolEmulation(forceToolEmulation);
             MainProject.setTheme(newTheme);
             MainProject.setCodeBlockWrapMode(newWrapMode);
 

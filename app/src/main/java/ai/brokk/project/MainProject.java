@@ -148,6 +148,9 @@ public final class MainProject extends AbstractProject {
     private static volatile LlmProxySetting headlessProxySettingOverride = null;
 
     @Nullable
+    private static volatile List<Service.FavoriteModel> headlessFavoriteModelsOverride = null;
+
+    @Nullable
     private static volatile Path cachedGlobalConfigDir = null;
 
     @Nullable
@@ -1426,7 +1429,6 @@ public final class MainProject extends AbstractProject {
     private static final String MOP_ZOOM_KEY = "mopZoom";
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
-    private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
     private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
 
     public static String getUiScalePref() {
@@ -1490,25 +1492,6 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
-    // ------------------------------------------------------------
-    // Git branch poller (global) settings
-    // ------------------------------------------------------------
-
-    public static boolean getForceToolEmulation() {
-        var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(FORCE_TOOL_EMULATION_KEY, "false"));
-    }
-
-    public static void setForceToolEmulation(boolean force) {
-        var props = loadGlobalProperties();
-        if (force) {
-            props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
-        } else {
-            props.remove(FORCE_TOOL_EMULATION_KEY);
-        }
-        saveGlobalProperties(props);
-    }
-
     public static String getOtherModelsVendorPreference() {
         var props = loadGlobalProperties();
         return props.getProperty(OTHER_MODELS_VENDOR_KEY, "");
@@ -1563,7 +1546,7 @@ public final class MainProject extends AbstractProject {
     }
 
     // Grouped settings records for atomic batch saving
-    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting, boolean forceToolEmulation) {
+    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting) {
         public void applyTo(Properties props) {
             var existingKey = props.getProperty("brokkApiKey", "");
             if (brokkApiKey.isBlank()) {
@@ -1575,11 +1558,6 @@ public final class MainProject extends AbstractProject {
                 props.setProperty("brokkApiKey", brokkApiKey.trim());
             }
             props.setProperty(LLM_PROXY_SETTING_KEY, proxySetting.name());
-            if (forceToolEmulation) {
-                props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
-            } else {
-                props.remove(FORCE_TOOL_EMULATION_KEY);
-            }
         }
     }
 
@@ -1768,10 +1746,28 @@ public final class MainProject extends AbstractProject {
     public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = ModelProperties.DEFAULT_FAVORITE_MODELS;
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
+        // Check headless override first
+        var override = headlessFavoriteModelsOverride;
+        if (override != null) {
+            logger.debug("Using headless favorite models override ({} models).", override.size());
+            return override;
+        }
         var props = loadGlobalProperties();
         var list = ModelProperties.loadFavoriteModels(props);
         logger.debug("Loaded {} favorite models from global properties.", list.size());
         return list;
+    }
+
+    /**
+     * Sets the headless favorite models override. If set, loadFavoriteModels() and
+     * getFavoriteModel() will use this list instead of reading from global properties.
+     *
+     * @param models the favorite models override, or null to clear the override
+     */
+    public static void setHeadlessFavoriteModelsOverride(@Nullable List<Service.FavoriteModel> models) {
+        headlessFavoriteModelsOverride = models;
+        logger.debug(
+                "Set headless favorite models override: {}", models != null ? models.size() + " models" : "(cleared)");
     }
 
     /**
@@ -1782,8 +1778,10 @@ public final class MainProject extends AbstractProject {
      * @throws IllegalArgumentException if no favourite model with the given alias exists
      */
     public static Service.FavoriteModel getFavoriteModel(String alias) {
-        var props = loadGlobalProperties();
-        return ModelProperties.getFavoriteModel(props, alias);
+        return loadFavoriteModels().stream()
+                .filter(fm -> fm.alias().equalsIgnoreCase(alias))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
     }
 
     public static void saveFavoriteModels(List<Service.FavoriteModel> favorites) {
