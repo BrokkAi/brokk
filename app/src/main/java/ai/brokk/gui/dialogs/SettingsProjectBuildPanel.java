@@ -864,13 +864,31 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         var mainProject = project.getMainProject();
 
-        long runTimeout = parseTimeoutFromCombo(runTimeoutComboBox);
+        var runValidation = validateTimeout(runTimeoutComboBox.getSelectedItem());
+        if (!runValidation.isValid()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Run Command Timeout: " + runValidation.errorMessage(),
+                    "Invalid Timeout",
+                    JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+        long runTimeout = runValidation.seconds();
         if (runTimeout != mainProject.getRunCommandTimeoutSeconds()) {
             mainProject.setRunCommandTimeoutSeconds(runTimeout);
             logger.debug("Applied Run Command Timeout: {} seconds", runTimeout);
         }
 
-        long testTimeout = parseTimeoutFromCombo(testTimeoutComboBox);
+        var testValidation = validateTimeout(testTimeoutComboBox.getSelectedItem());
+        if (!testValidation.isValid()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Test Command Timeout: " + testValidation.errorMessage(),
+                    "Invalid Timeout",
+                    JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+        long testTimeout = testValidation.seconds();
         if (testTimeout != mainProject.getTestCommandTimeoutSeconds()) {
             mainProject.setTestCommandTimeoutSeconds(testTimeout);
             logger.debug("Applied Test Command Timeout: {} seconds", testTimeout);
@@ -926,6 +944,41 @@ public class SettingsProjectBuildPanel extends JPanel {
         boolean isValid() {
             return errorMessage == null;
         }
+    }
+
+    /**
+     * Validation result for timeout combo values.
+     * @param seconds the parsed seconds (-1 for no timeout)
+     * @param errorMessage error message if invalid, null if valid
+     */
+    record TimeoutValidation(long seconds, @Nullable String errorMessage) {
+        boolean isValid() {
+            return errorMessage == null;
+        }
+    }
+
+    static TimeoutValidation validateTimeout(@Nullable Object selectedItem) {
+        if (selectedItem instanceof TimeoutItem item) {
+            return new TimeoutValidation(item.seconds(), null);
+        }
+
+        if (selectedItem instanceof String s) {
+            String clean = s.toLowerCase().replace("sec", "").trim();
+            if (clean.equals("no timeout") || clean.isEmpty()) {
+                return new TimeoutValidation(-1, null);
+            }
+            try {
+                long val = Long.parseLong(clean);
+                if (val < 30 && val != -1) {
+                    return new TimeoutValidation(val, "Timeout must be at least 30 seconds.");
+                }
+                return new TimeoutValidation(val, null);
+            } catch (NumberFormatException e) {
+                return new TimeoutValidation(0, "Please enter a valid numeric value for seconds.");
+            }
+        }
+
+        return new TimeoutValidation(Environment.DEFAULT_TIMEOUT.toSeconds(), null);
     }
 
     static JdkOverrideValidation validateJdkOverride(@Nullable String rawPath) {
@@ -1171,24 +1224,5 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
         // Not in curated list, set as custom text
         combo.setSelectedItem(new TimeoutItem(seconds));
-    }
-
-    private long parseTimeoutFromCombo(JComboBox<TimeoutItem> combo) {
-        Object selected = combo.getSelectedItem();
-        if (selected instanceof TimeoutItem item) {
-            return item.seconds();
-        }
-        if (selected instanceof String s) {
-            String clean = s.toLowerCase().replace("sec", "").trim();
-            if (clean.equals("no timeout") || clean.isEmpty()) {
-                return -1;
-            }
-            try {
-                return Long.parseLong(clean);
-            } catch (NumberFormatException e) {
-                logger.warn("Invalid timeout value entered: {}", s);
-            }
-        }
-        return (int) Environment.DEFAULT_TIMEOUT.toSeconds();
     }
 }
