@@ -216,9 +216,13 @@ class ChatPanel(Vertical):
         self._flush_message()
 
     def _show_spinner(self, show: bool) -> None:
-        area = self.query_one("#chat-spinner-area", Horizontal)
-        spinner = self.query_one("#chat-spinner", LoadingIndicator)
-        timer = self.query_one("#chat-timer", Static)
+        try:
+            area = self.query_one("#chat-spinner-area", Horizontal)
+            spinner = self.query_one("#chat-spinner", LoadingIndicator)
+            timer = self.query_one("#chat-timer", Static)
+        except Exception:
+            return
+
         if show:
             area.remove_class("hidden")
             spinner.remove_class("hidden")
