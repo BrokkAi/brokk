@@ -329,7 +329,7 @@ class DependencyDefaultCheckedBehaviorTest {
      * models what happens when `DependencyLifecycleListener.dependencyImportFinished()` is called
      * and the UI reloads.
      */
-    private void simulateDependencyImport(AbstractProject project, String depName) {
+    private void simulateDependencyImport(IProject project, String depName) {
         // Use the project layer's addLiveDependency (null analyzer = persistence only, CLI-friendly)
         project.addLiveDependency(depName, null).join();
     }
