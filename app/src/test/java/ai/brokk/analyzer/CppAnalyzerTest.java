@@ -1629,7 +1629,10 @@ public class CppAnalyzerTest {
             var signatures = declarations.stream().map(CodeUnit::signature).collect(Collectors.toSet());
             assertTrue(signatures.contains("<typename T>"), "Missing signature: <typename T>");
             assertTrue(signatures.contains("<typename T, typename U>"), "Missing signature: <typename T, typename U>");
-            assertTrue(signatures.contains(null), "Missing null signature for non-template struct");
+
+            long nullSignatures =
+                    declarations.stream().filter(cu -> cu.signature() == null).count();
+            assertEquals(1, nullSignatures, "Should find exactly one non-template struct (null signature)");
 
             // Verify that for <typename T>, hasBody is true (collapsed the forward decl)
             var singleT = declarations.stream()
