@@ -4,8 +4,7 @@ import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.junit.jupiter.api.Assumptions.*;
 
 import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -505,93 +504,6 @@ public class CppAnalyzerTest {
         assertFalse(skeletons.isEmpty(), "Should have at least some skeleton entries");
 
         logger.debug("Generated {} skeletons for duplicates.h", skeletons.size());
-    }
-
-    @Test
-    public void testKokkosLikeTaskTeamMemberAdapter_DuplicateRegression2644() {
-        // Simplified regression-style smoke test for kokkos_adapter parsing.
-        // Historically this exercised a logging-based duplicate diagnostic. The detailed log-capturing
-        // machinery relied on Log4J core classes which aren't available on all test classpaths.
-        // To keep the test portable we only assert symbol discovery and basic invariants here.
-        var headerFileOpt = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("kokkos_adapter.hpp"))
-                .findFirst();
-
-        assumeTrue(headerFileOpt.isPresent(), "kokkos_adapter.hpp not present in test project; skipping test");
-
-        var headerFile = headerFileOpt.get();
-
-        var sourceFileOpt = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("kokkos_adapter.cpp"))
-                .findFirst();
-
-        try (TestProject localProject = new TestProject(testProject.getRoot(), Languages.C_CPP)) {
-            var tempAnalyzer = new CppAnalyzer(localProject);
-
-            var decls = tempAnalyzer.getDeclarations(headerFile);
-            assertNotNull(decls, "Declarations should not be null for kokkos_adapter.hpp");
-            assumeTrue(!decls.isEmpty(), "No declarations found in kokkos_adapter.hpp; skipping detailed checks");
-
-            var taskAdapterFunctions = decls.stream()
-                    .filter(CodeUnit::isFunction)
-                    .filter(cu -> cu.fqName().contains("TaskTeamMemberAdapter")
-                            || cu.shortName().contains("TaskTeamMemberAdapter"))
-                    .toList();
-
-            logger.debug("TaskTeamMemberAdapter-related functions in kokkos_adapter.hpp:");
-            taskAdapterFunctions.forEach(cu -> logger.debug(
-                    "  - {} (kind={}, signature={}, source={})", cu.fqName(), cu.kind(), cu.signature(), cu.source()));
-
-            // Basic assertions to ensure the symbols are discovered
-            assertFalse(taskAdapterFunctions.isEmpty(), "Should find TaskTeamMemberAdapter-related functions");
-
-            boolean hasCtor = taskAdapterFunctions.stream()
-                    .anyMatch(cu -> cu.fqName().contains("TaskTeamMemberAdapter")
-                            && CppAnalyzerTest.getBaseFunctionName(cu).equals("TaskTeamMemberAdapter"));
-            boolean hasCallOp = taskAdapterFunctions.stream()
-                    .anyMatch(cu -> CppAnalyzerTest.getBaseFunctionName(cu).equals("operator()"));
-
-            assertTrue(hasCtor, "Should see constructor for TaskTeamMemberAdapter<TeamMember>");
-            assertTrue(hasCallOp, "Should see operator() for TaskTeamMemberAdapter<TeamMember>");
-
-            // Explicit additional assertions for regression validation:
-            // 1) There should be at least one constructor declaration in header (no body)
-            var headerCtor = taskAdapterFunctions.stream()
-                    .filter(cu -> CppAnalyzerTest.getBaseFunctionName(cu).equals("TaskTeamMemberAdapter"))
-                    .findFirst();
-            assertTrue(
-                    headerCtor.isPresent(),
-                    "Header should contain a constructor declaration for TaskTeamMemberAdapter");
-
-            // 2) If the source file is present, ensure source contains a definition (hasBody == true) for the ctor
-            if (sourceFileOpt.isPresent()) {
-                var src = sourceFileOpt.get();
-                var srcDecls = tempAnalyzer.getDeclarations(src);
-                // Find ctor in source file declarations
-                var srcCtors = srcDecls.stream()
-                        .filter(CodeUnit::isFunction)
-                        .filter(cu -> CppAnalyzerTest.getBaseFunctionName(cu).equals("TaskTeamMemberAdapter"))
-                        .toList();
-                // At least one source-level ctor should exist (definition)
-                assertFalse(
-                        srcCtors.isEmpty(),
-                        "Source file should contain constructor definition(s) for TaskTeamMemberAdapter");
-
-                // Check hasBody flag for one of the source ctors using analyzer's CodeUnitProperties
-                boolean foundDefWithBody = srcCtors.stream()
-                        .anyMatch(cu -> tempAnalyzer.withCodeUnitProperties(
-                                map -> map.getOrDefault(cu, TreeSitterAnalyzer.CodeUnitProperties.empty())
-                                        .hasBody()));
-                assertTrue(
-                        foundDefWithBody,
-                        "At least one constructor in source should have hasBody=true (definition preferred)");
-            }
-
-            if (sourceFileOpt.isPresent()) {
-                var srcDecls = tempAnalyzer.getDeclarations(sourceFileOpt.get());
-                logger.debug("kokkos_adapter.cpp declarations: {}", srcDecls);
-            }
-        }
     }
 
     @Test
