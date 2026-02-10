@@ -142,10 +142,11 @@ class BrokkApp(App):
                 self._handle_event(event)
         except Exception as e:
             chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
+            chat.set_response_finished()
         finally:
             self.job_in_progress = False
             self.current_job_id = None
-            self.query_one(ChatPanel).set_response_finished()
+            chat.set_response_finished()
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
@@ -169,6 +170,7 @@ class BrokkApp(App):
             chat.add_notification(msg, level="ERROR")
             # Also keep error in chat for visibility in logs
             chat.add_system_message(msg, level="ERROR")
+            chat.set_response_finished()
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):

@@ -62,9 +62,10 @@ class ChatPanel(Vertical):
         self._show_spinner(False)
 
     def set_response_finished(self) -> None:
-        """Called when the job is complete or failed."""
+        """Called when the job is complete, cancelled, or failed."""
         self.response_pending = False
         self.response_active = False
+        # Ensure we stop monitoring if it was running
         self._show_spinner(False)
 
     def _show_spinner(self, show: bool) -> None:
