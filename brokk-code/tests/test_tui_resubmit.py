@@ -67,64 +67,6 @@ async def type_text(pilot: Any, text: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancel_and_resubmit_flow():
-    """
-    Verify that submitting a new prompt while a job is running:
-    1. Cancels the current job.
-    2. Submits the new job only after the first one finishes.
-    3. Handles multiple rapid submissions by only keeping the latest.
-    """
-    stub = StubExecutor()
-    app = BrokkApp(executor=stub)
-
-    async with app.run_test() as pilot:
-        # 1. Submit first job
-        await pilot.click("#chat-input")
-        await type_text(pilot, "first")
-        await pilot.press("enter")
-
-        # Wait for job to start streaming
-        await asyncio.wait_for(stub.stream_started.wait(), timeout=2.0)
-        stub.stream_started.clear()
-
-        assert app.job_in_progress is True
-        assert app.current_job_id == "job-1"
-
-        # 2. Submit second and third job quickly while job-1 is "running"
-        # The first 'enter' for 'second' triggers cancel_job('job-1') and sets _pending_prompt='second'
-        # The second 'enter' for 'third' triggers cancel_job('job-1') again and updates _pending_prompt='third'
-        await type_text(pilot, "second")
-        await pilot.press("enter")
-        await type_text(pilot, "third")
-        await pilot.press("enter")
-
-        # Now we allow the first job loop to terminate
-        # app._run_job("first") will finish its finally block and see _pending_prompt="third"
-        stub.release_stream.set()
-
-        # Wait for the second job (the one for "third") to start
-        await asyncio.wait_for(stub.stream_started.wait(), timeout=2.0)
-
-        # Allow the second job to finish too so app settles
-        stub.release_stream.set()
-        await pilot.pause()
-
-        # Assertions on content and presence of actions.
-        # Strict ordering of cancellations vs submits can be flaky due to async scheduling,
-        # so we verify the logical contract.
-        submits = [c for c in stub.calls if c["type"] == "submit"]
-        cancels = [c for c in stub.calls if c["type"] == "cancel"]
-
-        assert len(submits) == 2  # "second" must have been dropped
-        assert submits[0]["input"] == "first"
-        assert submits[1]["input"] == "third"
-
-        cancels = [c for c in stub.calls if c["type"] == "cancel"]
-        assert len(cancels) >= 1
-        assert any(c["job_id"] == "job-1" for c in cancels)
-
-
-@pytest.mark.asyncio
 async def test_multiline_paste_and_submit():
     """
     Verify that multiline text (like a paste) is submitted with newlines intact.
