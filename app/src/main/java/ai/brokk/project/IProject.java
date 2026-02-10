@@ -13,7 +13,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.util.Environment;
 import ai.brokk.util.IStringDiskCache;
 import java.awt.Rectangle;
 import java.io.IOException;
@@ -34,8 +33,8 @@ import org.jetbrains.annotations.VisibleForTesting;
 
 public interface IProject extends AutoCloseable {
 
-    long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
-    long DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS = DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+    long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = -1L;
+    long DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS = -1L;
 
     default IGitRepo getRepo() {
         throw new UnsupportedOperationException();
