@@ -168,8 +168,7 @@ async def test_multiline_paste_and_submit():
 @pytest.mark.asyncio
 async def test_large_paste_submits_as_job():
     """
-    Verify that large inputs (that previously would have been routed to context)
-    now submit normally as jobs.
+    Verify that large inputs submit normally as jobs.
     """
     stub = StubExecutor(auto_release=True)
     app = BrokkApp(executor=stub)
