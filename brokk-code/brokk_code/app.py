@@ -302,7 +302,9 @@ class BrokkApp(App):
                 self._pending_min_wait_until = max(
                     self._pending_min_wait_until, now + self._resubmit_grace_s
                 )
-                chat.add_system_message("Interrupting current job to start new request...")
+                # Avoid redundant cancellation messages if already pending
+                if self._pending_generation == 1:
+                    chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
             else:
                 self.run_worker(self._run_job(raw_text))
@@ -327,6 +329,10 @@ class BrokkApp(App):
             chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
         finally:
             chat.set_response_finished()
+
+            # Yield to the event loop to allow any rapid subsequent submissions
+            # triggered by the cancellation to be processed before we check _pending_prompt.
+            await asyncio.sleep(0)
 
             if self._pending_prompt:
                 # Wait for both the grace window (since cancellation)
