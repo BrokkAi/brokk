@@ -49,15 +49,10 @@ async def test_tui_prompt_persistence(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tui_prompt_trimming(tmp_path, monkeypatch):
+async def test_tui_prompt_trimming(tmp_path):
     """
     Verify that prompt history is trimmed when it exceeds the limit.
     """
-    from brokk_code import prompt_history
-
-    # Force a small max history for testing
-    monkeypatch.setattr(prompt_history, "DEFAULT_MAX_HISTORY", 2)
-
     workspace = tmp_path / "project_trim"
     workspace.mkdir()
 
@@ -65,6 +60,8 @@ async def test_tui_prompt_trimming(tmp_path, monkeypatch):
     stub.workspace_dir = workspace
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
+    # Force a small max history for testing via settings
+    app.settings.prompt_history_size = 2
 
     async with app.run_test() as pilot:
         await pilot.click("#chat-input")
@@ -203,7 +200,7 @@ async def test_tui_history_navigation_complex(tmp_path):
         # Start a draft
         await pilot.click("#chat-input")
         await type_text(pilot, "draft")
-        assert chat_input.value == "draft"
+        assert chat_input.text == "draft"
 
         # Start a draft. Cursor is at the end after typing.
         # To trigger Up navigation from non-empty draft, must move to start.
