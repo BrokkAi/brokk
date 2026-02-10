@@ -765,14 +765,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
-    /**
-     * @deprecated Use {@link IProject#resolveDependencies(String)}
-     */
-    @Deprecated
-    protected Set<Dependency> namesToDependencies(String liveDepsNames) {
-        return resolveDependencies(liveDepsNames);
-    }
-
     @Nullable
     private volatile Map<Path, ProjectFile> filesByRelPathCache;
 
