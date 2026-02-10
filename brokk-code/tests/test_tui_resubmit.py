@@ -190,7 +190,6 @@ async def test_large_paste_submits_as_job():
         submits = [c for c in stub.calls if c["type"] == "submit"]
         assert len(submits) == 1
         assert submits[0]["input"] == large_text
-        
-        # Verify no context-add calls occurred (type "add_context_text" removed from stub, 
-        # but check for absence of any other calls)
+
+        # Verify it was submitted as a job
         assert all(c["type"] == "submit" for c in stub.calls)
