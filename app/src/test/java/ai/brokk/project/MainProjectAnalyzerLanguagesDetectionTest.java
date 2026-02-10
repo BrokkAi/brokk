@@ -96,6 +96,60 @@ public class MainProjectAnalyzerLanguagesDetectionTest {
         }
     }
 
+    @Test
+    public void testExplicitConfigIsPreservedWhenCacheInvalidated() throws IOException {
+        try (MainProject project = MainProject.forTests(tempDir)) {
+            // Setup: Set explicit languages via setAnalyzerLanguages
+            project.setAnalyzerLanguages(Set.of(Languages.GO));
+
+            // Act: Invalidate auto-detected languages
+            project.invalidateAutoDetectedLanguages();
+
+            // Assert: Explicit config is still returned
+            assertEquals(
+                    Set.of(Languages.GO),
+                    project.getAnalyzerLanguages(),
+                    "Explicit config should be preserved after invalidating auto-detected cache");
+        }
+    }
+
+    @Test
+    public void testCacheInvalidationTriggersReDetection() throws IOException {
+        // Setup: Create a project with a Java file dependency
+        Path depDir = createJavaDependency(tempDir, "dep-java");
+
+        try (MainProject project = MainProject.forTests(tempDir)) {
+            project.saveLiveDependencies(Set.of(depDir));
+
+            // Populate cache
+            Set<Language> firstCall = project.getAnalyzerLanguages();
+            assertTrue(firstCall.contains(Languages.JAVA), "Initial detection should find JAVA");
+
+            // Act: Invalidate
+            project.invalidateAutoDetectedLanguages();
+
+            // Assert: Next call still returns JAVA (it was re-detected)
+            Set<Language> secondCall = project.getAnalyzerLanguages();
+            assertTrue(secondCall.contains(Languages.JAVA), "Re-detection should still find JAVA");
+        }
+    }
+
+    @Test
+    public void testGetAnalyzerLanguagesUsesCache() throws IOException {
+        Files.writeString(tempDir.resolve("A.java"), "public class A {}");
+
+        try (MainProject project = MainProject.forTests(tempDir)) {
+            // First call populates cache
+            Set<Language> firstCall = project.getAnalyzerLanguages();
+
+            // Second call should return the same result from cache
+            Set<Language> secondCall = project.getAnalyzerLanguages();
+
+            assertEquals(firstCall, secondCall, "Subsequent calls should return same results");
+            assertTrue(firstCall.contains(Languages.JAVA));
+        }
+    }
+
     /**
      * Helper to create a dependency directory under .brokk/dependencies/<depName> with a simple
      * Java source file. Returns the top-level dependency directory Path suitable for passing to
