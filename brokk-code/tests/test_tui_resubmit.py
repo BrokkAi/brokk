@@ -145,10 +145,10 @@ async def test_multiline_paste_and_submit():
         await type_text(pilot, "line1")
         await pilot.press("shift+enter")
         await type_text(pilot, "line2")
-        
+
         # Verify UI state before submit
         assert chat_input.text == "line1\nline2"
-        
+
         await pilot.press("enter")
         await pilot.pause()
 

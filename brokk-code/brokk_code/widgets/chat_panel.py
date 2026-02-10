@@ -16,10 +16,7 @@ from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
 class ChatInput(TextArea):
     """A multiline text area for chat input that submits on Enter."""
 
-    BINDINGS = [
-        Binding("enter", "submit", "Submit", show=False),
-        Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
-    ]
+    BINDINGS = [Binding("shift+enter", "insert_newline", "Insert Newline", show=False)]
 
     class Submitted(Message):
         """Posted when user submits the text."""
@@ -36,6 +33,23 @@ class ChatInput(TextArea):
 
     def action_insert_newline(self) -> None:
         self.insert("\n")
+
+    async def _on_key(self, event: events.Key) -> None:
+        # TextArea consumes Enter for newline in its own _on_key. Intercept first so
+        # Enter submits and Shift+Enter inserts a newline.
+        if self.read_only:
+            return
+        if event.key == "enter":
+            event.stop()
+            event.prevent_default()
+            self.action_submit()
+            return
+        if event.key == "shift+enter":
+            event.stop()
+            event.prevent_default()
+            self.action_insert_newline()
+            return
+        await super()._on_key(event)
 
 
 class ChatPanel(Vertical):

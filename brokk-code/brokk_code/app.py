@@ -29,6 +29,7 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
+        Binding("ctrl+m", "toggle_mode", "Mode", show=True),
         Binding("f2", "change_theme", "Theme Palette", show=True),
     ]
 
@@ -393,6 +394,20 @@ class BrokkApp(App):
     def action_toggle_tasklist(self) -> None:
         panel = self.query_one("#side-tasklist")
         panel.display = not panel.display
+
+    def action_toggle_mode(self) -> None:
+        """Cycles through agent modes: LUTZ -> ASK -> SEARCH -> LUTZ."""
+        modes = ["LUTZ", "ASK", "SEARCH"]
+        try:
+            current_index = modes.index(self.agent_mode)
+        except ValueError:
+            current_index = 0
+
+        next_index = (current_index + 1) % len(modes)
+        self.agent_mode = modes[next_index]
+
+        chat = self.query_one(ChatPanel)
+        chat.add_system_message_markup(f"Mode changed to: [bold]{self.agent_mode}[/]")
 
     def action_toggle_notifications(self) -> None:
         panel = self.query_one("#notification-panel")
