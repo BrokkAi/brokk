@@ -570,6 +570,9 @@ Once running, the executor exposes the following endpoints:
   - Content-Type: `application/zip`
   - Returns: `{ "sessionId": "<uuid>" }`
 
+- **`GET /v1/tasklist`** - Get current task list content
+  - Returns: `{ "bigPicture": "...", "tasks": [ { "id": "...", "title": "...", "text": "...", "done": false }, ... ] }`
+
 ### Job Management (Authenticated)
 
 - **`POST /v1/jobs`** - Create and execute a job

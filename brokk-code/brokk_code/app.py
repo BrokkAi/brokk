@@ -48,6 +48,13 @@ class BrokkApp(App):
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.current_model = "gpt-5.2"
+        self.code_model: Optional[str] = "gemini-3-flash-preview"
+        self.reasoning_level: Optional[str] = "low"
+        self.reasoning_level_code: Optional[str] = "disable"
+        self.job_in_progress = False
+        self.current_job_id: Optional[str] = None
+        self._last_ctrl_c_time: float = 0
+        self._executor_ready: bool = False
 
     @property
     def current_mode(self) -> str:
@@ -57,13 +64,6 @@ class BrokkApp(App):
     @current_mode.setter
     def current_mode(self, value: str) -> None:
         self.agent_mode = value
-        self.code_model: Optional[str] = "gemini-3-flash-preview"
-        self.reasoning_level: Optional[str] = "low"
-        self.reasoning_level_code: Optional[str] = "disable"
-        self.job_in_progress = False
-        self.current_job_id: Optional[str] = None
-        self._last_ctrl_c_time: float = 0
-        self._executor_ready: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header()

@@ -172,6 +172,27 @@ Response (200 OK):
 { "id": "context-fragment-id", "chars": 87 }
 ```
 
+### Get Current Task List
+
+Retrieve the structured content of the current active task list.
+
+```bash
+curl -sS -X GET "${BASE}/v1/tasklist" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "bigPicture": "Implement error handling in UserService",
+  "tasks": [
+    { "id": "task-1", "title": "Add try-catch blocks", "text": "Wrap all database calls...", "done": true },
+    { "id": "task-2", "title": "Configure logger", "text": "Set up log4j configuration", "done": false }
+  ]
+}
+```
+
 Behavior notes:
 - Size limit: Up to 1 MiB (UTF-8 bytes). Larger payloads are rejected with HTTP 400.
 - Logging: Only the size is logged; the text content is never logged.
