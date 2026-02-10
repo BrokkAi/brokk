@@ -136,7 +136,8 @@ async def test_context_polling_updates_ui(tmp_path):
             # Verify ChatPanel Token Usage
             chat_panel = app.query_one(ChatPanel)
             usage_label = chat_panel.query_one("#chat-token-usage")
-            assert "Tokens: 1,500 / 100,000" in str(usage_label.renderable)
+            # The UI renders a progress bar when max_tokens is present
+            assert "1,500 / 100,000" in str(usage_label.renderable)
 
             # Verify List Contents
             list_view = panel.query_one("#context-list")

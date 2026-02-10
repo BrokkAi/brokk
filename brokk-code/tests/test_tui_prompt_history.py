@@ -1,8 +1,15 @@
+from typing import Any
+
 import pytest
 from pathlib import Path
 from brokk_code.app import BrokkApp
 from brokk_code.prompt_history import load_history
 from tests.test_tui_resubmit import StubExecutor
+
+
+async def type_text(pilot: Any, text: str) -> None:
+    for ch in text:
+        await pilot.press(ch)
 
 
 @pytest.mark.asyncio
@@ -14,27 +21,25 @@ async def test_tui_prompt_persistence(tmp_path):
     workspace = tmp_path / "project"
     workspace.mkdir()
 
-    stub = StubExecutor()
+    stub = StubExecutor(auto_release=True)
     stub.workspace_dir = workspace
-    # Allow jobs to finish immediately for this test
-    stub.release_stream.set()
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
 
     async with app.run_test() as pilot:
         # 1. Submit a normal prompt
         await pilot.click("#chat-input")
-        await pilot.press_ascii("hello world")
+        await type_text(pilot, "hello world")
         await pilot.press("enter")
         await pilot.pause()
 
         # 2. Submit a command (should NOT be persisted)
-        await pilot.press_ascii("/info")
+        await type_text(pilot, "/info")
         await pilot.press("enter")
         await pilot.pause()
 
         # 3. Submit another normal prompt
-        await pilot.press_ascii("second prompt")
+        await type_text(pilot, "second prompt")
         await pilot.press("enter")
         await pilot.pause()
 
@@ -56,9 +61,8 @@ async def test_tui_prompt_trimming(tmp_path, monkeypatch):
     workspace = tmp_path / "project_trim"
     workspace.mkdir()
 
-    stub = StubExecutor()
+    stub = StubExecutor(auto_release=True)
     stub.workspace_dir = workspace
-    stub.release_stream.set()
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
 
@@ -66,7 +70,7 @@ async def test_tui_prompt_trimming(tmp_path, monkeypatch):
         await pilot.click("#chat-input")
 
         for i in range(3):
-            await pilot.press_ascii(f"prompt {i}")
+            await type_text(pilot, f"prompt {i}")
             await pilot.press("enter")
             await pilot.pause()
             # Clear input manually if needed (ChatPanel usually clears on submit)
@@ -84,26 +88,25 @@ async def test_tui_history_commands(tmp_path):
     workspace = tmp_path / "project_cmd"
     workspace.mkdir()
 
-    stub = StubExecutor()
+    stub = StubExecutor(auto_release=True)
     stub.workspace_dir = workspace
-    stub.release_stream.set()
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
 
     async with app.run_test() as pilot:
         # 1. Add some history
         await pilot.click("#chat-input")
-        await pilot.press_ascii("prompt A")
+        await type_text(pilot, "prompt A")
         await pilot.press("enter")
         await pilot.pause()
 
         # 2. Check /history (just ensures no crash)
-        await pilot.press_ascii("/history")
+        await type_text(pilot, "/history")
         await pilot.press("enter")
         await pilot.pause()
 
         # 3. Clear history
-        await pilot.press_ascii("/history-clear")
+        await type_text(pilot, "/history-clear")
         await pilot.press("enter")
         await pilot.pause()
 
@@ -119,9 +122,8 @@ async def test_tui_history_navigation(tmp_path):
     workspace = tmp_path / "project_nav"
     workspace.mkdir()
 
-    stub = StubExecutor()
+    stub = StubExecutor(auto_release=True)
     stub.workspace_dir = workspace
-    stub.release_stream.set()
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
 
@@ -129,23 +131,25 @@ async def test_tui_history_navigation(tmp_path):
         await pilot.click("#chat-input")
 
         # 1. Populate some history
-        await pilot.press_ascii("first prompt")
+        await type_text(pilot, "first prompt")
         await pilot.press("enter")
         await pilot.pause()
-        await pilot.press_ascii("second prompt")
+        await type_text(pilot, "second prompt")
         await pilot.press("enter")
         await pilot.pause()
 
         # 2. Test navigation
         await pilot.click("#chat-input")
-        await pilot.press_ascii("draft text")
+        await type_text(pilot, "draft text")
 
         # Up once -> second prompt
         await pilot.press("up")
+        await pilot.pause()
         assert app.query_one("#chat-input").value == "second prompt"
 
         # Up again -> first prompt
         await pilot.press("up")
+        await pilot.pause()
         assert app.query_one("#chat-input").value == "first prompt"
 
         # Up again -> stays at first prompt (boundary)
@@ -172,9 +176,8 @@ async def test_tui_history_navigation_complex(tmp_path):
     workspace = tmp_path / "project_nav_complex"
     workspace.mkdir()
 
-    stub = StubExecutor()
+    stub = StubExecutor(auto_release=True)
     stub.workspace_dir = workspace
-    stub.release_stream.set()
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
 
@@ -183,7 +186,7 @@ async def test_tui_history_navigation_complex(tmp_path):
         prompts = ["one", "two", "three"]
         for p in prompts:
             await pilot.click("#chat-input")
-            await pilot.press_ascii(p)
+            await type_text(pilot, p)
             await pilot.press("enter")
             await pilot.pause()
 
@@ -191,19 +194,22 @@ async def test_tui_history_navigation_complex(tmp_path):
 
         # Start a draft
         await pilot.click("#chat-input")
-        await pilot.press_ascii("draft")
+        await type_text(pilot, "draft")
         assert chat_input.value == "draft"
 
         # Up x1 -> "three"
         await pilot.press("up")
+        await pilot.pause()
         assert chat_input.value == "three"
 
         # Up x1 -> "two"
         await pilot.press("up")
+        await pilot.pause()
         assert chat_input.value == "two"
 
         # Up x1 -> "one"
         await pilot.press("up")
+        await pilot.pause()
         assert chat_input.value == "one"
 
         # Up x1 -> stays at "one"
@@ -235,9 +241,8 @@ async def test_tui_history_duplicates(tmp_path):
     workspace = tmp_path / "project_dupes"
     workspace.mkdir()
 
-    stub = StubExecutor()
+    stub = StubExecutor(auto_release=True)
     stub.workspace_dir = workspace
-    stub.release_stream.set()
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
 
@@ -247,7 +252,7 @@ async def test_tui_history_duplicates(tmp_path):
         # Submit: "a", "b", "a"
         for p in ["a", "b", "a"]:
             await pilot.click("#chat-input")
-            await pilot.press_ascii(p)
+            await type_text(pilot, p)
             await pilot.press("enter")
             await pilot.pause()
 

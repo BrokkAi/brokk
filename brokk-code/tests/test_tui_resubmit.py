@@ -9,7 +9,7 @@ from brokk_code.widgets.chat_panel import ChatPanel
 
 
 class StubExecutor(ExecutorManager):
-    def __init__(self):
+    def __init__(self, auto_release: bool = False):
         super().__init__(workspace_dir=Path("."))
         self.calls: List[Dict[str, Any]] = []
         self.submit_count = 0
@@ -17,6 +17,7 @@ class StubExecutor(ExecutorManager):
         self.release_stream = asyncio.Event()
         # Event to notify test that stream_events has started
         self.stream_started = asyncio.Event()
+        self.auto_release = auto_release
 
     async def start(self):
         pass
@@ -52,10 +53,17 @@ class StubExecutor(ExecutorManager):
 
     async def stream_events(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
         self.stream_started.set()
+        if self.auto_release and not self.release_stream.is_set():
+            self.release_stream.set()
         await self.release_stream.wait()
         self.release_stream.clear()
 
         yield {"type": "LLM_TOKEN", "data": {"token": "done", "isTerminal": True}}
+
+
+async def type_text(pilot: Any, text: str) -> None:
+    for ch in text:
+        await pilot.press(ch)
 
 
 @pytest.mark.asyncio
@@ -72,7 +80,7 @@ async def test_cancel_and_resubmit_flow():
     async with app.run_test() as pilot:
         # 1. Submit first job
         await pilot.click("#chat-input")
-        await pilot.press_ascii("first")
+        await type_text(pilot, "first")
         await pilot.press("enter")
 
         # Wait for job to start streaming
@@ -85,9 +93,9 @@ async def test_cancel_and_resubmit_flow():
         # 2. Submit second and third job quickly while job-1 is "running"
         # The first 'enter' for 'second' triggers cancel_job('job-1') and sets _pending_prompt='second'
         # The second 'enter' for 'third' triggers cancel_job('job-1') again and updates _pending_prompt='third'
-        await pilot.press_ascii("second")
+        await type_text(pilot, "second")
         await pilot.press("enter")
-        await pilot.press_ascii("third")
+        await type_text(pilot, "third")
         await pilot.press("enter")
 
         # Now we allow the first job loop to terminate
