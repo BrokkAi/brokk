@@ -1307,6 +1307,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         if (candidate.isClass()) {
             // For classes/structs, ignore ONLY if the signature is also identical.
             // This allows template overloads/specializations with different parameters to coexist.
+            // Note: TreeSitterAnalyzer.addTopLevelCodeUnit already handles preferring definitions
+            // (hasBody=true) over forward declarations (hasBody=false) for classes with the same FQN.
             return Objects.equals(existing.signature(), candidate.signature());
         }
 

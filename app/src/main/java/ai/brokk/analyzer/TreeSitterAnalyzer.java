@@ -1762,16 +1762,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return;
         }
 
-        // SPECIAL CASE: For functions, prefer the definition (with body) over a forward declaration.
+        // SPECIAL CASE: For functions and classes, prefer the definition (with body) over a forward declaration.
         // Use AST-derived hasBody flag captured during analysis instead of string marker inspection.
-        if (cu.isFunction() && existingDuplicate.isFunction()) {
+        if ((cu.isFunction() && existingDuplicate.isFunction()) || (cu.isClass() && existingDuplicate.isClass())) {
             boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
             boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
-                // Keep existing (definition) and ignore new declaration
+                // Keep existing (definition) and ignore new declaration/duplicate
                 log.trace(
-                        "Ignoring duplicate declaration for {} in {} because definition already present",
+                        "Ignoring duplicate {} for {} in {} because definition already present",
+                        cu.isFunction() ? "declaration" : "forward declaration",
                         cu.fqName(),
                         file.getFileName());
                 return;
@@ -1781,7 +1782,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localTopLevelCUs.add(cu);
                 removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
                 return;
-            } else {
+            } else if (cu.isFunction()) {
                 // If both have body or both lack body, allow the language to classify some duplicates
                 // as benign (e.g., C++: same fqName + identical signature across translation units).
                 if (isBenignDuplicate(existingDuplicate, cu)) {
@@ -1923,15 +1924,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return;
         }
 
-        // If both are functions and language allows replacement, prefer the one with a body
-        if (cu.isFunction() && existingDuplicate.isFunction() && shouldReplaceOnDuplicate(existingDuplicate, cu)) {
+        // If both are functions or classes, prefer the one with a body (definition over forward decl)
+        if ((cu.isFunction() && existingDuplicate.isFunction()) || (cu.isClass() && existingDuplicate.isClass())) {
             boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
             boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
                 // Keep existing definition
                 log.trace(
-                        "Skipping duplicate function child '{}' in parent '{}' - existing has body, candidate does not",
+                        "Skipping duplicate {} child '{}' in parent '{}' - existing has body, candidate does not",
+                        cu.isFunction() ? "function" : "class",
                         cu.fqName(),
                         parentCu.fqName());
                 return;
