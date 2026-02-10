@@ -103,7 +103,9 @@ class ChatPanel(Vertical):
                 time_str = f"{minutes:02}:{seconds:02}"
 
             timer_label.update(f"Elapsed: {time_str}")
-            await asyncio.sleep(1.0)
+            # Use a smaller sleep interval to remain responsive to _job_start_time becoming None,
+            # but the logic remains driven by _get_now for deterministic testing.
+            await asyncio.sleep(0.1)
 
     @work(exclusive=True)
     async def _monitor_inactivity(self) -> None:
