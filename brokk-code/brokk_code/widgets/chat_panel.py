@@ -359,9 +359,7 @@ class ChatPanel(Vertical):
 
         if used <= 0:
             usage_label.update("")
-            return
-
-        if max_tokens:
+        elif max_tokens:
             usage_label.update(f"Tokens: {used:,} / {max_tokens:,}")
         else:
             usage_label.update(f"Tokens: {used:,}")
