@@ -71,6 +71,8 @@ class BrokkApp(App):
         self._pending_prompt: Optional[str] = None
         self._pending_updated_at: float = 0
         self._pending_generation: int = 0
+        self._pending_min_wait_until: float = 0.0
+        self._resubmit_grace_s: float = 0.2
         self._last_ctrl_c_time: float = 0
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
@@ -294,8 +296,12 @@ class BrokkApp(App):
             chat.add_user_message(raw_text)
             if self.job_in_progress and self.current_job_id:
                 self._pending_prompt = raw_text
-                self._pending_updated_at = time.monotonic()
+                now = time.monotonic()
+                self._pending_updated_at = now
                 self._pending_generation += 1
+                self._pending_min_wait_until = max(
+                    self._pending_min_wait_until, now + self._resubmit_grace_s
+                )
                 chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
             else:
@@ -322,17 +328,21 @@ class BrokkApp(App):
         finally:
             chat.set_response_finished()
 
-            # Small yield to catch any near-simultaneous pending updates arriving via event loop
-            await asyncio.sleep(0.01)
-
             if self._pending_prompt:
-                # Wait for pending prompt to stabilize (debounce).
-                # This ensures that "intermediate" prompts in a rapid sequence are dropped.
+                # Wait for both the grace window (since cancellation)
+                # and the stability debounce (since last keystroke/submit).
                 debounce_window = 0.05  # 50ms
                 while True:
+                    now = time.monotonic()
                     current_gen = self._pending_generation
-                    elapsed = time.monotonic() - self._pending_updated_at
-                    if elapsed >= debounce_window and self._pending_generation == current_gen:
+                    elapsed_since_update = now - self._pending_updated_at
+
+                    # We must be past the absolute grace timestamp AND stable for the debounce window
+                    if (
+                        now >= self._pending_min_wait_until
+                        and elapsed_since_update >= debounce_window
+                        and self._pending_generation == current_gen
+                    ):
                         break
                     await asyncio.sleep(0.01)
 
@@ -340,6 +350,7 @@ class BrokkApp(App):
                 self._pending_prompt = None
                 self._pending_updated_at = 0
                 self._pending_generation = 0
+                self._pending_min_wait_until = 0.0
 
                 # Recurse within the same worker context to prevent
                 # the app from flickering to 'idle' and allowing race-condition submits.
@@ -532,6 +543,7 @@ class BrokkApp(App):
             self._pending_prompt = None  # Clear any pending prompt on manual cancel
             self._pending_updated_at = 0
             self._pending_generation = 0
+            self._pending_min_wait_until = 0.0
             self.query_one(ChatPanel).add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)
             # Reset double-tap timer so they don't accidentally quit while cancelling
