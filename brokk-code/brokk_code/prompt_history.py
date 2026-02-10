@@ -15,6 +15,8 @@ def get_history_file(workspace_dir: Path) -> Path:
 
 def append_prompt(workspace_dir: Path, prompt: str, max_history: int = DEFAULT_MAX_HISTORY) -> None:
     """Appends a prompt to the history and trims to the last N entries."""
+    if not prompt:
+        return
     history = load_history(workspace_dir)
     history.append(prompt)
     if len(history) > max_history:

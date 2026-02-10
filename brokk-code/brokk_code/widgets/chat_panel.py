@@ -113,10 +113,10 @@ class ChatPanel(Vertical):
         self._history_index = -1
 
     def add_history_entry(self, text: str) -> None:
-        """Adds a new entry to the history if it isn't a command."""
+        """Adds a new entry to the history if it isn't a command.
+        Duplicates are preserved to maintain chronological sequence."""
         if text and not text.startswith("/"):
-            if not self._history or self._history[-1] != text:
-                self._history.append(text)
+            self._history.append(text)
         self._history_index = -1
 
     def on_input_submitted(self, event: Input.Submitted) -> None:

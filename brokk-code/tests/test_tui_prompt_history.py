@@ -219,3 +219,41 @@ async def test_tui_history_navigation_complex(tmp_path):
         # Down x1 -> stays at "draft"
         await pilot.press("down")
         assert chat_input.value == "draft"
+
+@pytest.mark.asyncio
+async def test_tui_history_duplicates(tmp_path):
+    """
+    Verify that history preserves duplicates and cycles through them.
+    """
+    workspace = tmp_path / "project_dupes"
+    workspace.mkdir()
+
+    stub = StubExecutor()
+    stub.workspace_dir = workspace
+    stub.release_stream.set()
+
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        
+        # Submit: "a", "b", "a"
+        for p in ["a", "b", "a"]:
+            await pilot.click("#chat-input")
+            await pilot.press_ascii(p)
+            await pilot.press("enter")
+            await pilot.pause()
+
+        await pilot.click("#chat-input")
+        
+        # Up 1 -> "a"
+        await pilot.press("up")
+        assert chat_input.value == "a"
+        
+        # Up 2 -> "b"
+        await pilot.press("up")
+        assert chat_input.value == "b"
+        
+        # Up 3 -> "a"
+        await pilot.press("up")
+        assert chat_input.value == "a"
