@@ -13,20 +13,24 @@ def test_action_toggle_mode_cycles_correctly():
 
     # Initial state
     assert app.agent_mode == "LUTZ"
+    assert app.sub_title == "Mode: LUTZ"
 
     # Cycle 1: LUTZ -> ASK
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
+    assert app.sub_title == "Mode: ASK"
     mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]ASK[/]")
 
     # Cycle 2: ASK -> SEARCH
     app.action_toggle_mode()
     assert app.agent_mode == "SEARCH"
+    assert app.sub_title == "Mode: SEARCH"
     mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]SEARCH[/]")
 
     # Cycle 3: SEARCH -> LUTZ
     app.action_toggle_mode()
     assert app.agent_mode == "LUTZ"
+    assert app.sub_title == "Mode: LUTZ"
     mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
 
 

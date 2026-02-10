@@ -55,6 +55,7 @@ class BrokkApp(App):
         self.settings = Settings.load()
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
+        self.sub_title = f"Mode: {self.agent_mode}"
         self.current_model = "gpt-5.2"
         self.code_model: Optional[str] = "gemini-3-flash-preview"
         self.reasoning_level: Optional[str] = "low"
@@ -405,6 +406,7 @@ class BrokkApp(App):
 
         next_index = (current_index + 1) % len(modes)
         self.agent_mode = modes[next_index]
+        self.sub_title = f"Mode: {self.agent_mode}"
 
         chat = self.query_one(ChatPanel)
         chat.add_system_message_markup(f"Mode changed to: [bold]{self.agent_mode}[/]")
