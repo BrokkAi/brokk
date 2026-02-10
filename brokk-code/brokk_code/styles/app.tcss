@@ -69,6 +69,8 @@ ChatPanel {
 #chat-spinner-area {
     height: 1;
     margin: 0 2;
+    layout: horizontal;
+    align: left middle;
 }
 
 #chat-spinner-area.hidden {
@@ -77,8 +79,15 @@ ChatPanel {
 
 #chat-spinner {
     height: 1;
+    width: auto;
+    min-width: 3;
     background: transparent;
     color: $accent;
+}
+
+#chat-timer {
+    height: 1;
+    content-align: left middle;
 }
 
 #chat-input {
