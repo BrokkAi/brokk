@@ -2,6 +2,7 @@ package dev.langchain4j.model.openai;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -92,5 +93,33 @@ public class OpenAiStreamingResponseBuilderTest {
 
         // content preserved
         assertEquals("Hi", chatResponse.aiMessage().text());
+    }
+
+    @Test
+    void streaming_missing_finish_reason_results_in_null_finishReason() {
+        OpenAiStreamingResponseBuilder builder = new OpenAiStreamingResponseBuilder();
+
+        ChatCompletionChoice choice = ChatCompletionChoice.builder()
+                .delta(Delta.builder().content("NoReason").build())
+                // note: no finishReason() set -> simulated missing/null finish_reason in OpenAI response
+                .build();
+
+        ChatCompletionResponse response = ChatCompletionResponse.builder()
+                .model("gpt-4.1-opus")
+                .choices(List.of(choice))
+                .build();
+
+        builder.append(response);
+
+        ChatResponse chatResponse = builder.build();
+        assertNotNull(chatResponse);
+        assertTrue(chatResponse.metadata() instanceof OpenAiChatResponseMetadata);
+
+        OpenAiChatResponseMetadata metadata = (OpenAiChatResponseMetadata) chatResponse.metadata();
+        // When OpenAI omits finish_reason entirely, we preserve null to indicate "not provided"
+        assertNull(metadata.finishReason(), "finishReason should be null when OpenAI provided no finish_reason");
+
+        // content preserved
+        assertEquals("NoReason", chatResponse.aiMessage().text());
     }
 }
