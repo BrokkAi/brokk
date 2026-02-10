@@ -40,6 +40,36 @@ def test_action_toggle_mode_cycles_correctly():
     )
 
 
+def test_handle_command_updates_mode_and_subtitle():
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    # Test /ask
+    app._handle_command("/ask")
+    assert app.agent_mode == "ASK"
+    assert app.sub_title == "Mode: ASK"
+    mock_chat.add_system_message_markup.assert_called_with(
+        "Mode changed to: [bold]ASK[/]", level="WARNING"
+    )
+
+    # Test /search
+    app._handle_command("/search")
+    assert app.agent_mode == "SEARCH"
+    assert app.sub_title == "Mode: SEARCH"
+    mock_chat.add_system_message_markup.assert_called_with(
+        "Mode changed to: [bold]SEARCH[/]", level="WARNING"
+    )
+
+    # Test /lutz
+    app._handle_command("/lutz")
+    assert app.agent_mode == "LUTZ"
+    assert app.sub_title == "Mode: LUTZ"
+    mock_chat.add_system_message_markup.assert_called_with(
+        "Mode changed to: [bold]LUTZ[/]", level="WARNING"
+    )
+
+
 def test_mode_toggle_bindings_exist():
     app = BrokkApp(executor=MagicMock())
     # Verify the bindings are present and mapped to toggle_mode
