@@ -77,17 +77,25 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 null);
     }
 
+    /**
+     * Master constructor.
+     * Assumes root and masterRootPathForConfig (if provided) are already absolute and normalized.
+     */
     protected AbstractProject(Path root, @Nullable Path masterRootPathForConfig, @Nullable IGitRepo repo) {
-        this.root = root.toAbsolutePath().normalize();
+        assert root.isAbsolute() && root.equals(root.normalize()) : "Root must be absolute and normalized: " + root;
+        if (masterRootPathForConfig != null) {
+            assert masterRootPathForConfig.isAbsolute()
+                            && masterRootPathForConfig.equals(masterRootPathForConfig.normalize())
+                    : "Master root must be absolute and normalized: " + masterRootPathForConfig;
+        }
+
+        this.root = root;
         this.repo = repo != null
                 ? repo
                 : (GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root));
         this.masterRootPathForConfig = masterRootPathForConfig != null
                 ? masterRootPathForConfig
                 : computeMasterRootForConfig(this.root, this.repo);
-
-        assert this.root.isAbsolute() : this.root;
-        assert this.masterRootPathForConfig.isAbsolute() : this.masterRootPathForConfig;
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
