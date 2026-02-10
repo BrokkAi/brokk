@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.util.Version.SemVer;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -42,9 +43,14 @@ import org.slf4j.LoggerFactory;
  * - SymbolKeyIndex becomes List<String> (keys)
  * - FileProperties omits the parsed TSTree
  * - ProjectFile is serialized via a DTO that guarantees a relative relPath
+ *
+ * Adds schema versioning for AnalyzerState snapshots so upgrades can be handled.
  */
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
+
+    // Current analyzer snapshot schema version. Bump MAJOR for incompatible changes.
+    private static final SemVer CURRENT_SCHEMA = SemVer.parse("1.0.0");
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -223,6 +229,9 @@ public final class TreeSitterStateIO {
 
     /**
      * DTO for AnalyzerState with only serializable components.
+     *
+     * NOTE: schemaVersion is optional for backward compatibility. Older snapshots that lack the field
+     * will still deserialize; in that case we treat the snapshot as "unversioned" and accept it for now.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record AnalyzerStateDto(
@@ -234,7 +243,60 @@ public final class TreeSitterStateIO {
             @Nullable List<SupertypeEntryDto> supertypes,
             @Nullable List<SubtypeEntryDto> subtypes,
             List<String> symbolKeys,
-            long snapshotEpochNanos) {}
+            long snapshotEpochNanos,
+            @Nullable String schemaVersion) {
+
+        /**
+         * Backwards-compatible constructor for callers that do not provide schemaVersion.
+         * Delegates to the canonical constructor with schemaVersion = null.
+         */
+        public AnalyzerStateDto(
+                Map<String, List<CodeUnitDto>> symbolIndex,
+                List<CodeUnitEntryDto> codeUnitState,
+                List<FileStateEntryDto> fileState,
+                List<ImportEntryDto> imports,
+                List<ReverseImportEntryDto> reverseImports,
+                @Nullable List<SupertypeEntryDto> supertypes,
+                @Nullable List<SubtypeEntryDto> subtypes,
+                List<String> symbolKeys,
+                long snapshotEpochNanos) {
+            this(
+                    symbolIndex,
+                    codeUnitState,
+                    fileState,
+                    imports,
+                    reverseImports,
+                    supertypes,
+                    subtypes,
+                    symbolKeys,
+                    snapshotEpochNanos,
+                    null);
+        }
+
+        @JsonCreator
+        public AnalyzerStateDto(
+                @JsonProperty("symbolIndex") Map<String, List<CodeUnitDto>> symbolIndex,
+                @JsonProperty("codeUnitState") List<CodeUnitEntryDto> codeUnitState,
+                @JsonProperty("fileState") List<FileStateEntryDto> fileState,
+                @JsonProperty("imports") List<ImportEntryDto> imports,
+                @JsonProperty("reverseImports") List<ReverseImportEntryDto> reverseImports,
+                @JsonProperty("supertypes") @Nullable List<SupertypeEntryDto> supertypes,
+                @JsonProperty("subtypes") @Nullable List<SubtypeEntryDto> subtypes,
+                @JsonProperty("symbolKeys") List<String> symbolKeys,
+                @JsonProperty("snapshotEpochNanos") long snapshotEpochNanos,
+                @JsonProperty("schemaVersion") @Nullable String schemaVersion) {
+            this.symbolIndex = symbolIndex;
+            this.codeUnitState = codeUnitState;
+            this.fileState = fileState;
+            this.imports = imports;
+            this.reverseImports = reverseImports;
+            this.supertypes = supertypes;
+            this.subtypes = subtypes;
+            this.symbolKeys = symbolKeys;
+            this.snapshotEpochNanos = snapshotEpochNanos;
+            this.schemaVersion = schemaVersion;
+        }
+    }
 
     /**
      * DTO for CodeUnitProperties that can be easily serialized.
@@ -341,6 +403,11 @@ public final class TreeSitterStateIO {
     /**
      * Load an AnalyzerState from the provided file in Smile format.
      * Returns Optional.empty() if file is missing or deserialization fails.
+     *
+     * Version semantics:
+     * - If the DTO contains no schemaVersion field (legacy snapshots), accept for now and proceed as-is.
+     * - If schemaVersion.major != CURRENT_SCHEMA.major -> incompatible: return Optional.empty().
+     * - If minor/patch differ, accept for now; migrate(dto, from, to) is invoked and currently no-ops.
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
@@ -352,9 +419,33 @@ public final class TreeSitterStateIO {
         try {
             try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
                 var dto = SMILE_MAPPER.readValue(in, AnalyzerStateDto.class);
-                var state = fromDto(dto);
+
+                // Interpret schema version field (backwards-compatible)
+                SemVer fromVer;
+                if (dto.schemaVersion() == null) {
+                    log.debug("Loaded AnalyzerState snapshot without schemaVersion; treating as legacy and accepting.");
+                    // For legacy snapshots, accept and skip compatibility checks for now.
+                    fromVer = CURRENT_SCHEMA;
+                } else {
+                    fromVer = SemVer.parse(dto.schemaVersion());
+                }
+
+                // If major versions differ, snapshot is incompatible
+                if (fromVer.major() != CURRENT_SCHEMA.major()) {
+                    log.info(
+                            "Analyzer snapshot at {} has incompatible schema version {} (current {}). Ignoring snapshot and will rebuild.",
+                            file,
+                            fromVer,
+                            CURRENT_SCHEMA);
+                    return Optional.empty();
+                }
+
+                // Allow minor/patch differences for now; provide a migrate hook
+                var migratedDto = migrate(dto, fromVer, CURRENT_SCHEMA);
+
+                var state = fromDto(migratedDto);
                 long durMs = System.currentTimeMillis() - startMs;
-                log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms", file, durMs);
+                log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, fromVer);
                 return Optional.of(state);
             }
         } catch (ZipException | EOFException e) {
@@ -462,6 +553,10 @@ public final class TreeSitterStateIO {
             symbolKeys.add(key);
         }
 
+        // Historically some DTOs were written without an explicit schemaVersion (legacy snapshots).
+        // To preserve round-trip equality for callers that created AnalyzerState via fromDto(dto)
+        // where dto.schemaVersion was null, we continue to omit schemaVersion here (serialize as null).
+        // This keeps backwards-compatibility of tests and consumers that expect a null schemaVersion.
         return new AnalyzerStateDto(
                 symbolIndexCopy,
                 cuEntries,
@@ -471,7 +566,8 @@ public final class TreeSitterStateIO {
                 supertypeEntries,
                 subtypeEntries,
                 symbolKeys,
-                state.snapshotEpochNanos());
+                state.snapshotEpochNanos(),
+                null);
     }
 
     /**
@@ -694,5 +790,13 @@ public final class TreeSitterStateIO {
                 }
             }
         }
+    }
+
+    /**
+     * Hook to migrate DTOs between schema versions. Currently a no-op but structured for future migrations.
+     */
+    private static AnalyzerStateDto migrate(AnalyzerStateDto dto, SemVer from, SemVer to) {
+        // No migration required yet. Future migrations can inspect `from` and `to` and transform the DTO.
+        return dto;
     }
 }

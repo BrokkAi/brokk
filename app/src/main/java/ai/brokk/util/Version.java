@@ -4,6 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 import org.jspecify.annotations.NullMarked;
 
+/**
+ * Legacy Version comparator kept for historical uses.  New SemVer utilities preferred for schema/version
+ * comparisons.
+ */
 @NullMarked
 public record Version(String versionString) implements Comparable<Version> {
 
@@ -106,5 +110,91 @@ public record Version(String versionString) implements Comparable<Version> {
         }
 
         return tokens;
+    }
+
+    /**
+     * Simple SemVer utility for schema versioning and comparisons.
+     *
+     * Supports parsing "MAJOR.MINOR.PATCH" optionally followed by pre-release/build metadata,
+     * but only major/minor/patch are used for compatibility decisions.
+     */
+    @NullMarked
+    public static final class SemVer implements Comparable<SemVer> {
+        private final int major;
+        private final int minor;
+        private final int patch;
+        private final String original;
+
+        private SemVer(int major, int minor, int patch, String original) {
+            this.major = major;
+            this.minor = minor;
+            this.patch = patch;
+            this.original = original;
+        }
+
+        public static SemVer parse(String text) {
+            if (text == null) {
+                return new SemVer(0, 0, 0, "0.0.0");
+            }
+            String s = text.strip();
+            // Remove any pre-release or build metadata for numeric parsing
+            int idx = s.indexOf('-');
+            if (idx >= 0) s = s.substring(0, idx);
+            idx = s.indexOf('+');
+            if (idx >= 0) s = s.substring(0, idx);
+            String[] parts = s.split("\\.");
+            int maj = parts.length > 0 ? parseOrZero(parts[0]) : 0;
+            int min = parts.length > 1 ? parseOrZero(parts[1]) : 0;
+            int pat = parts.length > 2 ? parseOrZero(parts[2]) : 0;
+            return new SemVer(maj, min, pat, text);
+        }
+
+        private static int parseOrZero(String p) {
+            try {
+                return Integer.parseInt(p);
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+
+        public int major() {
+            return major;
+        }
+
+        public int minor() {
+            return minor;
+        }
+
+        public int patch() {
+            return patch;
+        }
+
+        @Override
+        public int compareTo(SemVer other) {
+            if (this.major != other.major) return Integer.compare(this.major, other.major);
+            if (this.minor != other.minor) return Integer.compare(this.minor, other.minor);
+            return Integer.compare(this.patch, other.patch);
+        }
+
+        @Override
+        public String toString() {
+            return original != null ? original : (major + "." + minor + "." + patch);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof SemVer)) return false;
+            SemVer other = (SemVer) o;
+            return this.major == other.major && this.minor == other.minor && this.patch == other.patch;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Integer.hashCode(major);
+            result = 31 * result + Integer.hashCode(minor);
+            result = 31 * result + Integer.hashCode(patch);
+            return result;
+        }
     }
 }
