@@ -824,6 +824,10 @@ public class Chrome
                 rightPanel.getHistoryOutputPanel().getLlmStreamArea().resetZoom();
             }
         });
+
+        // NOTE: There is currently no Theme Palette shortcut registered here in Chrome.java.
+        // If a shortcut for changing themes exists, it is likely registered as a MenuBar
+        // accelerator or within a specialized component.
     }
 
     private static void bindKey(JRootPane rootPane, @Nullable KeyStroke stroke, String actionKey) {
