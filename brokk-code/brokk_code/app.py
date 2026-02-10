@@ -201,16 +201,27 @@ class BrokkApp(App):
             chat.add_system_message_markup(
                 f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
             )
-        elif base == "/theme" and len(parts) > 1:
-            theme_val = parts[1].lower()
-            if theme_val in self.available_themes:
-                self._set_theme(theme_val)
-                chat.add_system_message_markup(f"Theme changed to: [bold]{theme_val}[/]")
-            else:
-                available = ", ".join(sorted(self.available_themes))
-                chat.add_system_message(
-                    f"Invalid theme '{theme_val}'. Available: {available}", level="ERROR"
+        elif base == "/theme":
+            from rich.markup import escape
+
+            if len(parts) == 1:
+                chat.add_system_message_markup(
+                    f"Current theme: [bold]{escape(self.theme)}[/]\n"
+                    "Use [bold]/theme list[/] to see available themes."
                 )
+            elif parts[1].lower() == "list":
+                available = ", ".join(f"[bold]{escape(t)}[/]" for t in sorted(self.available_themes))
+                chat.add_system_message_markup(f"Available themes: {available}")
+            else:
+                theme_val = normalize_theme_name(parts[1].lower())
+                if theme_val in self.available_themes:
+                    self._set_theme(theme_val)
+                    chat.add_system_message_markup(f"Theme changed to: [bold]{escape(theme_val)}[/]")
+                else:
+                    available = ", ".join(sorted(self.available_themes))
+                    chat.add_system_message(
+                        f"Invalid theme '{parts[1]}'. Available: {available}", level="ERROR"
+                    )
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -218,7 +229,7 @@ class BrokkApp(App):
                 "  /model-code <name>    - Change the code LLM model\n"
                 "  /reasoning <level>    - Set reasoning level for planner\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
-                "  /theme <dark|light>   - Change UI theme\n"
+                "  /theme [list|<name>]  - List or set UI theme\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
             )

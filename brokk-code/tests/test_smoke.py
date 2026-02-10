@@ -62,6 +62,28 @@ def test_app_theme_cycling(tmp_path, monkeypatch):
         assert app.theme == expected_theme
 
 
+def test_app_theme_commands(tmp_path, monkeypatch):
+    """Verify /theme commands update settings and app state."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    # Test /theme <name>
+    app._handle_command("/theme textual-light")
+    assert app.theme == "textual-light"
+    assert app.settings.theme == "textual-light"
+
+    # Test /theme <alias>
+    app._handle_command("/theme builtin:dark")
+    assert app.theme == "textual-dark"
+    assert app.settings.theme == "textual-dark"
+
+    # Test /theme list (smoke test for no crash)
+    app._handle_command("/theme list")
+
+    # Test /theme (smoke test for no crash)
+    app._handle_command("/theme")
+
+
 def test_version():
     from brokk_code import __version__
 
