@@ -451,6 +451,8 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
      * Note: package-visible for testability only; do not make public.
      */
     void handleLiveToggleTableEvent(TableModelEvent e) {
+        assert SwingUtilities.isEventDispatchThread();
+
         // Ignore header/structure change events
         if (e.getFirstRow() == TableModelEvent.HEADER_ROW) return;
         if (isProgrammaticChange) return;
