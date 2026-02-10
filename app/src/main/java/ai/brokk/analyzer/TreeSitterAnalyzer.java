@@ -1752,7 +1752,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             if (existingHasBody && !candidateHasBody) {
                 log.trace(
                         "Ignoring {} declaration for {} (definition already present)",
-                        cu.kind().name().toLowerCase(),
+                        cu.kind().name().toLowerCase(Locale.ROOT),
                         cu.fqName());
                 return;
             } else if (candidateHasBody && !existingHasBody) {
@@ -1815,7 +1815,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     private void addChildCodeUnit(
             CodeUnit cu,
-            CodeUnit parentCu,
             List<CodeUnit> kids,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<CodeUnit, List<String>> localSignatures,
@@ -1841,7 +1840,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             if (existingHasBody && !candidateHasBody) {
                 log.trace(
                         "Skipping {} child '{}' - definition already present",
-                        cu.kind().name().toLowerCase(),
+                        cu.kind().name().toLowerCase(Locale.ROOT),
                         cu.fqName());
                 return;
             } else if (candidateHasBody && !existingHasBody) {
@@ -2320,8 +2319,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     CodeUnit parentFnCu = localCuByFqName.get(methodFqName);
                     if (parentFnCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
-                        addChildCodeUnit(
-                                cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges, localHasBody);
+                        addChildCodeUnit(cu, kids, localChildren, localSignatures, localSourceRanges, localHasBody);
                         attachedToParent = true;
                     } else {
                         log.trace(
@@ -2346,8 +2344,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
-                        addChildCodeUnit(
-                                cu, parentCu, kids, localChildren, localSignatures, localSourceRanges, localHasBody);
+                        addChildCodeUnit(cu, kids, localChildren, localSignatures, localSourceRanges, localHasBody);
                     } else {
                         log.trace(
                                 "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",
