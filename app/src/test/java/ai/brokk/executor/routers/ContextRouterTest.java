@@ -41,11 +41,10 @@ class ContextRouterTest {
 
     @Test
     void handlePostContextFiles_allPathsInvalid_returns400WithDetailedMessage() throws Exception {
-        var absoluteOutsideWorkspace = projectRoot.resolveSibling("outside-workspace").toString();
+        var absoluteOutsideWorkspace =
+                projectRoot.resolveSibling("outside-workspace").toString();
         Map<String, Object> body =
-                Map.of(
-                        "relativePaths",
-                        List.of(absoluteOutsideWorkspace, "../outside/workspace", "nonexistent.txt"));
+                Map.of("relativePaths", List.of(absoluteOutsideWorkspace, "../outside/workspace", "nonexistent.txt"));
 
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/context/files", body);
         contextRouter.handle(exchange);
