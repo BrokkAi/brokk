@@ -50,3 +50,13 @@ def save_history(workspace_dir: Path, history: List[str]) -> None:
         temp_file.replace(history_file)
     except Exception as e:
         logger.error("Failed to save prompt history to %s: %s", history_file, e)
+
+
+def clear_history(workspace_dir: Path) -> None:
+    """Deletes the prompt history file."""
+    history_file = get_history_file(workspace_dir)
+    try:
+        if history_file.exists():
+            history_file.unlink()
+    except Exception as e:
+        logger.error("Failed to clear prompt history at %s: %s", history_file, e)

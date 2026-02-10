@@ -71,3 +71,37 @@ async def test_tui_prompt_trimming(tmp_path, monkeypatch):
         history = load_history(workspace)
         assert len(history) == 2
         assert history == ["prompt 1", "prompt 2"]
+
+@pytest.mark.asyncio
+async def test_tui_history_commands(tmp_path):
+    """
+    Verify /history and /history-clear commands via TUI.
+    """
+    workspace = tmp_path / "project_cmd"
+    workspace.mkdir()
+    
+    stub = StubExecutor()
+    stub.workspace_dir = workspace
+    stub.release_stream.set()
+    
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+    
+    async with app.run_test() as pilot:
+        # 1. Add some history
+        await pilot.click("#chat-input")
+        await pilot.press_ascii("prompt A")
+        await pilot.press("enter")
+        await pilot.pause()
+        
+        # 2. Check /history (just ensures no crash)
+        await pilot.press_ascii("/history")
+        await pilot.press("enter")
+        await pilot.pause()
+        
+        # 3. Clear history
+        await pilot.press_ascii("/history-clear")
+        await pilot.press("enter")
+        await pilot.pause()
+        
+        # Verify empty on disk
+        assert load_history(workspace) == []

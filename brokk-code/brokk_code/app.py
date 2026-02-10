@@ -10,7 +10,7 @@ from textual.containers import Horizontal
 from textual.widgets import Footer, Header
 
 from brokk_code.executor import ExecutorError, ExecutorManager
-from brokk_code.prompt_history import append_prompt
+from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
@@ -270,6 +270,16 @@ class BrokkApp(App):
             chat.add_system_message_markup(f"Mode changed to: [bold]{self.current_mode}[/]")
         elif base == "/info":
             self._render_info()
+        elif base == "/history":
+            history = load_history(self.executor.workspace_dir)
+            if not history:
+                chat.add_system_message("Prompt history is empty.")
+            else:
+                formatted = "\n".join(f"{i+1}. {p}" for i, p in enumerate(history))
+                chat.append_message("System", f"Recent Prompts:\n{formatted}")
+        elif base == "/history-clear":
+            clear_history(self.executor.workspace_dir)
+            chat.add_system_message("Prompt history cleared.")
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -281,6 +291,8 @@ class BrokkApp(App):
                 "  /reasoning <level>    - Set reasoning level for planner\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
                 "  /theme, /palette      - Open the theme palette\n"
+                "  /history              - Show recent prompt history\n"
+                "  /history-clear        - Clear prompt history\n"
                 "  /info                 - Show current configuration and status\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
