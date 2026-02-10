@@ -1615,6 +1615,59 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testTemplateClassConstructorDisambiguation() throws IOException {
+        String content =
+                """
+                template <typename T>
+                class Container {
+                public:
+                    Container(T value) : val(value) {}
+                private:
+                    T val;
+                };
+
+                template <typename T, typename U>
+                class PairContainer {
+                public:
+                    PairContainer(T t, U u) : first(t), second(u) {}
+                private:
+                    T first;
+                    U second;
+                };
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "ctor_templates.hpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile).stream()
+                    .filter(cu -> cu.isFunction())
+                    .toList();
+
+            // Verify both constructors exist and have distinct signatures including class templates
+            var containerCtor = declarations.stream()
+                    .filter(cu -> cu.fqName().endsWith("Container.Container"))
+                    .findFirst()
+                    .orElseThrow();
+            var pairCtor = declarations.stream()
+                    .filter(cu -> cu.fqName().endsWith("PairContainer.PairContainer"))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertNotNull(containerCtor.signature());
+            assertNotNull(pairCtor.signature());
+
+            assertTrue(
+                    containerCtor.signature().startsWith("<typename T>"),
+                    "Container constructor signature should include class template: " + containerCtor.signature());
+            assertTrue(
+                    pairCtor.signature().startsWith("<typename T, typename U>"),
+                    "PairContainer constructor signature should include class template: " + pairCtor.signature());
+        }
+    }
+
+    @Test
     public void testGetDefinitionsStableOrderingPrefersDefinitions() {
         // Lookup overloads by base name via the analyzer lookup (uses normalizeFullName)
         var defs = analyzer.getDefinitions("overloadedFunction").stream().toList();

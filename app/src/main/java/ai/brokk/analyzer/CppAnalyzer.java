@@ -920,22 +920,59 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         if (skeletonType == SkeletonType.FUNCTION_LIKE) {
             String paramSignature = buildCppOverloadSuffix(definitionNode, sourceContent);
             String qualifierSuffix = buildCppQualifierSuffix(definitionNode, sourceContent);
-            String templateSignature = buildCppTemplateSignature(definitionNode, sourceContent);
+            String functionTemplateSignature = buildCppTemplateSignature(definitionNode, sourceContent);
+            String enclosingClassTemplateSignature =
+                    buildEnclosingClassTemplateSignature(definitionNode, sourceContent);
 
             String paramsAndQualifiers =
                     "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
 
-            // Prepend template params if present: "<T>(params) qualifiers"
-            if (templateSignature != null && !templateSignature.isEmpty()) {
-                return templateSignature + paramsAndQualifiers;
+            // Combine signatures: enclosing class template + function template + params/qualifiers
+            var sig = new StringBuilder();
+            if (enclosingClassTemplateSignature != null && !enclosingClassTemplateSignature.isEmpty()) {
+                sig.append(enclosingClassTemplateSignature);
             }
-            return paramsAndQualifiers;
+            if (functionTemplateSignature != null && !functionTemplateSignature.isEmpty()) {
+                sig.append(functionTemplateSignature);
+            }
+            sig.append(paramsAndQualifiers);
+            return sig.toString();
         }
 
         if (skeletonType == SkeletonType.CLASS_LIKE) {
             return buildCppTemplateSignature(definitionNode, sourceContent);
         }
 
+        return null;
+    }
+
+    /**
+     * Walks up the AST to find if the node is enclosed within a template class/struct.
+     *
+     * @param funcNode the function or constructor node
+     * @param sourceContent the source content
+     * @return the template parameter list of the enclosing class, or null if not inside a template class
+     */
+    private @Nullable String buildEnclosingClassTemplateSignature(TSNode funcNode, SourceContent sourceContent) {
+        TSNode current = funcNode.getParent();
+        while (current != null && !current.isNull()) {
+            String nodeType = current.getType();
+            // Check if we've reached a class/struct specifier
+            if (CLASS_SPECIFIER.equals(nodeType) || STRUCT_SPECIFIER.equals(nodeType)) {
+                // Check if this class is inside a template_declaration
+                TSNode parent = current.getParent();
+                if (parent != null && !parent.isNull() && TEMPLATE_DECLARATION.equals(parent.getType())) {
+                    TSNode paramsNode = parent.getChildByFieldName("parameters");
+                    if (paramsNode != null && !paramsNode.isNull()) {
+                        String templateText =
+                                sourceContent.substringFrom(paramsNode).strip();
+                        return templateText.isEmpty() ? null : templateText;
+                    }
+                }
+                return null; // Class found but not a template
+            }
+            current = current.getParent();
+        }
         return null;
     }
 
