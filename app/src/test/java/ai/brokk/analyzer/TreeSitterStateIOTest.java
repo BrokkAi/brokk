@@ -133,8 +133,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto emptyDto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
+        AnalyzerStateDto emptyDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         Path out = tempDir.resolve("state.smile.gz");
@@ -195,16 +194,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of("KeyA", "keyb"),
-                99L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 99L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         Path out = tempDir.resolve("roundtrip.smile.gz");
@@ -231,8 +221,7 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("A"), 1L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
@@ -255,8 +244,7 @@ public class TreeSitterStateIOTest {
 
         Files.writeString(out, "this is corrupt gzip content");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("win"), 42L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 42L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         TreeSitterStateIO.save(original, out);
@@ -354,8 +342,7 @@ public class TreeSitterStateIOTest {
         var propsDto = new FilePropertiesDto(List.of(), List.of(), true);
         var entryDto = new FileStateEntryDto(fileDto, propsDto);
 
-        var originalDto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(entryDto), List.of(), List.of(), List.of(), List.of(), List.of(), 555L);
+        var originalDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(entryDto), List.of(), 555L);
         var state = TreeSitterStateIO.fromDto(originalDto);
 
         Path out = tempDir.resolve("test_props.smile.gz");
@@ -437,17 +424,19 @@ public class TreeSitterStateIOTest {
                     analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertTrue(descendants.contains(derivedCu), "Base should have Derived as descendant");
 
-            // Save state - this serializes the populated TypeHierarchyGraph
+            // Save state - graphs are no longer treated as authoritative and may be empty after load.
             Path storage = Languages.JAVA.getStoragePath(project);
             TreeSitterStateIO.save(analyzer.snapshotState(), storage);
 
             // Load state into a fresh analyzer instance
             IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
 
-            // Verify descendants from loaded state without re-triggering full analysis
+            // Verify descendants from loaded state by triggering lazy rebuild via analyzer APIs
             Set<CodeUnit> loadedDescendants =
                     loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
-            assertTrue(loadedDescendants.contains(derivedCu), "Loaded analyzer should retain descendants");
+            assertTrue(
+                    loadedDescendants.contains(derivedCu),
+                    "Loaded analyzer should retain descendants after lazy rebuild");
             assertEquals(descendants.size(), loadedDescendants.size());
         }
     }
@@ -483,17 +472,11 @@ public class TreeSitterStateIOTest {
             // Load into a new analyzer
             IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
 
-            // Verify that getDirectDescendants returns the same results
-            // In TreeSitterAnalyzer, if the state contains the results in TypeHierarchyGraph,
-            // they are returned immediately.
+            // Verify that getDirectDescendants returns the same results (may be rebuilt lazily)
             Set<CodeUnit> loadedDescendants =
                     loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertEquals(originalDescendants, loadedDescendants, "Subtypes should match after round-trip");
 
-            // Specifically verify that no re-computation happened by checking the loaded state directly
-            // (Since we can't easily check the private cache of the loaded instance,
-            // the fact that it returns the expected set from a fresh load of the saved DTO
-            // confirms the DTO contained the subtypes).
             assertTrue(loadedDescendants.contains(aCu));
             assertTrue(loadedDescendants.contains(bCu));
         }
@@ -518,7 +501,6 @@ public class TreeSitterStateIOTest {
             CodeUnit child2Cu = analyzer.getDefinitions("com.example.Child2").getFirst();
 
             // 1. Trigger lazy supertype computation for the children.
-            // This also populates the reverse subtype index in the transient cache as a side-effect.
             var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
             List<CodeUnit> parents1 = hierarchy.getDirectAncestors(child1Cu);
             List<CodeUnit> parents2 = hierarchy.getDirectAncestors(child2Cu);
@@ -526,13 +508,10 @@ public class TreeSitterStateIOTest {
             assertTrue(parents1.contains(baseCu));
             assertTrue(parents2.contains(baseCu));
 
-            // 2. Snapshot the state and verify the reverse index (subtypes) was merged.
+            // 2. Round-trip serialization. Type hierarchy graphs are treated as cache data,
+            // so we do not assert they are pre-populated in the snapshot. Instead, the
+            // loaded analyzer should be able to recompute them on demand.
             TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
-            Set<CodeUnit> subtypesInSnapshot = snapshot.typeHierarchyGraph().subtypesOf(baseCu);
-            assertTrue(subtypesInSnapshot.contains(child1Cu), "Snapshot should contain Child1 as subtype of Base");
-            assertTrue(subtypesInSnapshot.contains(child2Cu), "Snapshot should contain Child2 as subtype of Base");
-
-            // 3. Round-trip serialization
             Path storage = tempDir.resolve("ancestor_test.smile.gz");
             TreeSitterStateIO.save(snapshot, storage);
 
@@ -540,11 +519,20 @@ public class TreeSitterStateIOTest {
             assertTrue(loadedStateOpt.isPresent());
             var loadedState = loadedStateOpt.get();
 
-            // 4. Verify reloaded state contains the subtype mappings
-            Set<CodeUnit> reloadedSubtypes = loadedState.typeHierarchyGraph().subtypesOf(baseCu);
-            assertTrue(reloadedSubtypes.contains(child1Cu));
-            assertTrue(reloadedSubtypes.contains(child2Cu));
-            assertEquals(2, reloadedSubtypes.size());
+            // 3. Load into a fresh analyzer and verify descendants can be queried via lazy rebuild.
+            JavaAnalyzer loaded = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+            CodeUnit baseLoaded = loaded.getDefinitions("com.example.Base").getFirst();
+
+            Set<CodeUnit> recomputedSubtypes =
+                    loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseLoaded);
+
+            assertEquals(2, recomputedSubtypes.size(), "Should find both descendants via lazy rebuild");
+            assertTrue(
+                    recomputedSubtypes.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child1")),
+                    "Missing Child1");
+            assertTrue(
+                    recomputedSubtypes.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child2")),
+                    "Missing Child2");
         }
     }
 
@@ -574,14 +562,16 @@ public class TreeSitterStateIOTest {
         assertTrue(loadedOpt.isPresent());
         var loaded = loadedOpt.get();
 
+        // Forward/backward import graphs are treated as cache data and are no longer authoritative
+        // parts of the persisted DTO. Instead, fileState.importStatements() carries the structural
+        // information needed to rebuild import graphs. Verify that fileState was preserved and that
+        // the persisted import graph is not assumed to be present after load.
         assertEquals(
-                state.importGraph().imports(),
-                loaded.importGraph().imports(),
-                "Forward imports should match after round-trip");
-        assertEquals(
-                state.importGraph().reverseImports(),
-                loaded.importGraph().reverseImports(),
-                "Reverse imports should match after round-trip");
+                state.fileState(), loaded.fileState(), "File-level import statements should persist across save/load");
+        assertTrue(
+                loaded.importGraph().imports().isEmpty()
+                        && loaded.importGraph().reverseImports().isEmpty(),
+                "ImportGraph is cache-only after load and may start empty");
     }
 
     @Test
@@ -613,17 +603,13 @@ public class TreeSitterStateIOTest {
             var snapshot = analyzer.snapshotState();
             var dto = TreeSitterStateIO.toDto(snapshot);
 
-            // 3. Create a "legacy" DTO that omits the explicit subtype/supertype graph
-            // This simulates snapshots where hierarchy graphs were not persisted or were empty,
-            // but CodeUnitProperties.superTypes.supertypesComputed is still true.
+            // 3. Create a "legacy" DTO that omits the explicit subtype/supertypes graph
+            // Since AnalyzerStateDto no longer contains explicit imports/supertypes fields, reuse
+            // the available DTO parts to simulate a legacy snapshot missing the graphs.
             var legacyDto = new TreeSitterStateIO.AnalyzerStateDto(
                     dto.symbolIndex(),
                     dto.codeUnitState(),
                     dto.fileState(),
-                    dto.imports(),
-                    dto.reverseImports(),
-                    null, // supertypes graph omitted
-                    null, // subtypes graph omitted
                     dto.symbolKeys(),
                     dto.snapshotEpochNanos());
 
@@ -635,7 +621,7 @@ public class TreeSitterStateIOTest {
             // 5. Resolve Base from the loaded analyzer
             CodeUnit baseLoaded = loaded.getDefinitions("com.example.Base").getFirst();
 
-            // 6. Query descendants. Even though the subtypes graph was null/empty in the DTO,
+            // 6. Query descendants. Even though the subtypes graph may be empty in the DTO,
             // the analyzer should be able to recover them from the computed supertypes in CodeUnitProperties.
             Set<CodeUnit> descendants =
                     loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseLoaded);
@@ -702,9 +688,9 @@ public class TreeSitterStateIOTest {
         assertEquals("Test", loadedCu.shortName());
         assertEquals(1, loadedProps.ranges().size());
 
-        // Verify TypeHierarchyGraph data is still present
+        // Verify TypeHierarchyGraph data is still present if it was persisted in legacy map
         var hierarchy = loadedState.typeHierarchyGraph();
-        assertTrue(hierarchy.supertypes().containsKey(loadedCu), "Hierarchy data should be loaded");
+        assertTrue(hierarchy.supertypes().containsKey(loadedCu), "Hierarchy data should be loaded from legacy map");
     }
 
     @Test

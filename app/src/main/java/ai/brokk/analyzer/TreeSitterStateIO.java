@@ -24,7 +24,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
-import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipException;
@@ -238,10 +237,6 @@ public final class TreeSitterStateIO {
             Map<String, List<CodeUnitDto>> symbolIndex,
             List<CodeUnitEntryDto> codeUnitState,
             List<FileStateEntryDto> fileState,
-            List<ImportEntryDto> imports,
-            List<ReverseImportEntryDto> reverseImports,
-            @Nullable List<SupertypeEntryDto> supertypes,
-            @Nullable List<SubtypeEntryDto> subtypes,
             List<String> symbolKeys,
             long snapshotEpochNanos,
             @Nullable String schemaVersion) {
@@ -254,23 +249,9 @@ public final class TreeSitterStateIO {
                 Map<String, List<CodeUnitDto>> symbolIndex,
                 List<CodeUnitEntryDto> codeUnitState,
                 List<FileStateEntryDto> fileState,
-                List<ImportEntryDto> imports,
-                List<ReverseImportEntryDto> reverseImports,
-                @Nullable List<SupertypeEntryDto> supertypes,
-                @Nullable List<SubtypeEntryDto> subtypes,
                 List<String> symbolKeys,
                 long snapshotEpochNanos) {
-            this(
-                    symbolIndex,
-                    codeUnitState,
-                    fileState,
-                    imports,
-                    reverseImports,
-                    supertypes,
-                    subtypes,
-                    symbolKeys,
-                    snapshotEpochNanos,
-                    null);
+            this(symbolIndex, codeUnitState, fileState, symbolKeys, snapshotEpochNanos, null);
         }
 
         @JsonCreator
@@ -278,20 +259,12 @@ public final class TreeSitterStateIO {
                 @JsonProperty("symbolIndex") Map<String, List<CodeUnitDto>> symbolIndex,
                 @JsonProperty("codeUnitState") List<CodeUnitEntryDto> codeUnitState,
                 @JsonProperty("fileState") List<FileStateEntryDto> fileState,
-                @JsonProperty("imports") List<ImportEntryDto> imports,
-                @JsonProperty("reverseImports") List<ReverseImportEntryDto> reverseImports,
-                @JsonProperty("supertypes") @Nullable List<SupertypeEntryDto> supertypes,
-                @JsonProperty("subtypes") @Nullable List<SubtypeEntryDto> subtypes,
                 @JsonProperty("symbolKeys") List<String> symbolKeys,
                 @JsonProperty("snapshotEpochNanos") long snapshotEpochNanos,
                 @JsonProperty("schemaVersion") @Nullable String schemaVersion) {
             this.symbolIndex = symbolIndex;
             this.codeUnitState = codeUnitState;
             this.fileState = fileState;
-            this.imports = imports;
-            this.reverseImports = reverseImports;
-            this.supertypes = supertypes;
-            this.subtypes = subtypes;
             this.symbolKeys = symbolKeys;
             this.snapshotEpochNanos = snapshotEpochNanos;
             this.schemaVersion = schemaVersion;
@@ -418,13 +391,17 @@ public final class TreeSitterStateIO {
         long startMs = System.currentTimeMillis();
         try {
             try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
-                var dto = SMILE_MAPPER.readValue(in, AnalyzerStateDto.class);
+                // Read into a Json tree first so we can detect legacy fields
+                // (supertypes/subtypes/imports/reverseImports)
+                JsonNode root = SMILE_MAPPER.readTree(in);
+
+                // Deserialize the canonical DTO (ignoring unknown fields)
+                var dto = SMILE_MAPPER.treeToValue(root, AnalyzerStateDto.class);
 
                 // Interpret schema version field (backwards-compatible)
                 SemVer fromVer;
                 if (dto.schemaVersion() == null) {
                     log.debug("Loaded AnalyzerState snapshot without schemaVersion; treating as legacy and accepting.");
-                    // For legacy snapshots, accept and skip compatibility checks for now.
                     fromVer = CURRENT_SCHEMA;
                 } else {
                     fromVer = SemVer.parse(dto.schemaVersion());
@@ -443,7 +420,14 @@ public final class TreeSitterStateIO {
                 // Allow minor/patch differences for now; provide a migrate hook
                 var migratedDto = migrate(dto, fromVer, CURRENT_SCHEMA);
 
-                var state = fromDto(migratedDto);
+                // Parse optional legacy graphs if present in the raw JSON
+                Map<CodeUnit, List<CodeUnit>> legacySupertypes = parseLegacySupertypes(root.get("supertypes"));
+                Map<CodeUnit, Set<CodeUnit>> legacySubtypes = parseLegacySubtypes(root.get("subtypes"));
+                Map<ProjectFile, Set<CodeUnit>> legacyImports = parseLegacyImports(root.get("imports"));
+                Map<ProjectFile, Set<ProjectFile>> legacyReverseImports =
+                        parseLegacyReverseImports(root.get("reverseImports"));
+
+                var state = fromDto(migratedDto, legacySupertypes, legacySubtypes, legacyImports, legacyReverseImports);
                 long durMs = System.currentTimeMillis() - startMs;
                 log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, fromVer);
                 return Optional.of(state);
@@ -458,6 +442,113 @@ public final class TreeSitterStateIO {
             log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Parse legacy supertypes array shape into a map CodeUnit -> List<CodeUnit>.
+     * Expected element shape: { "key": <CodeUnitDto>, "value": [<CodeUnitDto>, ...] }
+     */
+    private static Map<CodeUnit, List<CodeUnit>> parseLegacySupertypes(@Nullable JsonNode node) {
+        if (node == null || !node.isArray()) return Map.of();
+        Map<CodeUnit, List<CodeUnit>> out = new HashMap<>();
+        for (JsonNode entry : node) {
+            JsonNode keyNode = entry.get("key");
+            JsonNode valueNode = entry.get("value");
+            if (keyNode == null || valueNode == null || !valueNode.isArray()) continue;
+            try {
+                CodeUnit key = SMILE_MAPPER.treeToValue(keyNode, CodeUnitDto.class) != null
+                        ? fromDto(SMILE_MAPPER.treeToValue(keyNode, CodeUnitDto.class))
+                        : null;
+                if (key == null) continue;
+                List<CodeUnit> vals = new ArrayList<>();
+                for (JsonNode v : valueNode) {
+                    var cdto = SMILE_MAPPER.treeToValue(v, CodeUnitDto.class);
+                    if (cdto != null) vals.add(fromDto(cdto));
+                }
+                out.put(key, vals);
+            } catch (IOException ignored) {
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Parse legacy subtypes array shape into a map CodeUnit -> Set<CodeUnit>.
+     */
+    private static Map<CodeUnit, Set<CodeUnit>> parseLegacySubtypes(@Nullable JsonNode node) {
+        if (node == null || !node.isArray()) return Map.of();
+        Map<CodeUnit, Set<CodeUnit>> out = new HashMap<>();
+        for (JsonNode entry : node) {
+            JsonNode keyNode = entry.get("key");
+            JsonNode valueNode = entry.get("value");
+            if (keyNode == null || valueNode == null || !valueNode.isArray()) continue;
+            try {
+                var keyDto = SMILE_MAPPER.treeToValue(keyNode, CodeUnitDto.class);
+                if (keyDto == null) continue;
+                CodeUnit key = fromDto(keyDto);
+                Set<CodeUnit> vals = new HashSet<>();
+                for (JsonNode v : valueNode) {
+                    var cdto = SMILE_MAPPER.treeToValue(v, CodeUnitDto.class);
+                    if (cdto != null) vals.add(fromDto(cdto));
+                }
+                out.put(key, vals);
+            } catch (IOException ignored) {
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Parse legacy imports array shape into a map ProjectFile -> Set<CodeUnit>.
+     * Expected entry shape: { "key": <ProjectFileDto>, "value": [<CodeUnitDto>, ...] }
+     */
+    private static Map<ProjectFile, Set<CodeUnit>> parseLegacyImports(@Nullable JsonNode node) {
+        if (node == null || !node.isArray()) return Map.of();
+        Map<ProjectFile, Set<CodeUnit>> out = new HashMap<>();
+        for (JsonNode entry : node) {
+            JsonNode keyNode = entry.get("key");
+            JsonNode valueNode = entry.get("value");
+            if (keyNode == null || valueNode == null || !valueNode.isArray()) continue;
+            try {
+                var pfdto = SMILE_MAPPER.treeToValue(keyNode, ProjectFileDto.class);
+                if (pfdto == null) continue;
+                ProjectFile key = fromDto(pfdto);
+                Set<CodeUnit> vals = new HashSet<>();
+                for (JsonNode v : valueNode) {
+                    var cdto = SMILE_MAPPER.treeToValue(v, CodeUnitDto.class);
+                    if (cdto != null) vals.add(fromDto(cdto));
+                }
+                out.put(key, vals);
+            } catch (IOException ignored) {
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Parse legacy reverseImports array shape into a map ProjectFile -> Set<ProjectFile>.
+     */
+    private static Map<ProjectFile, Set<ProjectFile>> parseLegacyReverseImports(@Nullable JsonNode node) {
+        if (node == null || !node.isArray()) return Map.of();
+        Map<ProjectFile, Set<ProjectFile>> out = new HashMap<>();
+        for (JsonNode entry : node) {
+            JsonNode keyNode = entry.get("key");
+            JsonNode valueNode = entry.get("value");
+            if (keyNode == null || valueNode == null || !valueNode.isArray()) continue;
+            try {
+                var pfdto = SMILE_MAPPER.treeToValue(keyNode, ProjectFileDto.class);
+                if (pfdto == null) continue;
+                ProjectFile key = fromDto(pfdto);
+                Set<ProjectFile> vals = new HashSet<>();
+                for (JsonNode v : valueNode) {
+                    var pfd = SMILE_MAPPER.treeToValue(v, ProjectFileDto.class);
+                    if (pfd != null) vals.add(fromDto(pfd));
+                }
+                out.put(key, vals);
+            } catch (IOException ignored) {
+            }
+        }
+        return out;
     }
 
     /* ================= Converters ================= */
@@ -503,50 +594,10 @@ public final class TreeSitterStateIO {
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
         }
 
-        // imports -> entries list from ImportGraph
-        var forwardImports = state.importGraph().imports();
-        List<ImportEntryDto> importEntries = new ArrayList<>(forwardImports.size());
-        for (var e : forwardImports.entrySet()) {
-            importEntries.add(new ImportEntryDto(
-                    toDto(e.getKey()),
-                    e.getValue().stream()
-                            .map(TreeSitterStateIO::toDto)
-                            .sorted(Comparator.comparing(CodeUnitDto::packageName)
-                                    .thenComparing(CodeUnitDto::shortName))
-                            .toList()));
-        }
+        // Note: ImportGraph and TypeHierarchyGraph are treated as cache data and are no longer
+        // serialized as authoritative state. They can be reconstructed lazily by AnalyzerCache
+        // from the persisted symbol/codeunit/file structures on analyzer instantiation or update.
 
-        // reverseImports -> entries list from ImportGraph
-        var reverseImports = state.importGraph().reverseImports();
-        List<ReverseImportEntryDto> reverseImportEntries = new ArrayList<>(reverseImports.size());
-        for (var e : reverseImports.entrySet()) {
-            reverseImportEntries.add(new ReverseImportEntryDto(
-                    toDto(e.getKey()),
-                    e.getValue().stream()
-                            .map(TreeSitterStateIO::toDto)
-                            .sorted(Comparator.comparing(ProjectFileDto::relPath))
-                            .toList()));
-        }
-
-        // typeHierarchy -> DTO from TypeHierarchyGraph
-        List<SupertypeEntryDto> supertypeEntries =
-                new ArrayList<>(state.typeHierarchyGraph().supertypes().size());
-        for (var e : state.typeHierarchyGraph().supertypes().entrySet()) {
-            supertypeEntries.add(new SupertypeEntryDto(
-                    toDto(e.getKey()),
-                    e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
-        }
-        List<SubtypeEntryDto> subtypeEntries =
-                new ArrayList<>(state.typeHierarchyGraph().subtypes().size());
-        for (var e : state.typeHierarchyGraph().subtypes().entrySet()) {
-            subtypeEntries.add(new SubtypeEntryDto(
-                    toDto(e.getKey()),
-                    e.getValue().stream()
-                            .map(TreeSitterStateIO::toDto)
-                            .sorted(Comparator.comparing(CodeUnitDto::packageName)
-                                    .thenComparing(CodeUnitDto::shortName))
-                            .toList()));
-        }
         // Symbol keys for the index
         List<String> symbolKeys = new ArrayList<>();
         for (String key : state.symbolKeyIndex().all()) {
@@ -558,22 +609,26 @@ public final class TreeSitterStateIO {
         // where dto.schemaVersion was null, we continue to omit schemaVersion here (serialize as null).
         // This keeps backwards-compatibility of tests and consumers that expect a null schemaVersion.
         return new AnalyzerStateDto(
-                symbolIndexCopy,
-                cuEntries,
-                fileEntries,
-                importEntries,
-                reverseImportEntries,
-                supertypeEntries,
-                subtypeEntries,
-                symbolKeys,
-                state.snapshotEpochNanos(),
-                null);
+                symbolIndexCopy, cuEntries, fileEntries, symbolKeys, state.snapshotEpochNanos(), null);
     }
 
     /**
      * Convert DTO back into an immutable AnalyzerState snapshot.
      */
     public static TreeSitterAnalyzer.AnalyzerState fromDto(AnalyzerStateDto dto) {
+        return fromDto(dto, Map.of(), Map.of(), Map.of(), Map.of());
+    }
+
+    /**
+     * Internal helper to rebuild AnalyzerState from DTO plus optional legacy graph data.
+     */
+    public static TreeSitterAnalyzer.AnalyzerState fromDto(
+            AnalyzerStateDto dto,
+            Map<CodeUnit, List<CodeUnit>> legacySupertypes,
+            Map<CodeUnit, Set<CodeUnit>> legacySubtypes,
+            Map<ProjectFile, Set<CodeUnit>> legacyImports,
+            Map<ProjectFile, Set<ProjectFile>> legacyReverseImports) {
+
         // Rebuild symbol index PMap
         Map<String, Set<CodeUnit>> symbolIndexMap = new HashMap<>();
         for (var e : dto.symbolIndex().entrySet()) {
@@ -615,39 +670,14 @@ public final class TreeSitterStateIO {
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
 
-        // Rebuild forward imports Map for ImportGraph
-        Map<ProjectFile, Set<CodeUnit>> importsMap = new HashMap<>();
-        for (var entry : dto.imports()) {
-            importsMap.put(
-                    fromDto(entry.key()),
-                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-        }
+        // Use provided legacy graphs when available; otherwise treat them as empty cache data.
+        ImportGraph importGraph = (legacyImports.isEmpty() && legacyReverseImports.isEmpty())
+                ? ImportGraph.empty()
+                : ImportGraph.from(legacyImports, legacyReverseImports);
 
-        // Rebuild reverse imports Map for ImportGraph
-        Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
-        for (var entry : dto.reverseImports()) {
-            reverseImportsMap.put(
-                    fromDto(entry.key()),
-                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-        }
-
-        // Rebuild TypeHierarchyGraph
-        Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
-        Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
-
-        var supertypeEntries = dto.supertypes() != null ? dto.supertypes() : List.<SupertypeEntryDto>of();
-        for (var entry : supertypeEntries) {
-            supertypesMap.put(
-                    fromDto(entry.key()),
-                    entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
-        }
-
-        var subtypeEntries = dto.subtypes() != null ? dto.subtypes() : List.<SubtypeEntryDto>of();
-        for (var entry : subtypeEntries) {
-            subtypesMap.put(
-                    fromDto(entry.key()),
-                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-        }
+        TypeHierarchyGraph typeHierarchyGraph = (legacySupertypes.isEmpty() && legacySubtypes.isEmpty())
+                ? TypeHierarchyGraph.empty()
+                : TypeHierarchyGraph.from(legacySupertypes, legacySubtypes);
 
         // Rebuild SymbolKeyIndex
         var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -660,8 +690,8 @@ public final class TreeSitterStateIO {
                 symbolIndex,
                 codeUnitState,
                 fileState,
-                ImportGraph.from(importsMap, reverseImportsMap),
-                TypeHierarchyGraph.from(supertypesMap, subtypesMap),
+                importGraph,
+                typeHierarchyGraph,
                 symbolKeyIndex,
                 dto.snapshotEpochNanos());
     }
