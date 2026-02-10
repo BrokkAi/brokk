@@ -171,6 +171,43 @@ async def test_tui_history_navigation(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_tui_history_navigation_places_cursor_at_end(tmp_path):
+    """
+    Verify history navigation moves cursor to end so Down works immediately.
+    """
+    workspace = tmp_path / "project_nav_cursor_end"
+    workspace.mkdir()
+
+    stub = StubExecutor(auto_release=True)
+    stub.workspace_dir = workspace
+
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+
+    async with app.run_test() as pilot:
+        await pilot.click("#chat-input")
+        await type_text(pilot, "first")
+        await pilot.press("enter")
+        await pilot.pause()
+        await type_text(pilot, "second")
+        await pilot.press("enter")
+        await pilot.pause()
+
+        chat_input = app.query_one("#chat-input")
+        await pilot.click("#chat-input")
+        await type_text(pilot, "draft")
+
+        chat_input.cursor_location = (0, 0)
+        await pilot.press("up")
+        await pilot.pause()
+        assert chat_input.text == "second"
+
+        # Cursor should already be at end after loading history.
+        await pilot.press("down")
+        await pilot.pause()
+        assert chat_input.text == "draft"
+
+
+@pytest.mark.asyncio
 async def test_tui_history_navigation_complex(tmp_path):
     """
     Verify complex history navigation:
