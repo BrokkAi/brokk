@@ -18,7 +18,6 @@ class StubExecutor(ExecutorManager):
         # Event to notify test that stream_events has started
         self.stream_started = asyncio.Event()
         self.auto_release = auto_release
-        self.add_context_text_exc: Optional[Exception] = None
 
     async def start(self):
         pass
@@ -40,12 +39,6 @@ class StubExecutor(ExecutorManager):
 
     async def get_tasklist(self) -> Dict[str, Any]:
         return {}
-
-    async def add_context_text(self, text: str) -> Dict[str, Any]:
-        if self.add_context_text_exc:
-            raise self.add_context_text_exc
-        self.calls.append({"type": "add_context_text", "text": text})
-        return {"id": "fake-id", "chars": len(text)}
 
     async def submit_job(self, task_input: str, *args, **kwargs) -> str:
         self.submit_count += 1
@@ -173,12 +166,31 @@ async def test_multiline_paste_and_submit():
 
 
 @pytest.mark.asyncio
-async def test_add_context_text_stub():
-    """Verify the add_context_text helper on the executor stub."""
-    stub = StubExecutor()
-    text = "Some context text"
-    result = await stub.add_context_text(text)
+async def test_large_paste_submits_as_job():
+    """
+    Verify that large inputs (that previously would have been routed to context)
+    now submit normally as jobs.
+    """
+    stub = StubExecutor(auto_release=True)
+    app = BrokkApp(executor=stub)
 
-    assert result["id"] == "fake-id"
-    assert result["chars"] == len(text)
-    assert stub.calls[-1] == {"type": "add_context_text", "text": text}
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        await pilot.click("#chat-input")
+
+        # Create a large string (> 2000 chars)
+        large_text = "This is a large paste.\n" * 100
+        assert len(large_text) > 2000
+
+        chat_input.text = large_text
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Verify it was submitted as a job, not added to context
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 1
+        assert submits[0]["input"] == large_text
+        
+        # Verify no context-add calls occurred (type "add_context_text" removed from stub, 
+        # but check for absence of any other calls)
+        assert all(c["type"] == "submit" for c in stub.calls)
