@@ -440,81 +440,88 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
             }
         });
 
-        // Re-compute totals whenever data changes or check-boxes toggle.
-        // Also persist changes when the enabled checkbox (column 0) is toggled.
-        tableModel.addTableModelListener(e -> {
-            // Ignore header/structure change events
-            if (e.getFirstRow() == TableModelEvent.HEADER_ROW) return;
-            if (isProgrammaticChange) return;
+        tableModel.addTableModelListener(this::handleLiveToggleTableEvent);
+    }
 
-            // Protect against reentrant invocations of this toggle-handling path.
-            // If we're already processing a Live toggle, short-circuit to avoid recursion.
-            if (handlingLiveToggle) return;
+    /**
+     * Package-visible helper extracted from the table model listener so unit tests can exercise
+     * the Live-column toggle handling without wiring a full GUI. This method contains the
+     * exact logic previously used in the inline TableModelListener.
+     *
+     * Note: package-visible for testability only; do not make public.
+     */
+    void handleLiveToggleTableEvent(TableModelEvent e) {
+        // Ignore header/structure change events
+        if (e.getFirstRow() == TableModelEvent.HEADER_ROW) return;
+        if (isProgrammaticChange) return;
 
-            if (e.getColumn() == 0) {
-                handlingLiveToggle = true;
-                try {
-                    int first = e.getFirstRow();
-                    int last = e.getLastRow();
-                    for (int row = first; row <= last; row++) {
-                        Object v = tableModel.getValueAt(row, 0);
-                        // Only handle stable states (LIVE/NOT_LIVE) - ignore transitioning states
-                        if (v instanceof LiveState state && !state.isTransitioning()) {
-                            String depName = (String) tableModel.getValueAt(row, 1);
-                            var prevState = state == LiveState.LIVE ? LiveState.NOT_LIVE : LiveState.LIVE;
+        // Protect against reentrant invocations of this toggle-handling path.
+        // If we're already processing a Live toggle, short-circuit to avoid recursion.
+        if (handlingLiveToggle) return;
 
-                            // If an operation is already in-flight or any row is transitioning, revert this toggle.
-                            if (controlsLocked
-                                    || (inFlightToggleSave != null && !inFlightToggleSave.isDone())
-                                    || anyRowTransitioning()) {
-                                isProgrammaticChange = true;
-                                tableModel.setValueAt(prevState, row, 0);
-                                isProgrammaticChange = false;
-                                return;
-                            }
+        if (e.getColumn() == 0) {
+            handlingLiveToggle = true;
+            try {
+                int first = e.getFirstRow();
+                int last = e.getLastRow();
+                for (int row = first; row <= last; row++) {
+                    Object v = tableModel.getValueAt(row, 0);
+                    // Only handle stable states (LIVE/NOT_LIVE) - ignore transitioning states
+                    if (v instanceof LiveState state && !state.isTransitioning()) {
+                        String depName = (String) tableModel.getValueAt(row, 1);
+                        var prevState = state == LiveState.LIVE ? LiveState.NOT_LIVE : LiveState.LIVE;
 
-                            // Stop editing to ensure renderer updates for the transitioning state.
-                            // We can safely call stopCellEditing here because handlingLiveToggle prevents
-                            // nested re-entry into this listener.
-                            if (table.isEditing()) {
-                                var editor = table.getCellEditor();
-                                if (editor != null) editor.stopCellEditing();
-                            }
-
-                            // Show transitioning state while saving
-                            var transitionState = state == LiveState.LIVE ? LiveState.ENABLING : LiveState.DISABLING;
+                        // If an operation is already in-flight or any row is transitioning, revert this toggle.
+                        if (controlsLocked
+                                || (inFlightToggleSave != null && !inFlightToggleSave.isDone())
+                                || anyRowTransitioning()) {
                             isProgrammaticChange = true;
-                            tableModel.setValueAt(transitionState, row, 0);
+                            tableModel.setValueAt(prevState, row, 0);
                             isProgrammaticChange = false;
-
-                            final int rowIndex = row;
-                            final var newState = state;
-                            final var revertState = prevState;
-                            inFlightToggleSave = saveChangesAsync(Map.of(depName, state == LiveState.LIVE))
-                                    .whenComplete((r, ex) -> SwingUtilities.invokeLater(() -> {
-                                        isProgrammaticChange = true;
-                                        if (ex != null) {
-                                            JOptionPane.showMessageDialog(
-                                                    DependenciesPanel.this,
-                                                    "Failed to save dependency changes:\n" + ex.getMessage(),
-                                                    "Error Saving Dependencies",
-                                                    JOptionPane.ERROR_MESSAGE);
-                                            tableModel.setValueAt(revertState, rowIndex, 0);
-                                        } else {
-                                            tableModel.setValueAt(newState, rowIndex, 0);
-                                        }
-                                        isProgrammaticChange = false;
-                                        inFlightToggleSave = null;
-                                        // Refresh table to re-enable checkboxes
-                                        table.repaint();
-                                    }));
+                            return;
                         }
+
+                        // Stop editing to ensure renderer updates for the transitioning state.
+                        // We can safely call stopCellEditing here because handlingLiveToggle prevents
+                        // nested re-entry into this listener.
+                        if (table.isEditing()) {
+                            var editor = table.getCellEditor();
+                            if (editor != null) editor.stopCellEditing();
+                        }
+
+                        // Show transitioning state while saving
+                        var transitionState = state == LiveState.LIVE ? LiveState.ENABLING : LiveState.DISABLING;
+                        isProgrammaticChange = true;
+                        tableModel.setValueAt(transitionState, row, 0);
+                        isProgrammaticChange = false;
+
+                        final int rowIndex = row;
+                        final var newState = state;
+                        final var revertState = prevState;
+                        inFlightToggleSave = saveChangesAsync(Map.of(depName, state == LiveState.LIVE))
+                                .whenComplete((r, ex) -> SwingUtilities.invokeLater(() -> {
+                                    isProgrammaticChange = true;
+                                    if (ex != null) {
+                                        JOptionPane.showMessageDialog(
+                                                DependenciesPanel.this,
+                                                "Failed to save dependency changes:\n" + ex.getMessage(),
+                                                "Error Saving Dependencies",
+                                                JOptionPane.ERROR_MESSAGE);
+                                        tableModel.setValueAt(revertState, rowIndex, 0);
+                                    } else {
+                                        tableModel.setValueAt(newState, rowIndex, 0);
+                                    }
+                                    isProgrammaticChange = false;
+                                    inFlightToggleSave = null;
+                                    // Refresh table to re-enable checkboxes
+                                    table.repaint();
+                                }));
                     }
-                } finally {
-                    handlingLiveToggle = false;
                 }
+            } finally {
+                handlingLiveToggle = false;
             }
-        });
+        }
     }
 
     /**
